@@ -109,7 +109,7 @@ EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
 MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
 STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
 CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
-INSTALLER_VERSION="2.2.5"
+INSTALLER_VERSION="2.4.5"
 
 # Logging functions
 log_info() {
@@ -1314,6 +1314,8 @@ main() {
         copy_files
         import_user_env
         persist_user_choices_to_env
+        # TD-585 F-4: assert .env was created before dependent steps read it.
+        [[ -f "$INSTALL_DIR/docker/.env" ]] || { log_error "docker/.env not created by persist_user_choices_to_env — cannot proceed"; exit 1; }
         derive_and_persist_compose_profiles    # BP-160 §8.3 — Tier-1 re-derivation
         step "Python Environment"
         install_python_dependencies
@@ -1791,10 +1793,23 @@ update_shared_scripts() {
     local venv_dir="$INSTALL_DIR/.venv"
     if [[ -d "$venv_dir" ]] && [[ -f "$INSTALL_DIR/pyproject.toml" ]]; then
         log_info "Updating Python dependencies in venv..."
-        if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -q -e "${INSTALL_DIR}[dev]" 2>/dev/null; then
+        local _pip_attempt=0
+        local _pip_ok=false
+        while [[ $_pip_attempt -lt 3 ]]; do
+            if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -q -e "${INSTALL_DIR}[dev]" 2>/dev/null; then
+                _pip_ok=true
+                break
+            fi
+            _pip_attempt=$((_pip_attempt + 1))
+            [[ $_pip_attempt -lt 3 ]] && sleep 2
+        done
+        if [[ "$_pip_ok" == "true" ]]; then
             log_success "Python dependencies updated"
         else
-            log_warning "Python dependency update failed — run manually: $venv_dir/bin/pip install -e \"${INSTALL_DIR}[dev]\""
+            log_error "Python dependency update failed after 3 attempts — venv state degraded"
+            log_error "Manual remediation required:"
+            log_error "  $venv_dir/bin/pip install -e \"${INSTALL_DIR}[dev]\""
+            exit 1
         fi
     fi
 
@@ -2113,12 +2128,26 @@ install_python_dependencies() {
         log_success "Virtual environment created"
     fi
 
-    # Install in the installation venv (not user's venv)
+    # Install in the installation venv (not user's venv). TD-585: promote failure
+    # from WARNING to STOP-GATE — unknown venv state blocks subsequent steps.
     log_info "Installing with pip install -e \".[dev]\"..."
-    if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "${INSTALL_DIR}[dev]"; then
-        log_success "Python dependencies installed successfully"
-        log_info "Hooks will use: $venv_dir/bin/python"
+    local _pip_install_ok=false _pip_install_attempt=0
+    while [[ $_pip_install_attempt -lt 3 ]]; do
+        if "$venv_dir/bin/pip" install --retries 3 --timeout 120 -e "${INSTALL_DIR}[dev]"; then
+            _pip_install_ok=true
+            break
+        fi
+        _pip_install_attempt=$((_pip_install_attempt + 1))
+        [[ $_pip_install_attempt -lt 3 ]] && { log_warning "pip install attempt ${_pip_install_attempt} failed — retrying..."; sleep 2; }
+    done
+    if [[ "$_pip_install_ok" != "true" ]]; then
+        log_error "pip install -e failed after 3 attempts — venv state degraded; cannot proceed"
+        log_error "Manual remediation:"
+        log_error "  $venv_dir/bin/pip install -e \"${INSTALL_DIR}[dev]\""
+        exit 1
     fi
+    log_success "Python dependencies installed successfully"
+    log_info "Hooks will use: $venv_dir/bin/python"
 
     # Download SpaCy NER model (SPEC-009 Layer 3 PII detection)
     log_info "Downloading SpaCy en_core_web_sm model..."
@@ -3001,7 +3030,7 @@ start_services() {
     # ── Phase 1: Pull ALL images first ──
     log_info "Pulling Docker images (this may take a few minutes)..."
     # BUG-279: _compose wrapper passes both --env-file flags.
-    # TD-582 fix-r3: --ignore-buildable skips services that declare a build:
+    # TD-582: --ignore-buildable skips services that declare a build:
     # block (qdrant, grafana, and the other locally-built services). Without
     # this, compose tries to fetch their local image: tag from the registry
     # and fails the whole pull. The subsequent build phases produce these
@@ -3368,14 +3397,33 @@ copy_env_template() {
 verify_services_running() {
     log_info "Verifying AI Memory services are running..."
 
-    # Check Qdrant
-    if ! curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$QDRANT_PORT/readyz" &> /dev/null; then
-        log_error "Qdrant is not running at port $QDRANT_PORT"
+    # Check Qdrant — poll healthcheck status with timeout (TD-585).
+    # Immediate curl probe against a hybrid-state stack (qdrant still starting
+    # or being recreated) causes false-fail exits. Poll docker inspect healthcheck
+    # status instead; timeout = start_period (15s) × retries (3) = 45s.
+    log_info "  Waiting for qdrant healthcheck (up to 45s)..."
+    local _qdrant_healthy=false _qdrant_attempts=0
+    while [[ $_qdrant_attempts -lt 45 ]]; do
+        local _qdrant_health
+        _qdrant_health=$(docker inspect --format "{{.State.Health.Status}}" \
+            "${CONTAINER_PREFIX}-qdrant" 2>/dev/null || true)
+        if [[ "$_qdrant_health" == "healthy" ]]; then
+            _qdrant_healthy=true
+            break
+        fi
+        sleep 1
+        _qdrant_attempts=$((_qdrant_attempts + 1))
+    done
+    if [[ "$_qdrant_healthy" != "true" ]]; then
+        log_error "Qdrant is not healthy at port $QDRANT_PORT (waited 45s)"
+        log_info "  State: $(docker inspect --format '{{.State.Status}} health={{.State.Health.Status}}' \
+            "${CONTAINER_PREFIX}-qdrant" 2>/dev/null || echo 'container not found')"
         echo ""
         echo "Start services from shared installation:"
         echo "  cd $INSTALL_DIR/docker && docker compose up -d --build"
         exit 1
     fi
+    log_info "  Qdrant: healthy"
 
     # Check Embedding Service
     if ! curl -sf --connect-timeout 2 --max-time 5 "http://127.0.0.1:$EMBEDDING_PORT/health" &> /dev/null; then

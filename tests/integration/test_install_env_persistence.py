@@ -1203,3 +1203,81 @@ def test_derive_compose_profiles_called_from_both_install_mode_branches():
         "verify_services_running in scripts/install.sh add-project branch. "
         "BP-160 §8.3 call-site missing — this is the BUG-311 regression pattern."
     )
+
+
+def test_pip_install_stop_gate_in_full_mode():
+    """TD-585: pip install -e failure must be a STOP-GATE (exit 1) in full mode.
+
+    Structural guard: install_python_dependencies must contain an exit 1 path
+    on pip failure. Prior behavior was silent continuation with unknown venv state.
+    """
+    install_sh_path = Path(__file__).parent.parent.parent / "scripts" / "install.sh"
+    text = install_sh_path.read_text()
+
+    # Find the function DEFINITION line (not call sites or comments that reference the name)
+    fn_def = "\ninstall_python_dependencies() {"
+    fn_start = text.find(fn_def)
+    assert (
+        fn_start != -1
+    ), "install_python_dependencies() function definition not found in install.sh"
+
+    # Locate function body (from definition to next top-level function definition)
+    fn_body_start = text.find("{", fn_start)
+    fn_body_end = text.find("\n}\n", fn_body_start)
+    fn_body = text[fn_body_start:fn_body_end]
+
+    assert "exit 1" in fn_body, (
+        "install_python_dependencies must contain exit 1 on pip failure (TD-585 STOP-GATE). "
+        "Silent WARNING is insufficient — venv state is unknown after failure."
+    )
+
+
+def test_pip_install_stop_gate_in_add_project_mode():
+    """TD-585: pip install -e failure must be a STOP-GATE (exit 1) in add-project mode.
+
+    Structural guard: update_shared_scripts must contain an exit 1 path on pip
+    failure. The update path (add-project / Option 1) previously logged WARNING
+    and continued with unknown venv state.
+    """
+    install_sh_path = Path(__file__).parent.parent.parent / "scripts" / "install.sh"
+    text = install_sh_path.read_text()
+
+    fn_start = text.find("update_shared_scripts()")
+    assert fn_start != -1, "update_shared_scripts function not found in install.sh"
+
+    fn_body_start = text.find("{", fn_start)
+    fn_body_end = text.find("\n}\n", fn_body_start)
+    fn_body = text[fn_body_start:fn_body_end]
+
+    assert "exit 1" in fn_body, (
+        "update_shared_scripts must contain exit 1 on pip failure (TD-585 STOP-GATE). "
+        "Add-project mode previously continued silently after pip update failure."
+    )
+
+
+def test_qdrant_verify_uses_healthcheck_poll_not_immediate_curl():
+    """TD-585: verify_services_running must poll healthcheck status, not an immediate curl probe.
+
+    Structural guard: the function must use docker inspect (healthcheck-based poll)
+    for qdrant verification. Immediate curl against a hybrid-state stack races with
+    qdrant startup and produces false-fail exits.
+    """
+    install_sh_path = Path(__file__).parent.parent.parent / "scripts" / "install.sh"
+    text = install_sh_path.read_text()
+
+    fn_start = text.find("verify_services_running()")
+    assert fn_start != -1, "verify_services_running function not found in install.sh"
+
+    fn_body_start = text.find("{", fn_start)
+    fn_body_end = text.find("\n}\n", fn_body_start)
+    fn_body = text[fn_body_start:fn_body_end]
+
+    # Must use docker inspect healthcheck — not an immediate one-shot curl
+    assert "docker inspect" in fn_body or "Health.Status" in fn_body, (
+        "verify_services_running qdrant check must use docker inspect healthcheck poll "
+        "(TD-585). Immediate curl probe races with qdrant startup on hybrid-state stacks."
+    )
+    assert "healthy" in fn_body, (
+        "verify_services_running must check for 'healthy' status from docker inspect "
+        "(TD-585); one-shot curl does not surface container health state."
+    )

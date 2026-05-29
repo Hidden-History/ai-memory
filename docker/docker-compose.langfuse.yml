@@ -189,7 +189,10 @@ services:
 
   # ─── ClickHouse (trace + observation storage) ──────────────────────────────
   langfuse-clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:24
+    build:
+      context: ./langfuse
+      dockerfile: Dockerfile
+    image: ai-memory-langfuse-clickhouse:24
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-langfuse-clickhouse
     labels:
       <<: *ai-memory-labels-langfuse
@@ -199,7 +202,6 @@ services:
       - "127.0.0.1:${LANGFUSE_CLICKHOUSE_PORT:-28123}:8123"
     volumes:
       - langfuse-clickhouse-data:/var/lib/clickhouse
-      - ./langfuse/clickhouse-config.xml:/etc/clickhouse-server/config.d/retention.xml:ro
     environment:
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=${LANGFUSE_CLICKHOUSE_PASSWORD}

@@ -154,7 +154,10 @@ services:
   # prom/prometheus is BusyBox-based (no package manager, no Python)
   # Best practice: Docker init container pattern for config generation
   prometheus-init:
-    image: python:3.12-alpine
+    build:
+      context: ./prometheus
+      dockerfile: Dockerfile
+    image: ai-memory-prometheus-init:3.12-alpine
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-prometheus-init
     labels:
       <<: *ai-memory-labels
@@ -162,9 +165,6 @@ services:
     profiles: ["monitoring"]
     volumes:
       - prometheus_runtime:/etc/prometheus/runtime
-      - ./prometheus/web.yml:/etc/prometheus/web.yml.template:ro
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml.template:ro
-      - ./prometheus/gen-prometheus-config.py:/scripts/gen-prometheus-config.py:ro
     # One-shot init container: 2 secret-class keys (PROMETHEUS_ADMIN_PASSWORD, QDRANT_API_KEY)
     # delivered via env_file:; no interpolation dependency on --env-file CLI flags (TD-582).
     env_file:
@@ -362,7 +362,7 @@ services:
       # Mount src/ for memory.models import (DRY - single source of truth for types)
       - ../src:/app/src:ro
     <<: *python-service-defaults
-    restart: on-failure:3  # F-M1 fix: explicit restart override prevents anchor inheritance regression to unless-stopped
+    restart: unless-stopped  # Explicit value matches x-python-service-defaults anchor; preserved for clarity.
     environment:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                             # container-internal hostname

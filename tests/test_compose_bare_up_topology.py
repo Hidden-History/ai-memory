@@ -14,17 +14,20 @@ Companion rendered-config test (needs `docker compose config` CLI) lives in
 tests/integration/test_compose_bare_up_secrets.py.
 
 Relocated from tests/integration/ to mirror the
-tests/test_compose_qdrant_wiring.py precedent (BUG-287 fix-r2 H-1): placing a
+tests/test_compose_qdrant_wiring.py precedent (BUG-287 H-1): placing a
 pure YAML-parse test under integration/ caused it to be auto-marked integration
 and excluded from the fast unit CI job, defeating the cheap-regression-guard
 purpose.
 
 Background: TD-582 (BUG-279 sibling, PM #308 bare-up verification gap).
 Architecture: Option 4 env_file: for prometheus-init, prometheus, grafana;
-              Option 1 entrypoint shim for qdrant (canonical name translation).
+              Option 1 entrypoint shims for qdrant + grafana (canonical name
+              translation); TD-583 image-bake for prometheus-init +
+              langfuse-clickhouse config delivery.
 """
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -36,6 +39,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).parent.parent
 DOCKER_COMPOSE_PATH = REPO_ROOT / "docker" / "docker-compose.yml"
+DOCKER_COMPOSE_LANGFUSE_PATH = REPO_ROOT / "docker" / "docker-compose.langfuse.yml"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -244,6 +248,145 @@ class TestComposeSourceTopology:
             f"delivery only); got: {volume_strs}"
         )
 
+    @pytest.fixture(scope="class")
+    def langfuse_config(self):
+        """Parsed docker/docker-compose.langfuse.yml source."""
+        with open(DOCKER_COMPOSE_LANGFUSE_PATH) as fh:
+            return yaml.safe_load(fh)
+
+    def test_prometheus_init_baked_via_dockerfile(self, source_config):
+        """prometheus-init must bake config templates via Dockerfile, NOT bind-mounts.
+
+        TD-583: the 3 single-file bind-mounts for web.yml, prometheus.yml, and
+        gen-prometheus-config.py were fragile on Docker Desktop / WSL2 (tmpfs
+        cache corruption on host reboot). Fix bakes them into a local image via
+        docker/prometheus/Dockerfile.
+        """
+        svc = source_config["services"]["prometheus-init"]
+
+        # (a) build: block points at the local Dockerfile
+        build = svc.get("build")
+        assert isinstance(
+            build, dict
+        ), f"prometheus-init must declare a build: block; got: {build!r}"
+        assert (
+            build.get("context") == "./prometheus"
+        ), f"prometheus-init build.context must be './prometheus'; got: {build.get('context')!r}"
+        assert (
+            build.get("dockerfile") == "Dockerfile"
+        ), f"prometheus-init build.dockerfile must be 'Dockerfile'; got: {build.get('dockerfile')!r}"
+
+        # (b) Dockerfile exists and COPYs all 3 config files to expected target paths
+        dockerfile_path = DOCKER_DIR / "prometheus" / "Dockerfile"
+        assert (
+            dockerfile_path.exists()
+        ), f"docker/prometheus/Dockerfile must exist; not found at {dockerfile_path}"
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+        for src, dst in [
+            ("web.yml", "/etc/prometheus/web.yml.template"),
+            ("prometheus.yml", "/etc/prometheus/prometheus.yml.template"),
+            ("gen-prometheus-config.py", "/scripts/gen-prometheus-config.py"),
+        ]:
+            assert re.search(
+                r"COPY\s+(?:--\S+\s+)?" + re.escape(src) + r"\s+" + re.escape(dst),
+                dockerfile_text,
+            ), f"prometheus Dockerfile must COPY {src} to {dst}"
+
+        # (c) no single-file bind-mounts remain for the 3 TD-583 prometheus sites
+        volumes = svc.get("volumes") or []
+        volume_strs = [str(v) for v in volumes]
+        td583_prometheus_mounts = [
+            "web.yml.template",
+            "prometheus.yml.template",
+            "gen-prometheus-config.py",
+        ]
+        for mount_fragment in td583_prometheus_mounts:
+            assert not any(mount_fragment in v for v in volume_strs), (
+                f"prometheus-init volumes must NOT bind-mount {mount_fragment} "
+                f"(image-bake delivery only); got: {volume_strs}"
+            )
+
+    def test_langfuse_clickhouse_baked_via_dockerfile(self, langfuse_config):
+        """langfuse-clickhouse must bake retention config via Dockerfile, NOT bind-mount.
+
+        TD-583: the clickhouse-config.xml single-file bind-mount was fragile on
+        Docker Desktop / WSL2 (empirically Exited 127 after host reboot). Fix
+        bakes it into a local image via docker/langfuse/Dockerfile.
+        """
+        svc = langfuse_config["services"]["langfuse-clickhouse"]
+
+        # (a) build: block points at the local Dockerfile
+        build = svc.get("build")
+        assert isinstance(
+            build, dict
+        ), f"langfuse-clickhouse must declare a build: block; got: {build!r}"
+        assert (
+            build.get("context") == "./langfuse"
+        ), f"langfuse-clickhouse build.context must be './langfuse'; got: {build.get('context')!r}"
+        assert (
+            build.get("dockerfile") == "Dockerfile"
+        ), f"langfuse-clickhouse build.dockerfile must be 'Dockerfile'; got: {build.get('dockerfile')!r}"
+
+        # (b) Dockerfile exists and COPYs retention.xml to expected target path
+        dockerfile_path = DOCKER_DIR / "langfuse" / "Dockerfile"
+        assert (
+            dockerfile_path.exists()
+        ), f"docker/langfuse/Dockerfile must exist; not found at {dockerfile_path}"
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+        assert re.search(
+            r"COPY\s+(?:--\S+\s+)?clickhouse-config\.xml\s+"
+            r"/etc/clickhouse-server/config\.d/retention\.xml",
+            dockerfile_text,
+        ), (
+            "langfuse Dockerfile must COPY clickhouse-config.xml to "
+            "/etc/clickhouse-server/config.d/retention.xml"
+        )
+
+        # (c) no single-file bind-mount remains for the TD-583 langfuse site
+        volumes = svc.get("volumes") or []
+        volume_strs = [str(v) for v in volumes]
+        assert not any("clickhouse-config.xml" in v for v in volume_strs), (
+            "langfuse-clickhouse volumes must NOT bind-mount clickhouse-config.xml "
+            f"(image-bake delivery only); got: {volume_strs}"
+        )
+
+    def test_no_td583_single_file_bind_mounts(self, source_config, langfuse_config):
+        """No TD-583 single-file bind-mounts must remain in either compose file.
+
+        Structural regression guard: if any of the 4 TD-583 sites reappears as
+        a host bind-mount in either compose file, this test catches it.
+        """
+        # Pairs of (compose_service_name, config, fragment_that_must_not_appear)
+        checks = [
+            (
+                "prometheus-init (web.yml)",
+                source_config["services"]["prometheus-init"],
+                "web.yml.template",
+            ),
+            (
+                "prometheus-init (prometheus.yml)",
+                source_config["services"]["prometheus-init"],
+                "prometheus.yml.template",
+            ),
+            (
+                "prometheus-init (gen-prometheus-config.py)",
+                source_config["services"]["prometheus-init"],
+                "gen-prometheus-config.py",
+            ),
+            (
+                "langfuse-clickhouse",
+                langfuse_config["services"]["langfuse-clickhouse"],
+                "clickhouse-config.xml",
+            ),
+        ]
+        for label, svc, fragment in checks:
+            volumes = svc.get("volumes") or []
+            volume_strs = [str(v) for v in volumes]
+            assert not any(fragment in v for v in volume_strs), (
+                f"{label}: TD-583 single-file bind-mount must be removed "
+                f"(image-bake delivery); got: {volume_strs}"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Effective-env subset assertion (closes the F-NEW-1 escape gap)
@@ -413,3 +556,123 @@ class TestEffectiveContainerEnvCoverage:
             f"re-exports. Effective env names (sample): "
             f"{sorted(effective)[:15]}{'...' if len(effective) > 15 else ''}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TD-587 — stack.sh cmd_start image-bake rebuild assertions
+# ---------------------------------------------------------------------------
+
+
+STACK_SH_PATH = REPO_ROOT / "scripts" / "stack.sh"
+
+
+class TestStackShImageBakeRebuild:
+    """Verify stack.sh cmd_start contains an explicit compose build call for
+    all image-bake services.
+
+    TD-587: compose up -d does NOT rebuild on source change to Dockerfile or
+    COPY'd files when a cached image already exists. The fix adds an explicit
+    `compose build --no-cache` before `up -d` so operator edits take effect.
+    Regression guard: if the build call is removed or a service is dropped
+    from the list, these tests catch it before CI.
+    """
+
+    @pytest.fixture(scope="class")
+    def stack_sh_text(self):
+        return STACK_SH_PATH.read_text(encoding="utf-8")
+
+    def test_stack_sh_has_compose_build_no_cache(self, stack_sh_text):
+        """stack.sh must contain a `compose build --no-cache` invocation."""
+        assert re.search(
+            r"build\s+--no-cache",
+            stack_sh_text,
+        ), "stack.sh must contain 'build --no-cache' for image-bake services (TD-587)"
+
+    @pytest.mark.parametrize(
+        "service",
+        ["qdrant", "grafana", "prometheus-init", "langfuse-clickhouse"],
+    )
+    def test_image_bake_service_in_rebuild_list(self, stack_sh_text, service):
+        """Each image-bake service must appear near a compose build call in stack.sh."""
+        assert service in stack_sh_text, (
+            f"Image-bake service '{service}' must be referenced in stack.sh "
+            f"rebuild list (TD-587); missing from script."
+        )
+
+
+# ---------------------------------------------------------------------------
+# BP-162 Layer 2 — built-image parent-dir mode assertions
+# ---------------------------------------------------------------------------
+
+
+class TestTd583DirModes:
+    """BP-162: parent dirs of TD-583 COPY --chmod=644 files must be traversable (mode 755).
+
+    Layer 2 of the three-layer test pattern from BP-162 §7.1 — static
+    per-image assertions that the built images have correct directory modes.
+    Requires Docker daemon; marked integration so they're excluded from the
+    fast unit CI job.
+
+    These catch the BuildKit moby/buildkit#5943 propagation defect class:
+    COPY --chmod=644 to a new parent dir propagates 644 to the parent, making
+    it non-traversable (drw-r--r--) without the BP-162 Pattern A pre-mkdir fix.
+    """
+
+    @pytest.mark.integration
+    def test_prometheus_init_image_dir_modes(self):
+        """Parent dirs created via COPY --chmod=644 must have execute bit."""
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "stat",
+                "ai-memory-prometheus-init:3.12-alpine",
+                "-c",
+                "%a %n",
+                "/etc/prometheus",
+                "/scripts",
+                "/etc/prometheus/web.yml.template",
+                "/scripts/gen-prometheus-config.py",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        out = result.stdout
+        assert "755 /etc/prometheus" in out, f"BP-162 regression: {out}"
+        assert "755 /scripts" in out, f"BP-162 regression: {out}"
+        assert "644 /etc/prometheus/web.yml.template" in out
+        assert "755 /scripts/gen-prometheus-config.py" in out
+
+    @pytest.mark.integration
+    def test_langfuse_clickhouse_image_dir_modes(self):
+        """Defensive: parent dir of retention.xml must remain traversable."""
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--entrypoint",
+                "stat",
+                "ai-memory-langfuse-clickhouse:24",
+                "-c",
+                "%a %n",
+                "/etc/clickhouse-server/config.d",
+                "/etc/clickhouse-server/config.d/retention.xml",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        out = result.stdout
+        # Accept any mode >= 755 (clickhouse base provides 0777).
+        config_d_line = next(
+            ln
+            for ln in out.splitlines()
+            if ln.endswith("/etc/clickhouse-server/config.d")
+        )
+        config_d_mode = int(config_d_line.split()[0])
+        assert config_d_mode >= 755, f"BP-162 regression: {out}"
+        assert "644 /etc/clickhouse-server/config.d/retention.xml" in out
