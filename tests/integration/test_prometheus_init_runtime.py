@@ -12,6 +12,7 @@ inspection (Layer 2) passes even when this test would fail, because
 the parent (mode 644 lacks it). Requires Docker daemon; marked integration.
 """
 
+import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -19,10 +20,53 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
+_IMAGE_TAG = "ai-memory-prometheus-init:3.12-alpine"
+
+
+@pytest.fixture(scope="module")
+def prometheus_init_image():
+    """Build the prometheus-init image from the real Dockerfile before the test runs.
+
+    Builds once per module so the BP-162 Layer 1 build-time stat guardrail
+    and Pattern A execute in CI. Skips only when Docker is genuinely absent
+    (binary missing or daemon unreachable) — never skips for a missing image,
+    because building the image IS the test harness fix.
+    """
+    if shutil.which("docker") is None:
+        pytest.skip("Docker binary not found — skipping prometheus-init runtime test")
+
+    try:
+        subprocess.run(
+            ["docker", "info"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        pytest.skip("Docker daemon unreachable — skipping prometheus-init runtime test")
+
+    dockerfile = REPO_ROOT / "docker" / "prometheus" / "Dockerfile"
+    context_dir = REPO_ROOT / "docker" / "prometheus"
+    subprocess.run(
+        [
+            "docker",
+            "build",
+            "-f",
+            str(dockerfile),
+            "-t",
+            _IMAGE_TAG,
+            str(context_dir),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=300,
+    )
 
 
 @pytest.mark.integration
-def test_prometheus_init_runs_to_completion_with_named_volume(tmp_path):
+def test_prometheus_init_runs_to_completion_with_named_volume(
+    tmp_path, prometheus_init_image
+):
     """BP-162 §7.1 Layer 3 + TD-583 regression guard.
 
     Exercises the actual init flow that broke in PM #311 Phase 1:
