@@ -183,6 +183,21 @@ Recommended alert thresholds:
 | Project dropdown empty | No metrics pushed yet | Execute a hook (e.g., edit a file) |
 | Some NFRs missing | Metric not triggered | That operation hasn't occurred yet |
 
+### Upgrading the Monitoring Stack
+
+After pulling a new release and running `./scripts/install.sh`, you must also restart the
+stack to rebuild the `prometheus-init` image-bake service:
+
+```bash
+~/.ai-memory/scripts/stack.sh restart
+```
+
+This rebuild is **required** on any upgrade that includes Dockerfile changes to
+`prometheus-init` or `langfuse-clickhouse`. Without it, these services continue running
+the old image and fixes (e.g., the BP-162 parent-directory permissions fix) are not applied.
+
+Verify after restart: `prometheus-init` exits 0; `prometheus` and `grafana` report healthy.
+
 ## Migration from V2
 
 V3 dashboards use new metric names:

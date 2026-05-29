@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.5] - 2026-05-29
+
 ### Fixed
 
 - **BP-162 / TD-583 regression** — `docker/prometheus/Dockerfile`: parent directory
@@ -26,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **TD-586** — Hygiene batch: drop `fix-r3` process token from `install.sh` `--ignore-buildable` comment; update `test_compose_bare_up_topology.py` module docstring to reference both qdrant + grafana entrypoint shims and TD-583 image-bake additions; clarify `stack.sh` `cmd_stop` comment to note that default-scope services (qdrant, embedding, classifier-worker) are always stopped without a profile flag. (TECH-DEBT-586)
+
+### Upgrade Instructions
+
+**From v2.4.4 → v2.4.5:**
+
+1. `git pull --ff-only && git checkout v2.4.5`
+2. `./scripts/install.sh <your project>`
+3. `~/.ai-memory/scripts/stack.sh restart` — **REQUIRED**: rebuilds the image-bake services
+   (`prometheus-init`, `langfuse-clickhouse`) from the fixed Dockerfiles. Without this,
+   `prometheus-init` keeps running the old image and the monitoring fix is not applied.
+4. Verify: `prometheus-init` exits 0; `prometheus` + `grafana` report healthy.
 
 ## [2.4.4] - 2026-05-27
 

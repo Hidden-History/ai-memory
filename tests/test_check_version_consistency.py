@@ -1,9 +1,10 @@
-"""Tests for scripts/check_version_consistency.py (BUG-307).
+"""Tests for scripts/check_version_consistency.py (BUG-307, BUG-313).
 
-Covers the three-marker consistency check:
+Covers the four-marker consistency check:
 - the agree case (all markers match -> exit 0)
 - the disagree case (a marker drifts -> exit 1, disagreement reported)
 - tag/release mode (markers must also equal the tag and CHANGELOG heading)
+- stale INSTALLER_VERSION in scripts/install.sh fails the gate (BUG-313)
 - the live repository markers actually agree
 """
 
@@ -28,6 +29,7 @@ def _write_repo(
     pyproject: str,
     version_py: str,
     changelog: str | None = None,
+    installer_version: str | None = None,
 ) -> None:
     """Create a minimal repo tree with the version markers under ``root``."""
     (root / "version.txt").write_text(version_txt, encoding="utf-8")
@@ -41,6 +43,13 @@ def _write_repo(
     (version_dir / "__version__.py").write_text(
         f'__version__ = "{version_py}"\n'
         '__version_info__ = tuple(int(p) for p in __version__.split("."))\n',
+        encoding="utf-8",
+    )
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    _installer_ver = installer_version if installer_version is not None else version_txt
+    (scripts_dir / "install.sh").write_text(
+        f'#!/usr/bin/env bash\nINSTALLER_VERSION="{_installer_ver}"\n',
         encoding="utf-8",
     )
     if changelog is not None:
@@ -63,6 +72,7 @@ class TestMarkerReaders:
         assert cvc.read_version_txt(tmp_path) == "2.4.1"
         assert cvc.read_pyproject_version(tmp_path) == "2.4.1"
         assert cvc.read_version_py(tmp_path) == "2.4.1"
+        assert cvc.read_installer_version(tmp_path) == "2.4.1"
         assert cvc.read_changelog_release_version(tmp_path) == "2.4.1"
 
     def test_pyproject_reader_ignores_other_version_keys(self, tmp_path):
@@ -104,6 +114,48 @@ class TestMarkerReaders:
         )
         with pytest.raises(cvc.MarkerError):
             cvc.read_version_py(tmp_path)
+
+    def test_installer_version_reader_missing_file_raises(self, tmp_path):
+        with pytest.raises(cvc.MarkerError):
+            cvc.read_installer_version(tmp_path)
+
+    def test_installer_version_reader_missing_assignment_raises(self, tmp_path):
+        scripts_dir = tmp_path / "scripts"
+        scripts_dir.mkdir()
+        (scripts_dir / "install.sh").write_text(
+            "#!/usr/bin/env bash\n# no INSTALLER_VERSION here\n", encoding="utf-8"
+        )
+        with pytest.raises(cvc.MarkerError):
+            cvc.read_installer_version(tmp_path)
+
+
+class TestInstallerVersionConsistency:
+    """Stale INSTALLER_VERSION in scripts/install.sh must fail the gate (BUG-313)."""
+
+    def test_stale_installer_version_fails_gate(self, tmp_path, capsys):
+        # All three source markers agree on 2.4.5, but install.sh still has 2.2.5.
+        _write_repo(
+            tmp_path,
+            version_txt="2.4.5",
+            pyproject="2.4.5",
+            version_py="2.4.5",
+            installer_version="2.2.5",
+        )
+        result = cvc.main(["--root", str(tmp_path)])
+        assert result == 1
+        captured = capsys.readouterr()
+        assert "FAILED" in captured.err
+        assert "INSTALLER_VERSION" in captured.err or "install.sh" in captured.err
+
+    def test_matching_installer_version_passes_gate(self, tmp_path):
+        _write_repo(
+            tmp_path,
+            version_txt="2.4.5",
+            pyproject="2.4.5",
+            version_py="2.4.5",
+            installer_version="2.4.5",
+        )
+        assert cvc.main(["--root", str(tmp_path)]) == 0
 
 
 class TestCheckConsistency:

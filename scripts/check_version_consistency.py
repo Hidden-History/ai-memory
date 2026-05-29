@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Version-marker consistency check (BUG-307).
+"""Version-marker consistency check (BUG-307, BUG-313).
 
-The repository declares its version in three places that must always agree:
+The repository declares its version in four places that must always agree:
 
 - ``version.txt``                       -- plain-text marker
 - ``pyproject.toml`` ``[project] version`` -- packaging marker
 - ``src/memory/__version__.py`` ``__version__`` -- Python single source of truth
+- ``scripts/install.sh`` ``INSTALLER_VERSION`` -- installer stamp (AIM_INSTALLED_VERSION)
 
 Nothing previously kept them in sync, so v2.4.0 shipped all three stale and
 v2.4.1 bumped only two -- the drift was invisible until release tag-cut. This
-script asserts the three markers agree and is wired into the Test Suite
+script asserts the four markers agree and is wired into the Test Suite
 workflow so drift fails a pull request instead of a release.
 
 On a tag/release build (``--tag`` supplied) it additionally asserts the
@@ -39,6 +40,7 @@ from pathlib import Path
 VERSION_TXT = "version.txt"
 PYPROJECT = "pyproject.toml"
 VERSION_PY = "src/memory/__version__.py"
+INSTALL_SH = "scripts/install.sh"
 CHANGELOG = "CHANGELOG.md"
 
 
@@ -117,6 +119,24 @@ def read_version_py(root: Path) -> str:
     return match.group(1).strip()
 
 
+def read_installer_version(root: Path) -> str:
+    """Return the ``INSTALLER_VERSION`` value from ``scripts/install.sh``."""
+    path = root / INSTALL_SH
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise MarkerError(f"cannot read {INSTALL_SH}: {exc}") from exc
+
+    match = re.search(
+        r'^INSTALLER_VERSION\s*=\s*["\']([^"\']+)["\']',
+        text,
+        re.MULTILINE,
+    )
+    if not match:
+        raise MarkerError(f"{INSTALL_SH} has no INSTALLER_VERSION assignment")
+    return match.group(1).strip()
+
+
 def read_changelog_release_version(root: Path) -> str:
     """Return the latest non-``[Unreleased]`` release heading in the CHANGELOG."""
     path = root / CHANGELOG
@@ -136,7 +156,7 @@ def read_changelog_release_version(root: Path) -> str:
 
 
 def collect_markers(root: Path) -> dict[str, str]:
-    """Read the three required version markers.
+    """Read the four required version markers.
 
     Returns a mapping of human-readable marker name to its value.
     """
@@ -144,6 +164,7 @@ def collect_markers(root: Path) -> dict[str, str]:
         VERSION_TXT: read_version_txt(root),
         f"{PYPROJECT} [project] version": read_pyproject_version(root),
         f"{VERSION_PY} __version__": read_version_py(root),
+        f"{INSTALL_SH} INSTALLER_VERSION": read_installer_version(root),
     }
 
 
@@ -191,7 +212,7 @@ def _emit_actions_error(message: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. See module docstring for exit codes."""
     parser = argparse.ArgumentParser(
-        description="Assert the three repository version markers agree."
+        description="Assert the four repository version markers agree."
     )
     parser.add_argument(
         "--root",
