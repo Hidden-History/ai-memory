@@ -147,7 +147,7 @@ class TestMainAgentPath:
             ),
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage", return_value=mock_storage),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
+            patch.object(self.mod, "resolve_project_id", return_value="test-project"),
             patch.object(self.mod, "log_manual_save"),
         ):
             result = self.mod.main()
@@ -175,7 +175,7 @@ class TestMainAgentPath:
                 self.mod.sys, "argv", ["script", "--type", "agent_memory", "text"]
             ),
             patch("memory.config.get_config", return_value=mock_config),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
+            patch.object(self.mod, "resolve_project_id", return_value="test-project"),
         ):
             result = self.mod.main()
 
@@ -213,7 +213,7 @@ class TestMainAgentPath:
             ),
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage", return_value=mock_storage),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
+            patch.object(self.mod, "resolve_project_id", return_value="test-project"),
             patch.object(self.mod, "log_manual_save"),
         ):
             result = self.mod.main()
@@ -236,7 +236,7 @@ class TestMainAgentPath:
             patch.object(self.mod.sys, "argv", ["script", "--type", "agent_memory"]),
             patch("memory.config.get_config", return_value=mock_config),
             patch("memory.storage.MemoryStorage", return_value=mock_storage),
-            patch.object(self.mod, "detect_project", return_value="test-project"),
+            patch.object(self.mod, "resolve_project_id", return_value="test-project"),
             patch.object(self.mod, "log_manual_save"),
         ):
             result = self.mod.main()
