@@ -167,7 +167,7 @@ def main() -> int:
         # Search code-patterns collection
         from memory.config import get_config
         from memory.health import check_qdrant_health
-        from memory.project import detect_project
+        from memory.project import resolve_project_id
         from memory.qdrant_client import get_qdrant_client
         from memory.search import MemorySearch
 
@@ -176,20 +176,18 @@ def main() -> int:
 
         # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
         # graceful exit on failure. Trigger retrieval must not crash Claude UI.
-        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not project_name.strip():
-            try:
-                project_name = detect_project(cwd)
-            except ValueError as _proj_e:
-                logger.warning(
-                    "project_resolution_failed_skipping_retrieval",
-                    extra={
-                        "hook": "first_edit_trigger",
-                        "error": str(_proj_e),
-                        "cwd": cwd,
-                    },
-                )
-                return 0  # Graceful exit — no retrieval, no crash
+        try:
+            project_name = resolve_project_id(cwd)
+        except ValueError as _proj_e:
+            logger.warning(
+                "project_resolution_failed_skipping_retrieval",
+                extra={
+                    "hook": "first_edit_trigger",
+                    "error": str(_proj_e),
+                    "cwd": cwd,
+                },
+            )
+            return 0  # Graceful exit — no retrieval, no crash
 
         # Check Qdrant health
         if not check_qdrant_health(client):

@@ -51,7 +51,7 @@ from memory.metrics_push import (
     push_session_injection_metrics_async,
     track_hook_duration,
 )
-from memory.project import detect_project
+from memory.project import resolve_project_id
 from memory.qdrant_client import get_qdrant_client
 
 # SPEC-021: Trace buffer for retrieval instrumentation
@@ -439,20 +439,18 @@ def main():
             trigger = hook_input.get("source", "unknown")  # resume, compact, clear
             # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
             # graceful exit on failure. SessionStart must never crash Claude UI.
-            project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-            if not project_name.strip():
-                try:
-                    project_name = detect_project(cwd)
-                except ValueError as _proj_e:
-                    logger.warning(
-                        "project_resolution_failed_skipping_injection",
-                        extra={
-                            "hook": "session_start",
-                            "error": str(_proj_e),
-                            "cwd": cwd,
-                        },
-                    )
-                    return 0  # Graceful exit — no injection, no crash
+            try:
+                project_name = resolve_project_id(cwd)
+            except ValueError as _proj_e:
+                logger.warning(
+                    "project_resolution_failed_skipping_injection",
+                    extra={
+                        "hook": "session_start",
+                        "error": str(_proj_e),
+                        "cwd": cwd,
+                    },
+                )
+                return 0  # Graceful exit — no injection, no crash
 
             # BUG-020: Deduplication lock to prevent double execution
             import tempfile

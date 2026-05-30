@@ -188,7 +188,7 @@ class TestTier2ConventionsScoping:
 
         with (
             patch("sys.stdin", stdin),
-            patch("context_injection_tier2.detect_project", return_value=_PROJECT),
+            patch("context_injection_tier2.resolve_project_id", return_value=_PROJECT),
             patch("context_injection_tier2.check_qdrant_health", return_value=True),
             patch(
                 "context_injection_tier2.get_qdrant_client", return_value=MagicMock()

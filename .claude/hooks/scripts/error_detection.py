@@ -48,7 +48,7 @@ from memory.hooks_common import (
     log_to_activity,
     setup_hook_logging,
 )
-from memory.project import detect_project
+from memory.project import detect_project, resolve_project_id
 from memory.search import MemorySearch
 
 # SPEC-021: Trace buffer for retrieval instrumentation
@@ -445,20 +445,18 @@ def main() -> int:
         # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
         # graceful exit on failure. Error-detection retrieval must not crash
         # the hook chain; skip silently if project cannot be resolved.
-        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not project_name.strip():
-            try:
-                project_name = detect_project(cwd)
-            except ValueError as _proj_e:
-                logger.warning(
-                    "project_resolution_failed_skipping_retrieval",
-                    extra={
-                        "hook": "error_detection",
-                        "error": str(_proj_e),
-                        "cwd": cwd,
-                    },
-                )
-                return 0  # Graceful exit — no retrieval, no crash
+        try:
+            project_name = resolve_project_id(cwd)
+        except ValueError as _proj_e:
+            logger.warning(
+                "project_resolution_failed_skipping_retrieval",
+                extra={
+                    "hook": "error_detection",
+                    "error": str(_proj_e),
+                    "cwd": cwd,
+                },
+            )
+            return 0  # Graceful exit — no retrieval, no crash
 
         try:
             # WP-6: Two-phase retrieval (§4.3 R2)
