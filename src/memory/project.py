@@ -381,3 +381,67 @@ def detect_project(cwd: str | None = None) -> str:
         raise ValueError(
             f"project detection failed: path resolution error for cwd={cwd!r}: {e}"
         ) from e
+
+
+def _warn_on_env_cwd_mismatch(cwd: str | None) -> None:
+    """Warn (never raise) when the env project id disagrees with the cwd's git slug.
+
+    BUG-314 / BP-166 OQ-1: on an env != cwd disagreement we prefer the explicit
+    per-invocation env signal but surface the disagreement loudly so a stale or
+    foreign-workspace ``AI_MEMORY_PROJECT_ID`` cannot silently misfile memory. This
+    is best-effort observability only: a cwd with no resolvable git remote (the
+    normal case when the env is set) is NOT a disagreement and is silent.
+    """
+    env_project = os.getenv("AI_MEMORY_PROJECT_ID")
+    if not (env_project and env_project.strip()):
+        return
+    env_id = normalize_org_repo_slug(env_project) or normalize_project_name(env_project)
+    try:
+        cwd_path = Path(cwd or os.getcwd()).resolve(strict=False)
+        cwd_id = _detect_project_from_git_remote(cwd_path)
+    except (OSError, ValueError):
+        cwd_id = None
+    if cwd_id and cwd_id != env_id:
+        logger.warning(
+            "project_env_cwd_mismatch",
+            extra={
+                "env_project": env_id,
+                "cwd_project": cwd_id,
+                "resolved": env_id,
+                "note": "preferring per-invocation AI_MEMORY_PROJECT_ID over cwd git slug",
+            },
+        )
+
+
+def resolve_project_id(cwd: str | None = None, *, explicit: str | None = None) -> str:
+    """Single source of project-scope resolution (BUG-314 / BP-166 F3).
+
+    Every read + write + wrapper entry point resolves the ``group_id`` through this
+    one helper so the precedence cannot drift per-file. It is a thin shim over the
+    already-env-first :func:`detect_project`; it adds the explicit-arg tier on top
+    and warns (non-fatally) on an env vs cwd disagreement.
+
+    Precedence (most specific wins; fail-loud if none):
+        1. ``explicit`` — CLI flag / direct caller arg (highest)
+        2. ``AI_MEMORY_PROJECT_ID`` env — per-workspace / per-invocation value
+        3. ``detect_project(cwd)`` — git-remote slug / edge sentinels
+        4. raise ``ValueError`` — never guess a default
+
+    Args:
+        cwd: Working directory used for git-remote detection (fallback tier).
+        explicit: Caller-supplied id (e.g. a ``--group-id`` flag) that overrides
+            env and cwd. Empty/whitespace is treated as unset.
+
+    Returns:
+        Normalized project identifier suitable for ``group_id`` filtering.
+
+    Raises:
+        ValueError: If no explicit id, no ``AI_MEMORY_PROJECT_ID``, and no git
+            remote resolve (delegated to :func:`detect_project`).
+    """
+    if explicit and explicit.strip():
+        return normalize_org_repo_slug(explicit) or normalize_project_name(explicit)
+    # env (normalized) and cwd/git and fail-loud are all handled by detect_project,
+    # which is env-first internally. Surface an env!=cwd disagreement first.
+    _warn_on_env_cwd_mismatch(cwd)
+    return detect_project(cwd)
