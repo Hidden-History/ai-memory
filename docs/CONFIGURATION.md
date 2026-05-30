@@ -234,15 +234,15 @@ hidden-history/ai-memory
 1. an explicit `--group-id` / direct argument
 2. the `AI_MEMORY_PROJECT_ID` environment variable (live per-invocation override)
 3. the `.ai-memory-project` marker file (the nearest one found walking upward
-   from the cwd, up to 20 parent levels)
+   from the cwd plus up to 19 parent levels, 20 directories total)
 4. the git-remote `owner/repo` slug
 5. otherwise a loud error — no silent default
 
 The marker sits **between** the env override and git detection: a committed
 per-workspace declaration that beats the git remote but yields to a live `env` override.
 
-**Walk-up scope and inheritance:** resolution walks upward from the cwd (up to 20
-parent levels) and uses the **first** `.ai-memory-project` it finds. A marker placed
+**Walk-up scope and inheritance:** resolution walks upward from the cwd plus up to 19
+parent levels (20 directories total) and uses the **first** `.ai-memory-project` it finds. A marker placed
 above several workspaces is therefore **inherited** by every child workspace that
 lacks its own marker — useful for a monorepo, but a caution for a shared parent
 (e.g. `$HOME`): drop a marker there only if you want every descendant to share that
