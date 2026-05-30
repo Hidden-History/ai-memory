@@ -15,6 +15,7 @@ PRESERVED from the inline original:
 - all FALLBACK-NEEDED / BP-158 P2 budget-rejection signalling
 """
 
+import contextlib
 import logging
 import os
 import sys
@@ -22,8 +23,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Set up import path for ai-memory source
-_install_dir = os.path.expanduser("~/.ai-memory")
+# Set up import path for ai-memory source. Honor AI_MEMORY_INSTALL_DIR (matching
+# parzival_save_handoff.py) so a non-default install location resolves correctly.
+_install_dir = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 # Option P: load Tier B helper from sibling module (enables unit testing)
@@ -235,13 +239,9 @@ def main() -> int:
                 r for r in selected if r.get("type") in ("decision", "agent_memory")
             ]
             insights = [r for r in selected if r.get("type") == "agent_insight"]
-            github = [
-                r for r in selected if r.get("type", "").startswith("github_")
-            ]
+            github = [r for r in selected if r.get("type", "").startswith("github_")]
             other = [
-                r
-                for r in selected
-                if r not in handoffs + decisions + insights + github
+                r for r in selected if r not in handoffs + decisions + insights + github
             ]
 
             if handoffs:
@@ -297,19 +297,17 @@ def main() -> int:
 
         # Prometheus metrics (CRITICAL — best-effort, never blocks)
         if push_skill_metrics_async:
-            try:
+            with contextlib.suppress(Exception):
                 push_skill_metrics_async(
                     "aim-parzival-bootstrap",
                     "success" if selected else "empty",
                     duration_seconds,
                 )
-            except Exception:
-                pass
 
         # Top-level Langfuse trace (MEDIUM — best-effort, never blocks)
         # LANGFUSE: V3 trace buffer pattern. See LANGFUSE-INTEGRATION-SPEC.md §3.1
         if emit_trace_event:
-            try:
+            with contextlib.suppress(Exception):
                 emit_trace_event(
                     event_type="skill_bootstrap",
                     data={
@@ -335,8 +333,6 @@ def main() -> int:
                     end_time=datetime.now(tz=timezone.utc),
                     tags=["skill", "bootstrap"],
                 )
-            except Exception:
-                pass
 
     except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
         elapsed_ms = int((time.perf_counter() - start_ms) * 1000)
@@ -346,12 +342,10 @@ def main() -> int:
         print("---")
         print(f"Bootstrap: 0 results | 0 tokens | {elapsed_ms}ms | Qdrant: unavailable")
         if push_skill_metrics_async:
-            try:
+            with contextlib.suppress(Exception):
                 push_skill_metrics_async(
                     "aim-parzival-bootstrap", "failed", time.perf_counter() - start_ms
                 )
-            except Exception:
-                pass
 
     except Exception as e:
         elapsed_ms = int((time.perf_counter() - start_ms) * 1000)
@@ -362,12 +356,10 @@ def main() -> int:
         print("---")
         print(f"Bootstrap: 0 results | 0 tokens | {elapsed_ms}ms | Qdrant: error")
         if push_skill_metrics_async:
-            try:
+            with contextlib.suppress(Exception):
                 push_skill_metrics_async(
                     "aim-parzival-bootstrap", "failed", time.perf_counter() - start_ms
                 )
-            except Exception:
-                pass
 
     return 0
 
