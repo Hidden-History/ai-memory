@@ -35,8 +35,13 @@ drift surface F4 targets) or call `detect_project` directly.
 | post_work_store_async.py | explicit arg → env → `detect_project(cwd)` |
 | memory_status.py | `detect_project(cwd)` (env-first internal) |
 | process_retry_queue.py | `detect_project(cwd)` (env-first internal) |
-| ingest_markdown.py | `--group-id` → env → fail (no `detect_project`) |
-| seed_best_practices.py | `--group-id` → env → fail (no `detect_project`) |
+
+**Bulk-ingest exception (LEFT strict, documented):** `ingest_markdown.py` and `seed_best_practices.py`
+resolve `--group-id` → env → **fail-loud** with **no cwd/git tier** — a deliberately stricter
+contract so a bulk seed can never silently guess a target project from cwd. They carry no
+read/write asymmetry or confused-deputy risk (they never resolve from cwd), so they are not routed
+through `resolve_project_id` (whose contract always includes a cwd fallback). The resolver's
+explicit tier covers the same `--group-id`/env precedence.
 
 ### .claude/hooks/scripts/ (Claude-native; NOT via the wrapper) — primary resolution
 agent_response_store_async.py · best_practices_retrieval.py · context_injection_tier2.py ·

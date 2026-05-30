@@ -106,20 +106,19 @@ def main() -> int:
     }
 
     # PLAN-028 P1B / W-09 (DEC-PM302-D1): store_agent_memory requires explicit
-    # group_id. Resolve env-first; on detection failure print friendly error.
-    from memory.project import detect_project as _detect_project
+    # group_id. BUG-314: resolve through the one shared resolver (env-first ->
+    # cwd/git -> fail-loud); on detection failure print friendly error.
+    from memory.project import resolve_project_id
 
-    group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-    if not group_id.strip():
-        try:
-            group_id = _detect_project(os.getcwd())
-        except ValueError as _proj_e:
-            print(f"Warning: Failed to resolve project scope: {_proj_e}")
-            print("Set AI_MEMORY_PROJECT_ID and rerun. Closeout continues.")
-            push_skill_metrics_async(
-                "parzival-save-decision", "error", time.perf_counter() - start_time
-            )
-            return 0
+    try:
+        group_id = resolve_project_id(os.getcwd())
+    except ValueError as _proj_e:
+        print(f"Warning: Failed to resolve project scope: {_proj_e}")
+        print("Set AI_MEMORY_PROJECT_ID and rerun. Closeout continues.")
+        push_skill_metrics_async(
+            "parzival-save-decision", "error", time.perf_counter() - start_time
+        )
+        return 0
 
     storage = MemoryStorage(config)
     try:

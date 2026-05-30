@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 from memory.activity_log import log_memory_search
 from memory.logging_config import StructuredFormatter
 from memory.metrics_push import push_skill_metrics_async
-from memory.project import detect_project
+from memory.project import resolve_project_id
 from memory.search import MemorySearch
 
 # Configure structured logging
@@ -188,25 +188,21 @@ def main() -> int:
         return 1
 
     # Get current project (or use override).
-    # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with β-style
+    # PLAN-028 P1B / W-09 (DEC-PM302-D1) — BUG-314: resolve through the one
+    # shared resolver (--group-id -> env -> cwd/git -> fail-loud) with β-style
     # friendly error on failure (per DEC-PM302-D2 Q-3).
     cwd = os.getcwd()
-    if args.group_id:
-        project_name = args.group_id
-    else:
-        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not project_name.strip():
-            try:
-                project_name = detect_project(cwd)
-            except ValueError as _proj_e:
-                print(
-                    "ERROR: AI_MEMORY_PROJECT_ID is not set and project could "
-                    f"not be auto-detected ({_proj_e}).\n"
-                    "Pass --group-id or set AI_MEMORY_PROJECT_ID, e.g.:\n"
-                    "  export AI_MEMORY_PROJECT_ID=my-project",
-                    file=sys.stderr,
-                )
-                return 2
+    try:
+        project_name = resolve_project_id(cwd, explicit=args.group_id)
+    except ValueError as _proj_e:
+        print(
+            "ERROR: AI_MEMORY_PROJECT_ID is not set and project could "
+            f"not be auto-detected ({_proj_e}).\n"
+            "Pass --group-id or set AI_MEMORY_PROJECT_ID, e.g.:\n"
+            "  export AI_MEMORY_PROJECT_ID=my-project",
+            file=sys.stderr,
+        )
+        return 2
 
     # Determine target collections
     if args.intent:

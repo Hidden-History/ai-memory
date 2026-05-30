@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from memory.config import get_config
 from memory.logging_config import StructuredFormatter
-from memory.project import detect_project
+from memory.project import resolve_project_id
 from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 
 # Configure structured logging
@@ -123,9 +123,9 @@ def main() -> int:
     print("\n🧠 AI Memory System Status")
     print("=" * 60)
 
-    # Current project
+    # Current project (BUG-314: via the one shared resolver)
     cwd = os.getcwd()
-    project_name = detect_project(cwd)
+    project_name = resolve_project_id(cwd)
     print(f"\n📁 Current Project: {project_name}")
 
     # Configuration

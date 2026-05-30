@@ -121,11 +121,11 @@ def process_entry(
         if not content or len(content) < 20:
             return False, "Content too short or empty"
 
-        # Build memory params
-        from memory.project import detect_project
+        # Build memory params (BUG-314: via the one shared resolver)
+        from memory.project import resolve_project_id
 
         cwd = hook_input.get("cwd", "/")
-        group_id = detect_project(cwd)
+        group_id = resolve_project_id(cwd)
         memory_type = "implementation"
         session_id = hook_input.get("session_id", "retry")
         source_hook = "PostToolUse"
