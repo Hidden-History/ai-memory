@@ -155,7 +155,11 @@ class TestMismatchPolicy:
 
 class TestWrapperNonClobber:
     """run-with-env.sh must NOT clobber a caller-set AI_MEMORY_PROJECT_ID, and (scoped
-    Part D) must NOT inject the install-global id into operator scripts at all."""
+    Part D) must NOT inject the install-global id into operator scripts at all.
+
+    Coverage spans both the propagated env var and the *effective* group_id the
+    storage floor receives (the resolver's answer through the real wrapper), per
+    BP-166 Q4 Case 4."""
 
     def _stage_install(self, tmp_path: Path, install_project: str) -> Path:
         install = tmp_path / "install"
@@ -169,7 +173,14 @@ class TestWrapperNonClobber:
         (venv_bin / "python").symlink_to(sys.executable)
         return install
 
-    def _run_wrapper(self, install: Path, caller_env: dict[str, str]) -> str:
+    def _run_wrapper(
+        self,
+        install: Path,
+        caller_env: dict[str, str],
+        *,
+        probe_body: str | None = None,
+        cwd: str | None = None,
+    ) -> str:
         wrapper = (
             Path(__file__).resolve().parents[2]
             / "scripts"
@@ -177,16 +188,23 @@ class TestWrapperNonClobber:
             / "run-with-env.sh"
         )
         probe = install / "probe.py"
-        probe.write_text(
-            'import os\nprint(os.environ.get("AI_MEMORY_PROJECT_ID", ""))\n',
-            encoding="utf-8",
-        )
-        env = {**os.environ, "AI_MEMORY_INSTALL_DIR": str(install), **caller_env}
+        if probe_body is None:
+            probe_body = (
+                'import os\nprint(os.environ.get("AI_MEMORY_PROJECT_ID", ""))\n'
+            )
+        probe.write_text(probe_body, encoding="utf-8")
+        env = {**os.environ, "AI_MEMORY_INSTALL_DIR": str(install)}
+        # Explicitly clear the scope var before layering caller_env so each case is
+        # robust regardless of the runner's ambient environment or the autouse
+        # _clear_env fixture: caller_env is the ONLY source of a set id here.
+        env.pop("AI_MEMORY_PROJECT_ID", None)
+        env.update(caller_env)
         env.pop("AI_MEMORY_ENV_FILE", None)
         env.pop("AI_MEMORY_SECRETS_FILE", None)
         result = subprocess.run(
             ["bash", str(wrapper), str(probe)],
             env=env,
+            cwd=cwd,
             capture_output=True,
             text=True,
             check=True,
@@ -198,9 +216,41 @@ class TestWrapperNonClobber:
         out = self._run_wrapper(install, {"AI_MEMORY_PROJECT_ID": "caller-a"})
         assert out == "caller-a", "wrapper clobbered a caller-set project id"
 
+    def test_caller_id_is_effective_resolved_group_id(self, tmp_path):
+        # BP-166 Q4 Case 4 asks for "effective group_id == A": assert not just the
+        # raw env var but the id the storage floor would actually receive — i.e.
+        # what resolve_project_id() returns through the real wrapper. The probe
+        # runs from a non-git cwd so env A is the unambiguous resolved scope while
+        # the install .env says B.
+        install = self._stage_install(tmp_path, install_project="install-b")
+        nongit = tmp_path / "caller_ws"
+        nongit.mkdir()
+        # Load project.py STANDALONE (it imports only stdlib) so the probe runs the
+        # real resolve_project_id without needing the install's third-party deps —
+        # the staged .venv/bin/python is a bare symlink with no site-packages.
+        project_py = _SRC / "memory" / "project.py"
+        probe_body = (
+            "import os, importlib.util\n"
+            f"_spec = importlib.util.spec_from_file_location('_proj', {str(project_py)!r})\n"
+            "_m = importlib.util.module_from_spec(_spec)\n"
+            "_spec.loader.exec_module(_m)\n"
+            "print(_m.resolve_project_id(os.getcwd()))\n"
+        )
+        out = self._run_wrapper(
+            install,
+            {"AI_MEMORY_PROJECT_ID": "caller-a"},
+            probe_body=probe_body,
+            cwd=str(nongit),
+        )
+        assert out == "caller-a", (
+            "effective resolved group_id was not the caller-set id A "
+            "(wrapper clobbered it or the install-global B leaked into resolution)"
+        )
+
     def test_install_global_not_injected(self, tmp_path):
-        # Scoped Part D: with no caller env, the wrapper must NOT inject the
-        # install-global project id into the operator script.
+        # Scoped Part D: with no caller env (explicitly unset in _run_wrapper), the
+        # wrapper must NOT inject the install-global project id into the operator
+        # script.
         install = self._stage_install(tmp_path, install_project="install-b")
         out = self._run_wrapper(install, {})
         assert out == "", (
