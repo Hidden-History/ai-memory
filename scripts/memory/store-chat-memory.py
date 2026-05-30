@@ -70,7 +70,7 @@ logger.propagate = False
 
 
 def store_chat_memory(
-    session_id: str, agent: str, content: str, cwd: str = None
+    session_id: str, agent: str, content: str, cwd: str | None = None
 ) -> bool:
     """Store chat memory to discussions collection.
 
@@ -105,7 +105,10 @@ def store_chat_memory(
         # for user-facing CLI: no raw ValueError traceback).
         cwd_for_detect = cwd or os.getcwd()
         try:
-            group_id = resolve_project_id(cwd_for_detect)
+            # Hot path (fires on every captured chat turn, <50ms target):
+            # warn=False skips the env-vs-cwd git stat-walk; resolved id is
+            # unaffected.
+            group_id = resolve_project_id(cwd_for_detect, warn=False)
             logger.debug(
                 "project_detected",
                 extra={"cwd": cwd_for_detect, "group_id": group_id},

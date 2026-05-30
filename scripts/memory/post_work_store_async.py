@@ -141,12 +141,18 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
         # group_id; route metadata's explicit id (when present) -> env -> cwd/git
         # -> fail-loud (ValueError propagated to caller).
         _meta_gid = metadata.get("group_id")
-        _meta_gid = _meta_gid if isinstance(_meta_gid, str) and _meta_gid.strip() else None
+        _meta_gid = (
+            _meta_gid if isinstance(_meta_gid, str) and _meta_gid.strip() else None
+        )
         cwd_for_detect = metadata.get("cwd") or os.getcwd()
         try:
             from memory.project import resolve_project_id
 
-            group_id = resolve_project_id(cwd_for_detect, explicit=_meta_gid)
+            # Hot path (fires on every post-work event, <50ms target): warn=False
+            # skips the env-vs-cwd git stat-walk; resolved id is unaffected.
+            group_id = resolve_project_id(
+                cwd_for_detect, explicit=_meta_gid, warn=False
+            )
         except ValueError as _proj_e:
             logger.error(
                 "project_resolution_failed",
