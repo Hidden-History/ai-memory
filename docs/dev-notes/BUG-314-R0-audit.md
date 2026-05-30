@@ -56,8 +56,14 @@ session_start.py (cursor + gemini) — all `env → detect_project(event["cwd"])
 ### src/memory/
 agent_sdk_wrapper.py `_resolve_group_id` — `env → detect_project(self.cwd)`.
 
-### Inline skill embeds (.claude/skills/, _ai-memory/skills/)
-parzival-save-handoff/insight/decision SKILL.md and aim-save SKILL.md embed the same inline dance.
+### Inline skill embeds (.claude/skills/)
+parzival-save-handoff/insight/decision SKILL.md embed the same inline env-or-cwd dance →
+converted to `resolve_project_id`; the `test_parzival_save_skills` mock now also provides it.
+
+**Env-only exception (LEFT strict):** `_ai-memory/skills/aim-best-practices-researcher/SKILL.md`
+deliberately resolves scope from `AI_MEMORY_PROJECT_ID` **only** ("never from `os.getcwd()`") and
+fails loud if unset — the same strict, no-cwd-guess contract as the bulk-ingest tools. Not routed
+through `resolve_project_id`.
 
 ## Class 2 — Metric-label-only best-effort → LEAVE (documented)
 
