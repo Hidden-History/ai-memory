@@ -474,7 +474,7 @@ class TestMainFunction:
             patch.object(
                 mod, "get_config", return_value=MagicMock(similarity_threshold=0.4)
             ),
-            patch.object(mod, "detect_project", return_value="test-proj"),
+            patch.object(mod, "resolve_project_id", return_value="test-proj"),
             patch.object(mod, "push_hook_metrics_async", None),
             patch.object(mod, "push_retrieval_metrics_async", None),
             patch.object(mod, "emit_trace_event", None),
@@ -515,7 +515,7 @@ class TestMainFunction:
             patch.object(
                 mod, "get_config", return_value=MagicMock(similarity_threshold=0.4)
             ),
-            patch.object(mod, "detect_project", return_value="test-proj"),
+            patch.object(mod, "resolve_project_id", return_value="test-proj"),
             patch.object(mod, "push_hook_metrics_async", None),
             patch.object(mod, "push_retrieval_metrics_async", None),
             patch.object(mod, "emit_trace_event", None),

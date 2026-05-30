@@ -78,7 +78,7 @@ class TestUserPromptStoreAsync:
             patch("memory.embeddings.EmbeddingClient", return_value=mock_embedding),
             patch.object(upsav, "log_to_activity"),
             patch.object(upsav, "queue_operation"),
-            patch.object(upsav, "detect_project", return_value="test-project"),
+            patch.object(upsav, "resolve_project_id", return_value="test-project"),
         ):
             result = upsav.store_user_message(substantive_hook_input)
 
@@ -102,7 +102,7 @@ class TestUserPromptStoreAsync:
             patch.object(upsav, "get_config", return_value=mock_config),
             patch.object(upsav, "log_to_activity"),
             patch.object(upsav, "queue_operation"),
-            patch.object(upsav, "detect_project", return_value="test-project"),
+            patch.object(upsav, "resolve_project_id", return_value="test-project"),
         ):
             result = upsav.store_user_message(hook_input)
 
@@ -119,7 +119,7 @@ class TestUserPromptStoreAsync:
             patch.object(upsav, "get_config", return_value=mock_config),
             patch.object(upsav, "log_to_activity"),
             patch.object(upsav, "queue_operation"),
-            patch.object(upsav, "detect_project", return_value="test-project"),
+            patch.object(upsav, "resolve_project_id", return_value="test-project"),
         ):
             result = upsav.store_user_message(hook_input)
 
@@ -145,7 +145,7 @@ class TestUserPromptStoreAsync:
             patch.object(upsav, "get_config", return_value=mock_config),
             patch.object(upsav, "log_to_activity"),
             patch.object(upsav, "queue_operation", queue_mock),
-            patch.object(upsav, "detect_project", return_value="test-project"),
+            patch.object(upsav, "resolve_project_id", return_value="test-project"),
         ):
             result = upsav.store_user_message(substantive_hook_input)
 
@@ -174,7 +174,7 @@ class TestUserPromptStoreAsync:
             patch("memory.embeddings.EmbeddingClient", return_value=mock_embedding),
             patch.object(upsav, "log_to_activity"),
             patch.object(upsav, "queue_operation"),
-            patch.object(upsav, "detect_project", return_value="test-project"),
+            patch.object(upsav, "resolve_project_id", return_value="test-project"),
         ):
             result = upsav.main()
         assert result == 0

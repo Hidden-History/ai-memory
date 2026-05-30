@@ -106,7 +106,7 @@ class TestErrorStoreAsync:
             patch("memory.embeddings.EmbeddingClient", return_value=mock_embedding),
             patch.object(esav, "log_to_activity"),
             patch.object(esav, "queue_operation"),
-            patch.object(esav, "detect_project", return_value="test-project"),
+            patch.object(esav, "resolve_project_id", return_value="test-project"),
         ):
             await esav.store_error_pattern_async(error_context)
 
@@ -137,7 +137,7 @@ class TestErrorStoreAsync:
             patch("memory.embeddings.EmbeddingClient") as embed_cls,
             patch.object(esav, "log_to_activity"),
             patch.object(esav, "queue_operation", queue_mock),
-            patch.object(esav, "detect_project", return_value="test-project"),
+            patch.object(esav, "resolve_project_id", return_value="test-project"),
         ):
             # Embedding mock: context manager returning embed client
             embed_mock = MagicMock()
@@ -172,7 +172,7 @@ class TestErrorStoreAsync:
             patch("memory.embeddings.EmbeddingClient", return_value=mock_embedding),
             patch.object(esav, "log_to_activity"),
             patch.object(esav, "queue_operation"),
-            patch.object(esav, "detect_project", return_value="test-project"),
+            patch.object(esav, "resolve_project_id", return_value="test-project"),
             patch.object(esav, "get_hook_timeout", return_value=60),
         ):
             result = esav.main()
