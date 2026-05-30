@@ -89,7 +89,7 @@ def main() -> int:
     try:
         from memory.config import COLLECTION_CODE_PATTERNS, MemoryConfig
         from memory.health import check_qdrant_health
-        from memory.project import detect_project
+        from memory.project import resolve_project_id
         from memory.qdrant_client import get_qdrant_client
         from memory.search import MemorySearch
 
@@ -101,21 +101,19 @@ def main() -> int:
 
         # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
         # graceful exit on failure. Adapter must not crash the host CLI.
-        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not project_name.strip():
-            try:
-                project_name = detect_project(event["cwd"])
-            except ValueError as _proj_e:
-                logger.warning(
-                    "project_resolution_failed_skipping_retrieval",
-                    extra={
-                        "adapter": "codex.error_detection",
-                        "error": str(_proj_e),
-                        "cwd": event.get("cwd", ""),
-                    },
-                )
-                _output_json(EMPTY_OUTPUT)
-                return 0
+        try:
+            project_name = resolve_project_id(event["cwd"])
+        except ValueError as _proj_e:
+            logger.warning(
+                "project_resolution_failed_skipping_retrieval",
+                extra={
+                    "adapter": "codex.error_detection",
+                    "error": str(_proj_e),
+                    "cwd": event.get("cwd", ""),
+                },
+            )
+            _output_json(EMPTY_OUTPUT)
+            return 0
         search_client = MemorySearch(config)
         results = search_client.search(
             query=error_sig,
