@@ -1,0 +1,7 @@
+# AI Memory per-workspace project identity (BUG-314 / BP-166).
+# A single line with this workspace's project id (the normalized group_id).
+# resolve_project_id() reads it between the AI_MEMORY_PROJECT_ID env override and
+# git-remote detection, so every save/search from this workspace — terminal,
+# run-with-env.sh, or Claude Code — is scoped to the same project. Blank lines
+# and lines starting with '#' are ignored. Drop one of these in each workspace root.
+hidden-history/ai-memory

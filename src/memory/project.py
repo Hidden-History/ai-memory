@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_PROJECT_NAME_LENGTH = 50
 
+# Per-workspace project-identity marker file (BUG-314 / BP-166 OQ-3). A committed
+# workspace-root file declaring the project id, read by resolve_project_id between
+# the env override and git-remote detection. Works in every invocation context
+# (terminal, run-with-env.sh wrapper, Claude Code) — unlike .claude/settings.json
+# env, which only reaches Claude-Code-launched processes.
+PROJECT_MARKER_FILENAME = ".ai-memory-project"
+
 
 def normalize_project_name(name: str) -> str:
     """Normalize project name for consistent group_id.
@@ -413,35 +420,87 @@ def _warn_on_env_cwd_mismatch(cwd: str | None) -> None:
         )
 
 
+def _read_project_marker(cwd: str | None) -> str | None:
+    """Read the project id from a ``.ai-memory-project`` marker file.
+
+    Walks up from ``cwd`` to the filesystem root looking for the marker. The file
+    is a single project id; ``#`` comment lines and blank lines are ignored so the
+    file can carry a friendly header. Returns the normalized id, or ``None`` if no
+    marker is found or it has no id line.
+    """
+    try:
+        start = Path(cwd or os.getcwd()).resolve(strict=False)
+    except (OSError, ValueError):
+        return None
+    for directory in [start, *start.parents]:
+        marker = directory / PROJECT_MARKER_FILENAME
+        if not marker.is_file():
+            continue
+        try:
+            lines = marker.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            resolved = normalize_org_repo_slug(stripped) or normalize_project_name(
+                stripped
+            )
+            logger.debug(
+                "project_marker_used",
+                extra={"marker": str(marker), "resolved": resolved},
+            )
+            return resolved
+        return None  # marker present but comment/blank only
+    return None
+
+
 def resolve_project_id(cwd: str | None = None, *, explicit: str | None = None) -> str:
     """Single source of project-scope resolution (BUG-314 / BP-166 F3).
 
     Every read + write + wrapper entry point resolves the ``group_id`` through this
-    one helper so the precedence cannot drift per-file. It is a thin shim over the
-    already-env-first :func:`detect_project`; it adds the explicit-arg tier on top
-    and warns (non-fatally) on an env vs cwd disagreement.
+    one helper so the precedence cannot drift per-file. It adds the explicit-arg
+    tier and the per-workspace marker-file tier on top of the env-first
+    :func:`detect_project`, and warns (non-fatally) on an env vs cwd disagreement.
 
     Precedence (most specific wins; fail-loud if none):
         1. ``explicit`` — CLI flag / direct caller arg (highest)
-        2. ``AI_MEMORY_PROJECT_ID`` env — per-workspace / per-invocation value
-        3. ``detect_project(cwd)`` — git-remote slug / edge sentinels
-        4. raise ``ValueError`` — never guess a default
+        2. ``AI_MEMORY_PROJECT_ID`` env — per-invocation / live override
+        3. ``.ai-memory-project`` marker file — per-workspace committed declaration
+        4. ``detect_project(cwd)`` — git-remote slug / edge sentinels
+        5. raise ``ValueError`` — never guess a default
+
+    The marker sits between env and git: a per-workspace committed declaration that
+    is more specific than the git remote but yields to a live env override. It works
+    in every invocation context (terminal, ``run-with-env.sh``, Claude Code).
 
     Args:
-        cwd: Working directory used for git-remote detection (fallback tier).
+        cwd: Working directory used for marker lookup and git-remote detection.
         explicit: Caller-supplied id (e.g. a ``--group-id`` flag) that overrides
-            env and cwd. Empty/whitespace is treated as unset.
+            env, marker, and cwd. Empty/whitespace is treated as unset.
 
     Returns:
         Normalized project identifier suitable for ``group_id`` filtering.
 
     Raises:
-        ValueError: If no explicit id, no ``AI_MEMORY_PROJECT_ID``, and no git
-            remote resolve (delegated to :func:`detect_project`).
+        ValueError: If no explicit id, no ``AI_MEMORY_PROJECT_ID``, no marker file,
+            and no git remote resolve (delegated to :func:`detect_project`).
     """
     if explicit and explicit.strip():
         return normalize_org_repo_slug(explicit) or normalize_project_name(explicit)
-    # env (normalized) and cwd/git and fail-loud are all handled by detect_project,
-    # which is env-first internally. Surface an env!=cwd disagreement first.
-    _warn_on_env_cwd_mismatch(cwd)
+
+    env_project = os.getenv("AI_MEMORY_PROJECT_ID")
+    if env_project and env_project.strip():
+        # Surface an env!=cwd disagreement; prefer the per-invocation env signal.
+        _warn_on_env_cwd_mismatch(cwd)
+        return normalize_org_repo_slug(env_project) or normalize_project_name(
+            env_project
+        )
+
+    marker_id = _read_project_marker(cwd)
+    if marker_id:
+        return marker_id
+
+    # git-remote slug / edge sentinels / fail-loud (env already handled above).
     return detect_project(cwd)

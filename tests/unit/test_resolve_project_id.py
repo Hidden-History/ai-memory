@@ -69,6 +69,53 @@ class TestPrecedence:
         assert resolve_project_id(str(tmp_path), explicit="   ") == "env-project"
 
 
+def _write_marker(path: Path, body: str) -> None:
+    (path / ".ai-memory-project").write_text(body, encoding="utf-8")
+
+
+class TestMarkerFile:
+    """The committed .ai-memory-project marker sits between env and git-remote."""
+
+    def test_marker_resolves_when_no_env(self, tmp_path):
+        _write_marker(tmp_path, "Acme/Widget\n")
+        assert resolve_project_id(str(tmp_path)) == "acme/widget"
+
+    def test_marker_beats_cwd_git_remote(self, tmp_path):
+        # Marker is a more specific per-workspace declaration than the git slug.
+        _make_git_repo(tmp_path, "https://github.com/other/git-repo.git")
+        _write_marker(tmp_path, "declared/marker\n")
+        assert resolve_project_id(str(tmp_path)) == "declared/marker"
+
+    def test_env_overrides_marker(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "env-wins")
+        _write_marker(tmp_path, "marker-loses\n")
+        assert resolve_project_id(str(tmp_path)) == "env-wins"
+
+    def test_explicit_overrides_marker(self, tmp_path):
+        _write_marker(tmp_path, "marker-loses\n")
+        assert (
+            resolve_project_id(str(tmp_path), explicit="Explicit/Win") == "explicit/win"
+        )
+
+    def test_marker_found_by_walking_up(self, tmp_path):
+        _write_marker(tmp_path, "root-marker\n")
+        sub = tmp_path / "a" / "b" / "c"
+        sub.mkdir(parents=True)
+        assert resolve_project_id(str(sub)) == "root-marker"
+
+    def test_comment_and_blank_lines_ignored(self, tmp_path):
+        _write_marker(tmp_path, "# this workspace's project id\n\nteam/service\n")
+        assert resolve_project_id(str(tmp_path)) == "team/service"
+
+    def test_comment_only_marker_falls_through(self, tmp_path):
+        # A marker with no id line is not a declaration → fall through to fail-loud.
+        plain = tmp_path / "plain"
+        plain.mkdir()
+        _write_marker(plain, "# nothing declared here\n")
+        with pytest.raises(ValueError, match="project detection failed"):
+            resolve_project_id(str(plain))
+
+
 class TestFailLoud:
     def test_no_env_no_git_raises(self, tmp_path):
         plain = tmp_path / "plain"

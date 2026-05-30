@@ -20,6 +20,7 @@ Case coverage (DONE-WHEN):
      (TestWrapperNonClobber): caller A beats install B; install-global never injected.
   5. FAIL-LOUD — no env, non-git cwd → friendly error, nothing written.
   6. REALISTIC-SIZE — case 1 uses a full multi-section handoff document.
+  7. MARKER TIER — a .ai-memory-project marker scopes the write; env overrides it.
 """
 
 from __future__ import annotations
@@ -291,3 +292,52 @@ def test_fail_loud_writes_nothing(mem_env, save_module, monkeypatch, tmp_path):
     assert all(
         marker not in p.payload.get("content", "") for p in all_points
     ), "fail-loud path still wrote a point under a guessed id"
+
+
+@pytest.mark.integration
+def test_marker_file_scopes_workspace(mem_env, save_module, monkeypatch, tmp_path):
+    """Marker tier: a .ai-memory-project marker scopes the save; env still overrides it."""
+    ws = tmp_path / "marked_ws"
+    ws.mkdir()
+    (ws / ".ai-memory-project").write_text(
+        "# workspace project\nproj-marker\n", encoding="utf-8"
+    )
+
+    # No env -> the marker scopes the write.
+    assert (
+        _save(
+            save_module,
+            monkeypatch,
+            tmp_path,
+            content="Handoff scoped by marker MARKER-markerscopealpha",
+            env_project=None,
+            cwd=ws,
+        )
+        == 0
+    )
+    assert any(
+        "markerscopealpha" in p.payload.get("content", "")
+        for p in _scroll_group(mem_env.client, "proj-marker")
+    )
+    assert _search(mem_env.cfg, "proj-other") == []
+
+    # A live env override beats the marker.
+    assert (
+        _save(
+            save_module,
+            monkeypatch,
+            tmp_path,
+            content="Handoff via env override MARKER-envoverridebeta",
+            env_project="proj-env",
+            cwd=ws,
+        )
+        == 0
+    )
+    assert any(
+        "envoverridebeta" in p.payload.get("content", "")
+        for p in _scroll_group(mem_env.client, "proj-env")
+    )
+    assert _scroll_group(mem_env.client, "proj-marker") and all(
+        "envoverridebeta" not in p.payload.get("content", "")
+        for p in _scroll_group(mem_env.client, "proj-marker")
+    ), "env override leaked into the marker-scoped project"

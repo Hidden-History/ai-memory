@@ -209,6 +209,39 @@ export AI_MEMORY_PROJECT_ID=my-awesome-project
 
 ---
 
+#### `.ai-memory-project` marker file (per-workspace project identity)
+
+**Purpose:** Declare a workspace's project id in a committed file so every save and
+search from that workspace resolves to the same project — in **every** invocation
+context (a terminal-run script, the `run-with-env.sh` wrapper, or Claude Code).
+A `.claude/settings.json` `env` only reaches Claude-Code-launched processes, so it
+cannot scope a save script you run from a terminal; the marker file can.
+
+**When to use:** One shared install (`~/.ai-memory`) serving **multiple project
+workspaces**. Drop a `.ai-memory-project` in each workspace root. Without it, a
+shared install's global project id can bleed across workspaces (BUG-314).
+
+**Format:** A single line containing the project id (the normalized `group_id`,
+e.g. `owner/repo` or `my-project`). Blank lines and `#` comment lines are ignored.
+
+```text
+# This workspace's AI Memory project id
+hidden-history/ai-memory
+```
+
+**Resolution precedence** (most specific wins; never guesses — fails loud if none):
+
+1. an explicit `--group-id` / direct argument
+2. the `AI_MEMORY_PROJECT_ID` environment variable (live per-invocation override)
+3. the `.ai-memory-project` marker file (searched from the cwd up to the workspace root)
+4. the git-remote `owner/repo` slug
+5. otherwise a loud error — no silent default
+
+The marker sits **between** the env override and git detection: a committed
+per-workspace declaration that beats the git remote but yields to a live `env` override.
+
+---
+
 #### AI_MEMORY_LOG_LEVEL
 **Purpose:** Logging verbosity
 

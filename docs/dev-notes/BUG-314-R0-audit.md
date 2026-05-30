@@ -9,10 +9,17 @@ install-global `AI_MEMORY_PROJECT_ID`** (the confused-deputy injection at the ro
 ## Canonical contract (target)
 
 `resolve_project_id(cwd=None, *, explicit=None)` — precedence: `explicit` → `AI_MEMORY_PROJECT_ID`
-env → `detect_project(cwd)` (git-remote slug / edge sentinels) → fail-loud `ValueError`. It is a
-thin shim over the already-env-first `detect_project`; it adds the explicit-arg tier and a
-non-fatal warning when the env id disagrees with the cwd-derived id (OQ-1: warn + prefer the
-explicit per-invocation signal; fail-loud only when nothing resolves).
+env → `.ai-memory-project` marker file (cwd, walking up) → `detect_project(cwd)` (git-remote slug /
+edge sentinels) → fail-loud `ValueError`. It adds the explicit-arg tier and the per-workspace
+marker-file tier on top of the already-env-first `detect_project`, plus a non-fatal warning when the
+env id disagrees with the cwd-derived id (OQ-1: warn + prefer the explicit per-invocation signal;
+fail-loud only when nothing resolves).
+
+Per-workspace identity (OQ-3): resolved via a committed `.ai-memory-project` marker file (BP-166
+OQ-3 alternative), **not** `.claude/settings.json` — the repo gitignores settings.json under #38
+(may hold secrets), and settings.json `env` only reaches Claude-Code-launched processes, whereas the
+marker works for terminal- and `run-with-env.sh`-invoked operator scripts too. Decision logged by
+team-lead, superseding DEC-PM314-D2's settings.json choice.
 
 `detect_project()` is already env-first internally, so any site calling `detect_project(cwd)`
 already honors the env; routing it through `resolve_project_id` adds the explicit tier + mismatch
