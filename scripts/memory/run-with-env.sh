@@ -41,9 +41,18 @@ load_env_var() {
 }
 
 # Load environment variables from docker/.env.secrets (secrets-first) and docker/.env (fallback)
+#
+# BUG-314 (scoped Part D): AI_MEMORY_PROJECT_ID is deliberately NOT loaded here.
+# The install-global value in docker/.env is a *service* default (for the long-
+# running Docker services, which consume it via compose env_file and have no cwd).
+# Injecting it into *operator* scripts run from a different workspace is a confused-
+# deputy bug: it overrode the workspace's own project, mis-filing memory under the
+# install-global group_id. Operator scripts now resolve per-workspace via
+# resolve_project_id (caller-set AI_MEMORY_PROJECT_ID -> cwd/git slug -> fail-loud).
+# A caller-exported AI_MEMORY_PROJECT_ID (e.g. from a workspace .claude/settings.json)
+# is preserved untouched. Only secrets/connectivity config is loaded below.
 if [ -f "$ENV_FILE" ] || [ -f "$SECRETS_FILE" ]; then
     load_env_var "QDRANT_API_KEY"
-    load_env_var "AI_MEMORY_PROJECT_ID"
     load_env_var "GITHUB_REPO"
     load_env_var "GITHUB_BRANCH"
     load_env_var "GITHUB_TOKEN"
