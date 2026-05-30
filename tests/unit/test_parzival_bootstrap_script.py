@@ -42,7 +42,9 @@ def test_bootstrap_script_routes_through_shared_resolver():
 
 
 def _load_bootstrap_module():
-    spec = importlib.util.spec_from_file_location("_bootstrap_under_test", _BOOTSTRAP_PY)
+    spec = importlib.util.spec_from_file_location(
+        "_bootstrap_under_test", _BOOTSTRAP_PY
+    )
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

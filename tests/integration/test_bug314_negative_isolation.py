@@ -177,8 +177,12 @@ def test_write_a_not_visible_to_b(mem_env, save_module, monkeypatch, tmp_path):
     content = _REALISTIC_HANDOFF + f"\n\nMARKER-{marker}\n"
 
     rc = _save(
-        save_module, monkeypatch, tmp_path,
-        content=content, env_project="proj-a", cwd=nongit,
+        save_module,
+        monkeypatch,
+        tmp_path,
+        content=content,
+        env_project="proj-a",
+        cwd=nongit,
     )
     assert rc == 0
 
@@ -188,13 +192,13 @@ def test_write_a_not_visible_to_b(mem_env, save_module, monkeypatch, tmp_path):
     # Realistic doc is chunked into multiple vectors; the marker lands in one
     # chunk. Scroll returns ALL of A's points, so this is a reliable positive
     # control (semantic top-k ranking over identical stub vectors is arbitrary).
-    assert any(marker in p.payload.get("content", "") for p in a_points), (
-        "A's own write is not retrievable under project A"
-    )
+    assert any(
+        marker in p.payload.get("content", "") for p in a_points
+    ), "A's own write is not retrievable under project A"
 
-    assert _search(mem_env.cfg, "proj-b") == [], (
-        "ISOLATION VIOLATION: project B saw project A's write"
-    )
+    assert (
+        _search(mem_env.cfg, "proj-b") == []
+    ), "ISOLATION VIOLATION: project B saw project A's write"
     assert _search(mem_env.cfg, "proj-a"), "A cannot read its own project via search"
 
 
@@ -206,20 +210,34 @@ def test_read_b_excludes_a(mem_env, save_module, monkeypatch, tmp_path):
     ws_b.mkdir()
     a_marker, b_marker = "markeraaaaalpha", "markerbbbbbeta"
 
-    assert _save(
-        save_module, monkeypatch, tmp_path,
-        content=f"Handoff A only MARKER-{a_marker}", env_project="proj-a", cwd=ws_a,
-    ) == 0
-    assert _save(
-        save_module, monkeypatch, tmp_path,
-        content=f"Handoff B only MARKER-{b_marker}", env_project="proj-b", cwd=ws_b,
-    ) == 0
+    assert (
+        _save(
+            save_module,
+            monkeypatch,
+            tmp_path,
+            content=f"Handoff A only MARKER-{a_marker}",
+            env_project="proj-a",
+            cwd=ws_a,
+        )
+        == 0
+    )
+    assert (
+        _save(
+            save_module,
+            monkeypatch,
+            tmp_path,
+            content=f"Handoff B only MARKER-{b_marker}",
+            env_project="proj-b",
+            cwd=ws_b,
+        )
+        == 0
+    )
 
     b_results = _search(mem_env.cfg, "proj-b")
     assert any(b_marker in r.get("content", "") for r in b_results)
-    assert all(a_marker not in r.get("content", "") for r in b_results), (
-        "ISOLATION VIOLATION: a B-scoped read returned project A content"
-    )
+    assert all(
+        a_marker not in r.get("content", "") for r in b_results
+    ), "ISOLATION VIOLATION: a B-scoped read returned project A content"
     assert all(r.get("group_id") == "proj-b" for r in b_results if r.get("group_id"))
 
 
@@ -232,8 +250,12 @@ def test_mismatch_env_a_cwd_b_prefers_env(mem_env, save_module, monkeypatch, tmp
     marker = "mismatchmarkergamma"
 
     rc = _save(
-        save_module, monkeypatch, tmp_path,
-        content=f"Mismatch handoff MARKER-{marker}", env_project="proj-a", cwd=cwd_b,
+        save_module,
+        monkeypatch,
+        tmp_path,
+        content=f"Mismatch handoff MARKER-{marker}",
+        env_project="proj-a",
+        cwd=cwd_b,
     )
     assert rc == 0
 
@@ -254,14 +276,18 @@ def test_fail_loud_writes_nothing(mem_env, save_module, monkeypatch, tmp_path):
     marker = "failloudmarkerdelta"
 
     rc = _save(
-        save_module, monkeypatch, tmp_path,
-        content=f"Should not persist MARKER-{marker}", env_project=None, cwd=nongit,
+        save_module,
+        monkeypatch,
+        tmp_path,
+        content=f"Should not persist MARKER-{marker}",
+        env_project=None,
+        cwd=nongit,
     )
     assert rc == 0  # handoff save degrades gracefully (file is the primary record)
 
     all_points, _ = mem_env.client.scroll(
         collection_name=COLLECTION_DISCUSSIONS, limit=1000, with_payload=True
     )
-    assert all(marker not in p.payload.get("content", "") for p in all_points), (
-        "fail-loud path still wrote a point under a guessed id"
-    )
+    assert all(
+        marker not in p.payload.get("content", "") for p in all_points
+    ), "fail-loud path still wrote a point under a guessed id"
