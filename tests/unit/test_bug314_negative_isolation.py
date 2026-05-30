@@ -12,10 +12,17 @@ What is real vs stubbed (per BP-166 Q4):
 - STUBBED: only the external embedding service (a deterministic unit vector), which
   is irrelevant to the tenant-isolation logic under test.
 
+This DEC-PM314-D2 tenant-isolation regression needs NO Docker (``:memory:`` engine),
+so it lives in the always-on unit lane (``tests/unit``) — keeping it under the
+``integration`` marker would have excluded it from both the default unit run and the
+release gate (both run ``--ignore=tests/integration``).
+
 Case coverage (DONE-WHEN):
   1. WRITE A↛B  — save scoped A; B-scoped search finds nothing; stored group_id == A.
-  2. READ  B↛A — seed A and B; B-scoped search returns zero A-results.
-  3. MISMATCH env=A / cwd=B(git) — resolver picks env A deterministically; no cross.
+  2. READ  B↛A — seed A and B; resolve B on the READ path (not a hardcoded id) and
+     prove that B-resolved search returns zero A-results.
+  3. MISMATCH env=A / cwd=B(git) — resolver picks env A deterministically; the
+     cwd-git-resolved B id sees nothing the env-A write produced.
   4. WRAPPER non-clobber — covered in tests/unit/test_resolve_project_id.py
      (TestWrapperNonClobber): caller A beats install B; install-global never injected.
   5. FAIL-LOUD — no env, non-git cwd → friendly error, nothing written.
@@ -134,6 +141,24 @@ def _search(cfg, group_id: str) -> list[dict]:
     )
 
 
+def _resolve_read_scope(monkeypatch, *, env_project=None, cwd=None) -> str:
+    """Resolve the READ-path group_id exactly as production does.
+
+    The negative-isolation guarantee (BP-166 Q4 Case 2) requires proving the id
+    fed into the search floor is produced by the RESOLVER on the read path — not a
+    hardcoded literal. This sets the same scope inputs a reader would have (env
+    and/or cwd) and returns ``resolve_project_id``'s answer, which the caller then
+    feeds into :func:`_search`.
+    """
+    from memory.project import resolve_project_id
+
+    if env_project is None:
+        monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
+    else:
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", env_project)
+    return resolve_project_id(cwd)
+
+
 def _scroll_group(client: QdrantClient, group_id: str) -> list:
     pts, _ = client.scroll(
         collection_name=COLLECTION_DISCUSSIONS,
@@ -169,7 +194,6 @@ _REALISTIC_HANDOFF = (
 )
 
 
-@pytest.mark.integration
 def test_write_a_not_visible_to_b(mem_env, save_module, monkeypatch, tmp_path):
     """Case 1 + 6: realistic-size save scoped A; B sees nothing; stored group_id == A."""
     nongit = tmp_path / "ws_a"
@@ -203,9 +227,8 @@ def test_write_a_not_visible_to_b(mem_env, save_module, monkeypatch, tmp_path):
     assert _search(mem_env.cfg, "proj-a"), "A cannot read its own project via search"
 
 
-@pytest.mark.integration
 def test_read_b_excludes_a(mem_env, save_module, monkeypatch, tmp_path):
-    """Case 2: seed A and B; a B-scoped production search returns zero A-results."""
+    """Case 2: seed A and B; the RESOLVED B read scope returns zero A-results."""
     ws_a, ws_b = tmp_path / "a", tmp_path / "b"
     ws_a.mkdir()
     ws_b.mkdir()
@@ -234,7 +257,14 @@ def test_read_b_excludes_a(mem_env, save_module, monkeypatch, tmp_path):
         == 0
     )
 
-    b_results = _search(mem_env.cfg, "proj-b")
+    # Derive the read scope through the production resolver (env=proj-b), proving
+    # the id fed into the search floor is what the RESOLVER produces — not a
+    # hardcoded literal (BP-166 Q4 Case 2).
+    read_scope = _resolve_read_scope(monkeypatch, env_project="proj-b", cwd=str(ws_b))
+    assert read_scope == "proj-b", "resolver did not produce B on the read path"
+
+    b_results = _search(mem_env.cfg, read_scope)
+    # Positive control keeps the zero-result assertion non-vacuous.
     assert any(b_marker in r.get("content", "") for r in b_results)
     assert all(
         a_marker not in r.get("content", "") for r in b_results
@@ -242,7 +272,6 @@ def test_read_b_excludes_a(mem_env, save_module, monkeypatch, tmp_path):
     assert all(r.get("group_id") == "proj-b" for r in b_results if r.get("group_id"))
 
 
-@pytest.mark.integration
 def test_mismatch_env_a_cwd_b_prefers_env(mem_env, save_module, monkeypatch, tmp_path):
     """Case 3: env=A while cwd resolves (git) to B → resolver picks A; nothing crosses."""
     cwd_b = tmp_path / "checkout_b"
@@ -265,11 +294,16 @@ def test_mismatch_env_a_cwd_b_prefers_env(mem_env, save_module, monkeypatch, tmp
         marker in p.payload.get("content", "")
         for p in _scroll_group(mem_env.client, "proj-a")
     )
-    assert _scroll_group(mem_env.client, "acme/project-b") == []
-    assert _search(mem_env.cfg, "acme/project-b") == []
+
+    # A reader in cwd B with no env override resolves to the cwd git slug; derive
+    # that id through the resolver (not a hardcoded literal) and prove the env-A
+    # write is invisible to it.
+    cwd_b_scope = _resolve_read_scope(monkeypatch, env_project=None, cwd=str(cwd_b))
+    assert cwd_b_scope == "acme/project-b", "resolver did not produce B from cwd git"
+    assert _scroll_group(mem_env.client, cwd_b_scope) == []
+    assert _search(mem_env.cfg, cwd_b_scope) == []
 
 
-@pytest.mark.integration
 def test_fail_loud_writes_nothing(mem_env, save_module, monkeypatch, tmp_path):
     """Case 5: no env + non-git cwd → friendly fail-loud, nothing written."""
     nongit = tmp_path / "orphan"
@@ -294,7 +328,6 @@ def test_fail_loud_writes_nothing(mem_env, save_module, monkeypatch, tmp_path):
     ), "fail-loud path still wrote a point under a guessed id"
 
 
-@pytest.mark.integration
 def test_marker_file_scopes_workspace(mem_env, save_module, monkeypatch, tmp_path):
     """Marker tier: a .ai-memory-project marker scopes the save; env still overrides it."""
     ws = tmp_path / "marked_ws"
