@@ -825,6 +825,7 @@ def select_results_greedy(
     *,
     tier: int = 1,
     return_meta: bool = False,
+    freshness_blocked_ids: set[str] | None = None,
 ) -> tuple[list[dict], int] | tuple[list[dict], int, dict]:
     """Select results using greedy fill until budget exhausted.
 
@@ -845,6 +846,12 @@ def select_results_greedy(
             {fallback_signaled, rejects, budget, tokens_used}. BP-158 P2
             typed-sentinel pattern: fallback_signaled is True iff any
             budget-rejected result was of type "agent_handoff".
+        freshness_blocked_ids: Optional set of point IDs (as strings) that the
+            tier-2 caller drove to score 0.0 via the freshness penalty. When a
+            score-gap drop fires for such an ID, the reject is attributed to the
+            "freshness_block" reason instead of "score_gap" (PLAN-028 P2-2 R2).
+            Observe-only: this changes only the reject reason label, never which
+            results are selected.
 
     Returns:
         Tuple of (selected_results, total_tokens_used) when return_meta=False,
@@ -852,14 +859,24 @@ def select_results_greedy(
     """
     _trace_start = datetime.now(tz=timezone.utc)
     excluded = set(excluded_ids or [])
+    freshness_blocked = set(freshness_blocked_ids or [])
     selected = []
     _selected_token_counts: list[int] = []
     tokens_used = 0
     _dedup_skipped = 0
     _score_gap_skipped = 0
+    _freshness_block_skipped = 0
 
     # BP-158 P1: per-reject record accumulator for the typed-sentinel meta.
     rejects: list[dict] = []
+    # Reject-counter accumulator keyed by (reason, collection). The Prometheus
+    # reject counter is pushed ONCE per distinct pair after the loop (via the
+    # count= param) instead of forking a subprocess per drop — the
+    # already_injected skip is high-volume on the UserPromptSubmit hot path
+    # (excluded_ids grows each turn), so per-drop forking would storm the
+    # NFR-P1 budget. Counter totals are identical: count per pair == number of
+    # drops for that pair. The per-drop rejects[] records above are unaffected.
+    reject_counts: dict[tuple[str, str], int] = {}
     tier_label = "1_bootstrap" if tier == 1 else "2_injection"
     fallback_signaled = False
 
@@ -909,16 +926,11 @@ def select_results_greedy(
                     "tokens_used": tokens_used,
                 },
             )
-        try:
-            from memory.metrics_push import push_retrieval_reject_metric_async
-
-            push_retrieval_reject_metric_async(
-                reason=reason,
-                tier=tier_label,
-                collection=collection_label,
-            )
-        except Exception:
-            pass
+        # Accumulate the counter; the aggregated push happens once per
+        # (reason, collection) pair after the loop (see reject_counts above).
+        reject_counts[(reason, collection_label)] = (
+            reject_counts.get((reason, collection_label), 0) + 1
+        )
 
     # BUG-172: Content-hash deduplication for cross-type duplicates
     seen_hashes: set[str] = set()
@@ -934,10 +946,16 @@ def select_results_greedy(
 
         # Skip already-injected points
         if point_id in excluded:
+            # PLAN-028 P2-2 (R1): record the cross-turn dedup skip so it is
+            # attributable in the noise histogram. Behavior unchanged (continue).
+            _record_reject(result, "already_injected")
             continue
 
         content = result.get("content", "")
         if not content.strip():
+            # PLAN-028 P2-2 (R1): record the empty-content skip so it is
+            # attributable in the noise histogram. Behavior unchanged (continue).
+            _record_reject(result, "empty_content")
             continue
 
         # BUG-172: Skip duplicate content (same text stored under different types)
@@ -958,8 +976,20 @@ def select_results_greedy(
         # post-penalty scores drive both gating and this selection. Do NOT add penalty logic here.
         result_score = result.get("score", 0)
         if best_score > 0 and result_score < best_score * score_gap_threshold:
-            _score_gap_skipped += 1
-            _record_reject(result, "score_gap")
+            # PLAN-028 P2-2 (R2): a code-patterns candidate driven to score 0.0
+            # by the tier-2 freshness penalty is dropped here as a score gap.
+            # Relabel it `freshness_block` so it is attributable in the noise
+            # histogram rather than silently absorbed into score_gap. Selection
+            # is unchanged — only the reject reason label differs (observe-only).
+            # The two skip counters are tracked separately so each trace field
+            # stays semantically accurate (score_gap_skipped is pure score_gap).
+            if point_id in freshness_blocked:
+                _gap_reason = "freshness_block"
+                _freshness_block_skipped += 1
+            else:
+                _gap_reason = "score_gap"
+                _score_gap_skipped += 1
+            _record_reject(result, _gap_reason)
             continue
 
         # Count tokens accurately
@@ -978,6 +1008,23 @@ def select_results_greedy(
             # when an agent_handoff is the rejected result.
             _record_reject(result, "budget_exceeded", result_tokens=result_tokens)
             continue
+
+    # Aggregated reject-counter push: one fork per distinct (reason, collection)
+    # pair instead of one per drop. Counter totals are preserved exactly —
+    # count= carries the per-pair drop tally. Fire-and-forget; never raises.
+    if reject_counts:
+        try:
+            from memory.metrics_push import push_retrieval_reject_metric_async
+
+            for (reason, collection_label), count in reject_counts.items():
+                push_retrieval_reject_metric_async(
+                    reason=reason,
+                    tier=tier_label,
+                    collection=collection_label,
+                    count=count,
+                )
+        except Exception:
+            pass
 
     # SPEC-021: Emit greedy fill trace event
     if emit_trace_event:
@@ -1006,6 +1053,7 @@ def select_results_greedy(
                         "excluded_count": len(excluded),
                         "dedup_skipped": _dedup_skipped,
                         "score_gap_skipped": _score_gap_skipped,
+                        "freshness_block_skipped": _freshness_block_skipped,
                         "gap_threshold": score_gap_threshold,
                         "selected_detail": [
                             {
@@ -1121,6 +1169,8 @@ def log_injection_event(
     collections_searched: list[str] | None = None,
     gap_threshold: float = 0.7,
     gating_mode: str = "full",
+    rejects: list[dict] | None = None,
+    fallback_signaled: bool = False,
 ) -> None:
     """Log injection event to .audit/logs/injection-log.jsonl.
 
@@ -1144,6 +1194,13 @@ def log_injection_event(
         collections_searched: Collections that were queried
         gap_threshold: Score gap threshold used for greedy fill filtering
         gating_mode: Confidence gating path taken ("skip", "soft", or "full")
+        rejects: Per-drop reject records from select_results_greedy /
+            retrieve_bootstrap_context (each ``{type, tokens, score, reason,
+            tier, collection}``). Persisted to the audit entry as the empirical
+            per-drop "noise" history (PLAN-028 P2-2 R3). Defaults to an empty
+            list — backward-compatible with callers that omit it.
+        fallback_signaled: True iff a handoff-class result was budget/ceiling
+            rejected (BP-158 P2). Persisted for audit. Defaults to False.
     """
     log_path = Path(audit_dir) / "logs" / "injection-log.jsonl"
 
@@ -1164,6 +1221,8 @@ def log_injection_event(
         "collections_searched": collections_searched or [],
         "gap_threshold": round(gap_threshold, 4),
         "gating_mode": gating_mode,
+        "rejects": rejects or [],
+        "fallback_signaled": fallback_signaled,
     }
 
     try:
