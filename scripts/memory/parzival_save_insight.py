@@ -18,9 +18,15 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
+_LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
+
 from memory.config import get_config
 from memory.metrics_push import push_skill_metrics_async
 from memory.storage import MemoryStorage
+
+from parzival_save_common import emit_trace, store_with_metrics
 
 TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other value)
 
@@ -59,12 +65,12 @@ def main() -> int:
 
     storage = MemoryStorage(config)
     try:
-        result = storage.store_agent_memory(
+        result = store_with_metrics(
+            storage=storage,
             content=insight,
             memory_type="agent_insight",
-            agent_id="parzival",
-            cwd=os.getcwd(),
             group_id=group_id,
+            agent_id="parzival",
         )
     except Exception as exc:
         print(f"Failed to save insight: {exc}")
@@ -88,21 +94,14 @@ def main() -> int:
         "parzival-save-insight", metric_status, time.perf_counter() - start_time
     )
 
-    try:
-        from memory.trace_buffer import emit_trace_event
-
-        emit_trace_event(
-            event_type="skill_execution",
-            data={
-                "input": "Skill: parzival-save-insight"[:TRACE_CONTENT_MAX],
-                "output": "Result: completed"[:TRACE_CONTENT_MAX],
-                "metadata": {"skill_name": "parzival-save-insight"},
-            },
-            session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
-            tags=["skill"],
-        )
-    except Exception:
-        pass
+    emit_trace(
+        session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),
+        data={
+            "input": "Skill: parzival-save-insight"[:TRACE_CONTENT_MAX],
+            "output": "Result: completed"[:TRACE_CONTENT_MAX],
+            "metadata": {"skill_name": "parzival-save-insight"},
+        },
+    )
 
     return 0 if status in ("stored", "duplicate") else 1
 
