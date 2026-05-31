@@ -34,10 +34,17 @@ def _isolate_observability(monkeypatch):
     effect (already covered by BP-158 tests) and is only silenced here.
     """
     monkeypatch.setattr("memory.injection.emit_trace_event", None, raising=False)
+    # Body-local import + object setattr: the autouse conftest
+    # reset_metrics_registry fixture pops memory.metrics* from sys.modules each
+    # test, so a module instance captured at file-import time is stale. Importing
+    # here (post-pop) re-caches the instance that the code's call-time
+    # `from memory.metrics_push import ...` resolves to, so the patch sticks.
+    import memory.metrics_push as _mpush
+
     monkeypatch.setattr(
-        "memory.metrics_push.push_retrieval_reject_metric_async",
+        _mpush,
+        "push_retrieval_reject_metric_async",
         lambda *a, **k: None,
-        raising=True,
     )
 
 
@@ -137,6 +144,107 @@ def test_freshness_block_is_observe_only_selection_identical():
 
     assert [r["id"] for r in sel_without] == [r["id"] for r in sel_with]
     assert tok_without == tok_with
+
+
+# --------------------------------------------------------------------------- #
+# Reject-counter push is aggregated, not forked per-drop                        #
+# --------------------------------------------------------------------------- #
+
+
+def test_reject_counter_push_is_aggregated_with_count(monkeypatch):
+    """Many same-(reason, collection) drops emit ONE push carrying count=N.
+
+    Guards against the per-drop subprocess-fork storm: the already_injected
+    skip is high-volume on the UserPromptSubmit hot path, so the counter push
+    must be aggregated. The per-drop rejects[] records stay one-per-drop.
+    """
+    import memory.metrics_push as _mpush
+
+    calls = []
+    monkeypatch.setattr(
+        _mpush,
+        "push_retrieval_reject_metric_async",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    results = [_result(str(i), f"content number {i}", 0.9) for i in range(5)]
+    excluded = [str(i) for i in range(5)]
+    selected, _tokens, meta = select_results_greedy(
+        results,
+        budget=10_000,
+        excluded_ids=excluded,
+        return_meta=True,
+    )
+
+    # Selection unchanged: every candidate was already injected -> none selected.
+    assert selected == []
+    # Per-drop audit records remain one-per-drop (these feed the histogram).
+    assert [r["reason"] for r in meta["rejects"]] == ["already_injected"] * 5
+    # The counter push is aggregated: ONE call for the single
+    # (already_injected, discussions) pair, carrying count=5 — not five forks.
+    assert len(calls) == 1
+    assert calls[0]["reason"] == "already_injected"
+    assert calls[0]["collection"] == "discussions"
+    assert calls[0]["count"] == 5
+
+
+def test_reject_counter_push_bounded_by_distinct_pairs(monkeypatch):
+    """Push count is bounded by distinct (reason, collection) pairs, not drops."""
+    import memory.metrics_push as _mpush
+
+    calls = []
+    monkeypatch.setattr(
+        _mpush,
+        "push_retrieval_reject_metric_async",
+        lambda **kwargs: calls.append(kwargs),
+    )
+
+    # 3 already_injected + 2 score_gap drops = 5 drops, but only 2 distinct pairs.
+    results = [
+        _result("hi", "high score anchor content", 0.9),
+        _result("x1", "excluded one", 0.9),
+        _result("x2", "excluded two", 0.9),
+        _result("x3", "excluded three", 0.9),
+        _result("g1", "low gap one", 0.1),
+        _result("g2", "low gap two", 0.1),
+    ]
+    selected, _tokens, _meta = select_results_greedy(
+        results,
+        budget=10_000,
+        excluded_ids=["x1", "x2", "x3"],
+        return_meta=True,
+    )
+
+    assert [r["id"] for r in selected] == ["hi"]
+    # Bounded by DISTINCT pairs (2), not by the 5 drops.
+    assert len(calls) == 2
+    by_reason = {c["reason"]: c["count"] for c in calls}
+    assert by_reason == {"already_injected": 3, "score_gap": 2}
+
+
+# --------------------------------------------------------------------------- #
+# Precedence: already_injected wins over freshness_block                        #
+# --------------------------------------------------------------------------- #
+
+
+def test_already_injected_takes_precedence_over_freshness_block():
+    """A result that is BOTH freshness-blocked AND already-injected is recorded
+    under already_injected — the earlier loop branch wins (locked precedence)."""
+    results = [
+        _result("hi", "high score content", 0.9, "code_pattern", "code-patterns"),
+        _result("both", "blocked and injected", 0.0, "code_pattern", "code-patterns"),
+    ]
+    selected, _tokens, meta = select_results_greedy(
+        results,
+        budget=10_000,
+        excluded_ids=["both"],
+        return_meta=True,
+        freshness_blocked_ids={"both"},
+    )
+
+    # 'hi' selected; 'both' dropped once, attributed to already_injected only.
+    assert [r["id"] for r in selected] == ["hi"]
+    assert [r["reason"] for r in meta["rejects"]] == ["already_injected"]
 
 
 def test_return_meta_false_is_backward_compatible():

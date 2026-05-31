@@ -316,8 +316,12 @@ def main() -> int:
                 _freshness_blocked_count += 1
                 # PLAN-028 P2-2 (R2): remember which candidates the freshness
                 # penalty fully blocked so the downstream greedy score-gap drop
-                # is attributed to `freshness_block` (observe-only).
-                _freshness_blocked_ids.add(str(_r.get("id", "")))
+                # is attributed to `freshness_block` (observe-only). Guard on a
+                # non-empty id so a missing-id result never adds "" — that
+                # sentinel would mislabel another no-id result downstream.
+                _blocked_id = str(_r.get("id", ""))
+                if _blocked_id:
+                    _freshness_blocked_ids.add(_blocked_id)
 
         # Re-sort after penalty application (penalized scores may have changed relative order)
         all_results.sort(key=lambda r: r.get("score", 0), reverse=True)
