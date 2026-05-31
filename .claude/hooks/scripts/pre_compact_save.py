@@ -57,7 +57,7 @@ from memory.activity_log import log_precompact
 from memory.config import COLLECTION_DISCUSSIONS
 from memory.embeddings import EmbeddingClient, EmbeddingError
 from memory.graceful import graceful_hook
-from memory.project import detect_project
+from memory.project import resolve_project_id
 from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.queue import queue_operation
 from memory.validation import compute_content_hash
@@ -297,9 +297,7 @@ def build_session_summary(
     # resolution with fail-loud fallback. detect_project() now raises ValueError
     # on detection failure; pre_compact_save must propagate so main() can
     # gracefully skip storage (compaction itself still proceeds).
-    project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-    if not project_name.strip():
-        project_name = detect_project(cwd)
+    project_name = resolve_project_id(cwd)
 
     # Build rich summary content optimized for post-compact context injection
     summary_parts = [

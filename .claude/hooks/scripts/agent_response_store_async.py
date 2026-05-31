@@ -58,7 +58,7 @@ from memory.config import (
     TYPE_AGENT_RESPONSE,
     get_config,
 )
-from memory.project import detect_project
+from memory.project import detect_project, resolve_project_id
 from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
 from memory.queue import queue_operation
 from memory.validation import compute_content_hash
@@ -171,20 +171,18 @@ def store_agent_response(store_data: dict[str, Any]) -> bool:
         # detection failure. W-09 violations signalled via
         # logger.error("project_resolution_failed") only; process exits 0 per
         # §1.2 Principle 4 (hooks never block Claude).
-        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not group_id.strip():
-            try:
-                group_id = detect_project(cwd)
-            except ValueError as _proj_e:
-                logger.error(
-                    "project_resolution_failed",
-                    extra={
-                        "hook": "agent_response_store_async",
-                        "error": str(_proj_e),
-                        "cwd": cwd,
-                    },
-                )
-                return
+        try:
+            group_id = resolve_project_id(cwd)
+        except ValueError as _proj_e:
+            logger.error(
+                "project_resolution_failed",
+                extra={
+                    "hook": "agent_response_store_async",
+                    "error": str(_proj_e),
+                    "cwd": cwd,
+                },
+            )
+            return
 
         # Compute content hash
         content_hash = compute_content_hash(response_text)

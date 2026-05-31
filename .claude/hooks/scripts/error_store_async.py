@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 from memory.config import COLLECTION_CODE_PATTERNS, get_config
 
 # Import project detection
-from memory.project import detect_project
+from memory.project import detect_project, resolve_project_id
 
 try:
     from qdrant_client import AsyncQdrantClient
@@ -212,20 +212,18 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
         # logger.error("project_resolution_failed") only; process exits 0 per
         # §1.2 Principle 4 (hooks never block Claude).
         cwd = error_context.get("cwd", "")
-        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not group_id.strip():
-            try:
-                group_id = detect_project(cwd)
-            except ValueError as _proj_e:
-                logger.error(
-                    "project_resolution_failed",
-                    extra={
-                        "hook": "error_store_async",
-                        "error": str(_proj_e),
-                        "cwd": cwd,
-                    },
-                )
-                return
+        try:
+            group_id = resolve_project_id(cwd)
+        except ValueError as _proj_e:
+            logger.error(
+                "project_resolution_failed",
+                extra={
+                    "hook": "error_store_async",
+                    "error": str(_proj_e),
+                    "cwd": cwd,
+                },
+            )
+            return
 
         # SPEC-021: 2_log span — content captured for processing
         if emit_trace_event:

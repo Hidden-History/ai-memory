@@ -25,7 +25,7 @@ _install_dir = os.path.expanduser("~/.ai-memory")
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 from memory.config import get_config
-from memory.project import detect_project
+from memory.project import resolve_project_id
 from memory.storage import MemoryStorage
 from memory.metrics_push import push_skill_metrics_async
 
@@ -46,15 +46,14 @@ def main():
     content = " ".join(sys.argv[1:])
 
     # PLAN-028 P1B / W-09 (DEC-PM302-D1): store_agent_memory requires explicit
-    # group_id. Resolve env-first; on detection failure raise with clear message.
-    group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-    if not group_id.strip():
-        try:
-            group_id = detect_project(os.getcwd())
-        except ValueError as _proj_e:
-            print(f"Error: Failed to resolve project scope: {_proj_e}")
-            push_skill_metrics_async("parzival-save-insight", "error", time.perf_counter() - start_time)
-            sys.exit(1)
+    # group_id. BUG-314: resolve via the shared resolver (env-first -> cwd/git
+    # -> fail-loud); on detection failure raise with clear message.
+    try:
+        group_id = resolve_project_id(os.getcwd())
+    except ValueError as _proj_e:
+        print(f"Error: Failed to resolve project scope: {_proj_e}")
+        push_skill_metrics_async("parzival-save-insight", "error", time.perf_counter() - start_time)
+        sys.exit(1)
 
     storage = MemoryStorage(config)
     try:

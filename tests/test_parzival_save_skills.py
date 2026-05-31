@@ -50,6 +50,7 @@ def _patch_memory_modules(
     storage_mod.MemoryStorage = MagicMock(return_value=mock_storage_instance)
     project_mod = types.ModuleType("memory.project")
     project_mod.detect_project = lambda _cwd: group_id
+    project_mod.resolve_project_id = lambda _cwd=None, *, explicit=None: group_id
     metrics_mod = types.ModuleType("memory.metrics_push")
     metrics_mod.push_skill_metrics_async = MagicMock()
     trace_mod = types.ModuleType("memory.trace_buffer")

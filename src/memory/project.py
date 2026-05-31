@@ -23,6 +23,20 @@ logger = logging.getLogger(__name__)
 # Constants
 MAX_PROJECT_NAME_LENGTH = 50
 
+# Per-workspace project-identity marker file (BUG-314 / BP-166 OQ-3). A committed
+# workspace-root file declaring the project id, read by resolve_project_id between
+# the env override and git-remote detection. Works in every invocation context
+# (terminal, run-with-env.sh wrapper, Claude Code) — unlike .claude/settings.json
+# env, which only reaches Claude-Code-launched processes.
+PROJECT_MARKER_FILENAME = ".ai-memory-project"
+
+# Maximum directory levels to walk upward when searching for the git root
+# (.git/config) or the .ai-memory-project marker. Both walks share this bound so
+# a marker (or git config) high in a shared tree — e.g. one dropped in $HOME — is
+# not silently inherited by every marker-less child workspace far below it
+# (BUG-314 review). Keep this constant the single source for both walk depths.
+_MAX_WALK_DEPTH = 20
+
 
 def normalize_project_name(name: str) -> str:
     """Normalize project name for consistent group_id.
@@ -182,7 +196,7 @@ def _detect_project_from_git_remote(cwd_path: Path) -> str | None:
     # Walk up the directory tree to find the git root
     search_path = cwd_path
     git_config_path: Path | None = None
-    for _ in range(20):  # limit traversal depth
+    for _ in range(_MAX_WALK_DEPTH):  # limit traversal depth
         candidate = search_path / ".git" / "config"
         if candidate.is_file():
             git_config_path = candidate
@@ -381,3 +395,139 @@ def detect_project(cwd: str | None = None) -> str:
         raise ValueError(
             f"project detection failed: path resolution error for cwd={cwd!r}: {e}"
         ) from e
+
+
+def _warn_on_env_cwd_mismatch(cwd: str | None) -> None:
+    """Warn (never raise) when the env project id disagrees with the cwd's git slug.
+
+    BUG-314 / BP-166 OQ-1: on an env != cwd disagreement we prefer the explicit
+    per-invocation env signal but surface the disagreement loudly so a stale or
+    foreign-workspace ``AI_MEMORY_PROJECT_ID`` cannot silently misfile memory. This
+    is best-effort observability only: a cwd with no resolvable git remote (the
+    normal case when the env is set) is NOT a disagreement and is silent.
+    """
+    env_project = os.getenv("AI_MEMORY_PROJECT_ID")
+    if not (env_project and env_project.strip()):
+        return
+    env_id = normalize_org_repo_slug(env_project) or normalize_project_name(env_project)
+    try:
+        cwd_path = Path(cwd or os.getcwd()).resolve(strict=False)
+        cwd_id = _detect_project_from_git_remote(cwd_path)
+    except (OSError, ValueError):
+        cwd_id = None
+    if cwd_id and cwd_id != env_id:
+        logger.warning(
+            "project_env_cwd_mismatch",
+            extra={
+                "env_project": env_id,
+                "cwd_project": cwd_id,
+                "resolved": env_id,
+                "note": "preferring per-invocation AI_MEMORY_PROJECT_ID over cwd git slug",
+            },
+        )
+
+
+def _read_project_marker(cwd: str | None) -> str | None:
+    """Read the project id from a ``.ai-memory-project`` marker file.
+
+    Walks up from ``cwd`` for at most :data:`_MAX_WALK_DEPTH` levels looking for
+    the marker (the same bound as the git-remote walk, so a marker high in a
+    shared tree is not silently inherited by distant child workspaces — BUG-314).
+    The file is a single project id; ``#`` comment lines and blank lines are
+    ignored so the file can carry a friendly header. Returns the normalized id,
+    or ``None`` if no marker is found or it has no id line.
+
+    Block-inheritance (intentional): the FIRST marker encountered while walking
+    up wins — and a marker that is present but contains only comment/blank lines
+    terminates the walk (returns ``None``) rather than continuing to an ancestor.
+    A present-but-empty marker is therefore a deliberate "stop here, do not
+    inherit a parent's id" stub; the caller then falls through to git detection /
+    fail-loud rather than borrowing a far-ancestor's project id.
+    """
+    try:
+        start = Path(cwd or os.getcwd()).resolve(strict=False)
+    except (OSError, ValueError):
+        return None
+    for directory in [start, *start.parents][:_MAX_WALK_DEPTH]:
+        marker = directory / PROJECT_MARKER_FILENAME
+        if not marker.is_file():
+            continue
+        try:
+            lines = marker.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return None
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            resolved = normalize_org_repo_slug(stripped) or normalize_project_name(
+                stripped
+            )
+            logger.debug(
+                "project_marker_used",
+                extra={"marker": str(marker), "resolved": resolved},
+            )
+            return resolved
+        return None  # marker present but comment/blank only → stop, do not inherit
+    return None
+
+
+def resolve_project_id(
+    cwd: str | None = None, *, explicit: str | None = None, warn: bool = True
+) -> str:
+    """Single source of project-scope resolution (BUG-314 / BP-166 F3).
+
+    Every read + write + wrapper entry point resolves the ``group_id`` through this
+    one helper so the precedence cannot drift per-file. It adds the explicit-arg
+    tier and the per-workspace marker-file tier on top of the env-first
+    :func:`detect_project`, and warns (non-fatally) on an env vs cwd disagreement.
+
+    Precedence (most specific wins; fail-loud if none):
+        1. ``explicit`` — CLI flag / direct caller arg (highest)
+        2. ``AI_MEMORY_PROJECT_ID`` env — per-invocation / live override
+        3. ``.ai-memory-project`` marker file — per-workspace committed declaration
+        4. ``detect_project(cwd)`` — git-remote slug / edge sentinels
+        5. raise ``ValueError`` — never guess a default
+
+    The marker sits between env and git: a per-workspace committed declaration that
+    is more specific than the git remote but yields to a live env override. It works
+    in every invocation context (terminal, ``run-with-env.sh``, Claude Code).
+
+    Args:
+        cwd: Working directory used for marker lookup and git-remote detection.
+        explicit: Caller-supplied id (e.g. a ``--group-id`` flag) that overrides
+            env, marker, and cwd. Empty/whitespace is treated as unset.
+        warn: When ``True`` (default, interactive/CLI path) an env-set resolution
+            also runs the env-vs-cwd disagreement check (:func:`_warn_on_env_cwd_mismatch`),
+            which performs a git-remote stat-walk. High-frequency capture hooks
+            (chat/post-work store), which fire on every event and target <50ms,
+            pass ``warn=False`` to skip that per-call filesystem walk. The
+            resolved id is identical either way — only the best-effort warning is
+            suppressed on the hot path.
+
+    Returns:
+        Normalized project identifier suitable for ``group_id`` filtering.
+
+    Raises:
+        ValueError: If no explicit id, no ``AI_MEMORY_PROJECT_ID``, no marker file,
+            and no git remote resolve (delegated to :func:`detect_project`).
+    """
+    if explicit and explicit.strip():
+        return normalize_org_repo_slug(explicit) or normalize_project_name(explicit)
+
+    env_project = os.getenv("AI_MEMORY_PROJECT_ID")
+    if env_project and env_project.strip():
+        # Surface an env!=cwd disagreement; prefer the per-invocation env signal.
+        # Skipped on the hot path (warn=False) to avoid a per-call git stat-walk.
+        if warn:
+            _warn_on_env_cwd_mismatch(cwd)
+        return normalize_org_repo_slug(env_project) or normalize_project_name(
+            env_project
+        )
+
+    marker_id = _read_project_marker(cwd)
+    if marker_id:
+        return marker_id
+
+    # git-remote slug / edge sentinels / fail-loud (env already handled above).
+    return detect_project(cwd)

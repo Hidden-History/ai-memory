@@ -58,7 +58,7 @@ from memory.injection import (
 )
 from memory.logging_config import StructuredFormatter
 from memory.metrics_push import push_hook_metrics_async
-from memory.project import detect_project
+from memory.project import resolve_project_id
 from memory.qdrant_client import get_qdrant_client
 from memory.search import MemorySearch
 
@@ -101,20 +101,18 @@ def main() -> int:
         # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
         # graceful exit on failure. Retrieval hooks must not crash Claude UI;
         # if project cannot be resolved, skip the injection silently.
-        project_name = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not project_name.strip():
-            try:
-                project_name = detect_project(cwd)
-            except ValueError as _proj_e:
-                logger.warning(
-                    "project_resolution_failed_skipping_injection",
-                    extra={
-                        "hook": "context_injection_tier2",
-                        "error": str(_proj_e),
-                        "cwd": cwd,
-                    },
-                )
-                return 0  # Graceful exit — no injection, no crash
+        try:
+            project_name = resolve_project_id(cwd)
+        except ValueError as _proj_e:
+            logger.warning(
+                "project_resolution_failed_skipping_injection",
+                extra={
+                    "hook": "context_injection_tier2",
+                    "error": str(_proj_e),
+                    "cwd": cwd,
+                },
+            )
+            return 0  # Graceful exit — no injection, no crash
         config = get_config()
 
         # SPEC-021: Propagate trace context so library function trace events

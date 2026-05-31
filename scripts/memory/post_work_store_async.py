@@ -136,30 +136,34 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
 
         # Get required fields from metadata
         memory_type_str = metadata.get("type")
-        # PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution. The
-        # underlying store_memory now requires non-empty group_id; if metadata
-        # didn't supply one, fall back to env var or detect_project (which
-        # raises ValueError on detection failure — propagated to caller).
-        group_id = metadata.get("group_id")
-        if not group_id or (isinstance(group_id, str) and not group_id.strip()):
-            from memory.project import detect_project as _detect_project
+        # PLAN-028 P1B / W-09 (DEC-PM302-D1) — BUG-314: resolve through the one
+        # shared resolver. The underlying store_memory requires non-empty
+        # group_id; route metadata's explicit id (when present) -> env -> cwd/git
+        # -> fail-loud (ValueError propagated to caller).
+        _meta_gid = metadata.get("group_id")
+        _meta_gid = (
+            _meta_gid if isinstance(_meta_gid, str) and _meta_gid.strip() else None
+        )
+        cwd_for_detect = metadata.get("cwd") or os.getcwd()
+        try:
+            from memory.project import resolve_project_id
 
-            group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-            if not group_id.strip():
-                cwd_for_detect = metadata.get("cwd") or os.getcwd()
-                try:
-                    group_id = _detect_project(cwd_for_detect)
-                except ValueError as _proj_e:
-                    logger.error(
-                        "project_resolution_failed",
-                        extra={
-                            "tool": "post_work_store_async",
-                            "error": str(_proj_e),
-                            "cwd": cwd_for_detect,
-                        },
-                    )
-                    # Return without storing; caller's main_async returns 1 (capture failure)
-                    raise  # re-raise so main_async catches it via the except Exception block
+            # Hot path (fires on every post-work event, <50ms target): warn=False
+            # skips the env-vs-cwd git stat-walk; resolved id is unaffected.
+            group_id = resolve_project_id(
+                cwd_for_detect, explicit=_meta_gid, warn=False
+            )
+        except ValueError as _proj_e:
+            logger.error(
+                "project_resolution_failed",
+                extra={
+                    "tool": "post_work_store_async",
+                    "error": str(_proj_e),
+                    "cwd": cwd_for_detect,
+                },
+            )
+            # Return without storing; caller's main_async returns 1 (capture failure)
+            raise  # re-raise so main_async catches it via the except Exception block
         session_id = metadata.get("session_id", "workflow")
         source_hook = metadata.get(
             "source_hook", "manual"

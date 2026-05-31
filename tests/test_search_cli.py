@@ -153,7 +153,7 @@ class TestSearchCLIExecution:
 
     @pytest.mark.skip(reason="detect_intent not yet implemented — future feature")
     @patch("search_cli.MemorySearch")
-    @patch("search_cli.detect_project")
+    @patch("search_cli.resolve_project_id")
     def test_intent_detection_routing(self, mock_detect, mock_search_class):
         """Test that --intent triggers intent detection and routes to correct collection."""
         mock_detect.return_value = "test-project"
@@ -172,7 +172,7 @@ class TestSearchCLIExecution:
                 assert args.intent == "how"
 
     @patch("search_cli.MemorySearch")
-    @patch("search_cli.detect_project")
+    @patch("search_cli.resolve_project_id")
     def test_type_filter_passed_to_search(self, mock_detect, mock_search_class):
         """Test that --type filter is passed to MemorySearch.search()."""
         # This test will verify the integration once main() is updated
@@ -192,7 +192,7 @@ class TestSearchCLIIntegration:
     @patch("search_cli.push_skill_metrics_async")
     @patch("search_cli.log_memory_search")
     @patch("search_cli.MemorySearch")
-    @patch("search_cli.detect_project")
+    @patch("search_cli.resolve_project_id")
     def test_intent_flag_routes_to_correct_collection(
         self, mock_detect, mock_search_class, mock_log, mock_metrics
     ):
@@ -231,7 +231,7 @@ class TestSearchCLIIntegration:
         )
 
     @patch("search_cli.push_skill_metrics_async")
-    @patch("search_cli.detect_project")
+    @patch("search_cli.resolve_project_id")
     def test_invalid_type_rejected(self, mock_detect, mock_metrics):
         """Invalid --type value returns error."""
         mock_detect.return_value = "test-project"

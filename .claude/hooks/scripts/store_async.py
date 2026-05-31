@@ -39,7 +39,7 @@ from memory.chunking import IntelligentChunker
 from memory.config import COLLECTION_CODE_PATTERNS
 from memory.extraction import extract_patterns
 from memory.filters import ImplementationFilter
-from memory.project import detect_project
+from memory.project import detect_project, resolve_project_id
 
 try:
     from qdrant_client import AsyncQdrantClient
@@ -188,16 +188,14 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
         # detection failure. W-09 violations signalled via
         # logger.error("project_resolution_failed") only; process exits 0 per
         # §1.2 Principle 4 (hooks never block Claude).
-        group_id = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if not group_id.strip():
-            try:
-                group_id = detect_project(cwd)
-            except ValueError as _proj_e:
-                logger.error(
-                    "project_resolution_failed",
-                    extra={"hook": "store_async", "error": str(_proj_e), "cwd": cwd},
-                )
-                return
+        try:
+            group_id = resolve_project_id(cwd)
+        except ValueError as _proj_e:
+            logger.error(
+                "project_resolution_failed",
+                extra={"hook": "store_async", "error": str(_proj_e), "cwd": cwd},
+            )
+            return
 
         # SPEC-021: 2_log span
         if emit_trace_event:

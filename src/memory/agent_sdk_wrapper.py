@@ -48,7 +48,7 @@ from prometheus_client import Counter, Gauge
 from .config import COLLECTION_CODE_PATTERNS, COLLECTION_DISCUSSIONS
 from .deduplication import compute_content_hash, is_duplicate
 from .models import MemoryType
-from .project import detect_project
+from .project import resolve_project_id
 from .storage import MemoryStorage
 
 # Prometheus Metrics
@@ -225,21 +225,17 @@ class AgentSDKWrapper:
     def _get_group_id(self) -> str:
         """Get project group_id from working directory.
 
-        PLAN-028 P1B / W-09 (DEC-PM302-D1) — env-first resolution with
-        fail-loud fallback. Uses AI_MEMORY_PROJECT_ID env var if set;
-        otherwise calls detect_project() which may raise ValueError.
+        PLAN-028 P1B / W-09 (DEC-PM302-D1) — BUG-314: resolve through the one
+        shared resolve_project_id (env-first -> cwd/git -> fail-loud).
 
         Returns:
             Normalized project name (e.g., "ai-memory-module")
 
         Raises:
-            ValueError: If neither AI_MEMORY_PROJECT_ID nor any detect_project
-                path (git remote, edge-case sentinel) can resolve a scope.
+            ValueError: If neither AI_MEMORY_PROJECT_ID nor any cwd/git path
+                (git remote, edge-case sentinel) can resolve a scope.
         """
-        env_project = os.environ.get("AI_MEMORY_PROJECT_ID") or ""
-        if env_project.strip():
-            return env_project
-        return detect_project(self.cwd)
+        return resolve_project_id(self.cwd)
 
     async def _start_batch_flusher(self):
         """Start background task that flushes batches periodically.

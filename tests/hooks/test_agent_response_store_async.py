@@ -82,7 +82,7 @@ class TestAgentResponseStoreAsync:
             patch("memory.embeddings.EmbeddingClient", return_value=mock_embedding),
             patch.object(arsav, "log_to_activity"),
             patch.object(arsav, "queue_operation"),
-            patch.object(arsav, "detect_project", return_value="test-project"),
+            patch.object(arsav, "resolve_project_id", return_value="test-project"),
         ):
             result = arsav.store_agent_response(substantive_store_data)
 
@@ -106,7 +106,7 @@ class TestAgentResponseStoreAsync:
             patch.object(arsav, "get_config", return_value=mock_config),
             patch.object(arsav, "log_to_activity"),
             patch.object(arsav, "queue_operation"),
-            patch.object(arsav, "detect_project", return_value="test-project"),
+            patch.object(arsav, "resolve_project_id", return_value="test-project"),
         ):
             result = arsav.store_agent_response(store_data)
 
@@ -127,7 +127,7 @@ class TestAgentResponseStoreAsync:
             patch.object(arsav, "get_config", return_value=mock_config),
             patch.object(arsav, "log_to_activity"),
             patch.object(arsav, "queue_operation"),
-            patch.object(arsav, "detect_project", return_value="test-project"),
+            patch.object(arsav, "resolve_project_id", return_value="test-project"),
         ):
             result = arsav.store_agent_response(store_data)
 
@@ -153,7 +153,7 @@ class TestAgentResponseStoreAsync:
             patch.object(arsav, "get_config", return_value=mock_config),
             patch.object(arsav, "log_to_activity"),
             patch.object(arsav, "queue_operation", queue_mock),
-            patch.object(arsav, "detect_project", return_value="test-project"),
+            patch.object(arsav, "resolve_project_id", return_value="test-project"),
         ):
             result = arsav.store_agent_response(substantive_store_data)
 
@@ -186,7 +186,7 @@ class TestAgentResponseStoreAsync:
             patch("memory.embeddings.EmbeddingClient", return_value=mock_embedding),
             patch.object(arsav, "log_to_activity"),
             patch.object(arsav, "queue_operation"),
-            patch.object(arsav, "detect_project", return_value="test-project"),
+            patch.object(arsav, "resolve_project_id", return_value="test-project"),
         ):
             result = arsav.main()
         assert result == 0

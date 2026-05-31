@@ -309,7 +309,7 @@ class TestParzivalCompactAgentIdFilter:
                 )
             )
             ctx.enter_context(
-                patch("session_start.detect_project", return_value="test-project")
+                patch("session_start.resolve_project_id", return_value="test-project")
             )
             ctx.enter_context(patch("session_start.cleanup_dedup_lock"))
             ctx.enter_context(
@@ -460,7 +460,7 @@ class TestNonParzivalCompactSummaryLimit:
                 )
             )
             ctx.enter_context(
-                patch("session_start.detect_project", return_value="test-project")
+                patch("session_start.resolve_project_id", return_value="test-project")
             )
             ctx.enter_context(
                 patch("session_start._detect_agent_id", return_value="default")
