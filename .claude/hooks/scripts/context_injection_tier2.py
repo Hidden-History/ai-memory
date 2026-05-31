@@ -278,6 +278,7 @@ def main() -> int:
         # WP-2: Apply freshness penalty to code-patterns results (Spec §4.2.5, §4.5.3)
         # Applied before gating — penalized scores affect both gating threshold and greedy selection
         _freshness_blocked_count = 0
+        _freshness_blocked_ids: set[str] = set()
         for _r in all_results:
             if _r.get("collection") != COLLECTION_CODE_PATTERNS:
                 continue
@@ -313,6 +314,10 @@ def main() -> int:
                     )
             if _penalty == 0.0 and _orig_score > 0.0:
                 _freshness_blocked_count += 1
+                # PLAN-028 P2-2 (R2): remember which candidates the freshness
+                # penalty fully blocked so the downstream greedy score-gap drop
+                # is attributed to `freshness_block` (observe-only).
+                _freshness_blocked_ids.add(str(_r.get("id", "")))
 
         # Re-sort after penalty application (penalized scores may have changed relative order)
         all_results.sort(key=lambda r: r.get("score", 0), reverse=True)
@@ -423,6 +428,7 @@ def main() -> int:
             project_id=project_name,
             tier=2,
             return_meta=True,
+            freshness_blocked_ids=_freshness_blocked_ids,
         )
         _tier2_fallback_reject = None
         if _greedy_meta.get("fallback_signaled"):
@@ -506,6 +512,8 @@ def main() -> int:
             gap_threshold=config.injection_score_gap_threshold,
             topic_drift=drift,
             collections_searched=collection_names,
+            rejects=_greedy_meta.get("rejects"),
+            fallback_signaled=_greedy_meta.get("fallback_signaled", False),
         )
 
         # SPEC-021: context_retrieval span — retrieval pipeline complete

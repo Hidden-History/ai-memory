@@ -825,6 +825,7 @@ def select_results_greedy(
     *,
     tier: int = 1,
     return_meta: bool = False,
+    freshness_blocked_ids: set[str] | None = None,
 ) -> tuple[list[dict], int] | tuple[list[dict], int, dict]:
     """Select results using greedy fill until budget exhausted.
 
@@ -845,6 +846,12 @@ def select_results_greedy(
             {fallback_signaled, rejects, budget, tokens_used}. BP-158 P2
             typed-sentinel pattern: fallback_signaled is True iff any
             budget-rejected result was of type "agent_handoff".
+        freshness_blocked_ids: Optional set of point IDs (as strings) that the
+            tier-2 caller drove to score 0.0 via the freshness penalty. When a
+            score-gap drop fires for such an ID, the reject is attributed to the
+            "freshness_block" reason instead of "score_gap" (PLAN-028 P2-2 R2).
+            Observe-only: this changes only the reject reason label, never which
+            results are selected.
 
     Returns:
         Tuple of (selected_results, total_tokens_used) when return_meta=False,
@@ -852,6 +859,7 @@ def select_results_greedy(
     """
     _trace_start = datetime.now(tz=timezone.utc)
     excluded = set(excluded_ids or [])
+    freshness_blocked = set(freshness_blocked_ids or [])
     selected = []
     _selected_token_counts: list[int] = []
     tokens_used = 0
@@ -934,10 +942,16 @@ def select_results_greedy(
 
         # Skip already-injected points
         if point_id in excluded:
+            # PLAN-028 P2-2 (R1): record the cross-turn dedup skip so it is
+            # attributable in the noise histogram. Behavior unchanged (continue).
+            _record_reject(result, "already_injected")
             continue
 
         content = result.get("content", "")
         if not content.strip():
+            # PLAN-028 P2-2 (R1): record the empty-content skip so it is
+            # attributable in the noise histogram. Behavior unchanged (continue).
+            _record_reject(result, "empty_content")
             continue
 
         # BUG-172: Skip duplicate content (same text stored under different types)
@@ -959,7 +973,15 @@ def select_results_greedy(
         result_score = result.get("score", 0)
         if best_score > 0 and result_score < best_score * score_gap_threshold:
             _score_gap_skipped += 1
-            _record_reject(result, "score_gap")
+            # PLAN-028 P2-2 (R2): a code-patterns candidate driven to score 0.0
+            # by the tier-2 freshness penalty is dropped here as a score gap.
+            # Relabel it `freshness_block` so it is attributable in the noise
+            # histogram rather than silently absorbed into score_gap. Selection
+            # is unchanged — only the reject reason label differs (observe-only).
+            _gap_reason = (
+                "freshness_block" if point_id in freshness_blocked else "score_gap"
+            )
+            _record_reject(result, _gap_reason)
             continue
 
         # Count tokens accurately
@@ -1121,6 +1143,8 @@ def log_injection_event(
     collections_searched: list[str] | None = None,
     gap_threshold: float = 0.7,
     gating_mode: str = "full",
+    rejects: list[dict] | None = None,
+    fallback_signaled: bool = False,
 ) -> None:
     """Log injection event to .audit/logs/injection-log.jsonl.
 
@@ -1144,6 +1168,13 @@ def log_injection_event(
         collections_searched: Collections that were queried
         gap_threshold: Score gap threshold used for greedy fill filtering
         gating_mode: Confidence gating path taken ("skip", "soft", or "full")
+        rejects: Per-drop reject records from select_results_greedy /
+            retrieve_bootstrap_context (each ``{type, tokens, score, reason,
+            tier, collection}``). Persisted to the audit entry as the empirical
+            per-drop "noise" history (PLAN-028 P2-2 R3). Defaults to an empty
+            list — backward-compatible with callers that omit it.
+        fallback_signaled: True iff a handoff-class result was budget/ceiling
+            rejected (BP-158 P2). Persisted for audit. Defaults to False.
     """
     log_path = Path(audit_dir) / "logs" / "injection-log.jsonl"
 
@@ -1164,6 +1195,8 @@ def log_injection_event(
         "collections_searched": collections_searched or [],
         "gap_threshold": round(gap_threshold, 4),
         "gating_mode": gating_mode,
+        "rejects": rejects or [],
+        "fallback_signaled": fallback_signaled,
     }
 
     try:
