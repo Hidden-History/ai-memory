@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **RISK-021 / TASK-071 Phase 4(d).0** — New standalone script
+  `scripts/memory/store_best_practice.py` externalizes the "Phase 4: Store to
+  Database" Python block that was previously inlined in
+  `_ai-memory/skills/aim-best-practices-researcher/RESEARCH-METHODOLOGY.md` and
+  `SKILL.md`. The script accepts `--content`, `--session-id`, `--group-id`
+  (optional), `--source-hook`, `--domain`, `--tags`, `--source`, and
+  `--source-date`. Invoke via
+  `scripts/memory/run-with-env.sh store_best_practice.py …` (BP-013 Pattern B).
+  Companion unit tests in `tests/unit/test_store_best_practice_script.py`
+  (importlib + sys.modules patching, mocked resolver at call boundary per DEC-109).
+
+### Changed
+
+- **RISK-021 — Deliberate behaviour change (DEC-108 C-1 / DEC-106
+  correctness-restoration carve-out)**: `aim-best-practices-researcher` Phase 4
+  previously resolved project scope via `os.environ.get("AI_MEMORY_PROJECT_ID")`
+  with a `RuntimeError` on unset (env-only). The new `store_best_practice.py`
+  script routes scope through `resolve_project_id(cwd=os.getcwd(),
+  explicit=args.group_id)`, which supports four tiers — explicit `--group-id`
+  flag → `AI_MEMORY_PROJECT_ID` env → `.ai-memory-project` marker file → git
+  remote → fail-loud `ValueError`. This aligns the BP write path with every
+  other memory script already updated by PR #160 (BUG-314). Across 7 Session-61
+  runs the old env-only path fragmented into 4 distinct scope values; the new
+  path is deterministic. This change is disclosed per DEC-105 / DEC-108 C-1 and
+  must appear in the PR description.
+
 ## [2.4.5] - 2026-05-29
 
 ### Fixed

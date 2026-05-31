@@ -34,33 +34,17 @@ results = search_memories(
     memory_type=["guideline", "rule"],
     limit=5
 )
+```
 
+```bash
 # Phase 4: Store findings
-import os
-import sys
-sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
-from memory.storage import store_best_practice
-
-# Project scope is required-explicit (PLAN-028 P1, DEC-PM298-D4). Resolve it
-# deterministically from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which is
-# unreliable for this forked skill subprocess. Fail loud if it is not set.
-project_id = os.environ.get("AI_MEMORY_PROJECT_ID")
-if not project_id:
-    raise RuntimeError(
-        "AI_MEMORY_PROJECT_ID is not set — cannot store a best practice without "
-        "an explicit project scope. Set AI_MEMORY_PROJECT_ID and retry."
-    )
-result = store_best_practice(
-    content="Best practice description",
-    session_id="current-session",
-    source_hook="manual",
-    group_id=project_id,
-    domain="python",
-    tags=["topic"],
-    source="https://source-url.com",
-    source_date="2026-01-29",
-    auto_seeded=True
-)
+scripts/memory/run-with-env.sh store_best_practice.py \
+    --content "Best practice description" \
+    --session-id "current-session" \
+    --domain "python" \
+    --tags topic \
+    --source "https://source-url.com" \
+    --source-date "2026-01-29"
 ```
 
 ## 5-Phase Workflow
@@ -97,52 +81,24 @@ Generate next BP-ID and create `oversight/knowledge/best-practices/BP-XXX-[topic
 
 ### Phase 4: Store to Database (MANDATORY)
 
-**CRITICAL**: You MUST execute this code to store findings to the database.
+**CRITICAL**: You MUST run this command to store findings to the database.
 Without this step, research is lost and BUG-048 occurs.
 
-```python
-# MANDATORY - Execute this code block
-import os
-import sys
-sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
-from memory.storage import store_best_practice
-
-# Get session_id from environment or use placeholder
-session_id = os.environ.get("CLAUDE_SESSION_ID", "manual-research")
-
-# Project scope is required-explicit (PLAN-028 P1, DEC-PM298-D4). Resolve it
-# deterministically from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which is
-# unreliable for this forked skill subprocess. Fail loud if it is not set.
-project_id = os.environ.get("AI_MEMORY_PROJECT_ID")
-if not project_id:
-    raise RuntimeError(
-        "AI_MEMORY_PROJECT_ID is not set — cannot store a best practice without "
-        "an explicit project scope. Set AI_MEMORY_PROJECT_ID and retry."
-    )
-
-result = store_best_practice(
-    content="YOUR_FINDING_CONTENT_HERE",  # Replace with actual finding
-    session_id=session_id,
-    source_hook="manual",
-    group_id=project_id,  # Explicit project scope (project-scoped per W-01)
-    domain="YOUR_DOMAIN",  # e.g., "python", "testing", "architecture"
-    tags=["YOUR", "TAGS"],  # Replace with relevant tags
-    source="SOURCE_URL",  # URL where you found this
-    source_date="2026-02-03",  # Today's date
-    auto_seeded=True,
-    type="guideline"  # Stored as guideline in conventions collection
-)
-
-# Verify storage succeeded
-if result.get("status") == "stored":
-    print(f"SUCCESS: Stored to conventions collection: {result['memory_id']}")
-else:
-    print(f"WARNING: {result.get('status', 'unknown')} - {result}")
+```bash
+# MANDATORY - Run this command to store findings
+scripts/memory/run-with-env.sh store_best_practice.py \
+    --content "YOUR_FINDING_CONTENT_HERE" \
+    --session-id "YOUR_SESSION_ID" \
+    --domain "YOUR_DOMAIN" \
+    --tags YOUR TAGS \
+    --source "SOURCE_URL" \
+    --source-date "2026-05-30"
+# Optionally pin scope: --group-id <project-id>  (resolved automatically if omitted)
 ```
 
 **Checklist before moving to Phase 5**:
-- [ ] Executed store_best_practice() code above
-- [ ] Received "SUCCESS: Stored" confirmation
+- [ ] Ran store_best_practice.py via run-with-env.sh
+- [ ] Received "Stored: <id>" or "Duplicate skipped" confirmation
 - [ ] If duplicate, that's OK - finding already exists
 
 ### Phase 5: Skill Evaluation
