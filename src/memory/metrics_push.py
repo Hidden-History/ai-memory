@@ -1859,13 +1859,18 @@ except Exception as e:
 
 
 # BP-158 P1/P3: structured observability for retrieval-filter rejections.
-# Cardinality: 4 reason values x 2 tier values x 5 collection values = 40 series,
+# PLAN-028 P2-2 Phase A: generalized to every drop site (already_injected,
+# empty_content, freshness_block added to the original four).
+# Cardinality: 7 reason values x 2 tier values x 5 collection values = 70 series,
 # well under Prometheus OSS cardinality budgets.
 _VALID_REJECT_REASONS = {
     "budget_exceeded",
     "ceiling_exceeded",
     "score_gap",
     "dedup",
+    "already_injected",
+    "empty_content",
+    "freshness_block",
 }
 _VALID_REJECT_TIERS = {"1_bootstrap", "2_injection"}
 
@@ -1880,12 +1885,14 @@ def push_retrieval_reject_metric_async(
 
     Emitted from select_results_greedy and retrieve_bootstrap_context whenever a
     retrieval result is excluded by a filter (budget exhaustion, per-tier ceiling,
-    score-gap, or content-hash dedup). BP-158 P1 mandate: every retrieval-filter
-    exclusion emits both a structured log line and this counter so silent-drop
-    defects (BUG-297 class) become observable.
+    score-gap, content-hash dedup, cross-turn already-injected skip, empty content,
+    or freshness block). BP-158 P1 mandate: every retrieval-filter exclusion emits
+    both a structured log line and this counter so silent-drop defects (BUG-297
+    class) become observable.
 
     Args:
-        reason: One of budget_exceeded, ceiling_exceeded, score_gap, dedup.
+        reason: One of budget_exceeded, ceiling_exceeded, score_gap, dedup,
+            already_injected, empty_content, freshness_block.
         tier: One of 1_bootstrap, 2_injection.
         collection: code-patterns, conventions, discussions, github, jira-data.
         count: Number of rejections to record in this push (default 1).
@@ -1896,7 +1903,7 @@ def push_retrieval_reject_metric_async(
     reason = _validate_label(reason, "reason", _VALID_REJECT_REASONS)
     tier = _validate_label(tier, "tier", _VALID_REJECT_TIERS)
     # Enforce VALID_COLLECTIONS allowlist so the documented cardinality
-    # claim (4 reasons x 2 tiers x 5 collections = 40 series) is bound at
+    # claim (7 reasons x 2 tiers x 5 collections = 70 series) is bound at
     # the call site — unknown collection values surface as observable
     # `unexpected_label_value` WARN rather than silently widening cardinality.
     collection = _validate_label(collection, "collection", VALID_COLLECTIONS)

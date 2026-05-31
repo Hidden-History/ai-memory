@@ -163,10 +163,14 @@ def main() -> int:
             retrieval_meta.get("fallback_signaled")
             or greedy_meta.get("fallback_signaled")
         )
-        _fallback_reject = None
-        for _r in list(retrieval_meta.get("rejects", [])) + list(
+        # PLAN-028 P2-2 (R4): merge per-drop reject records from both the
+        # Layer-1 retrieval pre-filter and the greedy fill so the bootstrap
+        # audit entry persists the full per-drop "noise" history.
+        _all_rejects = list(retrieval_meta.get("rejects", [])) + list(
             greedy_meta.get("rejects", [])
-        ):
+        )
+        _fallback_reject = None
+        for _r in _all_rejects:
             if _r.get("reason") in ("budget_exceeded", "ceiling_exceeded") and (
                 _r.get("type") == "agent_handoff"
             ):
@@ -195,6 +199,8 @@ def main() -> int:
             tokens_used=tokens_used,
             budget=config.bootstrap_token_budget,
             audit_dir=audit_dir,
+            rejects=_all_rejects,
+            fallback_signaled=_fallback_signaled,
         )
 
         # Tier B — sanctum LORE + BOND prepend (filesystem-only per DEC-253-14)
