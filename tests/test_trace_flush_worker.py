@@ -734,6 +734,94 @@ def test_sdk_path_identityless_event_uses_system_unknown(tmp_path, monkeypatch):
     assert captured["user_id"] == "system:unknown"
 
 
+# --- R1/R2: per-entry scandir resilience (fix-r2 LOW) -------------------------
+
+
+def test_process_buffer_files_skips_poison_scandir_entry(tmp_path, monkeypatch):
+    """A scandir entry whose stat() raises OSError is skipped; good files still drain.
+
+    Verifies the per-entry try/except in process_buffer_files: a single bad entry
+    must not abort the pass or discard already-collected entries (must not return (0,0)).
+    """
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    _write_event(buffer_dir, "drain_ok1")
+    _write_event(buffer_dir, "drain_ok2")
+
+    poison = MagicMock()
+    poison.name = "poison.json"
+    poison.path = str(buffer_dir / "poison.json")
+    poison.stat.side_effect = OSError("simulated FS error")
+
+    real_scandir = os.scandir
+
+    class _InjectedScandir:
+        def __init__(self, path):
+            self._real = real_scandir(path)
+
+        def __enter__(self):
+            self._real.__enter__()
+            return self
+
+        def __exit__(self, *a):
+            return self._real.__exit__(*a)
+
+        def __iter__(self):
+            yield poison
+            yield from self._real
+
+    monkeypatch.setattr(mod.os, "scandir", _InjectedScandir)
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    processed, errors = mod.process_buffer_files(mock_langfuse)
+
+    assert processed == 2, "Good files must drain despite poison entry"
+    assert errors == 0
+    assert not (buffer_dir / "drain_ok1.json").exists()
+    assert not (buffer_dir / "drain_ok2.json").exists()
+
+
+def test_evict_oldest_traces_skips_poison_scandir_entry(tmp_path, monkeypatch):
+    """A scandir entry whose stat() raises OSError is skipped; good files still evict.
+
+    Verifies the per-entry try/except in evict_oldest_traces: a single bad entry
+    must not abort the eviction scan or return 0 evictions.
+    """
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "MAX_BUFFER_MB", 0.000001)
+    _write_event(buffer_dir, "evict_ok1")
+    _write_event(buffer_dir, "evict_ok2")
+
+    poison = MagicMock()
+    poison.name = "poison.json"
+    poison.path = str(buffer_dir / "poison.json")
+    poison.stat.side_effect = OSError("simulated FS error")
+
+    real_scandir = os.scandir
+
+    class _InjectedScandir:
+        def __init__(self, path):
+            self._real = real_scandir(path)
+
+        def __enter__(self):
+            self._real.__enter__()
+            return self
+
+        def __exit__(self, *a):
+            return self._real.__exit__(*a)
+
+        def __iter__(self):
+            yield poison
+            yield from self._real
+
+    monkeypatch.setattr(mod.os, "scandir", _InjectedScandir)
+
+    evicted = mod.evict_oldest_traces()
+
+    assert evicted >= 1, "Good files must evict despite poison entry"
+
+
 def test_otel_path_emits_agent_identity_role_and_type(tmp_path, monkeypatch):
     mod, _ = _load_module(tmp_path, monkeypatch)
     monkeypatch.setattr(mod, "OTEL_AVAILABLE", True)

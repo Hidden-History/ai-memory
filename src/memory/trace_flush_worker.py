@@ -287,12 +287,18 @@ def evict_oldest_traces() -> int:
     if not BUFFER_DIR.exists():
         return 0
 
+    # Single stat call per file via os.scandir for efficiency
+    entries = []
     try:
-        # Single stat call per file via os.scandir for efficiency
-        entries = []
         with os.scandir(BUFFER_DIR) as it:
             for entry in it:
-                st = entry.stat()
+                try:
+                    st = entry.stat()
+                except OSError as e:
+                    logger.debug(
+                        "Skipping unreadable buffer entry %s: %s", entry.name, e
+                    )
+                    continue
                 if stat.S_ISREG(st.st_mode) and entry.name.endswith(".json"):
                     entries.append((st.st_mtime, st.st_size, Path(entry.path)))
     except OSError as e:
@@ -553,11 +559,17 @@ def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, i
     # already pays each iteration; ~22K transient (mtime, path) tuples at the BUG-315
     # backlog). The wedge fix is the bounded *processing* (``limit``), which is
     # independent of backlog size — see the watchdog/main loop.
+    scanned: list[tuple[float, Path]] = []
     try:
-        scanned: list[tuple[float, Path]] = []
         with os.scandir(BUFFER_DIR) as it:
             for entry in it:
-                st = entry.stat()
+                try:
+                    st = entry.stat()
+                except OSError as e:
+                    logger.debug(
+                        "Skipping unreadable buffer entry %s: %s", entry.name, e
+                    )
+                    continue
                 if stat.S_ISREG(st.st_mode) and entry.name.endswith(".json"):
                     scanned.append((st.st_mtime, Path(entry.path)))
     except OSError as e:
