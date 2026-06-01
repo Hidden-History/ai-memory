@@ -11,6 +11,40 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _join_leaked_flush_watchdog():
+    """Stop any flush-watchdog daemon a test started, before it can leak.
+
+    Several tests run main() (directly or in a thread), which starts the
+    flush-watchdog daemon. If a test ends before that daemon observes
+    shutdown_requested, monkeypatch reverts the flag to False and the orphaned
+    daemon keeps looping until its stall deadline, then calls os._exit(1) —
+    hard-killing a later, unrelated test (the CI-3.10 crash after test_bug314).
+
+    This teardown force-signals shutdown and joins every flush-watchdog thread,
+    independent of the test's own monkeypatch finalizer ordering, then asserts
+    none survived (loud per-test attribution if a leak is ever reintroduced).
+    """
+    yield
+    mod = sys.modules.get("memory.trace_flush_worker")
+    if mod is not None:
+        mod.shutdown_requested = True
+        with contextlib.suppress(Exception):
+            mod._watchdog_wakeup.set()
+    deadline = time.monotonic() + 10
+    for thread in threading.enumerate():
+        if thread.name == "flush-watchdog" and thread.is_alive():
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    leaked = [
+        thread.name
+        for thread in threading.enumerate()
+        if thread.name == "flush-watchdog" and thread.is_alive()
+    ]
+    assert not leaked, f"flush-watchdog daemon leaked past the test: {leaked}"
+
 
 def _load_module(tmp_path, monkeypatch):
     """Import trace_flush_worker with BUFFER_DIR patched to tmp_path.
