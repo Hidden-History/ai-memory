@@ -125,117 +125,50 @@ Every point in `jira-data` has the following payload fields. Use these **exact n
 
 ## Direct Query Examples
 
-The Python search module (`src/memory/connectors/jira/search.py`) is NOT importable from other project directories. Use these direct Qdrant API patterns instead.
-
-### Curl-to-File-to-Python Pattern
-
-**Important**: Save curl output to a temp file first, then process with Python. Do NOT pipe directly to `python3` — it can cause encoding issues.
-
-#### Search by project key
+Use `query.py` via `run-with-env.sh` for all direct Qdrant queries. Auth and
+connection are handled by the standard `memory.*` config layer — no manual API
+key export required.
 
 ```bash
-# Step 1: Get API key
-export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
+INSTALL="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
+QUERY="$INSTALL/skills/aim-jira-search/scripts/query.py"
 
-# Step 2: Query Qdrant and save to temp file
-curl -s -H "Api-Key: $QDRANT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "filter": {
-      "must": [
-        {"key": "jira_project", "match": {"value": "BMAD"}}
-      ]
-    },
-    "limit": 10,
-    "with_payload": true
-  }' \
-  http://localhost:26350/collections/jira-data/points/scroll > /tmp/jira_results.json
+# Search by project key (table output)
+"$INSTALL/scripts/memory/run-with-env.sh" "$QUERY" \
+  --project BMAD --limit 10
 
-# Step 3: Process with Python
-python3 -c "
-import json
-data = json.load(open('/tmp/jira_results.json'))
-points = data.get('result', {}).get('points', [])
-print(f'Found {len(points)} points')
-for p in points:
-    pl = p.get('payload', {})
-    print(f\"  {pl.get('jira_issue_key', '?')} [{pl.get('type', '?')}] - {pl.get('jira_status', '?')} - {pl.get('content', '')[:80]}...\")
-"
+# Filter by issue type and status
+"$INSTALL/scripts/memory/run-with-env.sh" "$QUERY" \
+  --project BMAD --issue-type Bug --status Done --limit 20
+
+# Count points and vectors in the collection
+"$INSTALL/scripts/memory/run-with-env.sh" "$QUERY" --count
+
+# Get all comments for a specific issue
+"$INSTALL/scripts/memory/run-with-env.sh" "$QUERY" \
+  --issue-key BMAD-42 --doc-type jira_comment --limit 50
+
+# JSON output for programmatic use
+"$INSTALL/scripts/memory/run-with-env.sh" "$QUERY" \
+  --project BMAD --format json --limit 5
 ```
 
-#### Filter by issue type and status
-
-```bash
-curl -s -H "Api-Key: $QDRANT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "filter": {
-      "must": [
-        {"key": "jira_project", "match": {"value": "BMAD"}},
-        {"key": "jira_issue_type", "match": {"value": "Bug"}},
-        {"key": "jira_status", "match": {"value": "Done"}}
-      ]
-    },
-    "limit": 20,
-    "with_payload": true
-  }' \
-  http://localhost:26350/collections/jira-data/points/scroll > /tmp/jira_results.json
-```
-
-#### Count points in collection
-
-```bash
-curl -s -H "Api-Key: $QDRANT_API_KEY" \
-  http://localhost:26350/collections/jira-data | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-info = data.get('result', {})
-print(f\"Points: {info.get('points_count', 0)}, Vectors: {info.get('vectors_count', 0)}\")
-"
-```
-
-#### Get all comments for a specific issue
-
-```bash
-curl -s -H "Api-Key: $QDRANT_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "filter": {
-      "must": [
-        {"key": "jira_issue_key", "match": {"value": "BMAD-42"}},
-        {"key": "type", "match": {"value": "jira_comment"}}
-      ]
-    },
-    "limit": 50,
-    "with_payload": true
-  }' \
-  http://localhost:26350/collections/jira-data/points/scroll > /tmp/jira_results.json
-```
+Available flags (use exact Qdrant payload field values — see schema above):
+- `--project` — project key (e.g., `BMAD`)
+- `--issue-type` — issue type (e.g., `Bug`, `Story`, `Task`, `Epic`)
+- `--status` — status (e.g., `"In Progress"`, `Done`)
+- `--issue-key` — full issue key (e.g., `BMAD-42`)
+- `--doc-type` — document type (`jira_issue` or `jira_comment`)
+- `--limit` — max results (default: 10)
+- `--format` — `table` (default) or `json`
+- `--count` — return collection info counts instead of scroll
 
 ---
 
 ## Python Implementation Reference
 
-This skill uses functions from `src/memory/connectors/jira/search.py`:
-
-```python
-from src.memory.connectors.jira.search import search_jira, lookup_issue
-
-# Semantic search
-results = search_jira(
-    query="authentication bug",
-    group_id="company.atlassian.net",
-    project="BMAD",
-    issue_type="Bug",
-    limit=5
-)
-
-# Issue lookup
-context = lookup_issue(
-    issue_key="BMAD-42",
-    group_id="company.atlassian.net"
-)
-```
+The `src/memory/connectors/jira/search.py` module is **not importable from
+external scripts** — use `query.py` (above) for direct Qdrant access.
 
 ## Technical Details
 

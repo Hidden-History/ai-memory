@@ -84,7 +84,7 @@ JIRA_SYNC_DELAY_MS=100
 This skill invokes `scripts/jira_sync.py`:
 
 ```bash
-cd /path/to/ai-memory
+cd "$AI_MEMORY_INSTALL_DIR"
 python3 scripts/jira_sync.py --incremental
 python3 scripts/jira_sync.py --full --project BMAD
 python3 scripts/jira_sync.py --status
