@@ -16,6 +16,11 @@ from pathlib import Path
 
 import pytest
 
+SCRIPTS_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "_ai-memory/pov/skills/aim-model-dispatch/scripts/lib"
+)
+
 FAKE_MODEL = "test-model-xyz"
 _BASE_ENV = {"PATH": os.environ["PATH"], "LC_ALL": "C"}
 
@@ -41,11 +46,11 @@ def skill_dir_with_ollama_catalog(tmp_path: Path) -> Path:
 
 
 def test_known_model_passes(
-    scripts_dir: Path, skill_dir_with_ollama_catalog: Path
+    skill_dir_with_ollama_catalog: Path,
 ) -> None:
     """Known model in ollama catalog -> exit 0, stdout contains OK:, stderr empty."""
     result = _run(
-        scripts_dir,
+        SCRIPTS_DIR,
         [
             "--model",
             FAKE_MODEL,
@@ -62,11 +67,11 @@ def test_known_model_passes(
 
 
 def test_unknown_model_fails(
-    scripts_dir: Path, skill_dir_with_ollama_catalog: Path
+    skill_dir_with_ollama_catalog: Path,
 ) -> None:
     """Model absent from catalog -> exit 1, FAIL: model on stdout, stderr empty."""
     result = _run(
-        scripts_dir,
+        SCRIPTS_DIR,
         [
             "--model",
             "bogus-model-zzz",
@@ -89,12 +94,10 @@ def test_unknown_model_fails(
         (FAKE_MODEL, "gemini"),  # gemini backend -> outer guard skips
     ],
 )
-def test_validation_skipped(
-    scripts_dir: Path, tmp_path: Path, model: str, backend: str
-) -> None:
+def test_validation_skipped(tmp_path: Path, model: str, backend: str) -> None:
     """Empty model or gemini backend -> exit 0, stdout empty, stderr empty."""
     result = _run(
-        scripts_dir,
+        SCRIPTS_DIR,
         ["--model", model, "--backend", backend, "--skill-dir", str(tmp_path)],
         tmp_path,
     )
@@ -103,10 +106,10 @@ def test_validation_skipped(
     assert result.stderr == ""
 
 
-def test_unknown_backend_warns(scripts_dir: Path, tmp_path: Path) -> None:
+def test_unknown_backend_warns(tmp_path: Path) -> None:
     """Backend with no catalog (e.g. claude) -> exit 0, WARN: on stdout, stderr empty."""
     result = _run(
-        scripts_dir,
+        SCRIPTS_DIR,
         ["--model", FAKE_MODEL, "--backend", "claude", "--skill-dir", str(tmp_path)],
         tmp_path,
     )
@@ -115,10 +118,10 @@ def test_unknown_backend_warns(scripts_dir: Path, tmp_path: Path) -> None:
     assert result.stderr == ""
 
 
-def test_missing_catalog_fails(scripts_dir: Path, tmp_path: Path) -> None:
+def test_missing_catalog_fails(tmp_path: Path) -> None:
     """Catalog expected (ollama) but file absent -> exit 1, FAIL: catalog file on stdout, stderr empty."""
     result = _run(
-        scripts_dir,
+        SCRIPTS_DIR,
         ["--model", FAKE_MODEL, "--backend", "ollama", "--skill-dir", str(tmp_path)],
         tmp_path,
     )

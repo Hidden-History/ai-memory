@@ -35,6 +35,11 @@ from pathlib import Path
 
 import pytest
 
+SCRIPTS_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "_ai-memory/pov/skills/aim-model-dispatch/scripts/lib"
+)
+
 # ---------------------------------------------------------------------------
 # Local fixtures
 # ---------------------------------------------------------------------------
@@ -77,14 +82,14 @@ def _make_markers(
 
 
 # ---------------------------------------------------------------------------
-# Session fixture for the helper under test (path via conftest scripts_dir)
+# Session fixture for the helper under test (path via the SCRIPTS_DIR constant)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture(scope="session")
-def sentinel(scripts_dir: Path) -> Path:
+def sentinel() -> Path:
     """Resolved path to cwd_sentinel.sh; fails fast if the file is missing."""
-    p = scripts_dir / "cwd_sentinel.sh"
+    p = SCRIPTS_DIR / "cwd_sentinel.sh"
     assert p.exists(), f"Helper not found: {p}"
     return p
 

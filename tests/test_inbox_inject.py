@@ -18,6 +18,11 @@ from pathlib import Path
 
 import pytest
 
+SCRIPTS_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "_ai-memory/pov/skills/aim-model-dispatch/scripts/lib"
+)
+
 # ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
@@ -76,13 +81,13 @@ def _run(
 
 
 # ---------------------------------------------------------------------------
-# Session fixture (from conftest.py: scripts_dir)
+# Session fixture (helper path via the SCRIPTS_DIR constant)
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
-def helper(scripts_dir: Path) -> Path:
-    p = scripts_dir / "inbox_inject.sh"
+def helper() -> Path:
+    p = SCRIPTS_DIR / "inbox_inject.sh"
     assert p.exists(), f"Helper not found: {p}"
     return p
 
