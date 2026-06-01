@@ -1,5 +1,5 @@
 # LANGFUSE: V4 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
-# FORBIDDEN: Langfuse() constructor, start_span(), start_generation(), langfuse_context
+# FORBIDDEN (removed in V4): start_span(), start_generation(), langfuse_context
 # REQUIRED: get_client(), create_score(), flush()
 """Evaluation runner — fetches traces and observations, evaluates, attaches scores.
 
@@ -606,7 +606,7 @@ class EvaluatorRunner:
         # Reset per-run score accumulator (C-1: avoid cross-run average corruption)
         self._ev_scores = {}
 
-        # V3 singleton — NEVER use Langfuse() constructor directly
+        # V4 SDK — get_client() singleton accessor
         langfuse = get_client()
 
         if until is None:
