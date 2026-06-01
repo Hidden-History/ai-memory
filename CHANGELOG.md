@@ -34,6 +34,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   runs the old env-only path fragmented into 4 distinct scope values; the new
   path is deterministic. This change is disclosed per DEC-105 / DEC-108 C-1 and
   must appear in the PR description.
+- **Langfuse SDK upgraded to `>=4.7.0,<4.8.0`** (was `>=4.0.6,<4.1.0`; resolves
+  to 4.7.1). `uv.lock` regenerated. V3→V4 governance comment headers refreshed
+  across trace-emitting modules.
+- **Langfuse agent trace organization (BP-169 G1–G4).** Agent identity is mapped
+  to `user_id` and agent role to a trace tag/metadata (`_resolve_user_id` /
+  `_resolve_role_tag`); `LANGFUSE_TRACING_ENVIRONMENT` is now supported and
+  validated to partition traces within a project by deployment stage/install.
+
+### Fixed
+
+- **BUG-315 — Trace-flush worker wedge (stuck-backlog data stall).** The
+  trace-flush worker could wedge indefinitely when the Langfuse backend passed
+  its health check but hung mid-flush, silently halting all trace delivery (a
+  ~26K-trace backlog accumulated). `src/memory/trace_flush_worker.py` is
+  hardened: an HTTP `/api/public/health` preflight skips the *drain* (not the
+  loop) when the backend is unreachable; a stall watchdog hard-exits a
+  genuinely-wedged worker so Docker (`restart: unless-stopped`) restarts it into
+  a draining state; the heartbeat is taken at the top of each loop (liveness =
+  loop cycling, not a blocking flush); the buffer drains oldest-first via
+  `os.scandir`+sort; files are unlinked only after a successful `flush()`
+  (loss-safe); poison buffer entries are skipped per-entry; and graceful
+  shutdown drains within a bounded deadline. (BUG-315)
+
+### Upgrade Instructions
+
+- **After updating, run `~/.ai-memory/scripts/stack.sh restart`.** The
+  `trace-flush-worker` is image-baked (its Langfuse SDK and worker code are
+  built into the container image via `docker/Dockerfile.worker`), so pulling the
+  new files and re-running `install.sh` alone does **not** upgrade the running
+  worker — without the restart it keeps running the old SDK and old code.
+  `stack.sh restart` rebuilds the image-bake services and waits for health.
 
 ## [2.4.5] - 2026-05-29
 
