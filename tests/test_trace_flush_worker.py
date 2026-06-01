@@ -1,10 +1,12 @@
-"""Unit tests for memory.trace_flush_worker — SPEC-020 §9.1 (9 test cases)."""
+"""Unit tests for memory.trace_flush_worker — SPEC-020 §9.1 + BUG-315 / BP-169 (P4 L1)."""
 
+import contextlib
 import hashlib
 import json
 import os
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -163,6 +165,8 @@ def test_pushes_prometheus_metrics(tmp_path, monkeypatch):
 
     mock_push = MagicMock()
     monkeypatch.setattr(mod, "push_metrics_fn", mock_push)
+    # Backend reachable so the drain path runs (preflight gate, BUG-315).
+    monkeypatch.setattr(mod, "_backend_reachable", lambda: True)
 
     # Stop main loop after one iteration
     def stop_after_one(_):
@@ -268,3 +272,338 @@ def test_buffer_size_metric_reflects_post_eviction_size(tmp_path, monkeypatch):
 
     size_after = sum(f.stat().st_size for f in buffer_dir.glob("*.json"))
     assert size_after < size_before
+
+
+# ===========================================================================
+# BUG-315 (PLAN-028 P4 L1) — wedge fix: bounded batch, heartbeat decoupling,
+# backend preflight, stall watchdog, loss-safe drain.
+# ===========================================================================
+
+
+def _write_agent_event(buffer_dir: Path, name: str, **data_extra) -> Path:
+    """Write a buffer event whose data.metadata carries agent identity/role."""
+    hex_id = hashlib.md5(name.encode()).hexdigest()
+    data = {
+        "start_time": "2026-02-23T10:00:00+00:00",
+        "end_time": "2026-02-23T10:00:01+00:00",
+        "input": "i",
+        "output": "o",
+        "metadata": {"agent_name": "dev-w1", "agent_role": "worker"},
+    }
+    data.update(data_extra)
+    event = {
+        "event_type": "1_capture",
+        "trace_id": hex_id,
+        "span_id": hex_id[:16],
+        "parent_span_id": None,
+        "session_id": "sess001",
+        "project_id": "test-project",
+        "data": data,
+    }
+    path = buffer_dir / f"{name}.json"
+    path.write_text(json.dumps(event))
+    return path
+
+
+# --- R1(b): heartbeat decoupled from a blocking flush (the BUG-315 regression) --
+
+
+def test_bug315_heartbeat_refreshed_despite_blocking_flush(tmp_path, monkeypatch):
+    """Realistic-size repro: heartbeat must refresh even while flush() blocks.
+
+    Pre-fix the heartbeat was touched AFTER the flush, so a flush that blocked on
+    an unreachable backend left the heartbeat stale and wedged the loop. The fix
+    touches the heartbeat at the top of the loop (decoupled from flush).
+    """
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "MAX_BUFFER_MB", 1000)
+    # Realistic backlog (not a 3-file synthetic).
+    for i in range(600):
+        _write_agent_event(buffer_dir, f"evt{i}")
+
+    blocked = threading.Event()
+    fake = MagicMock()
+    fake.start_observation.return_value = MagicMock()
+    # Models flush() blocking on an unreachable backend (never throws).
+    fake.flush.side_effect = lambda: blocked.wait(timeout=30)
+
+    monkeypatch.setattr(mod, "shutdown_requested", False)
+    monkeypatch.setattr(mod, "_langfuse_propagate_attributes", MagicMock())
+    monkeypatch.setattr(mod, "_backend_reachable", lambda: True)
+
+    hb = mod.HEARTBEAT_FILE
+    with patch.object(mod, "get_langfuse_client", return_value=fake):
+        t = threading.Thread(target=mod.main, daemon=True)
+        t.start()
+        try:
+            # Heartbeat must appear quickly even though flush is blocking.
+            deadline = time.time() + 5
+            while not hb.exists() and time.time() < deadline:
+                time.sleep(0.05)
+            assert hb.exists(), "Heartbeat must refresh while flush blocks (decoupled)"
+        finally:
+            mod.shutdown_requested = True
+            blocked.set()
+            t.join(timeout=5)
+
+
+# --- R1(a): bounded batch per pass --------------------------------------------
+
+
+def test_process_buffer_files_bounded_batch(tmp_path, monkeypatch):
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    for i in range(5):
+        _write_event(buffer_dir, f"b{i}")
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    processed, errors = mod.process_buffer_files(mock_langfuse, limit=2)
+
+    assert processed == 2
+    assert errors == 0
+    assert len(list(buffer_dir.glob("*.json"))) == 3  # remainder left for next pass
+
+
+# --- R1(e): loss-safe drain — flush before unlink -----------------------------
+
+
+def test_process_buffer_files_flushes_before_unlink(tmp_path, monkeypatch):
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    path = _write_event(buffer_dir, "lossafe")
+
+    seen = {}
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    def flush_side_effect():
+        seen["file_exists_at_flush"] = path.exists()
+
+    mock_langfuse.flush.side_effect = flush_side_effect
+
+    processed, _ = mod.process_buffer_files(mock_langfuse)
+
+    assert processed == 1
+    mock_langfuse.flush.assert_called_once()
+    assert seen["file_exists_at_flush"] is True  # not yet unlinked when flush ran
+    assert not path.exists()  # removed only after flush confirmed enqueue
+
+
+# --- R1(c): backend preflight -------------------------------------------------
+
+
+def test_backend_reachable_true(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod.socket, "create_connection", lambda *a, **k: MagicMock())
+    assert mod._backend_reachable() is True
+
+
+def test_backend_reachable_false_on_oserror(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+
+    def boom(*a, **k):
+        raise OSError("no route to host")
+
+    monkeypatch.setattr(mod.socket, "create_connection", boom)
+    assert mod._backend_reachable() is False
+
+
+def test_backend_reachable_false_on_empty_url(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "LANGFUSE_BASE_URL", "")
+    assert mod._backend_reachable() is False
+
+
+def test_preflight_skips_drain_when_unreachable(tmp_path, monkeypatch):
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    _write_event(buffer_dir, "pf1")
+
+    monkeypatch.setattr(mod, "_backend_reachable", lambda: False)
+    monkeypatch.setattr(mod, "shutdown_requested", False)
+
+    called = []
+
+    def fake_process(*a, **k):
+        called.append(1)
+        return (0, 0)
+
+    monkeypatch.setattr(mod, "process_buffer_files", fake_process)
+
+    def stop(_):
+        mod.shutdown_requested = True
+
+    with (
+        patch.object(mod, "get_langfuse_client", return_value=MagicMock()),
+        patch("time.sleep", side_effect=stop),
+    ):
+        mod.main()
+
+    assert called == [], "Drain must be skipped when backend is unreachable"
+    assert mod.HEARTBEAT_FILE.exists(), "Heartbeat must still refresh during outage"
+
+
+# --- R1(d): stall watchdog ----------------------------------------------------
+
+
+def test_is_stalled(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    now = 10_000.0
+    assert mod._is_stalled(now - mod.STALL_DEADLINE_SECONDS - 1, now) is True
+    assert mod._is_stalled(now - 1, now) is False
+
+
+def test_watchdog_exits_when_stalled(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "shutdown_requested", False)
+    mod._last_loop_progress = time.monotonic() - (mod.STALL_DEADLINE_SECONDS + 5)
+
+    calls = []
+
+    def fake_exit(code):
+        calls.append(code)
+        mod.shutdown_requested = True  # break the watchdog loop
+        mod._watchdog_wakeup.set()
+
+    monkeypatch.setattr(mod.os, "_exit", fake_exit)
+    mod._watchdog_loop()
+
+    assert calls == [1], "Watchdog must hard-exit(1) on a wedged loop"
+
+
+def test_watchdog_does_not_exit_when_progressing(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "shutdown_requested", False)
+    mod._last_loop_progress = time.monotonic()  # fresh progress
+
+    calls = []
+    monkeypatch.setattr(mod.os, "_exit", lambda code: calls.append(code))
+
+    # Run the watchdog briefly then stop it.
+    t = threading.Thread(target=mod._watchdog_loop, daemon=True)
+    t.start()
+    time.sleep(0.2)
+    mod.shutdown_requested = True
+    mod._watchdog_wakeup.set()
+    t.join(timeout=2)
+
+    assert calls == [], "Watchdog must not exit while the loop is progressing"
+
+
+# --- G1/G2/G3: identity, role, agent-graph type (BP-169) ----------------------
+
+
+def test_resolve_user_id_and_role():
+    from memory.trace_flush_worker import _resolve_role_tag, _resolve_user_id
+
+    assert _resolve_user_id({"agent_name": "parzival"}) == "agent:parzival"
+    assert _resolve_user_id({}) == "system:unknown"
+    assert _resolve_role_tag({"agent_role": "worker"}) == "role:worker"
+    assert _resolve_role_tag({}) is None
+
+
+def test_sdk_path_emits_agent_identity_role_and_type(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)  # OTEL_AVAILABLE False
+
+    captured = {}
+
+    def fake_propagate(**kw):
+        captured.update(kw)
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr(mod, "_langfuse_propagate_attributes", fake_propagate)
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    event = {
+        "event_type": "orchestrate",
+        "trace_id": "a" * 32,
+        "parent_span_id": None,
+        "session_id": "s",
+        "project_id": "p",
+        "as_type": "agent",
+        "tags": ["pipeline"],
+    }
+    data = {
+        "start_time": "2026-02-23T10:00:00+00:00",
+        "end_time": "2026-02-23T10:00:01+00:00",
+        "metadata": {"agent_name": "dev-w1", "agent_role": "worker"},
+    }
+
+    mod._process_event_sdk(event, data, mock_langfuse)
+
+    # G1: identity
+    assert captured["user_id"] == "agent:dev-w1"
+    # G2: role in propagated metadata + tag
+    assert captured["metadata"]["agent_role"] == "worker"
+    assert "role:worker" in captured["tags"]
+    assert "pipeline" in captured["tags"]
+    # G3: agent type passed through (not collapsed to span)
+    assert mock_langfuse.start_observation.call_args.kwargs["as_type"] == "agent"
+
+
+def test_sdk_path_identityless_event_uses_system_unknown(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+
+    captured = {}
+
+    def fake_propagate(**kw):
+        captured.update(kw)
+        return contextlib.nullcontext()
+
+    monkeypatch.setattr(mod, "_langfuse_propagate_attributes", fake_propagate)
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    event = {
+        "event_type": "1_capture",
+        "trace_id": "b" * 32,
+        "parent_span_id": None,
+        "session_id": "s",
+        "project_id": "p",
+    }
+    data = {
+        "start_time": "2026-02-23T10:00:00+00:00",
+        "end_time": "2026-02-23T10:00:01+00:00",
+        "metadata": {},
+    }
+
+    mod._process_event_sdk(event, data, mock_langfuse)
+    assert captured["user_id"] == "system:unknown"
+
+
+def test_otel_path_emits_agent_identity_role_and_type(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "OTEL_AVAILABLE", True)
+
+    fake_span = MagicMock()
+    fake_tracer = MagicMock()
+    fake_tracer.start_span.return_value = fake_span
+    monkeypatch.setattr(mod.otel_trace_api, "get_tracer", lambda name: fake_tracer)
+    monkeypatch.setattr(mod, "_make_parent_context", lambda *a, **k: None)
+
+    event = {
+        "event_type": "1_capture",
+        "trace_id": "a" * 32,
+        "parent_span_id": None,
+        "session_id": "s",
+        "project_id": "p",
+        "as_type": "agent",
+        "tags": ["pipeline"],
+    }
+    data = {
+        "start_time": "2026-02-23T10:00:00+00:00",
+        "end_time": "2026-02-23T10:00:01+00:00",
+        "metadata": {"agent_name": "dev-w1", "agent_role": "worker"},
+    }
+
+    mod._process_event_otel(event, data)
+
+    attrs = {c.args[0]: c.args[1] for c in fake_span.set_attribute.call_args_list}
+    # G1: identity from buffer, not hardcoded "system"
+    assert attrs["user.id"] == "agent:dev-w1"
+    # G3: agent observation type triggers the graph view
+    assert attrs["langfuse.observation.type"] == "agent"
+    # G2: role tag + trace metadata
+    assert "role:worker" in attrs["langfuse.trace.tags"]
+    assert json.loads(attrs["langfuse.trace.metadata"])["agent_role"] == "worker"

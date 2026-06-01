@@ -127,3 +127,79 @@ class TestKillSwitchHelpers:
         monkeypatch.setenv("LANGFUSE_ENABLED", "false")
         monkeypatch.setenv("LANGFUSE_TRACE_HOOKS", "true")
         assert is_hook_tracing_enabled() is False
+
+
+class TestTracingEnvironmentValidation:
+    """G4 (BP-169): LANGFUSE_TRACING_ENVIRONMENT validation + wiring."""
+
+    def setup_method(self):
+        reset_langfuse_client()
+
+    def teardown_method(self):
+        reset_langfuse_client()
+
+    def test_validate_accepts_valid_values(self):
+        from memory.langfuse_config import validate_tracing_environment as v
+
+        assert v("testv2") == "testv2"
+        assert v("prod-install_1") == "prod-install_1"
+        assert v("a" * 40) == "a" * 40
+
+    def test_validate_rejects_invalid_values(self):
+        from memory.langfuse_config import validate_tracing_environment as v
+
+        assert v("langfuse-reserved") is None  # negative lookahead on "langfuse"
+        assert v("UPPER") is None
+        assert v("has space") is None
+        assert v("a" * 41) is None  # >40 chars
+        assert v("") is None
+        assert v(None) is None
+
+    def _enabled_env(self, monkeypatch):
+        monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+        monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-test")
+        monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-test")
+
+    def _mock_langfuse(self):
+        mock_span_filter = MagicMock()
+        mock_span_filter.is_default_export_span = MagicMock()
+        return patch.dict(
+            "sys.modules",
+            {
+                "langfuse": MagicMock(Langfuse=MagicMock(return_value=MagicMock())),
+                "langfuse.span_filter": mock_span_filter,
+            },
+        )
+
+    def test_invalid_environment_is_dropped(self, monkeypatch):
+        """An invalid LANGFUSE_TRACING_ENVIRONMENT is removed so the SDK ignores it."""
+        import os
+
+        self._enabled_env(monkeypatch)
+        monkeypatch.setenv("LANGFUSE_TRACING_ENVIRONMENT", "Invalid Env!")
+        with self._mock_langfuse():
+            reset_langfuse_client()
+            get_langfuse_client()
+        assert "LANGFUSE_TRACING_ENVIRONMENT" not in os.environ
+
+    def test_valid_environment_is_preserved(self, monkeypatch):
+        """A valid LANGFUSE_TRACING_ENVIRONMENT is left in env for the SDK to read."""
+        import os
+
+        self._enabled_env(monkeypatch)
+        monkeypatch.setenv("LANGFUSE_TRACING_ENVIRONMENT", "testv2")
+        with self._mock_langfuse():
+            reset_langfuse_client()
+            get_langfuse_client()
+        assert os.environ.get("LANGFUSE_TRACING_ENVIRONMENT") == "testv2"
+
+    def test_no_hardcoded_environment_when_unset(self, monkeypatch):
+        """When unset, the config does NOT inject any environment value."""
+        import os
+
+        self._enabled_env(monkeypatch)
+        monkeypatch.delenv("LANGFUSE_TRACING_ENVIRONMENT", raising=False)
+        with self._mock_langfuse():
+            reset_langfuse_client()
+            get_langfuse_client()
+        assert "LANGFUSE_TRACING_ENVIRONMENT" not in os.environ
