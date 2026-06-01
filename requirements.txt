@@ -52,7 +52,7 @@ spacy>=3.8.0,<4.0.0
 croniter>=2.0.0,<7.0.0
 
 # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
-langfuse>=4.0.0,<4.1.0
+langfuse>=4.7.0,<4.8.0
 
 # Auto-instrumentation for Anthropic SDK calls (SPEC-020 §6)
 opentelemetry-instrumentation-anthropic>=0.1,<1.0.0

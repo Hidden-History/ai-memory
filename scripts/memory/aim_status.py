@@ -29,6 +29,8 @@ from memory.connectors.github.paths import resolve_github_state_file
 from memory.metrics_push import push_skill_metrics_async
 from memory.qdrant_client import get_qdrant_client
 
+TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other value)
+
 
 def _time_ago(iso_ts: str) -> str:
     try:
@@ -327,8 +329,8 @@ def main() -> int:
         emit_trace_event(
             event_type="skill_execution",
             data={
-                "input": "Skill: aim-status"[:10000],
-                "output": "Result: completed"[:10000],
+                "input": "Skill: aim-status"[:TRACE_CONTENT_MAX],
+                "output": "Result: completed"[:TRACE_CONTENT_MAX],
                 "metadata": {"skill_name": "aim-status"},
             },
             session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
-# FORBIDDEN: Langfuse() constructor, start_span(), start_generation(), langfuse_context
+# LANGFUSE: V4 SDK (Path B — direct get_client()). See LANGFUSE-INTEGRATION-SPEC.md
+# FORBIDDEN (removed in V4): start_span(), start_generation(), langfuse_context
 # REQUIRED: get_client(), api.score_configs.create(), api.score_configs.get(), flush()
 """Idempotent Score Config setup in Langfuse.
 
@@ -107,9 +107,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        from langfuse import (
-            get_client,  # V3 singleton — NEVER use Langfuse() constructor
-        )
+        from langfuse import get_client  # V4 SDK — get_client() singleton accessor
         from langfuse.api.resources.commons.types import (
             ConfigCategory,
             ScoreConfigDataType,
