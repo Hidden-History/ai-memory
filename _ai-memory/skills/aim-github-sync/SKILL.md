@@ -58,26 +58,7 @@ GITHUB_SYNC_ENABLED=true
 This skill invokes `GitHubSyncEngine.sync()` from `src/memory/connectors/github/sync.py`:
 
 ```bash
-# The skill invokes the sync engine via a thin script
-cd "$AI_MEMORY_INSTALL_DIR" || { echo "Error: AI_MEMORY_INSTALL_DIR is not set or directory does not exist"; exit 1; }
-MODE="${MODE:-incremental}"
-for arg in "$@"; do
-  case "$arg" in
-    --full) MODE="full" ;;
-    --incremental) MODE="incremental" ;;
-  esac
-done
-"$AI_MEMORY_INSTALL_DIR/.venv/bin/python" -c "
-import asyncio
-from memory.connectors.github.sync import GitHubSyncEngine
-engine = GitHubSyncEngine()
-result = asyncio.run(engine.sync(mode='${MODE}'))
-print(f'Synced {result.total_synced} items ({result.items_skipped} skipped, {result.errors} errors) in {result.duration_seconds:.1f}s')
-d = result.to_dict()
-for k, v in d.items():
-    if v and k != 'total_synced':
-        print(f'  {k}: {v}')
-"
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/github_sync_runner.py" "$@"
 ```
 
 ### Status Mode
