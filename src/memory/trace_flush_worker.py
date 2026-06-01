@@ -11,6 +11,15 @@ SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 # TD-372: OTel scope "ai-memory.flush-worker" requires should_export_span in langfuse_config.py.
 # OTel path (_process_event_otel): Uses raw OTel spans — DO NOT change attribute names.
 # SDK path (_process_event_sdk): Fallback when OTel unavailable — uses start_observation().
+#
+# BUG-315 residual risk: the preflight HTTP /api/public/health probe skips the flush
+# when the backend is unreachable or app-hung, and processing is bounded per batch, so
+# the stall watchdog should only ever see a genuinely-slow-but-progressing drain. The
+# one case it can still hard-exit is a backend that passes the health probe but then
+# hangs mid-flush-request past LANGFUSE_STALL_DEADLINE_SECONDS — the watchdog restarts
+# the worker, which replays the un-unlinked batch (loss-safe). Operators running a large
+# LANGFUSE_FLUSH_AT against a slow backend should raise LANGFUSE_STALL_DEADLINE_SECONDS
+# (a startup WARNING flags this; see _stall_deadline_warning).
 
 import contextlib
 import json
@@ -18,14 +27,14 @@ import logging
 import os
 import random
 import signal
-import socket
 import stat
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlparse
 
 try:
     from opentelemetry import trace as otel_trace_api
@@ -108,11 +117,20 @@ HEARTBEAT_FILE = BUFFER_DIR / ".heartbeat"
 # unbounded pass over a large backlog. Aligned with LANGFUSE_FLUSH_AT (max events
 # the SDK batches per send) so each pass enqueues at most one batch before the
 # loop cycles (refreshing the heartbeat and re-checking connectivity).
-FLUSH_BATCH_MAX = int(os.environ.get("LANGFUSE_FLUSH_AT", "500"))
+_DEFAULT_FLUSH_BATCH_MAX = 500
+FLUSH_BATCH_MAX = int(
+    os.environ.get("LANGFUSE_FLUSH_AT", str(_DEFAULT_FLUSH_BATCH_MAX))
+)
+
+# Best-effort wall-clock budget for the graceful-shutdown drain loop. Kept under
+# Docker's default 10s stop-grace so SIGKILL does not interrupt mid-flush; if it
+# does, the drain is loss-safe (process_buffer_files unlinks only after flush
+# confirms enqueue) so any remainder replays on next start.
+SHUTDOWN_DRAIN_SECONDS = float(os.environ.get("LANGFUSE_SHUTDOWN_DRAIN_SECONDS", "5"))
 
 # Backend the worker flushes to. flush() blocks (never throws) when this is
-# unreachable, so the loop preflights a TCP probe here and skips the flush when
-# it cannot connect (the container has no wget/curl).
+# unreachable, so the loop preflights an HTTP /api/public/health probe here and
+# skips the flush when it cannot connect (the container has no wget/curl).
 LANGFUSE_BASE_URL = os.environ.get("LANGFUSE_BASE_URL", "http://langfuse-web:3000")
 PREFLIGHT_TIMEOUT_SECONDS = float(
     os.environ.get("LANGFUSE_PREFLIGHT_TIMEOUT_SECONDS", "3")
@@ -153,22 +171,27 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 
 def _backend_reachable() -> bool:
-    """Return True if a TCP connection to the Langfuse backend can be opened.
+    """Return True if the Langfuse backend answers an HTTP readiness probe with 200.
 
-    The worker container ships without wget/curl, so connectivity is probed with
-    a short-timeout socket connect. flush() blocks (and never throws) against an
-    unreachable backend, so the loop uses this to skip the flush and keep cycling
-    (evict + heartbeat) instead of wedging inside a doomed retry (BUG-315).
+    The worker container ships without wget/curl, so connectivity is probed with a
+    short-timeout stdlib HTTP GET to Langfuse's ``/api/public/health`` endpoint (the
+    self-hosted health check — it confirms the web app is alive and its API is
+    functioning, not merely that the TCP port is open). A bare TCP connect would pass
+    against a TCP-up-but-app-hung backend; the HTTP probe instead times out or returns
+    non-200, so such a backend is correctly reported unreachable. flush() blocks (and
+    never throws) against an unreachable or hung backend, so the loop uses this to skip
+    the flush and keep cycling (evict + heartbeat) instead of wedging inside a doomed
+    retry (BUG-315).
     """
-    parsed = urlparse(LANGFUSE_BASE_URL)
-    host = parsed.hostname
-    if not host:
+    if not LANGFUSE_BASE_URL:
         return False
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    health_url = LANGFUSE_BASE_URL.rstrip("/") + "/api/public/health"
     try:
-        with socket.create_connection((host, port), timeout=PREFLIGHT_TIMEOUT_SECONDS):
-            return True
-    except OSError:
+        with urllib.request.urlopen(
+            health_url, timeout=PREFLIGHT_TIMEOUT_SECONDS
+        ) as resp:
+            return resp.status == 200
+    except (urllib.error.URLError, OSError):
         return False
 
 
@@ -200,12 +223,41 @@ def _is_stalled(last_progress: float, now: float) -> bool:
     return (now - last_progress) > STALL_DEADLINE_SECONDS
 
 
+def _stall_deadline_warning() -> str | None:
+    """Return a startup warning if the batch cap is large but the stall deadline
+    was left at its default, else None.
+
+    A large ``LANGFUSE_FLUSH_AT`` flushing against a slow backend can take longer
+    than the default ``LANGFUSE_STALL_DEADLINE_SECONDS``, so a legitimately-slow
+    bounded flush could trip the watchdog. The deadline is NOT auto-derived from the
+    batch size (there is no reliable per-event flush-latency model); instead this
+    flags the risky configuration shape — operator raised the batch cap above the
+    default without raising the deadline — and tells them to raise the deadline.
+    """
+    flush_at_raised = FLUSH_BATCH_MAX > _DEFAULT_FLUSH_BATCH_MAX
+    deadline_left_default = "LANGFUSE_STALL_DEADLINE_SECONDS" not in os.environ
+    if flush_at_raised and deadline_left_default:
+        return (
+            f"LANGFUSE_FLUSH_AT={FLUSH_BATCH_MAX} exceeds the default "
+            f"({_DEFAULT_FLUSH_BATCH_MAX}) but LANGFUSE_STALL_DEADLINE_SECONDS is unset "
+            f"(default {STALL_DEADLINE_SECONDS}s): a single large batch flushing against "
+            "a slow backend may exceed the stall deadline and trigger a watchdog restart "
+            "mid-flush. Raise LANGFUSE_STALL_DEADLINE_SECONDS to accommodate the larger "
+            "batch."
+        )
+    return None
+
+
 def _watchdog_loop() -> None:
     """Background watchdog: hard-exit the process if the main loop wedges.
 
     Measures drain progress via ``_last_loop_progress`` (advanced at the bottom of
     every main-loop iteration), so a slow-but-progressing backlog drain is never
-    killed — only a loop stuck inside a blocking flush/process pass trips it.
+    killed — only a loop stuck inside a blocking flush/process pass trips it. With the
+    HTTP preflight skipping unreachable/hung backends and processing bounded per batch,
+    the only residual trip is a backend that passes the health probe but hangs
+    mid-flush-request past STALL_DEADLINE_SECONDS; the restart replays the
+    un-unlinked batch (loss-safe).
 
     Uses ``os._exit`` (not ``sys.exit``): when the main thread is wedged in a
     blocking flush, a SystemExit raised in this thread cannot terminate the
@@ -218,6 +270,10 @@ def _watchdog_loop() -> None:
                 "Self-exiting so Docker restarts the worker into a draining state.",
                 STALL_DEADLINE_SECONDS,
             )
+            # Flush logging handlers so the stall diagnostic is not lost on hard exit.
+            for _handler in logging.getLogger().handlers:
+                with contextlib.suppress(Exception):
+                    _handler.flush()
             os._exit(1)
         _watchdog_wakeup.wait(min(FLUSH_INTERVAL or 1, 5))
 
@@ -470,10 +526,13 @@ def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, i
 
     BUG-315: the batch is bounded (``limit``) so one slow flush cannot wedge an
     unbounded pass over a large backlog — the caller loops, refreshing the
-    heartbeat and re-checking connectivity between batches. The drain is
-    loss-safe: a file is unlinked only AFTER ``flush()`` confirms the batch is
-    enqueued. A crash between enqueue and unlink replays the batch on restart
-    (at-least-once; a duplicate is preferred over a dropped trace).
+    heartbeat and re-checking connectivity between batches. Files are drained
+    oldest-first (by mtime) to align with ``evict_oldest_traces`` (which evicts
+    oldest-first), so an oldest un-flushed trace reaches the batch before eviction
+    can drop it. The drain is loss-safe: a file is unlinked only AFTER ``flush()``
+    confirms the batch is enqueued (and only if it did not raise). A crash between
+    enqueue and unlink replays the batch on restart (at-least-once; a duplicate is
+    preferred over a dropped trace).
 
     Returns:
         Tuple of (processed_count, error_count).
@@ -485,7 +544,28 @@ def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, i
     errors = 0
     enqueued: list[Path] = []
 
-    for json_file in list(BUFFER_DIR.glob("*.json"))[:limit]:
+    # F-2/F-3 (BUG-315): drain oldest-first to align with evict_oldest_traces (which
+    # drops oldest-first) — an oldest un-flushed trace must reach the batch before
+    # eviction can drop it. Oldest-first requires every file's mtime, so this is a
+    # single os.scandir pass collecting (mtime, path), sorted, then capped at ``limit``
+    # — not the old list(glob) that materialized every Path only to slice most away.
+    # The scan is O(n) in backlog size per pass (the same cost evict_oldest_traces
+    # already pays each iteration; ~22K transient (mtime, path) tuples at the BUG-315
+    # backlog). The wedge fix is the bounded *processing* (``limit``), which is
+    # independent of backlog size — see the watchdog/main loop.
+    try:
+        scanned: list[tuple[float, Path]] = []
+        with os.scandir(BUFFER_DIR) as it:
+            for entry in it:
+                st = entry.stat()
+                if stat.S_ISREG(st.st_mode) and entry.name.endswith(".json"):
+                    scanned.append((st.st_mtime, Path(entry.path)))
+    except OSError as e:
+        logger.warning("Failed to scan buffer dir: %s", e)
+        return 0, 0
+    scanned.sort(key=lambda x: x[0])
+
+    for json_file in [path for _mtime, path in scanned[:limit]]:
         try:
             with open(json_file) as f:
                 event = json.load(f)
@@ -510,16 +590,27 @@ def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, i
             errors += 1
 
     # Loss-safe: flush the batch before unlinking so files are removed only once
-    # their spans are confirmed enqueued (flush() blocks until queues drain).
+    # their spans are confirmed enqueued (flush() blocks until queues drain). Per
+    # BP-168, flush() logs+retries and never throws on network error, so the except
+    # is a defensive backstop; if it does raise, the files are retained (not unlinked)
+    # so the batch replays next pass rather than dropping traces (F-5).
     if enqueued:
+        flush_ok = False
         try:
             langfuse.flush()
+            flush_ok = True
         except Exception as e:
             logger.warning("Langfuse flush failed: %s", e)
-        for json_file in enqueued:
-            with contextlib.suppress(OSError):
-                json_file.unlink()
-            processed += 1
+        if flush_ok:
+            for json_file in enqueued:
+                with contextlib.suppress(OSError):
+                    json_file.unlink()
+                processed += 1
+        else:
+            logger.warning(
+                "Retaining %s buffered file(s) for retry — flush did not confirm enqueue",
+                len(enqueued),
+            )
 
     return processed, errors
 
@@ -528,9 +619,9 @@ def main():
     """Main flush loop: heartbeat → evict → preflight → drain batch → metrics → sleep.
 
     BUG-315: the heartbeat is touched at the TOP of each iteration (liveness =
-    loop cycling, decoupled from a blocking flush); a TCP preflight skips the
-    drain when the backend is unreachable; and a watchdog thread hard-exits the
-    process if the loop wedges so Docker restarts it.
+    loop cycling, decoupled from a blocking flush); an HTTP /api/public/health
+    preflight skips the drain when the backend is unreachable or app-hung; and a
+    watchdog thread hard-exits the process if the loop wedges so Docker restarts it.
     """
     global shutdown_requested, _last_loop_progress
 
@@ -552,6 +643,9 @@ def main():
             MAX_BUFFER_MB,
             FLUSH_BATCH_MAX,
         )
+        _deadline_warning = _stall_deadline_warning()
+        if _deadline_warning:
+            logger.warning(_deadline_warning)
 
     # Start the stall watchdog (BUG-315). Daemon thread so it never blocks exit.
     _last_loop_progress = time.monotonic()
@@ -615,13 +709,21 @@ def main():
         total_processed,
     )
 
-    # Best-effort bounded drain on shutdown (loss-safe: process_buffer_files
-    # flushes before unlinking; any remainder persists for the next start).
-    if not degraded and _backend_reachable():
-        evict_oldest_traces()
-        processed, errors = process_buffer_files(langfuse)
-        total_errors += errors
-        total_processed += processed
+    # Best-effort bounded drain on shutdown: keep draining batches until the buffer
+    # is empty OR the SHUTDOWN_DRAIN_SECONDS budget elapses OR the backend stops
+    # responding. Loss-safe (process_buffer_files flushes before unlinking; any
+    # remainder persists for the next start). The watchdog was already signalled
+    # (_watchdog_wakeup.set + shutdown_requested True) above, so it cannot os._exit
+    # during this drain.
+    if not degraded:
+        drain_deadline = time.monotonic() + SHUTDOWN_DRAIN_SECONDS
+        while time.monotonic() < drain_deadline and _backend_reachable():
+            evict_oldest_traces()
+            processed, errors = process_buffer_files(langfuse)
+            total_errors += errors
+            total_processed += processed
+            if processed == 0 and errors == 0:
+                break  # buffer drained (or nothing left to process)
 
     logger.info(
         "Trace flush worker stopped (total_processed=%s, total_errors=%s)",

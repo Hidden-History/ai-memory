@@ -389,22 +389,63 @@ def test_process_buffer_files_flushes_before_unlink(tmp_path, monkeypatch):
     assert not path.exists()  # removed only after flush confirmed enqueue
 
 
-# --- R1(c): backend preflight -------------------------------------------------
+def test_process_buffer_files_retains_files_when_flush_raises(tmp_path, monkeypatch):
+    """F-5: if flush() raises (theoretical per BP-168), files are retained, not dropped."""
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    path = _write_event(buffer_dir, "flush_raises")
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+    mock_langfuse.flush.side_effect = RuntimeError("flush blew up")
+
+    processed, _ = mod.process_buffer_files(mock_langfuse)
+
+    assert processed == 0
+    assert (
+        path.exists()
+    ), "File must be retained for retry when flush raises (loss-safe)"
 
 
-def test_backend_reachable_true(tmp_path, monkeypatch):
+# --- R1(c): backend preflight (HTTP /api/public/health probe) -----------------
+
+
+class _FakeHealthResp:
+    """Minimal context-manager stand-in for urllib's urlopen response."""
+
+    def __init__(self, status=200):
+        self.status = status
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_backend_reachable_true_on_200(tmp_path, monkeypatch):
     mod, _ = _load_module(tmp_path, monkeypatch)
-    monkeypatch.setattr(mod.socket, "create_connection", lambda *a, **k: MagicMock())
+    monkeypatch.setattr(
+        mod.urllib.request, "urlopen", lambda *a, **k: _FakeHealthResp(200)
+    )
     assert mod._backend_reachable() is True
 
 
-def test_backend_reachable_false_on_oserror(tmp_path, monkeypatch):
+def test_backend_reachable_false_on_non_200(tmp_path, monkeypatch):
+    """A TCP-up-but-app-hung backend answers non-200 → treated as unreachable."""
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        mod.urllib.request, "urlopen", lambda *a, **k: _FakeHealthResp(503)
+    )
+    assert mod._backend_reachable() is False
+
+
+def test_backend_reachable_false_on_urlerror(tmp_path, monkeypatch):
     mod, _ = _load_module(tmp_path, monkeypatch)
 
     def boom(*a, **k):
-        raise OSError("no route to host")
+        raise mod.urllib.error.URLError("connection refused")
 
-    monkeypatch.setattr(mod.socket, "create_connection", boom)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", boom)
     assert mod._backend_reachable() is False
 
 
@@ -487,6 +528,127 @@ def test_watchdog_does_not_exit_when_progressing(tmp_path, monkeypatch):
     t.join(timeout=2)
 
     assert calls == [], "Watchdog must not exit while the loop is progressing"
+
+
+# --- F-1(a): watchdog-deadline configuration warning -------------------------
+
+
+def test_stall_deadline_warning_fires_on_large_batch_default_deadline(
+    tmp_path, monkeypatch
+):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.delenv("LANGFUSE_STALL_DEADLINE_SECONDS", raising=False)
+    monkeypatch.setattr(mod, "FLUSH_BATCH_MAX", mod._DEFAULT_FLUSH_BATCH_MAX * 10)
+    assert mod._stall_deadline_warning() is not None
+
+
+def test_stall_deadline_no_warning_when_deadline_explicitly_set(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setenv("LANGFUSE_STALL_DEADLINE_SECONDS", "3600")
+    monkeypatch.setattr(mod, "FLUSH_BATCH_MAX", mod._DEFAULT_FLUSH_BATCH_MAX * 10)
+    assert mod._stall_deadline_warning() is None
+
+
+def test_stall_deadline_no_warning_at_default_batch(tmp_path, monkeypatch):
+    mod, _ = _load_module(tmp_path, monkeypatch)
+    monkeypatch.delenv("LANGFUSE_STALL_DEADLINE_SECONDS", raising=False)
+    monkeypatch.setattr(mod, "FLUSH_BATCH_MAX", mod._DEFAULT_FLUSH_BATCH_MAX)
+    assert mod._stall_deadline_warning() is None
+
+
+# --- F-4: watchdog x slow-but-progressing bounded drain through real main() ---
+
+
+def test_bug315_watchdog_survives_slow_progressing_multibatch_drain(
+    tmp_path, monkeypatch
+):
+    """F-1 x F-4: a slow-but-progressing drain over MANY bounded batches, run through
+    the real main()/process_buffer_files path with the live watchdog, must NOT trip
+    the stall watchdog. The watchdog kills only a zero-progress wedge; each bounded
+    batch advances _last_loop_progress, so a deadline sized for one bounded batch is
+    independent of the total backlog size (scale-independence)."""
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "MAX_BUFFER_MB", 1000)
+    # Force a small batch so the backlog drains over MANY main() iterations (real
+    # process_buffer_files logic runs; only the per-pass cap is pinned for the test).
+    real_process = mod.process_buffer_files
+    monkeypatch.setattr(
+        mod, "process_buffer_files", lambda lf, limit=5: real_process(lf, limit)
+    )
+    # Deadline comfortably larger than one bounded-batch flush; the WHOLE drain takes
+    # longer, proving progress (not total time) is what the watchdog measures.
+    monkeypatch.setattr(mod, "STALL_DEADLINE_SECONDS", 2.0)
+    for i in range(40):
+        _write_agent_event(buffer_dir, f"evt{i}")
+
+    fake = MagicMock()
+    fake.start_observation.return_value = MagicMock()
+    # Slow-but-progressing: each bounded batch's flush blocks briefly, then returns.
+    fake.flush.side_effect = lambda: time.sleep(0.02)
+
+    monkeypatch.setattr(mod, "shutdown_requested", False)
+    monkeypatch.setattr(mod, "_langfuse_propagate_attributes", MagicMock())
+    monkeypatch.setattr(mod, "_backend_reachable", lambda: True)
+
+    exits = []
+    monkeypatch.setattr(mod.os, "_exit", lambda code: exits.append(code))
+
+    with patch.object(mod, "get_langfuse_client", return_value=fake):
+        t = threading.Thread(target=mod.main, daemon=True)
+        t.start()
+        try:
+            deadline = time.time() + 8
+            while time.time() < deadline and list(buffer_dir.glob("*.json")):
+                time.sleep(0.05)
+        finally:
+            mod.shutdown_requested = True
+            mod._watchdog_wakeup.set()
+            t.join(timeout=5)
+
+    assert list(buffer_dir.glob("*.json")) == [], "Backlog must fully drain"
+    assert exits == [], "Watchdog must not hard-exit a slow-but-progressing drain"
+
+
+# --- F-7: graceful shutdown drains multiple batches until empty (bounded) -----
+
+
+def test_shutdown_drains_multiple_batches_within_budget(tmp_path, monkeypatch):
+    """F-7: graceful shutdown drains MORE than one batch (until empty or time budget),
+    not just a single FLUSH_BATCH_MAX batch."""
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    monkeypatch.setattr(mod, "MAX_BUFFER_MB", 1000)
+    real_process = mod.process_buffer_files
+    monkeypatch.setattr(
+        mod, "process_buffer_files", lambda lf, limit=5: real_process(lf, limit)
+    )
+    monkeypatch.setattr(mod, "SHUTDOWN_DRAIN_SECONDS", 5.0)
+    monkeypatch.setattr(mod, "_backend_reachable", lambda: True)
+    monkeypatch.setattr(mod, "_langfuse_propagate_attributes", MagicMock())
+    monkeypatch.setattr(mod, "shutdown_requested", False)
+
+    exits = []
+    monkeypatch.setattr(mod.os, "_exit", lambda code: exits.append(code))
+
+    for i in range(12):
+        _write_event(buffer_dir, f"sd{i}")
+
+    fake = MagicMock()
+    fake.start_observation.return_value = MagicMock()
+
+    # Stop the main loop on its first sleep; the shutdown drain then empties the rest.
+    def stop(_):
+        mod.shutdown_requested = True
+
+    with (
+        patch.object(mod, "get_langfuse_client", return_value=fake),
+        patch("time.sleep", side_effect=stop),
+    ):
+        mod.main()
+
+    assert (
+        list(buffer_dir.glob("*.json")) == []
+    ), "Shutdown must drain all batches within the time budget"
+    assert exits == []
 
 
 # --- G1/G2/G3: identity, role, agent-graph type (BP-169) ----------------------

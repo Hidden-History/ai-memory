@@ -103,6 +103,10 @@ def get_langfuse_client():
     a later call (after env vars are configured) will succeed.
     This is important for long-lived processes (Phase 2, SPEC-020).
 
+    Side effect: if ``LANGFUSE_TRACING_ENVIRONMENT`` is set to a value that fails
+    ``validate_tracing_environment`` (G4, BP-169), it is popped from ``os.environ``
+    so the V4 SDK does not silently ignore a malformed env at construction.
+
     Returns:
         Langfuse client instance, or None if disabled/unavailable.
     """
