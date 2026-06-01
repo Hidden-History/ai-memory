@@ -25,6 +25,11 @@ from pathlib import Path
 
 import pytest
 
+SCRIPTS_DIR = (
+    Path(__file__).resolve().parent.parent
+    / "_ai-memory/pov/skills/aim-model-dispatch/scripts/lib"
+)
+
 
 def _minimal_env(home_dir: Path, extra: dict | None = None) -> dict:
     """Explicit minimal env: HOME + LC_ALL=C + PATH, plus any test-specific vars.
@@ -62,7 +67,6 @@ def _minimal_env(home_dir: Path, extra: dict | None = None) -> dict:
     ],
 )
 def test_key_loaded(
-    scripts_dir: Path,
     tmp_path: Path,
     extra_env: dict,
     write_token: str | None,
@@ -71,7 +75,7 @@ def test_key_loaded(
     """Exit 0; env var carries expected value; stdout == expected_val; stderr empty."""
     if write_token is not None:
         (tmp_path / ".openrouter-token").write_text(write_token)
-    helper = scripts_dir / "check_api_key.sh"
+    helper = SCRIPTS_DIR / "check_api_key.sh"
     result = subprocess.run(
         [
             "bash",
@@ -96,9 +100,9 @@ def test_key_loaded(
 # ---------------------------------------------------------------------------
 
 
-def test_no_key_exits_1(scripts_dir: Path, tmp_path: Path) -> None:
+def test_no_key_exits_1(tmp_path: Path) -> None:
     """Exit 1; inline error on stdout (parity with 5 inline forms); stderr empty."""
-    helper = scripts_dir / "check_api_key.sh"
+    helper = SCRIPTS_DIR / "check_api_key.sh"
     result = subprocess.run(
         ["bash", str(helper), "--provider", "openrouter"],
         env=_minimal_env(tmp_path),
@@ -120,9 +124,9 @@ def test_no_key_exits_1(scripts_dir: Path, tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_sourced_no_key_survives(scripts_dir: Path, tmp_path: Path) -> None:
+def test_sourced_no_key_survives(tmp_path: Path) -> None:
     """Sourced key-not-found: function returns non-zero; shell survives; error on stdout."""
-    helper = scripts_dir / "check_api_key.sh"
+    helper = SCRIPTS_DIR / "check_api_key.sh"
     # Capture the function's return code; continue running to prove shell is alive.
     script = (
         f'source "{helper}"; '
@@ -160,13 +164,12 @@ def test_sourced_no_key_survives(scripts_dir: Path, tmp_path: Path) -> None:
     ],
 )
 def test_usage_error_exits_2(
-    scripts_dir: Path,
     tmp_path: Path,
     args: list,
     expected_stderr_fragment: str,
 ) -> None:
     """Exit 2; net-new usage diagnostic on stderr; stdout empty."""
-    helper = scripts_dir / "check_api_key.sh"
+    helper = SCRIPTS_DIR / "check_api_key.sh"
     result = subprocess.run(
         ["bash", str(helper), *args],
         env=_minimal_env(tmp_path),
