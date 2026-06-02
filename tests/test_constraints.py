@@ -32,7 +32,7 @@ def _record(name, args, kwargs):
         data = json.loads(p.read_text())
     except Exception:
         data = {}
-    data[name] = {"args": list(args), "kwargs": kwargs}
+    data.setdefault(name, []).append({"args": list(args), "kwargs": kwargs})
     p.write_text(json.dumps(data))
 
 
@@ -53,7 +53,7 @@ def push_skill_metrics_async(*args, **kwargs):
         data = json.loads(p.read_text())
     except Exception:
         data = {}
-    data["push"] = {"args": list(args), "kwargs": kwargs}
+    data.setdefault("push", []).append({"args": list(args), "kwargs": kwargs})
     p.write_text(json.dumps(data))
 """
 
@@ -69,7 +69,7 @@ def emit_trace_event(*args, **kwargs):
         data = json.loads(p.read_text())
     except Exception:
         data = {}
-    data["emit"] = {"args": list(args), "kwargs": kwargs}
+    data.setdefault("emit", []).append({"args": list(args), "kwargs": kwargs})
     p.write_text(json.dumps(data))
 """
 
@@ -124,8 +124,9 @@ class TestKnownPhase:
             load_return="## Constraint A\n## Constraint B",
         )
         assert result.returncode == 0
-        assert calls["load"]["kwargs"]["phase"] == "init"
-        assert isinstance(calls["load"]["args"][0], str)
+        assert len(calls["load"]) == 1
+        assert calls["load"][0]["kwargs"]["phase"] == "init"
+        assert isinstance(calls["load"][0]["args"][0], str)
 
     def test_known_phase_output_printed(self, tmp_path):
         result, _ = _run_constraints(
@@ -144,7 +145,8 @@ class TestNoPhase:
     def test_no_phase_passes_none_to_load(self, tmp_path):
         result, calls = _run_constraints(tmp_path, args=[], load_return="")
         assert result.returncode == 0
-        assert calls["load"]["kwargs"]["phase"] is None
+        assert len(calls["load"]) == 1
+        assert calls["load"][0]["kwargs"]["phase"] is None
 
     def test_empty_constraints_prints_not_found(self, tmp_path):
         result, _ = _run_constraints(tmp_path, args=[], load_return="")
@@ -154,8 +156,11 @@ class TestNoPhase:
     def test_empty_constraints_metric_label_empty(self, tmp_path):
         result, calls = _run_constraints(tmp_path, args=[], load_return="")
         assert result.returncode == 0
-        assert calls["push"]["args"][:2] == ["aim-parzival-constraints", "empty"]
+        assert len(calls["push"]) == 1
+        assert calls["push"][0]["args"][:2] == ["aim-parzival-constraints", "empty"]
+        assert len(calls["push"][0]["args"]) == 3
         assert "emit" in calls
+        assert len(calls["emit"]) == 1
 
 
 class TestTelemetryShim:
@@ -166,14 +171,17 @@ class TestTelemetryShim:
             tmp_path, args=[], load_return="## Some constraint"
         )
         assert result.returncode == 0
-        assert calls["push"]["args"][:2] == ["aim-parzival-constraints", "success"]
+        assert len(calls["push"]) == 1
+        assert calls["push"][0]["args"][:2] == ["aim-parzival-constraints", "success"]
+        assert len(calls["push"][0]["args"]) == 3
 
     def test_emit_trace_event_kwargs(self, tmp_path):
         result, calls = _run_constraints(
             tmp_path, args=[], load_return="## Some constraint"
         )
         assert result.returncode == 0
-        emit_kw = calls["emit"]["kwargs"]
+        assert len(calls["emit"]) == 1
+        emit_kw = calls["emit"][0]["kwargs"]
         assert emit_kw["event_type"] == "skill_execution"
         assert emit_kw["data"] == {
             "input": "Skill: aim-parzival-constraints"[:10000],
@@ -191,4 +199,5 @@ class TestImportError:
         result, calls = _run_constraints(tmp_path, args=[], import_fail=True)
         assert result.returncode == 0
         assert "**Unavailable**" in result.stdout
+        assert "Traceback" not in result.stderr
         assert calls == {}
