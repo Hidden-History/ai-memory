@@ -14,24 +14,20 @@ Always run the real script through `run-with-env.sh` so the skill uses the
 installed ai-memory virtualenv and the standard local service defaults.
 
 ```bash
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-    "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/refresh.py"
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" refresh.py
 ```
 
 ## Examples
 
 ```bash
 # Scan all code-patterns memories
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-    "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/refresh.py"
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" refresh.py
 
 # Limit to a specific project group_id
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-    "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/refresh.py" my-project
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" refresh.py my-project
 
 # Topic filter (v2.1 — currently runs full scan with project filter)
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-    "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/refresh.py" --topic "authentication"
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" refresh.py --topic "authentication"
 ```
 
 ## Implementation

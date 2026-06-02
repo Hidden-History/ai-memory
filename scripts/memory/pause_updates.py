@@ -97,6 +97,7 @@ def _log_toggle(env_file, old_value, new_value):
 def main() -> int:
     start_time = time.perf_counter()
 
+    # argparse replaces inline sys.argv parsing; stricter error handling (exit 2 on bad args, --help exits 0) is intentional.
     parser = argparse.ArgumentParser(
         description="Toggle the AUTO_UPDATE_ENABLED kill switch",
     )

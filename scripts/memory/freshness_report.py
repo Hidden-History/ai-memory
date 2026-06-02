@@ -125,6 +125,7 @@ def format_freshness_report(report: FreshnessReport) -> str:
 
 def main() -> int:
     """Entry point for freshness report script."""
+    # argparse replaces inline sys.argv parsing; stricter error handling (exit 2 on bad args, --help exits 0) is intentional.
     parser = argparse.ArgumentParser(
         description="Scan code-patterns for stale memories against GitHub data",
     )

@@ -13,14 +13,11 @@ and auto-re-captures are disabled.
 
 ```bash
 # Toggle current state
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/pause_updates.py"
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" pause_updates.py
 
 # Enable updates
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/pause_updates.py" on
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" pause_updates.py on
 
 # Disable updates
-"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/pause_updates.py" off
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" pause_updates.py off
 ```

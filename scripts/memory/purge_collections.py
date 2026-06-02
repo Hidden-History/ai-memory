@@ -21,7 +21,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-_install_dir = os.path.expanduser("~/.ai-memory")
+_install_dir = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 from qdrant_client.models import (
