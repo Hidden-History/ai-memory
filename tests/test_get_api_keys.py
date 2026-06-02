@@ -51,7 +51,7 @@ def test_real_key_exported(helper_path, tmp_path):
     assert result.stdout == "abc123"
 
 
-def test_commented_key_yields_empty(helper_path, tmp_path):
+def test_empty_value_yields_empty(helper_path, tmp_path):
     """Scenario 2: .env present but QDRANT_API_KEY has no value (key= with empty RHS).
     Mirrors the actual testV2 install state: grep matches 'QDRANT_API_KEY=',
     cut -d= -f2 returns empty string, export succeeds, exit 0."""

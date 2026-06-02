@@ -30,10 +30,18 @@ except ImportError as e:
     print(f"**Unavailable**: AI Memory module not installed ({e})")
     sys.exit(0)
 
-_lib_dir = os.path.join(_install_dir, "scripts", "memory", "lib")
-if _lib_dir not in sys.path:
-    sys.path.insert(0, _lib_dir)
-from optional_telemetry import push_skill_metrics_async, emit_trace_event
+# Optional: Prometheus metrics (best-effort)
+try:
+    from memory.metrics_push import push_skill_metrics_async
+except ImportError:
+    push_skill_metrics_async = None
+
+# Optional: Langfuse trace events (best-effort, never blocks)
+# LANGFUSE: V3 ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+try:
+    from memory.trace_buffer import emit_trace_event
+except ImportError:
+    emit_trace_event = None
 
 project_root = os.getcwd()
 
