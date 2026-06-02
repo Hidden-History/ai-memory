@@ -74,7 +74,7 @@ The jira-data collection is stored in the local Qdrant instance:
 
 To get the API key:
 ```bash
-export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
+source "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/lib/get_api_keys.sh"
 ```
 
 ---
@@ -135,7 +135,7 @@ The Python search module (`src/memory/connectors/jira/search.py`) is NOT importa
 
 ```bash
 # Step 1: Get API key
-export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
+source "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/lib/get_api_keys.sh"
 
 # Step 2: Query Qdrant and save to temp file
 curl -s -H "Api-Key: $QDRANT_API_KEY" \
