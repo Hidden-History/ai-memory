@@ -55,7 +55,7 @@ GitHub content is stored in the discussions collection:
 
 To get the API key:
 ```bash
-export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
+source "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/lib/get_api_keys.sh"
 ```
 
 ---
@@ -93,7 +93,7 @@ Use the curl-to-file-to-python pattern for direct Qdrant queries.
 
 ```bash
 # Step 1: Get API key
-export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
+source "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/lib/get_api_keys.sh"
 
 # Step 2: Query Qdrant and save to temp file
 # Replace "owner/repo-name" with your GITHUB_REPO value (e.g., "Hidden-History/ai-memory")
