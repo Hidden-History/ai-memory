@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 from unittest.mock import ANY, MagicMock
 
+import pytest
+
 SCRIPT_PATH = (
     Path(__file__).parent.parent
     / "_ai-memory/pov/skills/aim-parzival-constraints/scripts/constraints.py"
@@ -52,7 +54,7 @@ def _exec_constraints(monkeypatch, argv, load_return_value):
 class TestKnownPhase:
     """Case 1: --phase <value> → load called with that phase, stdout shows constraints."""
 
-    def test_known_phase_passed_to_load(self, monkeypatch, capsys):
+    def test_known_phase_passed_to_load(self, monkeypatch):
         mock_load, _, _ = _exec_constraints(
             monkeypatch,
             argv=["constraints.py", "--phase", "init"],
@@ -74,7 +76,7 @@ class TestKnownPhase:
 class TestNoPhase:
     """Case 2: no --phase → phase=None, graceful handling of empty result."""
 
-    def test_no_phase_passes_none_to_load(self, monkeypatch, capsys):
+    def test_no_phase_passes_none_to_load(self, monkeypatch):
         mock_load, _, _ = _exec_constraints(
             monkeypatch,
             argv=["constraints.py"],
@@ -91,19 +93,20 @@ class TestNoPhase:
         out = capsys.readouterr().out
         assert "No constraint files found" in out
 
-    def test_empty_constraints_metric_label_empty(self, monkeypatch, capsys):
-        _, mock_push, _ = _exec_constraints(
+    def test_empty_constraints_metric_label_empty(self, monkeypatch):
+        _, mock_push, mock_emit = _exec_constraints(
             monkeypatch,
             argv=["constraints.py"],
             load_return_value="",
         )
         mock_push.assert_called_once_with("aim-parzival-constraints", "empty", ANY)
+        mock_emit.assert_called_once()
 
 
 class TestTelemetryShim:
     """Case 3: telemetry shim integration — callables invoked with exact args."""
 
-    def test_push_metrics_success_label(self, monkeypatch, capsys):
+    def test_push_metrics_success_label(self, monkeypatch):
         _, mock_push, _ = _exec_constraints(
             monkeypatch,
             argv=["constraints.py"],
@@ -127,3 +130,29 @@ class TestTelemetryShim:
             session_id=ANY,
             tags=["skill"],
         )
+
+
+class TestImportError:
+    """Safety-critical early-exit: ImportError on memory.injection → exit 0 + Unavailable message."""
+
+    def test_import_error_exits_zero_with_unavailable_message(
+        self, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(sys, "argv", ["constraints.py"])
+        monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
+
+        # Mark memory.injection absent via the None sentinel — Python raises ImportError
+        # immediately without any filesystem lookup, regardless of sys.path.
+        monkeypatch.setitem(sys.modules, "memory.injection", None)
+
+        spec = importlib.util.spec_from_file_location(
+            "constraints_importerror", SCRIPT_PATH
+        )
+        module = importlib.util.module_from_spec(spec)
+
+        with pytest.raises(SystemExit) as exc_info:
+            spec.loader.exec_module(module)
+
+        assert exc_info.value.code == 0
+        out = capsys.readouterr().out
+        assert "**Unavailable**" in out
