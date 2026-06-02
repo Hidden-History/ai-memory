@@ -54,11 +54,9 @@ if [ -n "$TEAM_DIR" ]; then
   INBOX="${TEAM_DIR}/inboxes/team-lead.json"
   RESULT_MESSAGE="Model: ${MODEL}\n\nTranscription:\n${OUTPUT_TEXT}\n\nToken Usage: ${TOKEN_USAGE}"
   SKILL_DIR="$(pwd)/.claude/skills/model-dispatch"
-  python3 "${SKILL_DIR}/scripts/inbox-inject.py" \
-    --inbox "$INBOX" \
-    --from "api-dispatch" \
-    --message "$RESULT_MESSAGE" \
-    --color "green"
+  bash "${SKILL_DIR}/scripts/lib/inbox_inject.sh" \
+    --inbox-path "$INBOX" --mode deliver \
+    --from "api-dispatch" --message "$RESULT_MESSAGE" --color "green"
   echo "Result injected to team lead inbox."
 fi
 ```

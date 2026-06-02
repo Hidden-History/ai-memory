@@ -23,14 +23,9 @@ Run the Python script to call the API and capture the response.
 ### 1. Check for API Key (OpenRouter)
 
 ```bash
-if [ -z "$OPENROUTER_API_KEY" ]; then
-  if [ -f ~/.openrouter-token ]; then
-    OPENROUTER_API_KEY=$(cat ~/.openrouter-token)
-  else
-    echo "Error: No OpenRouter API key. Run: model-dispatch install"
-    exit 1
-  fi
-fi
+SKILL_DIR="$(pwd)/.claude/skills/model-dispatch"
+source "${SKILL_DIR}/scripts/lib/check_api_key.sh"
+check_api_key --provider openrouter || exit 1
 ```
 
 ### 2. Execute Script

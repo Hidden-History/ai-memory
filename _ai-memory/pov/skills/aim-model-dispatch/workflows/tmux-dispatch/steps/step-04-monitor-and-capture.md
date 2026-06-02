@@ -121,11 +121,9 @@ if [ -n "$TEAM_DIR" ]; then
   INBOX="${TEAM_DIR}/inboxes/team-lead.json"
   SKILL_DIR="$(pwd)/.claude/skills/model-dispatch"
   if [ -f "$INBOX" ]; then
-    python3 "${SKILL_DIR}/scripts/inbox-inject.py" \
-      --inbox "$INBOX" \
-      --from "tmux-dispatch" \
-      --message "$RESULT" \
-      --color "blue"
+    bash "${SKILL_DIR}/scripts/lib/inbox_inject.sh" \
+      --inbox-path "$INBOX" --mode capture \
+      --from "tmux-dispatch" --message "$RESULT" --color "blue"
     echo "Result injected to team lead inbox."
   fi
 fi

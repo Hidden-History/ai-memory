@@ -62,9 +62,7 @@ has drifted into a source repo clone.
 Bash: pwd
 # MUST output the workspace root (e.g., /mnt/e/projects/dev-ai-memory)
 
-Bash: test -d _ai-memory && test -d _bmad && test -d oversight \
-      && echo "OK: workspace root" \
-      || echo "FAIL: not workspace root (missing one of _ai-memory/, _bmad/, oversight/)"
+Bash: bash "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/cwd_sentinel.sh" --variant loose
 # MUST output "OK: workspace root"
 # If "FAIL": stop, cd to workspace root, re-verify.
 # A single-marker check (e.g., ls _ai-memory/) is INSUFFICIENT -- a nested

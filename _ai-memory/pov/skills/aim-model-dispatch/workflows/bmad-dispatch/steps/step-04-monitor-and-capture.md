@@ -121,11 +121,9 @@ if [ -n "$TEAM_DIR" ]; then
   INBOX="${TEAM_DIR}/inboxes/team-lead.json"
   SKILL_DIR="$(pwd)/.claude/skills/model-dispatch"
   if [ -f "$INBOX" ]; then
-    python3 "${SKILL_DIR}/scripts/inbox-inject.py" \
-      --inbox "$INBOX" \
-      --from "${AGENT_NAME}" \
-      --message "$RESULT" \
-      --color "purple"
+    bash "${SKILL_DIR}/scripts/lib/inbox_inject.sh" \
+      --inbox-path "$INBOX" --mode capture \
+      --from "${AGENT_NAME}" --message "$RESULT" --color "purple"
     echo "Result injected to team lead inbox."
   fi
 fi
