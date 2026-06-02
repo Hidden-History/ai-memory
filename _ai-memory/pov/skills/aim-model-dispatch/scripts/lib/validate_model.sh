@@ -31,12 +31,19 @@ _vm_run() {
     esac
   done
 
+  # Empty BACKEND: warn and skip — matches inline warn+continue behavior for empty BACKEND.
+  if [[ -z "${backend}" ]]; then
+    echo "WARN: no catalog file for backend '' -- skipping pre-spawn validation"
+    return 0
+  fi
+
   [[ -n "${backend}" ]] || _vm_die "ERROR: --backend is required"
 
   # Default skill_dir: 2 levels up from this script (scripts/lib/ -> scripts/ -> skill root)
+  # Uses POSIX-safe dirname/pwd pattern (avoids GNU-only readlink -f).
   if [[ -z "${skill_dir}" ]]; then
     local _script_dir
-    _script_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+    _script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     skill_dir="$(dirname "$(dirname "${_script_dir}")")"
   fi
 

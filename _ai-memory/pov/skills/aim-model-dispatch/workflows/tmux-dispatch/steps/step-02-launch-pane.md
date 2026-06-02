@@ -32,7 +32,7 @@ insufficient because a nested source repo (e.g., `ai-memory/`) also contains
 # Scope: dev workspace dispatches only. End-user installs (~/.ai-memory/) launch
 # via skill installer wrappers and do not require this sentinel.
 # Enforced on every spawn, not just the first in a session.
-source "${SKILL_DIR:=$(pwd)/.claude/skills/model-dispatch}/scripts/lib/cwd_sentinel.sh"
+source "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/cwd_sentinel.sh"
 cwd_sentinel || exit 1
 ```
 
@@ -47,7 +47,7 @@ here with a clear catalog-reference message.
 ```bash
 # Skip validation when MODEL is empty (native Claude default) or BACKEND=gemini
 # (Gemini CLI handles its own model selection interactively).
-"${SKILL_DIR}/scripts/lib/validate_model.sh" --model "${MODEL}" --backend "${BACKEND}" || exit 1
+bash "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/validate_model.sh" --model "${MODEL}" --backend "${BACKEND}" || exit 1
 ```
 
 If validation fails, stop — do not create a pane.

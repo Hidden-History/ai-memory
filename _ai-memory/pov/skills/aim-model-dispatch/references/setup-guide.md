@@ -125,7 +125,8 @@ If you need to manually install only the `claude-dispatch` native wrapper:
 ```bash
 # Claude dispatch (native Anthropic API)
 # Source: wrappers/claude-dispatch.sh — install from the canonical file, do not recreate manually.
-cp /path/to/model-dispatch/wrappers/claude-dispatch.sh ~/.local/bin/claude-dispatch
+# SKILL_DIR: path to aim-model-dispatch skill dir, e.g. $(pwd)/_ai-memory/pov/skills/aim-model-dispatch
+cp "${SKILL_DIR}/wrappers/claude-dispatch.sh" ~/.local/bin/claude-dispatch
 chmod +x ~/.local/bin/claude-dispatch
 ```
 

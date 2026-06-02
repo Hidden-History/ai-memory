@@ -18,21 +18,19 @@
 #   N  inbox-inject.py exit code propagated on inject failure
 
 # ---------------------------------------------------------------------------
-# die: write diagnostic to stderr and exit 1
-# Defined at file scope so it is available even when sourced.
-# ---------------------------------------------------------------------------
-_inbox_inject_die() {
-    printf 'inbox_inject.sh: %s\n' "$*" >&2
-    exit 1
-}
-
-# ---------------------------------------------------------------------------
 # Execute-guard: strict mode + main logic only when run directly, not sourced.
 # Unconditional set -euo pipefail at file scope would mutate the caller's shell.
 # ---------------------------------------------------------------------------
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     set -euo pipefail
     IFS=$'\n\t'
+
+    # die: write diagnostic to stderr and exit 1.
+    # Defined inside execute-guard (BP-016 D1): no file-scope exit when sourced.
+    _inbox_inject_die() {
+        printf 'inbox_inject.sh: %s\n' "$*" >&2
+        exit 1
+    }
 
     # Locate sibling inbox-inject.py relative to this script's directory
     _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

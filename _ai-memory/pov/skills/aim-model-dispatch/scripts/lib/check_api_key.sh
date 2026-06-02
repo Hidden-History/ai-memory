@@ -70,8 +70,7 @@ check_api_key() {
     if [[ -z "${!_ck_var:-}" ]]; then
         if [[ -f "$_ck_file" ]]; then
             _ck_val="$(cat "$_ck_file")"
-            # declare -gx: create/update at global scope so the variable persists
-            # in the calling shell when this script is sourced.
+            # declare -gx: intentional parity-improving deviation — inline used plain assignment, but export is required for the key to reach the downstream python3 subprocess (env vars don't persist across Bash calls).
             # shellcheck disable=SC2163
             declare -gx "${_ck_var}=${_ck_val}"
         else
