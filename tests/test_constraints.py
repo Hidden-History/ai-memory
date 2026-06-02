@@ -1,158 +1,194 @@
 """Tests for aim-parzival-constraints/scripts/constraints.py.
 
-Script loaded via importlib.util.spec_from_file_location, fresh per test.
-memory.* modules mocked via monkeypatch.setitem(sys.modules) — no real package needed.
-AI_MEMORY_PROJECT_ID unset; plugin-free.
+Script invoked via stdlib subprocess (BP-016 DOMAIN 2). A hermetic fake memory
+package is written to tmp_path/.ai-memory/src/ so the script's hardcoded
+sys.path.insert(0, ~/.ai-memory/src) resolves to our stubs. plugin-free;
+AI_MEMORY_PROJECT_ID unset.
 """
 
-import importlib.util
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import ANY, MagicMock
-
-import pytest
 
 SCRIPT_PATH = (
     Path(__file__).parent.parent
     / "_ai-memory/pov/skills/aim-parzival-constraints/scripts/constraints.py"
 )
 
+_INJECTION_STUB = """\
+import json
+import os
+import pathlib
 
-def _exec_constraints(monkeypatch, argv, load_return_value):
-    """Exec constraints.py with controlled argv and mocked memory.* modules.
+if os.environ.get("FAKE_INJECTION_FAIL", "0") == "1":
+    raise ImportError("test-induced failure")
 
-    Returns (mock_load, mock_push, mock_emit).
-    """
-    monkeypatch.setattr(sys, "argv", argv)
-    monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
 
-    mock_load = MagicMock(return_value=load_return_value)
-    mock_push = MagicMock()
-    mock_emit = MagicMock()
+def _record(name, args, kwargs):
+    p = pathlib.Path(os.getcwd()) / "calls.json"
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        data = {}
+    data[name] = {"args": list(args), "kwargs": kwargs}
+    p.write_text(json.dumps(data))
 
-    mem_injection = MagicMock()
-    mem_injection.load_parzival_constraints = mock_load
 
-    mem_metrics = MagicMock()
-    mem_metrics.push_skill_metrics_async = mock_push
+def load_parzival_constraints(*args, **kwargs):
+    _record("load", args, kwargs)
+    return os.environ.get("FAKE_LOAD_RETURN", "")
+"""
 
-    mem_trace = MagicMock()
-    mem_trace.emit_trace_event = mock_emit
+_METRICS_STUB = """\
+import json
+import os
+import pathlib
 
-    monkeypatch.setitem(sys.modules, "memory", MagicMock())
-    monkeypatch.setitem(sys.modules, "memory.injection", mem_injection)
-    monkeypatch.setitem(sys.modules, "memory.metrics_push", mem_metrics)
-    monkeypatch.setitem(sys.modules, "memory.trace_buffer", mem_trace)
 
-    spec = importlib.util.spec_from_file_location("constraints", SCRIPT_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+def push_skill_metrics_async(*args, **kwargs):
+    p = pathlib.Path(os.getcwd()) / "calls.json"
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        data = {}
+    data["push"] = {"args": list(args), "kwargs": kwargs}
+    p.write_text(json.dumps(data))
+"""
 
-    return mock_load, mock_push, mock_emit
+_TRACE_STUB = """\
+import json
+import os
+import pathlib
+
+
+def emit_trace_event(*args, **kwargs):
+    p = pathlib.Path(os.getcwd()) / "calls.json"
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        data = {}
+    data["emit"] = {"args": list(args), "kwargs": kwargs}
+    p.write_text(json.dumps(data))
+"""
+
+
+def _build_fake_memory(tmp_path: Path) -> None:
+    mem_dir = tmp_path / ".ai-memory" / "src" / "memory"
+    mem_dir.mkdir(parents=True)
+    (mem_dir / "__init__.py").write_text("")
+    (mem_dir / "injection.py").write_text(_INJECTION_STUB)
+    (mem_dir / "metrics_push.py").write_text(_METRICS_STUB)
+    (mem_dir / "trace_buffer.py").write_text(_TRACE_STUB)
+
+
+def _run_constraints(
+    tmp_path: Path,
+    args: list,
+    load_return: str = "",
+    import_fail: bool = False,
+) -> tuple:
+    """Run constraints.py out-of-process; return (CompletedProcess, calls dict)."""
+    _build_fake_memory(tmp_path)
+    env: dict = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "LC_ALL": "C",
+        "HOME": str(tmp_path),
+        "FAKE_LOAD_RETURN": load_return,
+    }
+    if import_fail:
+        env["FAKE_INJECTION_FAIL"] = "1"
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=str(tmp_path),
+        env=env,
+    )
+
+    calls_path = tmp_path / "calls.json"
+    calls = json.loads(calls_path.read_text()) if calls_path.exists() else {}
+    return result, calls
 
 
 class TestKnownPhase:
     """Case 1: --phase <value> → load called with that phase, stdout shows constraints."""
 
-    def test_known_phase_passed_to_load(self, monkeypatch):
-        mock_load, _, _ = _exec_constraints(
-            monkeypatch,
-            argv=["constraints.py", "--phase", "init"],
-            load_return_value="## Constraint A\n## Constraint B",
+    def test_known_phase_passed_to_load(self, tmp_path):
+        result, calls = _run_constraints(
+            tmp_path,
+            args=["--phase", "init"],
+            load_return="## Constraint A\n## Constraint B",
         )
-        mock_load.assert_called_once_with(ANY, phase="init")
+        assert result.returncode == 0
+        assert calls["load"]["kwargs"]["phase"] == "init"
+        assert isinstance(calls["load"]["args"][0], str)
 
-    def test_known_phase_output_printed(self, monkeypatch, capsys):
-        _exec_constraints(
-            monkeypatch,
-            argv=["constraints.py", "--phase", "init"],
-            load_return_value="## Constraint A\n## Constraint B",
+    def test_known_phase_output_printed(self, tmp_path):
+        result, _ = _run_constraints(
+            tmp_path,
+            args=["--phase", "init"],
+            load_return="## Constraint A\n## Constraint B",
         )
-        out = capsys.readouterr().out
-        assert "## Constraint A" in out
-        assert "## Constraint B" in out
+        assert result.returncode == 0
+        assert "## Constraint A" in result.stdout
+        assert "## Constraint B" in result.stdout
 
 
 class TestNoPhase:
     """Case 2: no --phase → phase=None, graceful handling of empty result."""
 
-    def test_no_phase_passes_none_to_load(self, monkeypatch):
-        mock_load, _, _ = _exec_constraints(
-            monkeypatch,
-            argv=["constraints.py"],
-            load_return_value="",
-        )
-        mock_load.assert_called_once_with(ANY, phase=None)
+    def test_no_phase_passes_none_to_load(self, tmp_path):
+        result, calls = _run_constraints(tmp_path, args=[], load_return="")
+        assert result.returncode == 0
+        assert calls["load"]["kwargs"]["phase"] is None
 
-    def test_empty_constraints_prints_not_found(self, monkeypatch, capsys):
-        _exec_constraints(
-            monkeypatch,
-            argv=["constraints.py"],
-            load_return_value="",
-        )
-        out = capsys.readouterr().out
-        assert "No constraint files found" in out
+    def test_empty_constraints_prints_not_found(self, tmp_path):
+        result, _ = _run_constraints(tmp_path, args=[], load_return="")
+        assert result.returncode == 0
+        assert "No constraint files found" in result.stdout
 
-    def test_empty_constraints_metric_label_empty(self, monkeypatch):
-        _, mock_push, mock_emit = _exec_constraints(
-            monkeypatch,
-            argv=["constraints.py"],
-            load_return_value="",
-        )
-        mock_push.assert_called_once_with("aim-parzival-constraints", "empty", ANY)
-        mock_emit.assert_called_once()
+    def test_empty_constraints_metric_label_empty(self, tmp_path):
+        result, calls = _run_constraints(tmp_path, args=[], load_return="")
+        assert result.returncode == 0
+        assert calls["push"]["args"][:2] == ["aim-parzival-constraints", "empty"]
+        assert "emit" in calls
 
 
 class TestTelemetryShim:
     """Case 3: telemetry shim integration — callables invoked with exact args."""
 
-    def test_push_metrics_success_label(self, monkeypatch):
-        _, mock_push, _ = _exec_constraints(
-            monkeypatch,
-            argv=["constraints.py"],
-            load_return_value="## Some constraint",
+    def test_push_metrics_success_label(self, tmp_path):
+        result, calls = _run_constraints(
+            tmp_path, args=[], load_return="## Some constraint"
         )
-        mock_push.assert_called_once_with("aim-parzival-constraints", "success", ANY)
+        assert result.returncode == 0
+        assert calls["push"]["args"][:2] == ["aim-parzival-constraints", "success"]
 
-    def test_emit_trace_event_kwargs(self, monkeypatch, capsys):
-        _, _, mock_emit = _exec_constraints(
-            monkeypatch,
-            argv=["constraints.py"],
-            load_return_value="## Some constraint",
+    def test_emit_trace_event_kwargs(self, tmp_path):
+        result, calls = _run_constraints(
+            tmp_path, args=[], load_return="## Some constraint"
         )
-        mock_emit.assert_called_once_with(
-            event_type="skill_execution",
-            data={
-                "input": "Skill: aim-parzival-constraints"[:10000],
-                "output": "Result: completed"[:10000],
-                "metadata": {"skill_name": "aim-parzival-constraints"},
-            },
-            session_id=ANY,
-            tags=["skill"],
-        )
+        assert result.returncode == 0
+        emit_kw = calls["emit"]["kwargs"]
+        assert emit_kw["event_type"] == "skill_execution"
+        assert emit_kw["data"] == {
+            "input": "Skill: aim-parzival-constraints"[:10000],
+            "output": "Result: completed"[:10000],
+            "metadata": {"skill_name": "aim-parzival-constraints"},
+        }
+        assert isinstance(emit_kw["session_id"], str)
+        assert emit_kw["tags"] == ["skill"]
 
 
 class TestImportError:
-    """Safety-critical early-exit: ImportError on memory.injection → exit 0 + Unavailable message."""
+    """Safety-critical early-exit: ImportError on memory.injection → exit 0 + Unavailable."""
 
-    def test_import_error_exits_zero_with_unavailable_message(
-        self, monkeypatch, capsys
-    ):
-        monkeypatch.setattr(sys, "argv", ["constraints.py"])
-        monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
-
-        # Mark memory.injection absent via the None sentinel — Python raises ImportError
-        # immediately without any filesystem lookup, regardless of sys.path.
-        monkeypatch.setitem(sys.modules, "memory.injection", None)
-
-        spec = importlib.util.spec_from_file_location(
-            "constraints_importerror", SCRIPT_PATH
-        )
-        module = importlib.util.module_from_spec(spec)
-
-        with pytest.raises(SystemExit) as exc_info:
-            spec.loader.exec_module(module)
-
-        assert exc_info.value.code == 0
-        out = capsys.readouterr().out
-        assert "**Unavailable**" in out
+    def test_import_error_exits_zero_with_unavailable_message(self, tmp_path):
+        result, calls = _run_constraints(tmp_path, args=[], import_fail=True)
+        assert result.returncode == 0
+        assert "**Unavailable**" in result.stdout
+        assert calls == {}
