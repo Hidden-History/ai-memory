@@ -12,7 +12,11 @@ Usage (via run-with-env.sh):
 
 Exit codes:
   0 — sync completed
-  1 — bad args
+  2 — bad args (argparse exits 2 on parse error / unknown flag)
+
+Note: the inline form used a case loop that silently ignored unknown args;
+argparse now errors (exit 2) and enforces --full/--incremental mutual
+exclusion. Documented invocation forms are identical. Accepted improvement.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ import sys
 _install_dir = os.environ.get(
     "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
 )
+if not os.path.isdir(_install_dir):
+    sys.exit(f"Error: install dir not found: {_install_dir}")
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 from memory.connectors.github.sync import GitHubSyncEngine  # noqa: E402

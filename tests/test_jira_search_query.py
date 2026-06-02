@@ -222,13 +222,19 @@ def test_scroll_issue_key_doc_type(qmod):
 
 
 def test_format_table(qmod, capsys):
-    """Default --format table prints human-readable lines."""
+    """Default --format table prints human-readable lines (inline format).
+
+    Asserts the exact inline strings restored by DEC-105:
+      Found {n} points
+      {jira_issue_key} [{type}] - {jira_status} - {content[:80]}...
+    """
     mod, _ = qmod
     mod.main(["--project", "BMAD"])
     out = capsys.readouterr().out
-    assert "Found 1 point(s)" in out
+    assert "Found 1 points" in out
     assert "BMAD-42" in out
-    assert "Done" in out
+    assert " - Done - " in out
+    assert "..." in out
 
 
 def test_format_json(qmod, capsys):

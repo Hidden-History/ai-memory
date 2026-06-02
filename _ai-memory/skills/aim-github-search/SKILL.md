@@ -91,11 +91,9 @@ and accepts optional `--type`, `--state`, `--limit`, and `--format` flags.
 ### Search by source
 
 ```bash
-# Step 1: Get API key
-export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
-
-# Step 2: Query — replace "owner/repo-name" with your GITHUB_REPO value (e.g., "hidden-history/ai-memory")
-python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
+# Replace "owner/repo-name" with your GITHUB_REPO value (e.g., "hidden-history/ai-memory")
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
   --group-id "owner/repo-name"
 ```
 
@@ -103,7 +101,8 @@ python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scr
 
 ```bash
 # Replace "owner/repo-name" with your GITHUB_REPO value
-python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
   --group-id "owner/repo-name" --type github_pr --state merged --limit 20
 ```
 
@@ -111,7 +110,8 @@ python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scr
 
 ```bash
 # Returns the exact count via the Qdrant count endpoint (exact=true)
-python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
   --group-id "owner/repo-name" --format count
 ```
 

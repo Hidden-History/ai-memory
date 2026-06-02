@@ -28,14 +28,22 @@ Examples:
     query.py --project BMAD --format json
 """
 
+from __future__ import annotations
+
 import argparse
 import json
+import os
 import sys
-from pathlib import Path
 
 # sys.path.insert precedes memory.* imports so the script is importable from
 # the source checkout (dev/test). run-with-env.sh sets the venv in production.
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent / "src"))
+sys.path.insert(
+    0,
+    os.path.join(
+        os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")),
+        "src",
+    ),
+)
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -78,14 +86,14 @@ def build_filter(
 
 
 def _print_table(points: list) -> None:
-    print(f"Found {len(points)} point(s)")
+    print(f"Found {len(points)} points")
     for p in points:
         pl = p.payload or {}
         key = pl.get("jira_issue_key", "?")
         tp = pl.get("type", "?")
         status = pl.get("jira_status", "?")
         content = pl.get("content", "")[:80]
-        print(f"  {key} [{tp}] {status} — {content}")
+        print(f"  {key} [{tp}] - {status} - {content}...")
 
 
 def main(argv: list[str] | None = None) -> None:
