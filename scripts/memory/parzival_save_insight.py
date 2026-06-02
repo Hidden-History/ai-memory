@@ -22,6 +22,8 @@ from memory.config import get_config
 from memory.metrics_push import push_skill_metrics_async
 from memory.storage import MemoryStorage
 
+TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other value)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Save Parzival insight to Qdrant")
@@ -92,8 +94,8 @@ def main() -> int:
         emit_trace_event(
             event_type="skill_execution",
             data={
-                "input": "Skill: parzival-save-insight"[:10000],
-                "output": "Result: completed"[:10000],
+                "input": "Skill: parzival-save-insight"[:TRACE_CONTENT_MAX],
+                "output": "Result: completed"[:TRACE_CONTENT_MAX],
                 "metadata": {"skill_name": "parzival-save-insight"},
             },
             session_id=os.environ.get("CLAUDE_SESSION_ID", "unknown"),

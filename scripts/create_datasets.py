@@ -1564,14 +1564,12 @@ def create_all_datasets(dry_run: bool = False) -> int:
         return 0
 
     try:
-        from langfuse import (
-            get_client,  # V3 singleton — NEVER use constructor with explicit creds
-        )
+        from langfuse import get_client  # V4 SDK — get_client() singleton accessor
 
         langfuse = get_client()
     except ImportError as exc:
         print(f"ERROR: langfuse package not installed — {exc}", file=sys.stderr)
-        print("Run: pip install 'langfuse>=4.0.0,<4.1.0'", file=sys.stderr)
+        print("Run: pip install 'langfuse>=4.7.0,<4.8.0'", file=sys.stderr)
         return 1
     except Exception as exc:
         print(f"ERROR: Failed to get Langfuse client — {exc}", file=sys.stderr)

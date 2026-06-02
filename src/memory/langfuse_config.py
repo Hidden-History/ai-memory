@@ -11,6 +11,7 @@ SPEC: LANGFUSE-INTEGRATION-SPEC.md Section 7.2
 
 import logging
 import os
+import re
 import threading
 
 from tenacity import (
@@ -21,6 +22,26 @@ from tenacity import (
 )
 
 logger = logging.getLogger(__name__)
+
+# G4 (BP-169): LANGFUSE_TRACING_ENVIRONMENT partitions traces within a project by
+# deployment stage/install. The v4 SDK reads it natively from the environment;
+# Langfuse enforces this format and silently drops a value that violates it.
+_TRACING_ENVIRONMENT_RE = re.compile(r"^(?!langfuse)[a-z0-9-_]+$")
+_TRACING_ENVIRONMENT_MAX = 40
+
+
+def validate_tracing_environment(value: str | None) -> str | None:
+    """Return ``value`` if it is a valid LANGFUSE_TRACING_ENVIRONMENT, else None.
+
+    Valid = matches ``^(?!langfuse)[a-z0-9-_]+$`` and ≤40 chars (Langfuse's rule).
+    Operator-supplied via env only — never a hardcoded value (multi-operator
+    portability gate).
+    """
+    if not value:
+        return None
+    if len(value) <= _TRACING_ENVIRONMENT_MAX and _TRACING_ENVIRONMENT_RE.match(value):
+        return value
+    return None
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -82,6 +103,10 @@ def get_langfuse_client():
     a later call (after env vars are configured) will succeed.
     This is important for long-lived processes (Phase 2, SPEC-020).
 
+    Side effect: if ``LANGFUSE_TRACING_ENVIRONMENT`` is set to a value that fails
+    ``validate_tracing_environment`` (G4, BP-169), it is popped from ``os.environ``
+    so the V4 SDK does not silently ignore a malformed env at construction.
+
     Returns:
         Langfuse client instance, or None if disabled/unavailable.
     """
@@ -101,6 +126,18 @@ def get_langfuse_client():
         if not enabled:
             logger.debug("Langfuse disabled (LANGFUSE_ENABLED != true)")
             return None
+
+        # G4 (BP-169): validate the operator-supplied tracing environment; drop an
+        # invalid value so the SDK does not silently ignore a malformed env (the
+        # SDK reads LANGFUSE_TRACING_ENVIRONMENT from os.environ at construction).
+        raw_environment = os.environ.get("LANGFUSE_TRACING_ENVIRONMENT")
+        if raw_environment and validate_tracing_environment(raw_environment) is None:
+            logger.warning(
+                "Invalid LANGFUSE_TRACING_ENVIRONMENT %r — ignoring "
+                "(must match ^(?!langfuse)[a-z0-9-_]+$, ≤40 chars)",
+                raw_environment,
+            )
+            os.environ.pop("LANGFUSE_TRACING_ENVIRONMENT", None)
 
         # Note: reads directly from env (not config.py) since this runs in hook subprocesses
         public_key = os.environ.get("LANGFUSE_PUBLIC_KEY", "")

@@ -20,7 +20,7 @@ Pattern: Fork to background using subprocess.Popen + start_new_session=True
 """
 
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
-# SDK VERSION: V3 ONLY. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# SDK VERSION: V4. Path A files use emit_trace_event() only — no direct langfuse import.
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import hashlib

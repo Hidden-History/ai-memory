@@ -114,6 +114,7 @@ class TestDegradedMode:
                 return_value=mock_client,
             ),
             patch("memory.trace_flush_worker.evict_oldest_traces", return_value=0),
+            patch("memory.trace_flush_worker._backend_reachable", return_value=True),
             patch(
                 "memory.trace_flush_worker.process_buffer_files", return_value=(0, 0)
             ) as mock_process,
