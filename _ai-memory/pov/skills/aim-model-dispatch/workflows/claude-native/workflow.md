@@ -62,8 +62,7 @@ has drifted into a source repo clone.
 Bash: pwd
 # MUST output the workspace root (e.g., /mnt/e/projects/dev-ai-memory)
 
-Bash: source "${SKILL_DIR:=$(pwd)/.claude/skills/model-dispatch}/scripts/lib/cwd_sentinel.sh"
-cwd_sentinel --variant loose
+Bash: bash "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/cwd_sentinel.sh" --variant loose
 # MUST output "OK: workspace root"
 # If "FAIL": stop, cd to workspace root, re-verify.
 # A single-marker check (e.g., ls _ai-memory/) is INSUFFICIENT -- a nested

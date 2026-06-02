@@ -128,3 +128,24 @@ def test_missing_catalog_fails(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert "FAIL: catalog file" in result.stdout
     assert result.stderr == ""
+
+
+@pytest.mark.parametrize(
+    "model,backend",
+    [
+        (FAKE_MODEL, ""),  # non-empty model, empty backend -> WARN + exit 0
+        ("", ""),  # both empty -> empty-backend guard fires first -> WARN + exit 0
+    ],
+)
+def test_empty_backend_warns_and_skips(
+    tmp_path: Path, model: str, backend: str
+) -> None:
+    """Empty BACKEND -> exit 0, WARN on stdout, stderr empty (matches inline warn+continue)."""
+    result = _run(
+        SCRIPTS_DIR,
+        ["--model", model, "--backend", backend, "--skill-dir", str(tmp_path)],
+        tmp_path,
+    )
+    assert result.returncode == 0
+    assert "WARN:" in result.stdout
+    assert result.stderr == ""
