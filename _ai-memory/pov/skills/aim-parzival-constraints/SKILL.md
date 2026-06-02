@@ -14,7 +14,7 @@ Load Parzival's behavioral constraints from `_ai-memory/pov/constraints/`. Used 
 
 ```bash
 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/pov/skills/aim-parzival-constraints/scripts/constraints.py" \
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/pov/skills/aim-parzival-constraints/scripts/constraints.py" \
   --phase <phase>
 ```
 
