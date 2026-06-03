@@ -32,13 +32,8 @@ insufficient because a nested source repo (e.g., `ai-memory/`) also contains
 # Scope: dev workspace dispatches only. End-user installs (~/.ai-memory/) launch
 # via skill installer wrappers and do not require this sentinel.
 # Enforced on every spawn, not just the first in a session.
-if ! (test -d _ai-memory && test -d _bmad && test -d oversight); then
-  echo "FAIL: CWD is not workspace root. Expected _ai-memory/, _bmad/, oversight/ all present."
-  echo "CWD: $(pwd)"
-  echo "Aborting dispatch. cd to workspace root and re-invoke."
-  exit 1
-fi
-echo "OK: workspace root ($(pwd))"
+source "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/cwd_sentinel.sh"
+cwd_sentinel || exit 1
 ```
 
 If this check fails, stop — do not proceed to pane creation.
@@ -52,29 +47,7 @@ here with a clear catalog-reference message.
 ```bash
 # Skip validation when MODEL is empty (native Claude default) or BACKEND=gemini
 # (Gemini CLI handles its own model selection interactively).
-if [ -n "${MODEL}" ] && [ "${BACKEND}" != "gemini" ]; then
-  SKILL_DIR="$(pwd)/_ai-memory/pov/skills/aim-model-dispatch"
-  CATALOG_FILE=""
-  case "${BACKEND}" in
-    ollama)      CATALOG_FILE="${SKILL_DIR}/references/models-ollama.md" ;;
-    openrouter)  CATALOG_FILE="${SKILL_DIR}/references/models-openrouter.md" ;;
-  esac
-  if [ -n "${CATALOG_FILE}" ]; then
-    if [ ! -f "${CATALOG_FILE}" ]; then
-      echo "FAIL: catalog file for backend '${BACKEND}' expected at ${CATALOG_FILE} but not found."
-      echo "This is a deployment issue — reinstall or verify model-dispatch wrappers are installed."
-      exit 1
-    fi
-    if ! grep -Fq "\`${MODEL}\`" "${CATALOG_FILE}"; then
-      echo "FAIL: model '${MODEL}' not found in catalog ${CATALOG_FILE}."
-      echo "Available models listed in that file. Correct the dispatch plan and re-invoke."
-      exit 1
-    fi
-    echo "OK: model '${MODEL}' validated against ${BACKEND} catalog"
-  else
-    echo "WARN: no catalog file for backend '${BACKEND}' -- skipping pre-spawn validation"
-  fi
-fi
+bash "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/validate_model.sh" --model "${MODEL}" --backend "${BACKEND}" || exit 1
 ```
 
 If validation fails, stop — do not create a pane.

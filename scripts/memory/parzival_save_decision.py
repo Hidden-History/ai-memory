@@ -38,9 +38,15 @@ INSTALL_DIR = os.environ.get(
 )
 sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
+_LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib")
+if _LIB not in sys.path:
+    sys.path.insert(0, _LIB)
+
 from memory.config import get_config
 from memory.metrics_push import push_skill_metrics_async
 from memory.storage import MemoryStorage
+
+from parzival_save_common import emit_trace, store_with_metrics
 
 TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other value)
 
@@ -124,13 +130,13 @@ def main() -> int:
 
     storage = MemoryStorage(config)
     try:
-        result = storage.store_agent_memory(
+        result = store_with_metrics(
+            storage=storage,
             content=args.content,
             memory_type="decision",
+            group_id=group_id,
             agent_id="parzival",
             session_id=session_id,
-            cwd=os.getcwd(),
-            group_id=group_id,
             metadata=metadata,
         )
     except Exception as exc:
@@ -159,25 +165,19 @@ def main() -> int:
         "parzival-save-decision", metric_status, time.perf_counter() - start_time
     )
 
-    try:
-        from memory.trace_buffer import emit_trace_event
-
-        emit_trace_event(
-            event_type="skill_execution",
-            data={
-                "input": "Skill: parzival-save-decision"[:TRACE_CONTENT_MAX],
-                "output": f"Result: {status}"[:TRACE_CONTENT_MAX],
-                "metadata": {
-                    "skill_name": "parzival-save-decision",
-                    "dec_id": args.dec_id,
-                    "pm_number": args.pm_number,
-                },
+    emit_trace(
+        session_id=session_id,
+        data={
+            "input": "Skill: parzival-save-decision"[:TRACE_CONTENT_MAX],
+            "output": f"Result: {status}"[:TRACE_CONTENT_MAX],
+            "metadata": {
+                "skill_name": "parzival-save-decision",
+                "dec_id": args.dec_id,
+                "pm_number": args.pm_number,
             },
-            session_id=session_id,
-            tags=["skill", "decision"],
-        )
-    except Exception:
-        pass
+        },
+        tags=["skill", "decision"],
+    )
 
     return 0
 

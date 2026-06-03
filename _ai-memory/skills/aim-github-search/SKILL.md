@@ -53,11 +53,6 @@ GitHub content is stored in the discussions collection:
 | **Collection** | `discussions` |
 | **URL** | `http://localhost:26350` |
 
-To get the API key:
-```bash
-export QDRANT_API_KEY="$(grep QDRANT_API_KEY ~/.ai-memory/docker/.env | cut -d= -f2)"
-```
-
 ---
 
 ## Qdrant Payload Schema
