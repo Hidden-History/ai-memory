@@ -88,8 +88,8 @@ and accepts optional `--type`, `--state`, `--limit`, and `--format` flags.
 ```bash
 # Replace "owner/repo-name" with your GITHUB_REPO value (e.g., "hidden-history/ai-memory")
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
-  --group-id "owner/repo-name"
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
+  --group-id "owner/repo-name" --collection github
 ```
 
 ### Filter by type and state
@@ -97,8 +97,8 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ```bash
 # Replace "owner/repo-name" with your GITHUB_REPO value
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
-  --group-id "owner/repo-name" --type github_pr --state merged --limit 20
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
+  --group-id "owner/repo-name" --type github_pr --state merged --limit 20 --collection github
 ```
 
 ### Count GitHub points in collection
@@ -106,15 +106,15 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ```bash
 # Returns the exact count via the Qdrant count endpoint (exact=true)
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
-  --group-id "owner/repo-name" --format count
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
+  --group-id "owner/repo-name" --format count --collection github
 ```
 
 ---
 
 ## Query Script Reference
 
-The parameterized query script at `skills/aim-github-search/scripts/query.py` implements
+The parameterized query script at `_ai-memory/skills/aim-github-search/scripts/query.py` implements
 the `source=github` + `group_id` filter pattern. It accepts:
 
 ```text
@@ -133,8 +133,8 @@ Run via `run-with-env.sh` so `memory.*` imports and `QDRANT_API_KEY` are resolve
 
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/skills/aim-github-search/scripts/query.py" \
-  --group-id "hidden-history/ai-memory" --type github_pr --state merged
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
+  --group-id "hidden-history/ai-memory" --type github_pr --state merged --collection github
 ```
 
 ## Technical Details

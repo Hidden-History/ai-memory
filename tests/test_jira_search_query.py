@@ -68,11 +68,10 @@ def qmod(monkeypatch):
     }
     mock_client.scroll.return_value = ([mock_point], None)
 
-    # Default count response
-    mock_info = MagicMock()
-    mock_info.points_count = 99
-    mock_info.vectors_count = 99
-    mock_client.get_collection.return_value = mock_info
+    # Default count response (client.count form — F-3 fix)
+    mock_count_result = MagicMock()
+    mock_count_result.count = 99
+    mock_client.count.return_value = mock_count_result
 
     return mod, mock_client
 
@@ -147,24 +146,24 @@ def test_build_filter_all_flags(qmod):
 
 
 def test_count_mode(qmod, capsys):
-    """--count prints inline text 'Points: N, Vectors: N' matching the original form."""
+    """--count calls client.count() (exact=True) and prints 'Points: N'."""
     mod, mock_client = qmod
     mod.main(["--count"])
 
-    mock_client.get_collection.assert_called_once_with("jira-data")
+    mock_client.count.assert_called_once_with(collection_name="jira-data", exact=True)
     mock_client.scroll.assert_not_called()
 
     out = capsys.readouterr().out.strip()
-    assert out == "Points: 99, Vectors: 99"
+    assert out == "Points: 99"
 
 
 def test_count_mode_custom_collection(qmod, capsys):
     """--count --collection custom-col uses the specified collection."""
     mod, mock_client = qmod
     mod.main(["--count", "--collection", "custom-col"])
-    mock_client.get_collection.assert_called_once_with("custom-col")
+    mock_client.count.assert_called_once_with(collection_name="custom-col", exact=True)
     out = capsys.readouterr().out.strip()
-    assert out == "Points: 99, Vectors: 99"
+    assert out == "Points: 99"
 
 
 # ---------------------------------------------------------------------------

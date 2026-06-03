@@ -126,7 +126,7 @@ key export required.
 
 ```bash
 INSTALL="${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}"
-QUERY="$INSTALL/skills/aim-jira-search/scripts/query.py"
+QUERY="$INSTALL/_ai-memory/skills/aim-jira-search/scripts/query.py"
 
 # Search by project key (table output)
 "$INSTALL/scripts/memory/run-with-env.sh" "$QUERY" \

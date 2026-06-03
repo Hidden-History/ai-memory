@@ -135,7 +135,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--count",
         action="store_true",
-        help="Return collection points_count and vectors_count; skip scroll",
+        help="Return collection points count; skip scroll",
     )
     args = parser.parse_args(argv)
 
@@ -143,8 +143,8 @@ def main(argv: list[str] | None = None) -> None:
     client = get_qdrant_client(config)
 
     if args.count:
-        info = client.get_collection(args.collection)
-        print(f"Points: {info.points_count}, Vectors: {info.vectors_count}")
+        result = client.count(collection_name=args.collection, exact=True)
+        print(f"Points: {result.count}")
         return
 
     qdrant_filter = build_filter(
