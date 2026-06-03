@@ -24,8 +24,8 @@ from qdrant_client import models
 from memory.config import COLLECTION_CODE_PATTERNS, MemoryConfig, get_config
 
 # LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.3
-# SDK VERSION: V4. Use get_client(), observe(), propagate_attributes().
-# Do NOT use Langfuse() constructor, start_span(), start_generation(), or langfuse_context.
+# SDK VERSION: V4. Use get_client(), start_as_current_observation(), propagate_attributes().
+# Do NOT use update_current_trace()/start_span()/start_generation() (removed in V4).
 
 # Langfuse @observe() + propagate_attributes — conditional import (graceful degradation)
 try:

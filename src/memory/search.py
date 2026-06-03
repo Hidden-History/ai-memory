@@ -9,8 +9,8 @@ Best Practices (2025/2026):
 - https://qdrant.tech/articles/vector-search-resource-optimization/
 """
 
-# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
-# SDK VERSION: V4. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V4. Path A files use emit_trace_event() only — no direct langfuse import.
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import contextlib

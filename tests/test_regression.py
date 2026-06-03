@@ -1,5 +1,6 @@
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
-# FORBIDDEN: Langfuse(host=...) with explicit creds, start_span(), start_generation(), langfuse_context
+# LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.x
+# SDK VERSION: V4. Use get_client(), start_as_current_observation(), propagate_attributes().
+# Do NOT use update_current_trace()/start_span()/start_generation() (removed in V4).
 # REQUIRED: get_client(), dataset.items, item.run(), flush()
 """Regression tests using Langfuse golden datasets.
 
@@ -53,7 +54,7 @@ DS_04_NAME = "ds-04-keyword-trigger-routing"
 def langfuse():
     """Return a Langfuse V3 client, skipping the module if unavailable."""
     try:
-        from langfuse import get_client  # V3 singleton
+        from langfuse import get_client  # V4 singleton client (get_client())
 
         client = get_client()
         # Verify connectivity with a lightweight call
