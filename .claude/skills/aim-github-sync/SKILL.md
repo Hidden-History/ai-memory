@@ -8,9 +8,9 @@ allowed-tools: Bash
 
 Synchronize GitHub issues, pull requests, commits, and CI results from the configured repository into the AI Memory discussions collection.
 
-## Usage
+## Activation
 
-```bash
+```text
 # Incremental sync (default) - only fetch updated items
 /aim-github-sync
 
@@ -58,49 +58,16 @@ GITHUB_SYNC_ENABLED=true
 This skill invokes `GitHubSyncEngine.sync()` from `src/memory/connectors/github/sync.py`:
 
 ```bash
-# The skill invokes the sync engine via a thin script
-cd "$AI_MEMORY_INSTALL_DIR" || { echo "Error: AI_MEMORY_INSTALL_DIR is not set or directory does not exist"; exit 1; }
-MODE="${MODE:-incremental}"
-for arg in "$@"; do
-  case "$arg" in
-    --full) MODE="full" ;;
-    --incremental) MODE="incremental" ;;
-  esac
-done
-"$AI_MEMORY_INSTALL_DIR/.venv/bin/python" -c "
-import asyncio
-from memory.connectors.github.sync import GitHubSyncEngine
-engine = GitHubSyncEngine()
-result = asyncio.run(engine.sync(mode='${MODE}'))
-print(f'Synced {result.total_synced} items ({result.items_skipped} skipped, {result.errors} errors) in {result.duration_seconds:.1f}s')
-d = result.to_dict()
-for k, v in d.items():
-    if v and k != 'total_synced':
-        print(f'  {k}: {v}')
-"
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/github_sync_runner.py" "$@"
 ```
 
 ### Status Mode
 
-Reads `.audit/state/github_sync_state.json` and displays last sync timestamps per type:
+Uses the real CLI status path, which resolves canonical and legacy state-file
+locations for the configured repo:
 
 ```bash
-cd "$AI_MEMORY_INSTALL_DIR" || { echo "Error: AI_MEMORY_INSTALL_DIR is not set or directory does not exist"; exit 1; }
-python3 -c "
-import json
-from pathlib import Path
-state_file = Path('.audit/state/github_sync_state.json')
-if not state_file.exists():
-    print('No sync state found. Run /aim-github-sync first.')
-else:
-    state = json.loads(state_file.read_text())
-    print('## GitHub Sync Status')
-    print('')
-    for type_key, info in state.items():
-        last = info.get('last_synced', 'never')
-        count = info.get('last_count', 0)
-        print(f'  {type_key}: last synced {last} ({count} items)')
-"
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/github_sync.py" --status
 ```
 
 ## Guard
@@ -118,7 +85,7 @@ Error: GitHub sync is not enabled. Set GITHUB_SYNC_ENABLED=true and configure GI
 - **Deduplication**: SHA256 content hashing prevents duplicate storage (SPEC-005)
 - **Versioning**: Changed content creates new version, marks old as superseded
 - **Collection**: discussions (shared with conversation data, filtered by source="github")
-- **Tenant Isolation**: group_id = owner/repo
+- **Tenant Isolation**: `group_id` uses normalized lowercase `owner/repo`
 - **Sync Priority**: PRs (+ reviews + diffs) -> Issues (+ comments) -> Commits -> CI Results
 
 ## Notes
@@ -126,6 +93,24 @@ Error: GitHub sync is not enabled. Set GITHUB_SYNC_ENABLED=true and configure GI
 - Requires GitHub personal access token (classic or fine-grained)
 - Sync logs written to `~/.ai-memory/logs/activity.log`
 - First full sync can take several minutes for large repositories
-- Incremental sync timestamps stored per type in `github_sync_state.json`
+- Incremental sync timestamps stored per repo in `~/.ai-memory/github-state/github_sync_state_<owner__repo>.json`
 - Reviews and diffs are synced as part of PR sync
 - Issue comments are synced as part of issue sync
+
+## Legacy ID Audit and Migration
+
+If GitHub data exists but status or project scoping looks inconsistent, audit for
+legacy mixed IDs first:
+
+```bash
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" audit_group_ids.py
+```
+
+If the report shows legacy aliases, review the plan and then apply the migration:
+
+```bash
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" migrate_group_ids.py
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" migrate_group_ids.py --apply
+```
+
+When the install still has a flattened legacy `AI_MEMORY_PROJECT_ID`, the apply step also updates that env entry to the canonical slash-form repo ID.

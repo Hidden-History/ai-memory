@@ -1,9 +1,12 @@
 ---
 name: claude-native
 description: 'Claude Code Agent Teams — create teams, spawn teammates, coordinate via shared tasks'
+type: reference
 ---
 
 # Claude-Native Workflow — Agent Teams
+
+> Reference doc — no executable step chain.
 
 How to create and manage Claude Code Agent Teams for all Claude-provider dispatches.
 

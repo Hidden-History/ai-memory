@@ -50,9 +50,9 @@ via `store_agent_memory()` to the Parzival namespace with `agent_id=parzival`.
 This requires Parzival to be enabled (`parzival_enabled=true` in config).
 If Parzival is not enabled, the command returns an error.
 
-### Usage
+### Activation
 
-```bash
+```text
 # Default behavior (unchanged)
 /aim-save "Completed authentication refactor"
 
@@ -70,7 +70,7 @@ These are set automatically in settings.json by the installer:
 - AI_MEMORY_PROJECT_ID — Current project name
 - QDRANT_HOST / QDRANT_PORT — Qdrant connection (localhost:26350)
 - QDRANT_API_KEY — Qdrant authentication
-- EMBEDDING_HOST / EMBEDDING_PORT — Embedding service (localhost:28080)
+- EMBEDDING_HOST / EMBEDDING_PORT — Embedding service (127.0.0.1:28080)
 
 ## Error Handling
 
@@ -85,9 +85,9 @@ These are set automatically in settings.json by the installer:
 - Installation directory exists at $AI_MEMORY_INSTALL_DIR
 - Python venv at $AI_MEMORY_INSTALL_DIR/.venv/
 
-## Examples
+## Activation Examples
 
-```bash
+```text
 # Save decision context
 /aim-save "Decided to use Qdrant for vector storage over Pinecone due to self-hosting requirement"
 

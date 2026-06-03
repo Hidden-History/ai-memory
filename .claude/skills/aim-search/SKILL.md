@@ -15,9 +15,9 @@ The memory system has 3 collections:
 - **conventions** - WHAT rules to follow (rule, guideline, port, naming, structure)
 - **discussions** - WHY things were decided (decision, session, blocker, preference, context)
 
-## Usage
+## Activation
 
-```bash
+```text
 # Basic semantic search (searches code-patterns by default)
 /aim-search "how do I implement authentication"
 
@@ -132,9 +132,9 @@ Half-life varies by memory type (configured via `decay_type_overrides`):
 - `github_issue`, `github_pr`: 30 days
 - `rule`, `guideline`: 60 days
 
-## Examples
+## Activation Examples
 
-```bash
+```text
 # Find implementation examples in current project
 /aim-search "authentication implementation"
 
