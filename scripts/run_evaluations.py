@@ -6,7 +6,7 @@
 """CLI entry point for the LLM-as-Judge evaluation pipeline.
 
 Fetches traces from Langfuse, applies evaluator prompts via a configurable LLM,
-and attaches scores back to traces via create_score() (V3 SDK, idempotent).
+and attaches scores back to traces via create_score() (V4 SDK, idempotent).
 
 Usage:
   python scripts/run_evaluations.py --config evaluator_config.yaml
