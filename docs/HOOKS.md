@@ -911,17 +911,40 @@ grep "duration" ~/.ai-memory/logs/hooks.log | tail -20
 
 ---
 
+## Trigger Keyword Reference
+
+The following keywords automatically activate memory retrieval when detected in user prompts. Keywords are case-insensitive. Only structured patterns trigger retrieval to avoid false positives on casual conversation.
+
+### Decision Keywords (20 patterns) — searches `discussions` for past decisions
+
+| Category | Keywords |
+|----------|----------|
+| Decision recall | `why did we`, `why do we`, `what was decided`, `what did we decide` |
+| Memory recall | `remember when`, `remember the decision`, `remember what`, `remember how`, `do you remember`, `recall when`, `recall the`, `recall how` |
+| Session references | `last session`, `previous session`, `earlier we`, `before we`, `previously`, `last time we`, `what did we do`, `where did we leave off` |
+
+### Session History Keywords (16 patterns) — searches `discussions` for session summaries
+
+| Category | Keywords |
+|----------|----------|
+| Project status | `what have we done`, `what did we work on`, `project status`, `where were we`, `what's the status` |
+| Continuation | `continue from`, `pick up where`, `continue where` |
+| Remaining work | `what's left to do`, `remaining work`, `what's next for`, `what's next on`, `what's next in the`, `next steps`, `todo`, `tasks remaining` |
+
+### Best Practices Keywords (27 patterns) — searches `conventions` for guidelines
+
+| Category | Keywords |
+|----------|----------|
+| Standards | `best practice`, `best practices`, `coding standard`, `coding standards`, `convention`, `conventions for` |
+| Patterns | `what's the pattern`, `what is the pattern`, `naming convention`, `style guide` |
+| Guidance | `how should i`, `how do i`, `what's the right way`, `what is the right way` |
+| Research | `research the pattern`, `research best practice`, `look up`, `find out about`, `what do the docs say` |
+| Recommendations | `should i use`, `what's recommended`, `what is recommended`, `recommended approach`, `preferred approach`, `preferred way`, `industry standard`, `common pattern` |
+
+---
+
 ## 📚 See Also
 
 - [AI_MEMORY_ARCHITECTURE.md](AI_MEMORY_ARCHITECTURE.md) - System architecture
 - [prometheus-queries.md](prometheus-queries.md) - Hook performance metrics
 - [structured-logging.md](structured-logging.md) - Hook logging patterns
-
----
-
-**2026 Best Practices Applied:**
-- Comprehensive examples with expected outputs
-- Expandable troubleshooting sections
-- Performance benchmarks clearly stated
-- Visual hierarchy with consistent icons
-- Real-world use cases documented
