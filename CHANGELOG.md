@@ -20,6 +20,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Companion unit tests in `tests/unit/test_store_best_practice_script.py`
   (importlib + sys.modules patching, mocked resolver at call boundary per DEC-109).
 
+- **TASK-071 Items 13–14 (#167)** — Standalone scripts externalize the inline
+  Qdrant query blocks from the GitHub and Jira search skills into
+  `_ai-memory/skills/aim-github-search/scripts/query.py` and
+  `_ai-memory/skills/aim-jira-search/scripts/query.py`, and the
+  GitHubSyncEngine invoker from `aim-github-sync` into
+  `scripts/memory/github_sync_runner.py`. All scripts are behavior-preserving
+  and invoked via `scripts/memory/run-with-env.sh` (BP-013 Pattern B).
+
+- **TASK-071 Groups 1–2 (#169)** — Standalone scripts externalize the inline
+  programs from four core maintenance skills into
+  `scripts/memory/purge_collections.py` (aim-purge),
+  `scripts/memory/freshness_report.py` (aim-freshness-report),
+  `scripts/memory/pause_updates.py` (aim-pause-updates), and
+  `scripts/memory/refresh.py` (aim-refresh). Four reusable Bash helpers
+  (`check_api_key.sh`, `cwd_sentinel.sh`, `inbox_inject.sh`,
+  `validate_model.sh`) added under
+  `_ai-memory/skills/aim-model-dispatch/scripts/lib/` replace duplicated
+  inline blocks across `aim-model-dispatch` step files. All behavior-preserving;
+  invoked via `scripts/memory/run-with-env.sh`.
+
 ### Changed
 
 - **RISK-021 — Deliberate behaviour change (DEC-108 C-1 / DEC-106
