@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-06-03
+
 ### Added
 
 - **RISK-021 / TASK-071 Phase 4(d).0** — New standalone script
