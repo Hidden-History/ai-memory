@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
-# FORBIDDEN: Langfuse() constructor, start_span(), start_generation(), langfuse_context
+# LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.x
+# SDK VERSION: V4. Use get_client(), start_as_current_observation(), propagate_attributes().
+# Do NOT use update_current_trace()/start_span()/start_generation() (removed in V4).
 # REQUIRED: get_client(), create_score(), flush()
 """CLI entry point for the LLM-as-Judge evaluation pipeline.
 
 Fetches traces from Langfuse, applies evaluator prompts via a configurable LLM,
-and attaches scores back to traces via create_score() (V3 SDK, idempotent).
+and attaches scores back to traces via create_score() (V4 SDK, idempotent).
 
 Usage:
   python scripts/run_evaluations.py --config evaluator_config.yaml

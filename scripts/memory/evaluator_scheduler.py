@@ -18,7 +18,9 @@ Reference:
 - PLAN-012 Phase 2: LLM-as-Judge evaluation pipeline
 """
 
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+# LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.x
+# SDK VERSION: V4. Use get_client(), start_as_current_observation(), propagate_attributes().
+# Do NOT use update_current_trace()/start_span()/start_generation() (removed in V4).
 
 import atexit
 import logging
@@ -77,7 +79,7 @@ def _handle_sigterm(signum, frame) -> None:
 
 
 def _register_langfuse_shutdown() -> None:
-    """Register atexit handler to flush and shutdown Langfuse V3 client on exit."""
+    """Register atexit handler to flush and shutdown Langfuse V4 client on exit."""
 
     def _langfuse_shutdown() -> None:
         try:
@@ -86,7 +88,7 @@ def _register_langfuse_shutdown() -> None:
             client = get_client()
             if client:
                 client.flush()
-                client.shutdown()  # V3 spec: NO arguments — shutdown(timeout=x) raises TypeError
+                client.shutdown()  # V4: NO arguments — shutdown(timeout=x) raises TypeError
         except Exception:
             pass  # Never fail on process exit
 

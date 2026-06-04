@@ -1,4 +1,6 @@
-# LANGFUSE: V3 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
+# LANGFUSE: Uses direct SDK (Path B). See LANGFUSE-INTEGRATION-SPEC.md §3.2, §7.x
+# SDK VERSION: V4. Use get_client(), start_as_current_observation(), propagate_attributes().
+# Do NOT use update_current_trace()/start_span()/start_generation() (removed in V4).
 """Tests for memory.evaluator.provider — EvaluatorConfig and provider client creation.
 
 Tests each provider's client creation using mocked env vars.

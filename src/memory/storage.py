@@ -56,8 +56,8 @@ except ImportError:
     failure_events_total = None
     deduplication_events_total = None
 
-# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4
-# SDK VERSION: V4. Do NOT use Langfuse() constructor, start_span(), or start_generation().
+# LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
+# SDK VERSION: V4. Path A files use emit_trace_event() only — no direct langfuse import.
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 try:
     from .trace_buffer import emit_trace_event
