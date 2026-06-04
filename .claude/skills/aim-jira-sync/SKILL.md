@@ -8,9 +8,9 @@ allowed-tools: Bash
 
 Synchronize Jira issues and comments from configured projects into the AI Memory jira-data collection.
 
-## Usage
+## Activation
 
-```bash
+```text
 # Incremental sync (default) - only fetch updated issues
 /aim-jira-sync
 
@@ -63,9 +63,9 @@ JIRA_SYNC_ENABLED=true
 JIRA_SYNC_DELAY_MS=100
 ```
 
-## Examples
+## Activation Examples
 
-```bash
+```text
 # Daily incremental sync (recommended)
 /aim-jira-sync
 
@@ -84,10 +84,9 @@ JIRA_SYNC_DELAY_MS=100
 This skill invokes `scripts/jira_sync.py`:
 
 ```bash
-cd /path/to/ai-memory
-python3 scripts/jira_sync.py --incremental
-python3 scripts/jira_sync.py --full --project BMAD
-python3 scripts/jira_sync.py --status
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/jira_sync.py" --incremental
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/jira_sync.py" --full --project BMAD
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/jira_sync.py" --status
 ```
 
 ## Technical Details

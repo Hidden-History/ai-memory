@@ -2,6 +2,7 @@
 name: aim-status
 description: 'Check AI Memory system status'
 trigger: "/aim-status"
+allowed-tools: Bash
 ---
 
 Check AI Memory module health, statistics, and system state.

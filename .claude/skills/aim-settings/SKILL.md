@@ -8,9 +8,9 @@ allowed-tools: Read
 
 Display the current configuration of the AI Memory Module, including collections, types, thresholds, token budgets, and service endpoints.
 
-## Usage
+## Activation
 
-```bash
+```text
 # Show all memory settings
 /aim-settings
 
@@ -76,9 +76,9 @@ Shows token allocation per BMAD agent:
 - **Warning threshold** - 10,000 points
 - **Critical threshold** - 50,000 points
 
-## Examples
+## Activation Examples
 
-```bash
+```text
 # View complete configuration
 /aim-settings
 
@@ -128,7 +128,7 @@ TOKEN_BUDGET=4000           # Context injection limit (per BP-039)
 # Service endpoints
 QDRANT_HOST=localhost
 QDRANT_PORT=26350
-EMBEDDING_HOST=localhost
+EMBEDDING_HOST=127.0.0.1
 EMBEDDING_PORT=28080
 MONITORING_HOST=localhost
 MONITORING_PORT=28000
