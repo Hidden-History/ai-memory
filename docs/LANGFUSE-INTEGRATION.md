@@ -2,7 +2,7 @@
 
 Langfuse integration for the AI Memory Module. Traces every memory pipeline operation — from hook capture through LLM classification — so you can see exactly what your memory system is doing, how long each step takes, and where issues occur.
 
-Uses [Langfuse v3](https://langfuse.com/) self-hosted with the Python SDK for trace ingestion.
+Uses the [Langfuse](https://langfuse.com/) Python SDK v4 (OTel-based) for trace ingestion. The self-hosted server runs Langfuse v3, which is OTel-compatible with the v4 SDK.
 
 ---
 
@@ -202,6 +202,8 @@ All Langfuse services use the `langfuse` profile and join the existing `ai-memor
 | `langfuse-minio` | `cgr.dev/chainguard/minio` | S3-compatible blob storage for event upload |
 | `trace-flush-worker` | Custom (Dockerfile.worker) | Reads trace buffer, flushes to Langfuse |
 | `evaluator-scheduler` | Custom (Dockerfile.evaluator-scheduler) | Cron-based LLM-as-judge evaluation runner |
+
+> **Note:** The server images (`langfuse/langfuse:3`, `langfuse/langfuse-worker:3`) use the Langfuse v3 server tag. Langfuse v3 server is OTel-compatible with the v4 Python SDK used by AI Memory for trace ingestion.
 
 ---
 
