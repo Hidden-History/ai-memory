@@ -506,4 +506,4 @@ The Langfuse stack adds 6 services to the AI Memory core:
 
 ---
 
-*Documentation for AI Memory v2.0.7 Langfuse LLM Observability integration*
+*Documentation for AI Memory v2.5.0 Langfuse LLM Observability integration*

@@ -4,10 +4,11 @@ Single source of truth for version number.
 Follows PEP 440 and semantic versioning principles.
 """
 
-__version__ = "2.4.5"
+__version__ = "2.5.0"
 __version_info__ = tuple(int(part) for part in __version__.split("."))
 
 # Version history:
+# 2.5.0 - Langfuse SDK V4 (4.7.1) + BUG-315 trace-flush worker hardening + BP-169 trace organization; TASK-071 skill-script externalizations (GitHub/Jira query + maintenance scripts); documentation refresh (README trim, CHANGELOG/Langfuse currency)
 # 2.4.5 - TD-583/584/585/586/587: image-bake prometheus-init + langfuse-clickhouse, stack.sh unconditional rebuild, prometheus parent-dir chmod fix, streamlit restart policy, install.sh gate hardening
 # 2.4.4 - TD-582: bake qdrant + grafana entrypoint shims into custom images, eliminating WSL2 single-file bind-mount cache fragility on host reboot; compose env_file: + entrypoint shims close the bare-up secret-class resolution gap (BUG-279 sibling)
 # 2.4.3 - Installer hygiene: BUG-309 detection-layer .env.secrets fallback, TD-551 .env line-removal + per-file chmod, TD-552 spaCy model pin + scanner init log
