@@ -6,7 +6,7 @@ allowed-tools: Read, Bash
 
 # Search GitHub - Semantic Search for GitHub Content
 
-Search the discussions collection for GitHub-sourced content using semantic similarity with advanced filtering.
+Search the github collection for GitHub-sourced content using semantic similarity with advanced filtering.
 
 ## Activation
 
@@ -43,21 +43,21 @@ Each result includes:
 
 ## Qdrant Connection Details
 
-GitHub content is stored in the discussions collection:
+GitHub content is stored in the github collection:
 
 | Parameter | Value |
 |-----------|-------|
 | **Host** | `localhost` |
 | **Port** | `26350` (NOT the default 6333) |
 | **API Key** | Required. Read from env: `QDRANT_API_KEY` |
-| **Collection** | `discussions` |
+| **Collection** | `github` |
 | **URL** | `http://localhost:26350` |
 
 ---
 
 ## Qdrant Payload Schema
 
-Every GitHub point in `discussions` has the following payload fields. Use these **exact names** for filtering.
+Every GitHub point in `github` has the following payload fields. Use these **exact names** for filtering.
 
 ### Common Fields (all GitHub points)
 
@@ -87,9 +87,10 @@ and accepts optional `--type`, `--state`, `--limit`, and `--format` flags.
 
 ```bash
 # Replace "owner/repo-name" with your GITHUB_REPO value (e.g., "hidden-history/ai-memory")
+# --collection defaults to github; omit it for the standard case
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
-  --group-id "owner/repo-name" --collection github
+  --group-id "owner/repo-name"
 ```
 
 ### Filter by type and state
@@ -98,7 +99,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 # Replace "owner/repo-name" with your GITHUB_REPO value
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
-  --group-id "owner/repo-name" --type github_pr --state merged --limit 20 --collection github
+  --group-id "owner/repo-name" --type github_pr --state merged --limit 20
 ```
 
 ### Count GitHub points in collection
@@ -107,7 +108,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 # Returns the exact count via the Qdrant count endpoint (exact=true)
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
-  --group-id "owner/repo-name" --format count --collection github
+  --group-id "owner/repo-name" --format count
 ```
 
 ---
@@ -126,7 +127,7 @@ python3 query.py \
   [--state STATE]              # open | closed | merged
   [--limit N]                  # default: 10
   [--format table|json|count]  # default: table; count uses Qdrant count endpoint (exact=true)
-  [--collection COLL]          # default: discussions
+  [--collection COLL]          # default: github; use to query a different collection
 ```
 
 Run via `run-with-env.sh` so `memory.*` imports and `QDRANT_API_KEY` are resolved automatically:
@@ -134,7 +135,7 @@ Run via `run-with-env.sh` so `memory.*` imports and `QDRANT_API_KEY` are resolve
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-github-search/scripts/query.py" \
-  --group-id "hidden-history/ai-memory" --type github_pr --state merged --collection github
+  --group-id "hidden-history/ai-memory" --type github_pr --state merged
 ```
 
 ## Technical Details
@@ -142,7 +143,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 - **Semantic Search**: Uses jina-embeddings-v2-base-en for vector similarity
 - **Tenant Isolation**: Mandatory group_id filter prevents cross-repo leakage
 - **Performance**: < 2s for typical searches
-- **Collection**: discussions (GitHub content stored alongside conversation data)
+- **Collection**: github (dedicated collection for GitHub-sourced content, per PLAN-010)
 - **Score Threshold**: Configurable via SIMILARITY_THRESHOLD (default 0.7)
 - **Port**: 26350 (NOT the Qdrant default of 6333)
 - **API Key**: Required -- stored in `~/.ai-memory/docker/.env` as `QDRANT_API_KEY`
