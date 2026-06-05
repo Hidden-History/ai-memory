@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GitHub content lives. The as-documented invocation (no `--collection` flag) returns
   results instead of zero; `--collection` remains supported for cross-collection queries.
 
+- **TD-612** — Removed a source of intermittent CI failures in which a leaked
+  `flush-watchdog` daemon thread (started by `trace_flush_worker` tests) could reach its
+  stall deadline and call `os._exit`, hard-killing an already-passing `pytest` run with
+  no failing test, assertion, or traceback. A session-wide test guard now neutralizes the
+  watchdog's process-exit in-process — so an orphaned daemon bound to any re-imported
+  module generation can no longer terminate the runner — and still asserts that no
+  `flush-watchdog` thread leaks past a test, turning a leak into a loud, attributable
+  failure rather than a silent kill. The watchdog's production stall-restart behavior is
+  unchanged (test-only fix).
+
 ## [2.5.0] - 2026-06-03
 
 ### Added

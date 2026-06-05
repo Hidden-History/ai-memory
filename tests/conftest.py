@@ -18,6 +18,7 @@ import contextlib
 import os
 import socket
 import sys
+import threading
 import time
 from collections.abc import Callable, Generator
 from pathlib import Path
@@ -281,6 +282,72 @@ def reset_logging():
 
     logger.handlers.clear()
     logger.propagate = True
+
+
+# =============================================================================
+# Flush-watchdog kill-vector neutralization + leak tripwire (TD-612)
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _neutralize_and_join_flush_watchdog(monkeypatch):
+    """Stop a leaked trace-flush-worker watchdog daemon from killing the test runner.
+
+    ``memory.trace_flush_worker._watchdog_loop`` calls the real ``os._exit(1)`` from a
+    daemon thread named ``flush-watchdog`` so Docker restarts a wedged worker in
+    production. Several worker tests start that daemon via ``main()``. A daemon that
+    outlives the test that started it — e.g. one bound to a superseded, re-imported
+    module object whose globals a module-local teardown can no longer signal — later
+    reaches its stall deadline and fires ``os._exit(1)`` in-process, hard-killing an
+    already-green run with no traceback (TD-612). A module-scoped guard could not
+    cover this: the victim is a different test module, and a stale-bound daemon never
+    observes a signal sent to the current module object.
+
+    This guard runs for every test under ``tests/`` and does two independent things:
+
+    1. **Neutralize the kill vector.** Patch the process-wide ``os._exit`` to a
+       recorder. Every re-imported worker-module generation shares the one ``os``
+       module, so an orphaned daemon bound to any generation resolves ``os._exit`` to
+       this recorder and can never terminate the runner.
+    2. **Keep loud leak attribution.** After the test, signal shutdown to any loaded
+       worker module, join every ``flush-watchdog`` thread, and assert none leaked —
+       so neutralizing the exit never silently masks a thread leak; a leak still fails
+       a test loudly, it just can no longer kill the process.
+
+    Tests that assert on the exit path (e.g. the direct watchdog tests) patch
+    ``mod.os._exit`` themselves; that patch is applied after this one on the same
+    function-scoped ``monkeypatch`` and therefore wins for that test. Yields the
+    recorder list so a test can assert a neutralized exit was caught.
+    """
+    exit_calls: list[int] = []
+
+    def _record_exit(code):
+        exit_calls.append(code)
+
+    monkeypatch.setattr(os, "_exit", _record_exit)
+
+    yield exit_calls
+
+    # Signal shutdown to a loaded worker module so its watchdog can observe it.
+    mod = sys.modules.get("memory.trace_flush_worker")
+    if mod is not None:
+        with contextlib.suppress(Exception):
+            mod.shutdown_requested = True
+        with contextlib.suppress(Exception):
+            mod._watchdog_wakeup.set()
+
+    # Join any flush-watchdog daemon, then assert none survived (loud per-test
+    # attribution if a leak is ever reintroduced).
+    deadline = time.monotonic() + 10
+    for thread in threading.enumerate():
+        if thread.name == "flush-watchdog" and thread.is_alive():
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    leaked = [
+        thread.name
+        for thread in threading.enumerate()
+        if thread.name == "flush-watchdog" and thread.is_alive()
+    ]
+    assert not leaked, f"flush-watchdog daemon leaked past the test: {leaked}"
 
 
 # =============================================================================
