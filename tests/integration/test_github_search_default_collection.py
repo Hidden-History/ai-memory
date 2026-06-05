@@ -68,10 +68,25 @@ def seeded_github_point(qdrant_client):
     Yields the point ID (UUID string) so the test can reference it if needed.
     Cleanup is attempted unconditionally via contextlib.suppress so a test
     failure never orphans the point.
+
+    The fixture ensures the `github` collection exists before upserting.  On CI
+    the collection does not exist yet; on a dev stack it may already hold real
+    data.  Only a collection created HERE is dropped in teardown — a pre-existing
+    collection is left intact.
     """
-    from qdrant_client.models import PointStruct
+    from qdrant_client.models import Distance, PointStruct, VectorParams
 
     from memory.config import COLLECTION_GITHUB
+
+    # Ensure the github collection exists; track whether we created it so we
+    # can clean it up in teardown without touching pre-existing collections.
+    created = False
+    if not qdrant_client.collection_exists(COLLECTION_GITHUB):
+        qdrant_client.create_collection(
+            collection_name=COLLECTION_GITHUB,
+            vectors_config=VectorParams(size=768, distance=Distance.COSINE),
+        )
+        created = True
 
     point_id = str(uuid.uuid4())
     qdrant_client.upsert(
@@ -93,7 +108,8 @@ def seeded_github_point(qdrant_client):
     )
     yield point_id
 
-    # Teardown: delete only the seeded test point
+    # Teardown: always delete the seeded test point; only drop the collection
+    # if this fixture created it (never drop a pre-existing collection).
     with contextlib.suppress(Exception):
         from qdrant_client.models import PointIdsList
 
@@ -102,6 +118,9 @@ def seeded_github_point(qdrant_client):
             points_selector=PointIdsList(points=[point_id]),
             wait=True,
         )
+    if created:
+        with contextlib.suppress(Exception):
+            qdrant_client.delete_collection(COLLECTION_GITHUB)
 
 
 # ---------------------------------------------------------------------------
