@@ -58,19 +58,18 @@ def check_services_running(docker_compose_path: str) -> bool:
 def wait_for_services_healthy(
     docker_compose_path: str, max_wait: int = 120, check_interval: int = 2
 ) -> bool:
-    """Wait for ALL Docker Compose services to be healthy.
+    """Wait for the qdrant Docker Compose service to be healthy.
 
-    Per 2025/2026 best practices, this checks that BOTH services report
-    healthy status, not just one. The embedding service needs 30-60s
-    to load the model.
+    Counts healthy containers reported by `docker compose ps` and returns
+    True once at least one is healthy (qdrant-only bring-up).
 
     Args:
         docker_compose_path: Path to docker-compose.yml
-        max_wait: Maximum seconds to wait (default 120 for embedding model load)
+        max_wait: Maximum seconds to wait
         check_interval: Seconds between health checks
 
     Returns:
-        True if all services healthy, False if timeout
+        True if qdrant is healthy, False if timeout
 
     Reference: https://github.com/avast/pytest-docker
     """
@@ -85,12 +84,11 @@ def wait_for_services_healthy(
             cwd=cwd,
         )
 
-        # Count healthy services - we need BOTH qdrant and embedding healthy
+        # Count healthy services - qdrant-only bring-up requires at least 1
         output = result.stdout
         healthy_count = output.count("(healthy)")
 
-        # We have 2 services that need to be healthy
-        if healthy_count >= 2:
+        if healthy_count >= 1:
             return True
 
         time.sleep(check_interval)
@@ -129,7 +127,16 @@ def docker_stack(docker_compose_path: str) -> Generator[None, None, None]:
         # Start stack with --wait flag (Docker Compose v2.1+)
         # This waits for healthchecks to pass before returning
         result = subprocess.run(
-            ["docker", "compose", "-f", docker_compose_path, "up", "-d", "--wait"],
+            [
+                "docker",
+                "compose",
+                "-f",
+                docker_compose_path,
+                "up",
+                "-d",
+                "--wait",
+                "qdrant",
+            ],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -138,7 +145,7 @@ def docker_stack(docker_compose_path: str) -> Generator[None, None, None]:
         # If --wait failed or not supported, fall back to manual polling
         if result.returncode != 0:
             subprocess.run(
-                ["docker", "compose", "-f", docker_compose_path, "up", "-d"],
+                ["docker", "compose", "-f", docker_compose_path, "up", "-d", "qdrant"],
                 check=True,
                 cwd=cwd,
             )
@@ -216,7 +223,16 @@ class TestPersistentStorage:
                 cwd=cwd,
             )
             result = subprocess.run(
-                ["docker", "compose", "-f", docker_compose_path, "up", "-d", "--wait"],
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    docker_compose_path,
+                    "up",
+                    "-d",
+                    "--wait",
+                    "qdrant",
+                ],
                 cwd=cwd,
                 capture_output=True,
                 text=True,
@@ -225,7 +241,15 @@ class TestPersistentStorage:
             # If --wait failed, fall back to manual health polling
             if result.returncode != 0:
                 subprocess.run(
-                    ["docker", "compose", "-f", docker_compose_path, "up", "-d"],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        docker_compose_path,
+                        "up",
+                        "-d",
+                        "qdrant",
+                    ],
                     check=True,
                     cwd=cwd,
                 )
