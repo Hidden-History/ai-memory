@@ -69,6 +69,7 @@ def query_module(monkeypatch):
     # Stub memory.config
     config_mod = ModuleType("memory.config")
     config_mod.get_config = MagicMock(return_value=MagicMock())
+    config_mod.COLLECTION_GITHUB = "github"
     monkeypatch.setitem(sys.modules, "memory.config", config_mod)
 
     # Stub memory.qdrant_client
@@ -208,12 +209,12 @@ class TestParseArgs:
         assert exc_info.value.code == 2
 
     def test_defaults(self, query_module, monkeypatch):
-        """Defaults: collection=discussions, limit=10, format=table, no type/state."""
+        """Defaults: collection=github, limit=10, format=table, no type/state."""
         mod, _ = query_module
         monkeypatch.setattr(sys, "argv", ["query.py", "--group-id", "owner/repo"])
         args = mod.parse_args()
         assert args.group_id == "owner/repo"
-        assert args.collection == "discussions"
+        assert args.collection == "github"
         assert args.limit == 10
         assert args.output_format == "table"
         assert args.type_filter is None
@@ -279,7 +280,7 @@ class TestMain:
         assert rc == 0
         mock_client.scroll.assert_called_once()
         call_kwargs = mock_client.scroll.call_args.kwargs
-        assert call_kwargs["collection_name"] == "discussions"
+        assert call_kwargs["collection_name"] == "github"
         assert call_kwargs["limit"] == 10
         assert call_kwargs["with_payload"] is True
         assert call_kwargs["with_vectors"] is False
@@ -306,7 +307,7 @@ class TestMain:
         assert rc == 0
         mock_client.count.assert_called_once()
         call_kwargs = mock_client.count.call_args.kwargs
-        assert call_kwargs["collection_name"] == "discussions"
+        assert call_kwargs["collection_name"] == "github"
         assert call_kwargs["exact"] is True
         # Verify filter
         filt = call_kwargs["count_filter"]
