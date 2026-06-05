@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Query GitHub content from the Qdrant discussions collection.
+"""Query GitHub content from the Qdrant github collection.
 
 Parameterized replacement for the inline Python blocks in aim-github-search/SKILL.md.
 Always applies source=github + group_id filters; optional type/state/limit/format.
@@ -29,16 +29,16 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 
 from qdrant_client.models import FieldCondition, Filter, MatchValue  # noqa: E402
 
-from memory.config import get_config  # noqa: E402
+from memory.config import COLLECTION_GITHUB, get_config  # noqa: E402
 from memory.qdrant_client import get_qdrant_client  # noqa: E402
 
-_DEFAULT_COLLECTION = "discussions"
+_DEFAULT_COLLECTION = COLLECTION_GITHUB
 _DEFAULT_LIMIT = 10
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Query GitHub content from Qdrant discussions collection.",
+        description="Query GitHub content from Qdrant github collection.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

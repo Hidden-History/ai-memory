@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **BUG-318** — `aim-github-search` now defaults to the `github` Qdrant collection where
+  GitHub content lives. The as-documented invocation (no `--collection` flag) returns
+  results instead of zero; `--collection` remains supported for cross-collection queries.
+
 ## [2.5.0] - 2026-06-03
 
 ### Added
