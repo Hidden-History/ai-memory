@@ -18,6 +18,7 @@ import contextlib
 import os
 import socket
 import sys
+import threading
 import time
 from collections.abc import Callable, Generator
 from pathlib import Path
@@ -281,6 +282,106 @@ def reset_logging():
 
     logger.handlers.clear()
     logger.propagate = True
+
+
+# =============================================================================
+# Flush-watchdog kill-vector neutralization + leak tripwire (TD-612)
+# =============================================================================
+#
+# ``memory.trace_flush_worker._watchdog_loop`` calls the real ``os._exit(1)`` from a
+# daemon thread named ``flush-watchdog`` so Docker restarts a wedged worker in
+# production. Several worker tests start that daemon via ``main()``. A daemon that
+# outlives the test that started it — e.g. one bound to a superseded, re-imported
+# module object whose globals a module-local teardown can no longer signal — later
+# reaches its stall deadline and fires ``os._exit(1)`` in-process, hard-killing an
+# already-green run with no traceback (TD-612).
+#
+# Neutralization is split across two complementary fixtures:
+#   * a SESSION-scoped recorder that owns ``os._exit`` continuously, so there is no
+#     inter-test gap where the real ``os._exit`` is live for a stale-bound daemon to
+#     fire into, and
+#   * a function-scoped fixture that points the recorder at a fresh per-test sink (so a
+#     test can assert its own neutralized exit was caught) and keeps the loud per-test
+#     leak tripwire (join + assert no leak).
+
+# Currently-active per-test exit sink. The session recorder always routes here, so
+# rebinding this name per test swaps the sink without ever restoring the real os._exit.
+_active_exit_calls: list[int] = []
+
+
+def _session_record_exit(code):
+    """Process-wide ``os._exit`` replacement installed for the whole session (TD-612).
+
+    Routes a neutralized exit into the currently-active per-test sink so a leaked
+    flush-watchdog daemon can never terminate the runner — whether it fires during a
+    test or in the gap between tests.
+    """
+    _active_exit_calls.append(code)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _neutralize_flush_watchdog_exit_session():
+    """Own ``os._exit`` for the entire session so neutralization is continuous (TD-612).
+
+    A function-scoped patch is undone by pytest at each test teardown, leaving the real
+    ``os._exit`` live between tests — a window in which a stale-bound flush-watchdog
+    daemon could still real-``os._exit(1)`` and hard-kill the runner. A raw session
+    ``MonkeyPatch`` set up once and never undone mid-run closes that gap; the real
+    ``os._exit`` is restored only at session end.
+
+    Tests that assert on the exit path (the direct watchdog tests) patch ``mod.os._exit``
+    on their own function-scoped ``monkeypatch``; that patch is applied over this session
+    recorder and wins for the test body, then pytest restores it back to this recorder
+    (never to the real ``os._exit``) at teardown.
+    """
+    session_patch = pytest.MonkeyPatch()
+    session_patch.setattr(os, "_exit", _session_record_exit)
+    yield
+    session_patch.undo()
+
+
+@pytest.fixture(autouse=True)
+def _neutralize_and_join_flush_watchdog():
+    """Per-test sink for the session ``os._exit`` recorder + loud leak tripwire (TD-612).
+
+    The session-scoped fixture keeps ``os._exit`` neutralized continuously; this fixture
+    points that recorder at a fresh per-test list (yielded so a test can assert its own
+    neutralized exit was caught), then after the test joins every ``flush-watchdog``
+    thread and asserts none leaked — so neutralizing the exit never silently masks a
+    thread leak; a leak still fails a test loudly, it just can no longer kill the process.
+    """
+    global _active_exit_calls
+    exit_calls: list[int] = []
+    _active_exit_calls = exit_calls
+
+    yield exit_calls
+
+    # Signal shutdown to a loaded worker module so its watchdog can observe it. A daemon
+    # bound to a superseded module generation can't observe this signal; the
+    # session-scoped os._exit recorder neutralizes its exit and the join + assert below
+    # still reports the leak loudly.
+    mod = sys.modules.get("memory.trace_flush_worker")
+    if mod is not None:
+        mod.shutdown_requested = True
+        with contextlib.suppress(Exception):
+            mod._watchdog_wakeup.set()
+
+    # Route any post-test stray exit (e.g. from a daemon firing during teardown) into a
+    # throwaway sink rather than the test's now-yielded list.
+    _active_exit_calls = []
+
+    # Join any flush-watchdog daemon, then assert none survived (loud per-test
+    # attribution if a leak is ever reintroduced).
+    deadline = time.monotonic() + 10
+    for thread in threading.enumerate():
+        if thread.name == "flush-watchdog" and thread.is_alive():
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    leaked = [
+        thread.name
+        for thread in threading.enumerate()
+        if thread.name == "flush-watchdog" and thread.is_alive()
+    ]
+    assert not leaked, f"flush-watchdog daemon leaked past the test: {leaked}"
 
 
 # =============================================================================
