@@ -1,12 +1,12 @@
 """TD-612 adversarial isolation tests — a leaked flush-watchdog daemon's real
 os._exit must never kill the test runner.
 
-These exercise the session-wide guard in tests/conftest.py
-(_neutralize_and_join_flush_watchdog): even a watchdog bound to a superseded,
+These exercise the session-wide guard in tests/conftest.py (the session-scoped
+_neutralize_flush_watchdog_exit_session recorder plus the per-test
+_neutralize_and_join_flush_watchdog sink): even a watchdog bound to a superseded,
 re-imported module object — the TD-612 root cause — resolves os._exit to the
-shared recorder and so cannot terminate the process. Under -p no:randomly the
-module keeps its definition order, so the second test demonstrates that a
-subsequent test survives a prior leak.
+shared recorder and so cannot terminate the process. The second test confirms an
+armed watchdog fires into the recorder rather than the real process exit.
 """
 
 import sys
@@ -80,12 +80,12 @@ def test_stale_bound_watchdog_real_exit_is_neutralized(
     assert not watchdog.is_alive()
 
 
-def test_following_test_survives_prior_leak(
+def test_armed_watchdog_fires_into_recorder_not_process(
     tmp_path, monkeypatch, _neutralize_and_join_flush_watchdog
 ):
-    """The next test (definition order under -p no:randomly) runs to completion: its
-    own armed watchdog fires past the deadline into the recorder, and the parent
-    process survives."""
+    """An armed watchdog that trips its stall deadline calls os._exit, which the
+    session recorder captures instead of terminating the runner — so the test runs
+    to completion and the neutralized exit is recorded."""
     exit_calls = _neutralize_and_join_flush_watchdog
 
     mod = _import_worker(monkeypatch, tmp_path)
@@ -95,8 +95,8 @@ def test_following_test_survives_prior_leak(
     )
     watchdog.start()
 
-    time.sleep(0.4)  # sleep past the 0.1s deadline; the watchdog fires meanwhile
-    assert 1 in exit_calls, "watchdog exit not neutralized in the following test"
+    _wait_for_exit_capture(exit_calls)
+    assert 1 in exit_calls, "armed watchdog exit was not neutralized into the recorder"
 
     _stop_watchdog(mod, watchdog)
     assert not watchdog.is_alive()
