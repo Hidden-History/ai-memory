@@ -147,7 +147,8 @@ def split_frontmatter(text: str) -> tuple[list[str], list[str]]:
 
 
 def is_bullet(line: str) -> bool:
-    return bool(re.match(r"\s*([-*]|\d+\.)\s+", line))
+    # L-PLUS-BULLET: ``+`` is a valid GFM unordered-list bullet alongside ``-``/``*``.
+    return bool(re.match(r"\s*([-*+]|\d+\.)\s+", line))
 
 
 def is_table_row(line: str) -> bool:
@@ -220,59 +221,76 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
 
 
 def is_table_separator(text: str) -> bool:
-    """A markdown table header separator row like ``|---|---|`` — never an entry."""
-    return bool(re.fullmatch(r"\s*\|[\s:|-]+\|?\s*", text))
+    """A markdown table header *separator* row like ``|---|---|`` — never an entry.
+
+    L-DASH-CELL: tightened so *every* cell is a true GFM separator cell — optional
+    leading/trailing colon around one or more dashes (``---``, ``:---``, ``---:``,
+    ``:---:``). The previous loose ``[\\s:|-]+`` class accepted any mix of dashes,
+    colons, pipes and spaces, so a bare-dash *content* row could slip through
+    unclassified. A single-dash cell (``| - | - |``) is a valid GFM separator and
+    is still treated as one (kept, structural) — that passthrough is benign.
+    """
+    s = text.strip()
+    if not s.startswith("|"):
+        return False
+    cells = s.strip("|").split("|")
+    return bool(cells) and all(re.fullmatch(r"\s*:?-+:?\s*", cell) for cell in cells)
 
 
 # Strip a leading list/table prefix so a marker tag sitting in the ANCHORED leading
-# position can be matched: bullet (``- ``/``* ``), ordered number (``1. ``), or the
-# first table-cell pipe (``| ``).
-_LEADING_PREFIX_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+")
+# position can be matched: bullet (``- ``/``* ``/``+ ``), ordered number (``1. ``),
+# or the first table-cell pipe (``| ``).
+_LEADING_PREFIX_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)\s+")
 _LEADING_CELL_RE = re.compile(r"^\s*\|\s*")
-_TRAILING_CELL_RE = re.compile(r"\s*\|\s*$")
 
 
-def _anchor_zones(text: str) -> tuple[str, str]:
-    """Return (leading, trailing) lowercased zones where a marker tag is *anchored*.
+def _anchor_zone(text: str) -> str:
+    """Return the lowercased LEADING zone where a marker tag is *anchored* (H1).
 
-    A marker only classifies an entry when it sits in one of two dedicated positions
-    (H1): the LEADING zone — the first line with its bullet/number/table-cell prefix
-    removed — or the TRAILING zone — the last line with a trailing table-cell pipe
-    removed. A marker merely *mentioned* in prose (e.g. an entry documenting the
-    marker vocabulary) falls in neither zone and is ignored, so it is never pruned.
+    A marker classifies an entry ONLY when it sits in the single dedicated leading
+    position: the first line with its bullet/number prefix removed, or the first
+    cell of a table row. A marker merely *mentioned* in prose — or one that merely
+    *ends* a line of prose — falls outside this zone and is ignored, so recall-worthy
+    content is never self-destructively pruned.
+
+    Trailing-zone anchoring was removed in cycle-2: a trailing tag pruned prose that
+    happened to end in a marker token (M-TRAILING-PROSE), silently missed a trailing
+    tag on a multi-line entry's first line (M-MULTILINE-TRAILING-MISS), and missed
+    trailing punctuation (TGT-4). Leading-only is the single unambiguous convention
+    (see decision-rule.md).
     """
     lines = text.strip().splitlines()
     first = lines[0] if lines else ""
-    last = lines[-1] if lines else ""
     lead = _LEADING_PREFIX_RE.sub("", first)
-    lead = _LEADING_CELL_RE.sub("", lead).strip().lower()
-    trail = _TRAILING_CELL_RE.sub("", last).strip().lower()
-    return lead, trail
+    return _LEADING_CELL_RE.sub("", lead).strip().lower()
 
 
 def classify(text: str, today: date) -> tuple[str, str]:
     """Apply the BP-159 §6 decision rule to one entry. Returns (action, reason).
 
-    Markers are matched only in an anchored position (leading tag after the
-    bullet/number/table-cell prefix, or a trailing tag at the end of the entry),
-    never as a bare substring anywhere in the prose (H1).
+    Markers are matched only in the anchored LEADING position (a leading tag after
+    the bullet/number prefix or in the first table cell), never as a bare substring
+    elsewhere in the prose nor at the trailing end (H1, leading-only).
     """
-    lead, trail = _anchor_zones(text)
+    lead = _anchor_zone(text)
 
     def anchored(marker: str) -> bool:
-        return lead.startswith(marker) or trail.endswith(marker)
+        return lead.startswith(marker)
 
     for marker in PRUNE_MARKERS:
         if anchored(marker):
             return "prune", f"tagged {marker} — superseded/contradicted/low-utility"
 
-    # GFM strikethrough across the whole entry content = struck-out / superseded.
-    stripped = re.sub(r"^\s*([-*]|\d+\.)\s+", "", text.strip())
-    if stripped.startswith("~~") and stripped.rstrip().endswith("~~"):
+    # GFM strikethrough across the WHOLE entry content = struck-out / superseded.
+    # M-STRIKE-PARTIAL: prune only when a single ``~~…~~`` span covers all of the
+    # (prefix-stripped) content — an entry with live, un-struck text between two
+    # spans (``~~old~~ but still relevant ~~Y~~``) is KEPT, not pruned.
+    stripped = re.sub(r"^\s*([-*+]|\d+\.)\s+", "", text.strip()).strip()
+    if re.fullmatch(r"~~(?:(?!~~).)*~~", stripped, re.DOTALL):
         return "prune", "struck-out (~~...~~) — superseded"
 
-    # TTL marker, anchored leading or trailing.
-    m = EXPIRY_RE.match(lead) or re.search(r"\[expired:(\d{4}-\d{2}-\d{2})\]$", trail)
+    # TTL marker, anchored leading only.
+    m = EXPIRY_RE.match(lead)
     if m:
         try:
             when = date.fromisoformat(m.group(1))
@@ -311,7 +329,7 @@ def _strip_leading_markers(body: str) -> str:
 
 def pointer_for(text: str, today: date, archive_relpath: str) -> str:
     """One-line hot-file pointer left where an archived entry used to be."""
-    body = re.sub(r"^\s*([-*]|\d+\.)\s+", "", text.strip().splitlines()[0]).strip()
+    body = re.sub(r"^\s*([-*+]|\d+\.)\s+", "", text.strip().splitlines()[0]).strip()
     body = _strip_leading_markers(body)
     if len(body) > POINTER_SUMMARY_CHARS:
         body = body[:POINTER_SUMMARY_CHARS].rstrip() + "…"
@@ -366,7 +384,15 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
             archived_blocks.append(
                 f"## [{today.isoformat()}] archived from {filename} — {sec_label}\n\n{unit}\n"
             )
-            out_body.append(pointer_for(unit, today, archive_relpath))
+            # H3: a table content row must NEVER yield an inline bullet pointer.
+            # pointer_for() emits a ``- _[archived …]_ …`` bullet line; injecting
+            # that mid-table would break the table AND leak the row's pipes/marker
+            # into the hot file (the leading-strip in pointer_for can't clean an
+            # interior ``|``). Drop the row in place so the table stays well-formed
+            # — the full row content is preserved in the cold archive block above.
+            # Non-table entries still leave the dated one-line pointer.
+            if not is_table_row(unit):
+                out_body.append(pointer_for(unit, today, archive_relpath))
             continue
 
         # keep — table rows (header/separator/content) are NEVER deduped: a file-
@@ -533,6 +559,15 @@ def apply_plan(
         # write below leaves the hot file un-rewritten, so a rerun re-classifies the
         # same entries to archive. Skipping blocks already present makes that rerun
         # safe — no duplicate cold entries — while never losing archived content.
+        #
+        # TGT-2: this dedup is exact-string, and each archive block is headed with
+        # today's date (``## [YYYY-MM-DD] archived from …``). A SAME-DAY crash-rerun
+        # is therefore fully idempotent (identical block string → skipped). A
+        # CROSS-DAY crash-rerun (hot file still un-rewritten the next day) produces a
+        # second, differently-dated archive block for the same content. This is
+        # accepted behavior: it preserves an honest per-day archival audit trail and
+        # never loses content; the operator may collapse duplicate dated blocks by
+        # hand if desired.
         existing = archive_path.read_text() if archive_path.exists() else ""
         appended = 0
         with archive_path.open("a") as fh:

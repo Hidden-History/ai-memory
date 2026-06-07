@@ -56,22 +56,32 @@ This file decides *when* to run, *which* files, and *how to read the plan*.
 The script is marker-driven (it never guesses an entry is low-utility):
 
 - **Prune (delete):** `[superseded]`, `[contradicted]`, `[wrong]`, `[obsolete]`,
-  `[prune]`, a `[expired:YYYY-MM-DD]` TTL that has passed, or strikethrough
-  (`~~...~~`).
-- **Archive (cold tier + pointer):** `[stale]`, `[archive]`.
+  `[prune]`, a `[expired:YYYY-MM-DD]` TTL that has passed, or a full-entry
+  strikethrough (a single `~~...~~` span covering all of the entry's content).
+- **Archive (cold tier + pointer):** `[stale]`, `[archive]`. For a non-table entry a
+  one-line pointer is left in the hot file; for a **table content row** the row is
+  dropped in place (the table stays well-formed) and its content still moves to the
+  cold tier — no inline pointer is injected into the table body.
 - **Dedup:** exact-duplicate entries are collapsed, keeping the first. Table rows
   (header, separator, content) are never deduped, so a second same-schema table
   keeps its header and separator.
 - **Keep:** everything else.
 
-**Markers must be anchored.** A marker counts only in a dedicated position — as a
-**leading tag** right after the bullet/number prefix (`- [superseded] …`,
-recommended) or as a **trailing tag** at the end of the entry
-(`- … reversed [superseded]`). A marker merely *mentioned in prose* (e.g. an entry
-documenting the marker vocabulary — "Tag an entry `[superseded]` when…") is
-**ignored and kept**, never pruned. Tag entries during a Pulse, or when the
-operator says "that's not right anymore", so the next hygiene pass acts on them
-safely.
+**Markers must be anchored in the LEADING position.** A marker counts only as a
+**leading tag** — right after the bullet/number prefix (`- [superseded] …`) or in the
+first cell of a table row (`| [superseded] row | … |`). A marker merely *mentioned in
+prose* ("Tag an entry `[superseded]` when…") **or one that merely ends a line of
+prose** ("a fact retired at end of life `[obsolete]`") is **ignored and kept**, never
+pruned. (Trailing-tag anchoring was removed in cycle-2 — it pruned prose ending in a
+marker token; leading-only is the single, unambiguous, data-safe convention.) Tag
+entries during a Pulse, or when the operator says "that's not right anymore", so the
+next hygiene pass acts on them safely.
+
+> **Crash-rerun note (TGT-2).** Cold-tier appends are deduplicated by exact block
+> string. A same-day crash-rerun (hot file not yet rewritten) is fully idempotent. A
+> *cross-day* crash-rerun writes a second, differently-dated archive block for the
+> same content — accepted behavior that preserves a per-day audit trail and never
+> loses content.
 
 ## `--cap` on a directory (global override)
 

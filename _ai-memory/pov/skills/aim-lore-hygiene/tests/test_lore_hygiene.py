@@ -262,18 +262,17 @@ def test_scans_both_hot_files_in_a_sanctum_dir(tmp_path):
     assert "LORE.md" in r.stdout and "MEMORY.md" in r.stdout
 
 
-# --- H1: anchored marker matching (substring-in-prose must NOT prune) -----------
+# --- H1: leading-only marker matching (prose mention / trailing must NOT prune) --
 
 
-def test_H1_prose_mention_kept_anchored_tag_pruned(tmp_path):
+def test_H1_prose_mention_kept_leading_tag_pruned(tmp_path):
     """A marker mentioned in prose is recall-worthy and must be KEPT; only a marker
-    in an anchored (leading or trailing) position classifies the entry. Fails on the
-    old substring-anywhere matcher, which self-destructively prunes the prose entry."""
+    in the anchored LEADING position classifies the entry. Fails on the old
+    substring-anywhere matcher, which self-destructively prunes the prose entry."""
     content = (
         "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Patterns & Conventions\n\n"
         "- Tag an entry [superseded] when it is no longer accurate.\n"
         "- [superseded] Old belief that was later proven wrong.\n"
-        "- A fact retired only at the end of its life [obsolete]\n"
         "- A current, durable fact with no marker at all.\n"
     )
     lore = _write_lore(tmp_path, content)
@@ -286,10 +285,60 @@ def test_H1_prose_mention_kept_anchored_tag_pruned(tmp_path):
     assert "Tag an entry [superseded] when it is no longer accurate." in hot
     # Leading anchored tag — pruned.
     assert "Old belief that was later proven wrong." not in hot
-    # Trailing anchored tag — pruned.
-    assert "A fact retired only at the end of its life" not in hot
     # Untagged fact — kept.
     assert "A current, durable fact with no marker at all." in hot
+
+
+def test_M_trailing_prose_marker_is_kept(tmp_path):
+    """LEADING-ONLY anchoring (M-TRAILING-PROSE): an entry whose prose merely *ends*
+    in a marker token is recall-worthy and must be KEPT. Fails on the cycle-1
+    trailing-zone matcher, which wrongly pruned it."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Patterns & Conventions\n\n"
+        "- A fact retired only at the end of its life [obsolete]\n"
+        "- The deploy rule changed after the incident [superseded]\n"
+        "- [superseded] An entry actually tagged for prune at the front.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Prose ending in a marker token — KEPT (trailing anchoring removed in cycle-2).
+    assert "A fact retired only at the end of its life [obsolete]" in hot
+    assert "The deploy rule changed after the incident [superseded]" in hot
+    # A genuine leading tag still prunes.
+    assert "An entry actually tagged for prune at the front." not in hot
+
+
+def test_M_multiline_entry_leading_tag_handled(tmp_path):
+    """LEADING-ONLY anchoring: a multi-line entry with a LEADING tag is classified by
+    its first line; a multi-line entry whose marker only *ends* the first line is
+    KEPT (no trailing-zone miss/over-reach)."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Things Learned the Hard Way\n\n"
+        "- [stale] A historical decision about the old pipeline.\n"
+        "  A continuation line with the detail that mattered then.\n"
+        "- A live decision whose first line ends in a token [obsolete]\n"
+        "  and continues with detail that must be kept.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+    archive = (
+        lore.parent / "references" / "lore-archive" / "LORE.archive.md"
+    ).read_text()
+
+    # Leading [stale] on a multi-line entry → archived (pointer in hot, detail cold).
+    assert "A historical decision about the old pipeline." in archive
+    assert "A continuation line with the detail that mattered then." not in hot
+    assert "_[archived " in hot
+    # Marker only ending the first line → KEPT in full (both lines).
+    assert "A live decision whose first line ends in a token [obsolete]" in hot
+    assert "and continues with detail that must be kept." in hot
 
 
 # --- H2: table header/separator rows are never deduped --------------------------
@@ -463,3 +512,139 @@ def test_L3_rerun_does_not_duplicate_cold_entries(tmp_path):
     assert (
         archive.count("Historical decision 0 about the old pipeline.") == 1
     ), "cold tier accumulated a duplicate on rerun"
+
+
+# --- H3: archiving a tagged table content row must not corrupt the table ---------
+
+
+def test_H3_archive_tagged_table_row_no_corruption_no_leak(tmp_path):
+    """An [archive]-tagged table CONTENT row must NOT inject an inline bullet pointer
+    into the table body (mid-table line break + leaked pipes/marker). The table must
+    stay well-formed, the archived content must reach the cold tier, and no marker or
+    table pipe may leak into the hot file. Fails on 94de5fa, where the archive branch
+    emitted pointer_for(unit) for the table row before the is_table_row guard."""
+    content = (
+        "---\ntype: sanctum-memory\n---\n\n# Memory\n\n## Pending Items\n\n"
+        "| Item | Owner | Unblock |\n|------|-------|--------|\n"
+        "| live task one | alice | review |\n"
+        "| [archive] old pipeline migration row | bob | done |\n"
+        "| live task two | carol | merge |\n"
+    )
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True)
+    mem = sanctum / "MEMORY.md"
+    mem.write_text(content)
+
+    r = _run(str(mem), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = mem.read_text()
+
+    # Table stays well-formed: header + separator + the two live rows survive intact.
+    assert hot.count("| Item | Owner | Unblock |") == 1
+    assert hot.count("|------|-------|--------|") == 1
+    assert "| live task one | alice | review |" in hot
+    assert "| live task two | carol | merge |" in hot
+
+    # No inline bullet pointer injected into the table body, and NO marker/pipe leak:
+    # the archived row's content (and its marker) must be gone from the hot file.
+    assert "_[archived " not in hot, "an inline pointer bullet was injected into table"
+    assert "[archive] old pipeline migration row" not in hot
+    assert "old pipeline migration row" not in hot, "archived table content leaked hot"
+
+    # No malformed bullet-with-pipes line survived anywhere in the hot file.
+    for line in hot.splitlines():
+        if line.lstrip().startswith("-"):
+            assert "|" not in line, f"a bullet line leaked table pipes: {line!r}"
+
+    # The archived row content is preserved in the cold tier (data safety).
+    archive = (
+        sanctum / "references" / "lore-archive" / "MEMORY.archive.md"
+    ).read_text()
+    assert "old pipeline migration row" in archive
+
+
+# --- TGT-1: a prune-tagged table content row is dropped in place, table valid -----
+
+
+def test_TGT1_prune_tagged_table_row_dropped_table_valid(tmp_path):
+    """A [prune]-tagged table CONTENT row is dropped in place; the table stays valid
+    and nothing is written to the cold tier (prune deletes; archive preserves)."""
+    content = (
+        "---\ntype: sanctum-memory\n---\n\n# Memory\n\n## Pending Items\n\n"
+        "| Item | Owner | Unblock |\n|------|-------|--------|\n"
+        "| live task one | alice | review |\n"
+        "| [superseded] a row that is now wrong | bob | n/a |\n"
+        "| live task two | carol | merge |\n"
+    )
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True)
+    mem = sanctum / "MEMORY.md"
+    mem.write_text(content)
+
+    r = _run(str(mem), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = mem.read_text()
+
+    assert hot.count("| Item | Owner | Unblock |") == 1
+    assert hot.count("|------|-------|--------|") == 1
+    assert "| live task one | alice | review |" in hot
+    assert "| live task two | carol | merge |" in hot
+    # The pruned row is gone, with no marker/pipe residue and no pointer bullet.
+    assert "a row that is now wrong" not in hot
+    assert "_[archived " not in hot
+    # Pruned (not archived): no cold-tier file is created for it.
+    archive_path = sanctum / "references" / "lore-archive" / "MEMORY.archive.md"
+    if archive_path.exists():
+        assert "a row that is now wrong" not in archive_path.read_text()
+
+
+# --- M-STRIKE-PARTIAL: only a FULLY-struck entry is pruned -----------------------
+
+
+def test_M_strike_partial_kept_full_struck_pruned(tmp_path):
+    """Partial strikethrough (live un-struck text between spans) is KEPT; only a
+    single ~~...~~ span covering the whole entry is pruned. Fails on 94de5fa, whose
+    starts-with-~~ and ends-with-~~ test wrongly pruned the partial entry."""
+    # The first entry both STARTS and ENDS with a ~~ span but has live, un-struck
+    # text between them — this is the exact shape the cycle-1 starts-/ends-with-~~
+    # check wrongly pruned.
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Things Learned the Hard Way\n\n"
+        "- ~~old approach~~ but still relevant, see ~~ticket Y~~\n"
+        "- ~~A belief fully struck out because it was reversed.~~\n"
+        "- A current, valid fact with no strikethrough.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Partial strikethrough with interior live text — KEPT.
+    assert "but still relevant, see" in hot
+    # Fully-struck entry — pruned.
+    assert "A belief fully struck out because it was reversed." not in hot
+    # Untagged fact — kept.
+    assert "A current, valid fact with no strikethrough." in hot
+
+
+# --- L-PLUS-BULLET: '+' bullets are recognized ----------------------------------
+
+
+def test_L_plus_bullet_is_classified(tmp_path):
+    """A '+' unordered-list bullet must be recognized so a leading tag on it acts.
+    Fails on 94de5fa, where is_bullet/_LEADING_PREFIX_RE ignored '+', leaving the
+    leading marker unanchored and the entry wrongly kept."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Things Learned the Hard Way\n\n"
+        "+ [superseded] An old belief on a plus-bullet, now wrong.\n"
+        "+ A current fact on a plus-bullet that must be kept.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert "An old belief on a plus-bullet, now wrong." not in hot
+    assert "A current fact on a plus-bullet that must be kept." in hot
