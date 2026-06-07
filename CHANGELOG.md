@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`aim-lore-hygiene` skill** — per-operator hygiene for always-injected sanctum
+  files (`LORE.md`, `MEMORY.md`). Enforces the ~200-line cap, flags files crossing
+  the ~80%-of-cap compaction trigger, and applies the prune-vs-archive decision
+  rule: marker-tagged entries are deleted (superseded/contradicted/expired-TTL/
+  full-entry strikethrough), archived to a local cold-tier file with a one-line
+  hot-file pointer (stale-but-meaningful), or deduped. Markers are anchored in the
+  **leading position only** (after the bullet/number prefix, or in the first table
+  cell), so prose that merely mentions or ends in a marker token is kept, never
+  pruned; partial strikethrough with live un-struck text is kept. The parser is
+  **structure-aware**: only genuine content entries (bullets, paragraphs, table
+  content rows) are ever classified or deduped. Code fences (the whole block, info
+  string and all), thematic breaks (`---`/`***`/`___`), table header+separator
+  rows, and ambiguous constructs (blockquotes, indented code, raw HTML) are opaque
+  passthrough — copied byte-for-byte, never classified, deduped, or split — so a
+  marker token inside a fence or a tagged table header can never corrupt the file
+  (**keep-when-uncertain** is the safety posture: anything not confidently
+  structural-or-content is kept intact). A marker-tagged table content row is dropped
+  in place (archived rows still reach the cold tier) so the table stays well-formed
+  and no marker/pipe leaks into the hot file. Read-only
+  **dry-run by default**; `--apply` writes a timestamped backup first and never
+  auto-truncates recall-value content (over-cap files with no mechanical actions are
+  flagged for a manual/LLM summarization pass). Built as a thin `SKILL.md` over an
+  external, unit-tested `scripts/lore_hygiene.py` invoked by path (W-07
+  skills-with-scripts standard). This is FILE-content hygiene, distinct from
+  `aim-purge` (Qdrant-point purging).
+
 ### Changed
 
 - **TD-626** — The embedding service image is now prebuilt and published to GHCR
@@ -32,6 +60,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A bare `docker compose up` expects the published image and relies on Compose's
   build fallback to bake locally if it is absent; the scripted paths
   (`scripts/install.sh`, CI) make that pull→build fallback explicit.
+
+  **Upgrade note (existing installs):** `scripts/install.sh` brings services up
+  with `--no-recreate`, so it will not recreate an already-running `embedding`
+  container — an existing install keeps its previous locally-built image. After
+  updating, run `~/.ai-memory/scripts/stack.sh restart` to recreate services and
+  pull the prebuilt GHCR image. (Fresh installs pull it automatically.)
 
 ### Fixed
 
