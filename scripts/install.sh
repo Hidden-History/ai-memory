@@ -3047,7 +3047,15 @@ start_services() {
     log_info "Phase 1/2: Starting core services (qdrant + embedding)..."
     _compose build --no-cache qdrant
     _compose up -d qdrant
-    _compose build --no-cache embedding
+    # TD-626: embedding is delivered as a prebuilt GHCR image so the HuggingFace model
+    # bake (429-prone under CI-runner load) stays off the install hot path. Pull the
+    # published image; fall back to a local source build only if the pull fails (offline,
+    # or image not yet published). The Phase 1 `pull --ignore-buildable` skips embedding
+    # because it still declares a build: block, so the pull is issued explicitly here.
+    if ! _compose pull embedding; then
+        log_warning "GHCR pull of embedding image failed — building from source (HuggingFace model bake)."
+        _compose build embedding
+    fi
     # BUG-289: --no-recreate prevents Compose from restarting an already-running
     # embedding container mid-install, which would reset model_loaded to False and
     # cause the github-sync depends_on healthcheck gate to briefly fail.

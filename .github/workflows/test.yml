@@ -226,6 +226,11 @@ jobs:
       - name: Start Docker services
         working-directory: docker
         run: |
+          # TD-626: pull the prebuilt embedding image from GHCR so the HuggingFace
+          # model bake (429-prone) stays off the E2E hot path. Fall back to a local
+          # source build if the pull fails (image not yet published / not public).
+          echo "Pulling prebuilt embedding image (building from source on miss)..."
+          docker compose pull embedding || docker compose build embedding
           echo "Starting E2E services with docker-compose..."
           docker compose --profile monitoring up -d qdrant embedding prometheus grafana monitoring-api
           echo "Services started. Waiting for health checks..."

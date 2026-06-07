@@ -10,6 +10,11 @@ pydantic-settings==2.13.1
 # FastEmbed - ONNX optimized embeddings (replaces sentence-transformers)
 fastembed==0.7.4
 
+# huggingface_hub >=1.x parses the HuggingFace `RateLimit` response header and
+# backs off precisely on HTTP 429 during the model bake (TD-626 defense-in-depth).
+# fastembed 0.7.4 permits hf-hub >=0.20,<2.0; pin the floor to the rate-aware line.
+huggingface_hub>=1.2.0,<2.0
+
 # HTTP client for health checks
 httpx==0.28.1
 

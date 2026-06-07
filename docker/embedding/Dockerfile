@@ -29,7 +29,13 @@ RUN pip install --upgrade --no-cache-dir -r requirements.txt
 
 # Pre-download both embedding models at build time (BUG-105)
 # Downloads ~500MB each from HuggingFace. Eliminates runtime download dependency.
-RUN python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-en')" && \
+# HF_TOKEN (optional) is mounted as a BuildKit secret so the token never persists
+# in an image layer. An authenticated request raises the HuggingFace API rate
+# limit, reducing the 429 throttling that flaked this bake in CI (TD-626). When no
+# secret is mounted the download proceeds anonymously, exactly as before.
+RUN --mount=type=secret,id=hf_token,required=false \
+    if [ -s /run/secrets/hf_token ]; then export HF_TOKEN="$(cat /run/secrets/hf_token)"; fi && \
+    python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-en')" && \
     python -c "from fastembed import TextEmbedding; TextEmbedding('jinaai/jina-embeddings-v2-base-code')" && \
     python -c "from fastembed import SparseTextEmbedding; SparseTextEmbedding('Qdrant/bm25')"
 

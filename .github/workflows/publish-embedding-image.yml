@@ -1,0 +1,74 @@
+name: Publish embedding image
+
+# TD-626: prebuild the embedding image once and publish it to GHCR so that CI,
+# `docker compose`, and `scripts/install.sh` PULL the image instead of baking the
+# Jina v2 + bm25 models from HuggingFace on every push. The bake downloads the
+# models from HF, which rate-limits (429) shared GitHub-runner egress IPs and
+# flaked the build on both the install and E2E jobs. Running the bake here, once,
+# moves HuggingFace off every consumer's hot path.
+#
+# Tag scheme:
+#   - latest        — moving tag the compose/install path resolves by default
+#   - sha-<short>   — immutable per-commit tag for pinning via EMBEDDING_IMAGE_TAG
+#
+# Note: the image also COPYs application `src/` at build time, but the model bake
+# (the 429 hot path) depends only on docker/embedding/**. Use workflow_dispatch to
+# republish after an unrelated src/ change that needs to reach the image.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/embedding/**
+      - .github/workflows/publish-embedding-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/hidden-history/ai-memory-embedding
+
+jobs:
+  publish:
+    name: Build and push embedding image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/embedding/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # HF_TOKEN (optional repo secret) is delivered as a BuildKit secret and
+          # raises the HuggingFace API rate limit during the one-time model bake,
+          # adding defense-in-depth against 429 throttling. Absent secret → the
+          # bake downloads anonymously (Dockerfile guards on a non-empty secret).
+          secrets: |
+            hf_token=${{ secrets.HF_TOKEN }}
