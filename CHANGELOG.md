@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`aim-lore-hygiene` skill** — per-operator hygiene for always-injected sanctum
+  files (`LORE.md`, `MEMORY.md`). Enforces the ~200-line cap, flags files crossing
+  the ~80%-of-cap compaction trigger, and applies the prune-vs-archive decision
+  rule: marker-tagged entries are deleted (superseded/contradicted/expired-TTL/
+  strikethrough), archived to a local cold-tier file with a one-line hot-file
+  pointer (stale-but-meaningful), or deduped. Read-only **dry-run by default**;
+  `--apply` writes a timestamped backup first and never auto-truncates recall-value
+  content (over-cap files with no mechanical actions are flagged for a manual/LLM
+  summarization pass). Built as a thin `SKILL.md` over an external, unit-tested
+  `scripts/lore_hygiene.py` invoked by path (W-07 skills-with-scripts standard).
+  This is FILE-content hygiene, distinct from `aim-purge` (Qdrant-point purging).
+
 ### Changed
 
 - **TD-626** — The embedding service image is now prebuilt and published to GHCR
