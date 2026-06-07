@@ -68,7 +68,9 @@ rewritten**:
 - **Thematic breaks** (`---`, `***`, `___`) and other delimiters — structural, never
   deduped.
 - **Anything else not confidently structural-or-content** (blockquotes, indented code,
-  raw HTML, odd constructs) — **kept opaque**. This is the keep-when-uncertain posture:
+  raw HTML, odd constructs) — **kept opaque**. A raw-HTML block is gathered from its
+  start line to the blank-line terminator (inner lines need not start with `<`), so a
+  multi-line `<div>…</div>` stays whole. This is the keep-when-uncertain posture:
   because the skill mutates the operator's own memory, when it cannot confidently
   classify a block it keeps it intact rather than risk corrupting it.
 
@@ -84,9 +86,10 @@ is low-utility):
   one-line pointer is left in the hot file; for a **table content row** the row is
   dropped in place (the table stays well-formed) and its content still moves to the
   cold tier — no inline pointer is injected into the table body.
-- **Dedup:** exact-duplicate entries are collapsed, keeping the first. Table rows
-  (header, separator, content) are never deduped, so a second same-schema table
-  keeps its header and separator.
+- **Dedup:** exact-duplicate entries **within the same `## section`** are collapsed,
+  keeping the first; identical text under different sections is kept (distinct records).
+  Table rows (header, separator, content) are never deduped, so a second same-schema
+  table keeps its header and separator.
 - **Keep:** everything else.
 
 **Markers must be anchored in the LEADING position.** A marker counts only as a

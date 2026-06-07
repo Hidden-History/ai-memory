@@ -886,3 +886,201 @@ def test_REALISTIC_memory_file_only_genuine_entry_acted_on(tmp_path):
     assert "prune 1" in r.stdout
     assert "archive 0" in r.stdout
     assert "dedup 0" in r.stdout
+
+
+# --- H-HTML: multi-line raw-HTML blocks stay fully opaque (blank-line terminated) ---
+#
+# On f24547f the keep-when-uncertain HTML arm gathered with ``same=is_html_block_start``,
+# stopping at the first inner line not starting with ``<``; inner lines then leaked to
+# the paragraph/bullet branch and were classified/deduped/pruned. The tests below FAIL
+# on f24547f (inner content pruned/deduped) and pass once HTML is gathered to its
+# blank-line terminator as one opaque unit.
+
+
+def test_HTML_multiline_block_inner_marker_and_dup_preserved(tmp_path):
+    """A multi-line ``<div>`` / inner-marker-line / ``</div>`` block is ONE opaque unit:
+    the whole block is byte-preserved, a leading-marker inner line is NOT pruned, and a
+    repeated inner line is NOT deduped. Fails on f24547f (inner ``[superseded]`` line
+    pruned; repeated inner line deduped to one)."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        '<div class="callout">\n'
+        "- [superseded] inner content that looks taggable but is inside the block\n"
+        "- a repeated inner line\n"
+        "- a repeated inner line\n"
+        "</div>\n"
+        "\n"
+        "- a real fact to keep.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert '<div class="callout">' in hot
+    assert "</div>" in hot
+    assert (
+        "- [superseded] inner content that looks taggable but is inside the block"
+        in hot
+    ), "inner HTML marker line was pruned (block not opaque)"
+    assert hot.count("- a repeated inner line") == 2, "inner HTML dup line was deduped"
+    assert "- a real fact to keep." in hot
+
+    # (f) idempotent: a second apply changes nothing.
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply mutated an already-clean HTML block"
+
+
+def test_HTML_block_to_eof_no_trailing_blank_is_opaque(tmp_path):
+    """An HTML block running to EOF with no trailing blank line keeps its remainder
+    opaque. Fails on f24547f, where the inner ``[prune]`` line was pruned and the dup
+    inner line deduped."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "<div>\n"
+        "- [prune] looks tagged but is inside an HTML block that runs to EOF\n"
+        "- dup inner line\n"
+        "- dup inner line\n"
+        "</div>"  # no trailing newline / blank line — block runs to EOF
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert "<div>" in hot and "</div>" in hot
+    assert (
+        "- [prune] looks tagged but is inside an HTML block that runs to EOF" in hot
+    ), "inner marker line pruned in an HTML-to-EOF block"
+    assert hot.count("- dup inner line") == 2, "inner dup line deduped in HTML-to-EOF"
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply mutated an HTML-to-EOF block"
+
+
+def test_HTML_after_paragraph_not_swallowed(tmp_path):
+    """A paragraph immediately followed by an HTML block start: the paragraph is its own
+    classifiable entry (so a duplicate paragraph dedups) and the HTML is opaque (not
+    swallowed into the paragraph). Fails on f24547f, where the HTML start was glued into
+    the paragraph (no html break in the paragraph break-set), so the standalone duplicate
+    paragraph did NOT dedup and survived twice."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "Prose that must stay its own entry.\n"
+        '<div class="x">a callout right after the prose</div>\n'
+        "\n"
+        "Prose that must stay its own entry.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Paragraph classified → the standalone duplicate is deduped to one occurrence.
+    assert (
+        hot.count("Prose that must stay its own entry.") == 1
+    ), "HTML was swallowed into the paragraph (duplicate paragraph not deduped)"
+    # HTML kept opaque, byte-preserved.
+    assert '<div class="x">a callout right after the prose</div>' in hot
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
+# --- M-XSEC-DEDUP: dedup is section-scoped ---------------------------------------
+
+
+def test_dedup_is_section_scoped(tmp_path):
+    """Two identical content lines under DIFFERENT ``## section``s are BOTH kept; two
+    identical lines within ONE section dedup to the first. Fails on f24547f, whose
+    file-global ``seen`` set dropped the cross-section twin (one occurrence survived).
+    """
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n"
+        "## Section A\n\n"
+        "- identical content line\n"
+        "- identical content line\n"  # within-section dup → second deduped
+        "- a unique A line\n\n"
+        "## Section B\n\n"
+        "- identical content line\n"  # cross-section twin → KEPT
+        "- a unique B line\n"
+    )
+    lore = _write_lore(tmp_path, content)
+    assert lore.read_text().count("- identical content line") == 3
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # One in Section A (within-section dup collapsed) + one in Section B (cross-section
+    # twin kept) = two. f24547f's file-global dedup leaves only one.
+    assert (
+        hot.count("- identical content line") == 2
+    ), "cross-section identical entry was wrongly deduped (or within-section not deduped)"
+    assert "- a unique A line" in hot
+    assert "- a unique B line" in hot
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
+# --- L-CRLF: the file's original line ending is preserved ------------------------
+
+
+def test_CRLF_input_keeps_crlf_no_mixing(tmp_path):
+    """A CRLF file with one genuine prune keeps CRLF on untouched lines and never emits
+    a mixed-ending file. Fails on f24547f, which read with universal-newline translation
+    and rewrote the file with LF (no CRLF in the output)."""
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True)
+    lore = sanctum / "LORE.md"
+    content = (
+        "---\r\n"
+        "type: sanctum-lore\r\n"
+        "---\r\n"
+        "\r\n"
+        "# Lore\r\n"
+        "\r\n"
+        "## Things Learned the Hard Way\r\n"
+        "\r\n"
+        "- [superseded] an old belief that is now wrong\r\n"
+        "- a durable fact to keep\r\n"
+        "- another durable fact to keep\r\n"
+    )
+    lore.write_bytes(content.encode("utf-8"))
+
+    r = _run(str(sanctum), "--apply")
+    assert r.returncode == 0, r.stderr
+
+    raw = lore.read_bytes()
+    assert b"\r\n" in raw, "CRLF line endings were not preserved"
+    # No mixing: stripping every CRLF leaves no lone LF.
+    assert b"\n" not in raw.replace(b"\r\n", b""), "output mixed CRLF and LF endings"
+
+    text = raw.decode("utf-8")
+    assert (
+        "an old belief that is now wrong" not in text
+    ), "the tagged entry was not pruned"
+    assert "a durable fact to keep" in text
+    assert "another durable fact to keep" in text
+
+    # A byte-faithful backup preserves the original CRLF too.
+    backup = next(iter(sanctum.glob("LORE.md.*.bak")))
+    assert b"\r\n" in backup.read_bytes(), "backup did not preserve CRLF"
+
+    # (f) idempotent: a second apply changes nothing (still CRLF, no churn).
+    sha1 = _sha(lore)
+    r2 = _run(str(sanctum), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply mutated the CRLF file"

@@ -14,7 +14,7 @@ The load-bearing distinction in lore hygiene. Two failure modes bound it:
 | Low utility: declared no-longer-useful, ephemeral | **Delete** | `[prune]` |
 | Time-bound and expired | **Delete** (it was a TTL entry) | `[expired:YYYY-MM-DD]` past today |
 | Stale-but-historically-meaningful; detail behind an index line | **Archive** to cold tier, keep a one-line pointer | `[stale]`, `[archive]` |
-| Exact duplicate of an earlier entry | **Dedup** (keep the first) | (detected automatically) |
+| Exact duplicate of an earlier entry **in the same section** | **Dedup** (keep the first) | (detected automatically) |
 | High retrieval frequency + still accurate | **Keep** | (no marker) |
 
 ## Markers are matched only in the LEADING position
@@ -59,10 +59,17 @@ identify as *either* a known structural construct *or* a genuine content entry �
 blockquotes (`>`), indented code, raw HTML, nested/odd constructs — is emitted as an
 opaque **keep**. It is never pruned, archived, deduped, or rewritten. Because this skill
 mutates the operator's *own* memory under `--apply`, data-safety beats cleverness: when
-in doubt, keep the block intact.
+in doubt, keep the block intact. A **raw-HTML block** is gathered from its start line to
+the **blank-line terminator** (CommonMark HTML block type 6/7) as one opaque unit — its
+inner lines need not start with `<`, so a `<div>` / inner content / `</div>` block is
+kept whole and inner content can never leak out to be classified; a block running to EOF
+with no trailing blank keeps its remainder opaque.
 
-**Table structural rows are never deduped.** Header and separator (`|---|`) rows are
-preserved, so a second table sharing a column schema keeps its own header and
+**Dedup is section-scoped.** Exact-duplicate collapse (keep-first) acts only within a
+single `## section`: two genuinely distinct entries with identical text under *different*
+sections are both kept, because across-section identical lines are legitimately distinct
+records. **Table structural rows are never deduped.** Header and separator (`|---|`) rows
+are preserved, so a second table sharing a column schema keeps its own header and
 separator instead of having them collapsed away as "duplicates".
 
 **Archiving a tagged table row.** A `[stale]`/`[archive]` (or `[prune]`) tag in a

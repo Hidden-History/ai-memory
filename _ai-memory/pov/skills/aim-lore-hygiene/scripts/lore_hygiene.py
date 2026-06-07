@@ -146,6 +146,31 @@ def split_frontmatter(text: str) -> tuple[list[str], list[str]]:
     return [], lines
 
 
+def detect_newline(text: str) -> str:
+    """Return the file's dominant line ending so untouched content is re-emitted with
+    it; default LF when none is present (L-CRLF).
+
+    Parsing strips endings via ``splitlines()`` and reassembly joins with ``"\\n"``, so
+    without this a CRLF (or lone-CR) file would be silently rewritten with LF endings —
+    not byte-preserving for untouched content. A single dominant ending is chosen so the
+    rewrite is uniform (never a mixed-ending file).
+    """
+    crlf = text.count("\r\n")
+    lone_cr = text.count("\r") - crlf
+    lone_lf = text.count("\n") - crlf
+    if crlf and crlf >= lone_lf and crlf >= lone_cr:
+        return "\r\n"
+    if lone_cr and lone_cr > lone_lf:
+        return "\r"
+    return "\n"
+
+
+def read_preserving_newlines(path: Path) -> str:
+    """Read text WITHOUT universal-newline translation so the original line ending stays
+    visible to ``detect_newline`` (``Path.read_text`` would collapse CRLF/CR to LF)."""
+    return path.read_bytes().decode("utf-8")
+
+
 def is_bullet(line: str) -> bool:
     # L-PLUS-BULLET: ``+`` is a valid GFM unordered-list bullet alongside ``-``/``*``.
     return bool(re.match(r"\s*([-*+]|\d+\.)\s+", line))
@@ -238,7 +263,9 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
       - ``__passthrough__`` — an opaque structural/uncertain block kept byte-for-byte:
         a whole code fence (open→close inclusive), a thematic break, a table
         header+separator pair, a blockquote, an indented-code block, or a raw-HTML
-        block. Unterminated fences keep their remainder opaque (keep-when-uncertain).
+        block gathered to its blank-line terminator (CommonMark HTML block type 6/7 —
+        inner lines need NOT start with ``<``). Unterminated fences and an HTML block
+        running to EOF keep their remainder opaque (keep-when-uncertain).
     """
     entries: list[tuple[str, str]] = []
     section = ""
@@ -306,18 +333,30 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
             i += 1
             continue
 
-        # Keep-when-uncertain: blockquotes, indented code, raw HTML — opaque KEEP,
-        # gathered into one contiguous block so multi-line constructs stay intact.
-        if is_blockquote(line) or is_indented_code(line) or is_html_block_start(line):
-            if is_blockquote(line):
-                same = is_blockquote
-            elif is_indented_code(line):
-                same = is_indented_code
-            else:
-                same = is_html_block_start
+        # Keep-when-uncertain: blockquotes and indented code are opaque KEEP, gathered
+        # by their own same-kind predicate (every line starts with ``>`` / is indented
+        # ≥4) — that predicate IS correct for these two constructs.
+        if is_blockquote(line) or is_indented_code(line):
+            same = is_blockquote if is_blockquote(line) else is_indented_code
             block = [line]
             i += 1
             while i < n and body_lines[i].strip() and same(body_lines[i]):
+                block.append(body_lines[i])
+                i += 1
+            entries.append(("__passthrough__", "\n".join(block)))
+            continue
+
+        # Raw-HTML block (CommonMark HTML block type 6/7): opaque KEEP from the start
+        # line to its BLANK-LINE terminator — inner lines need NOT start with ``<`` (a
+        # ``<div>`` / inner content / ``</div>`` block is ONE opaque unit). Gathering by
+        # a same-kind ``startswith('<')`` predicate would stop at the first inner line,
+        # leaking the remainder into the paragraph branch to be classified/deduped/pruned
+        # — silent corruption of the operator's file. A block running to EOF with no
+        # trailing blank keeps its remainder opaque (keep-when-uncertain).
+        if is_html_block_start(line):
+            block = [line]
+            i += 1
+            while i < n and body_lines[i].strip():
                 block.append(body_lines[i])
                 i += 1
             entries.append(("__passthrough__", "\n".join(block)))
@@ -351,6 +390,7 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
                 or is_thematic_break(nxt)
                 or _fence_marker(nxt) is not None
                 or is_blockquote(nxt)
+                or is_html_block_start(nxt)
             ):
                 break
             block.append(nxt)
@@ -497,7 +537,11 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
     archive_relpath = f"{ARCHIVE_SUBDIR}/{Path(filename).stem}.archive.md"
     actions: list[EntryAction] = []
     archived_blocks: list[str] = []
-    seen: set[str] = set()
+    # Dedup is SECTION-SCOPED: the key carries the owning ``## section`` so two
+    # genuinely distinct entries with identical text under DIFFERENT sections are both
+    # kept (across-section identical lines are legitimately distinct records). A
+    # file-global set would silently drop the second as a "duplicate" (M-XSEC).
+    seen: set[tuple[str, str]] = set()
     out_body: list[str] = []
 
     for section, unit in units:
@@ -547,11 +591,13 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
             out_body.append(unit)
             continue
 
-        # keep — but drop exact duplicates (BP-159 §7 dedup), keeping the first.
-        key = normalize(unit)
+        # keep — but drop exact duplicates within the SAME section (BP-159 §7 dedup),
+        # keeping the first. Scoping by section preserves identical-but-distinct entries
+        # that live under different ``## section`` headers.
+        key = (section, normalize(unit))
         if key in seen:
             actions.append(
-                EntryAction(unit, section, "dedup", "duplicate of an earlier entry")
+                EntryAction(unit, section, "dedup", "duplicate within the same section")
             )
             continue
         seen.add(key)
@@ -562,6 +608,12 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
     new_text = "\n".join(frontmatter + body)
     if new_text and not new_text.endswith("\n"):
         new_text += "\n"
+    # Re-emit untouched content with the file's original line ending (L-CRLF). Internal
+    # text is ending-stripped, so it holds only LF separators — a single replace yields
+    # a uniform, never-mixed file.
+    newline = detect_newline(text)
+    if newline != "\n":
+        new_text = new_text.replace("\n", newline)
 
     return FilePlan(
         filename=filename,
@@ -643,7 +695,9 @@ def write_backup(path: Path, today: date) -> Path:
     while backup.exists():
         backup = path.parent / f"{path.name}.{stamp}.{n}.bak"
         n += 1
-    backup.write_text(path.read_text())
+    # Byte-faithful copy (read_bytes/write_bytes) so the pre-mutation original is
+    # preserved exactly — including its CRLF/CR line endings (L-CRLF).
+    backup.write_bytes(path.read_bytes())
     return backup
 
 
@@ -724,7 +778,9 @@ def apply_plan(
         if qdrant:
             push_to_qdrant(plan.archived_blocks, group_id, agent_id)
 
-    path.write_text(plan.new_text)
+    # write_bytes (not write_text) so the line endings already baked into new_text are
+    # emitted verbatim with no os.linesep retranslation (L-CRLF).
+    path.write_bytes(plan.new_text.encode("utf-8"))
     print(
         f"  {plan.filename}: rewritten ({plan.original_lines} → {plan.projected_lines} lines)"
     )
@@ -791,7 +847,9 @@ def main() -> int:
     plans = []
     for file_path, cap in targets:
         cap = args.cap if args.cap is not None else cap
-        plan = plan_file(file_path.read_text(), file_path.name, cap, today)
+        plan = plan_file(
+            read_preserving_newlines(file_path), file_path.name, cap, today
+        )
         plans.append((file_path, plan))
         print_plan(plan)
 
