@@ -347,25 +347,23 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
             continue
 
         # Raw-HTML block (CommonMark HTML block type 6/7): opaque KEEP from the start
-        # line to its BLANK-LINE terminator — inner lines need NOT start with ``<`` (a
-        # ``<div>`` / inner content / ``</div>`` block is ONE opaque unit). Gathering by
-        # a same-kind ``startswith('<')`` predicate would stop at the first inner line,
-        # leaking the remainder into the paragraph branch to be classified/deduped/pruned
-        # — silent corruption of the operator's file. A block running to EOF with no
-        # trailing blank keeps its remainder opaque (keep-when-uncertain). The gather also
-        # stops at an ATX heading (keep-when-uncertain: a visible ``## heading`` is always
-        # structure) so a heading with no blank line before it is emitted as ``__header__``
-        # and advances ``section`` — never absorbed into the opaque block, which would
-        # mis-attribute the next section's entries and let the section-scoped dedup drop
-        # a legitimately distinct cross-section entry.
+        # line to its BLANK-LINE terminator (or EOF) — inner lines need NOT start with
+        # ``<`` (a ``<div>`` / inner content / ``</div>`` block is ONE opaque unit). Every
+        # inner line — INCLUDING any that begins with ``#`` (an HTML-comment ``# TODO``, a
+        # CSS ``#id`` selector, an inner ``##``) — stays inside the opaque unit and is NEVER
+        # re-classified/deduped/pruned/split. The gather has NO inner-content stop rule: a
+        # same-kind ``startswith('<')`` predicate or a ``#``-guard would terminate at the
+        # first such inner line and leak the block's remainder into the paragraph branch to
+        # be classified/deduped/pruned — silent corruption of the operator's file. A block
+        # running to EOF with no trailing blank keeps its remainder opaque
+        # (keep-when-uncertain). Cross-section dedup safety (an HTML block that absorbs a
+        # following ``## heading`` because there is no blank line between them) is handled
+        # in plan_file's dedup layer, which resets the ``seen`` set on every opaque/header
+        # boundary — NOT by stopping the gather here on inner content.
         if is_html_block_start(line):
             block = [line]
             i += 1
-            while (
-                i < n
-                and body_lines[i].strip()
-                and not body_lines[i].lstrip().startswith("#")
-            ):
+            while i < n and body_lines[i].strip():
                 block.append(body_lines[i])
                 i += 1
             entries.append(("__passthrough__", "\n".join(block)))
@@ -546,9 +544,12 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
     archive_relpath = f"{ARCHIVE_SUBDIR}/{Path(filename).stem}.archive.md"
     actions: list[EntryAction] = []
     archived_blocks: list[str] = []
-    # Dedup is SECTION-SCOPED: the key carries the owning ``## section`` so two
-    # genuinely distinct entries with identical text under DIFFERENT sections are both
-    # kept (across-section identical lines are legitimately distinct records). A
+    # Dedup is bounded by STRUCTURAL BOUNDARIES: the ``seen`` set collapses duplicate
+    # content only within a contiguous run uninterrupted by a heading or opaque block.
+    # The key still carries the owning ``## section`` so identical text under DIFFERENT
+    # sections stays distinct, and ``seen`` is cleared on every ``__header__`` /
+    # ``__passthrough__`` boundary below (the section-independent guard that closes the
+    # cross-section-dedup HIGH even when an HTML block absorbs the next heading). A
     # file-global set would silently drop the second as a "duplicate" (M-XSEC).
     seen: set[tuple[str, str]] = set()
     out_body: list[str] = []
@@ -558,7 +559,22 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
         # headers, and every __passthrough__ block (code fences, thematic breaks,
         # table header+separator pairs, blockquotes, indented code, raw HTML). They
         # are NEVER classified, deduped, or split — the keep-when-uncertain backstop.
-        if section in ("__blank__", "__header__", "__passthrough__"):
+        #
+        # A __header__ or __passthrough__ is a STRUCTURAL BOUNDARY: it RESETS the dedup
+        # ``seen`` set so two identical content entries on opposite sides of it are BOTH
+        # kept — a heading or opaque block between twins means they are not a safe dedup
+        # pair (keep-when-uncertain). This is the section-independent fix for the
+        # cross-section-dedup HIGH: even when an HTML/comment block absorbs a following
+        # ``## heading`` (so ``section`` does not advance), the passthrough boundary still
+        # clears ``seen``, so the next run's first occurrence is kept rather than dropped
+        # as a phantom same-section duplicate. ``__blank__`` is ordinary spacing between
+        # bullets and does NOT reset — genuine adjacent duplicates separated only by blank
+        # lines must still collapse keep-first.
+        if section in ("__header__", "__passthrough__"):
+            seen.clear()
+            out_body.append(unit)
+            continue
+        if section == "__blank__":
             out_body.append(unit)
             continue
 

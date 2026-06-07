@@ -964,18 +964,29 @@ def test_HTML_block_to_eof_no_trailing_blank_is_opaque(tmp_path):
     assert _sha(lore) == sha1, "second apply mutated an HTML-to-EOF block"
 
 
-def test_HTML_after_paragraph_not_swallowed(tmp_path):
-    """A paragraph immediately followed by an HTML block start: the paragraph is its own
-    classifiable entry (so a duplicate paragraph dedups) and the HTML is opaque (not
-    swallowed into the paragraph). Fails on f24547f, where the HTML start was glued into
-    the paragraph (no html break in the paragraph break-set), so the standalone duplicate
-    paragraph did NOT dedup and survived twice."""
+# --- DEFECT #7: an inner ``#``-line must NOT re-expose the rest of the HTML block -----
+#
+# Cycle-6 added a ``and not body_lines[i].lstrip().startswith("#")`` guard to the HTML
+# gather so a heading could advance ``section``. But that guard ALSO terminates the gather
+# at ANY inner line starting with ``#`` (an HTML-comment ``# TODO``, a CSS ``#id``, an
+# inner ``##``), re-exposing every line AFTER it to the classifier — silent prune/dedup of
+# the operator's own data. R1 removes the guard: the block is opaque to its blank-line/EOF
+# terminator with NO inner stop rule. These FAIL on e108bfc (inner line re-exposed).
+
+
+def test_defect7_div_inner_hash_line_does_not_re_expose_block(tmp_path):
+    """A ``<div>`` block with an inner ``#``-leading line followed by a ``[superseded]``
+    inner line is ONE opaque unit: the ``[superseded]`` line is NOT pruned. On e108bfc the
+    ``#``-guard stops the gather at the ``#``-line, re-exposing the ``[superseded]`` line
+    to the classifier, which prunes it (silent loss)."""
     content = (
         "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
-        "Prose that must stay its own entry.\n"
-        '<div class="x">a callout right after the prose</div>\n'
+        '<div class="callout">\n'
+        "# an inner hash-leading line (looks like a heading but is inside the block)\n"
+        "- [superseded] inner line AFTER the hash that must stay opaque\n"
+        "</div>\n"
         "\n"
-        "Prose that must stay its own entry.\n"
+        "- a real fact to keep.\n"
     )
     lore = _write_lore(tmp_path, content)
 
@@ -983,12 +994,289 @@ def test_HTML_after_paragraph_not_swallowed(tmp_path):
     assert r.returncode == 0, r.stderr
     hot = lore.read_text()
 
-    # Paragraph classified → the standalone duplicate is deduped to one occurrence.
+    assert '<div class="callout">' in hot and "</div>" in hot
     assert (
-        hot.count("Prose that must stay its own entry.") == 1
-    ), "HTML was swallowed into the paragraph (duplicate paragraph not deduped)"
-    # HTML kept opaque, byte-preserved.
+        "# an inner hash-leading line (looks like a heading but is inside the block)"
+        in hot
+    )
+    assert (
+        "- [superseded] inner line AFTER the hash that must stay opaque" in hot
+    ), "inner line after an inner #-line was re-exposed and pruned (defect #7)"
+    assert "- a real fact to keep." in hot
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply mutated an opaque HTML block (defect #7)"
+
+
+def test_defect7_comment_inner_hash_line_does_not_re_expose_block(tmp_path):
+    """The ``<!--`` comment variant of defect #7: an inner ``#``-line inside a comment
+    block must not re-expose the following ``[superseded]`` inner line to pruning. FAILS on
+    e108bfc."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "<!-- review notes:\n"
+        "## an inner ATX-looking line inside the comment\n"
+        "- [superseded] inner line AFTER the hash that must stay opaque\n"
+        "end of notes -->\n"
+        "\n"
+        "- a real fact to keep.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert "<!-- review notes:" in hot and "end of notes -->" in hot
+    assert "## an inner ATX-looking line inside the comment" in hot
+    assert (
+        "- [superseded] inner line AFTER the hash that must stay opaque" in hot
+    ), "inner comment line after an inner #-line was re-exposed and pruned (defect #7)"
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert (
+        _sha(lore) == sha1
+    ), "second apply mutated an opaque comment block (defect #7)"
+
+
+def test_defect7_inner_hash_line_does_not_re_expose_inner_duplicate(tmp_path):
+    """Opus-D untagged variant of defect #7: an inner duplicate line AFTER an inner
+    ``#``-line inside a ``<div>`` block must NOT be deduped — the whole block is opaque. On
+    e108bfc the ``#``-guard re-exposes both duplicates as same-section content and the
+    second is deduped away (count drops 2→1)."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "<div>\n"
+        "# inner hash line\n"
+        "- a duplicated inner line\n"
+        "- a duplicated inner line\n"
+        "</div>\n"
+        "\n"
+        "- a real fact to keep.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert (
+        hot.count("- a duplicated inner line") == 2
+    ), "inner HTML duplicate after a #-line was deduped (defect #7)"
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply mutated an opaque HTML block (defect #7)"
+
+
+# --- CYCLE-5 HIGH (div/details variants): an opaque block before a heading resets dedup --
+#
+# When an HTML block absorbs a following ``## heading`` (no blank between), ``section`` does
+# not advance. R2 resets the dedup ``seen`` set on every ``__passthrough__`` / ``__header__``
+# boundary, so a cross-section twin after the block is kept. These FAIL on a build with R1
+# reverted (HTML opaque again) but no R2 — the absorbed heading attributes the twin to the
+# prior section and the section-scoped dedup drops it.
+
+
+def test_cycle5_div_block_before_heading_cross_section_twins_both_kept(tmp_path):
+    """``<div>`` variant: a one-line ``<div>`` block immediately before a ``## heading``
+    (no blank between) absorbs the heading; the opaque boundary resets dedup so both
+    cross-section twins are kept (dedup 0). FAILS on a no-R2 build."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n"
+        "## Decisions\n\n"
+        "- DEC-1: use approach X for the pipeline.\n"
+        '<div class="note">a side note with no blank before the next heading</div>\n'
+        "## Conventions\n\n"
+        "- DEC-1: use approach X for the pipeline.\n"  # cross-section twin → KEPT
+        "- a unique conventions line\n"
+    )
+    lore = _write_lore(tmp_path, content)
+    assert lore.read_text().count("- DEC-1: use approach X for the pipeline.") == 2
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert (
+        hot.count("- DEC-1: use approach X for the pipeline.") == 2
+    ), "cross-section twin deleted (no dedup-boundary reset on the opaque <div>)"
+    assert (
+        '<div class="note">a side note with no blank before the next heading</div>'
+        in hot
+    )
+    assert "## Conventions" in hot
+    assert "- a unique conventions line" in hot
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
+def test_cycle5_details_block_before_heading_cross_section_twins_both_kept(tmp_path):
+    """``<details>`` variant: a multi-line ``<details>`` block immediately before a
+    ``## heading`` (no blank between) absorbs the heading; the opaque boundary resets dedup
+    so both cross-section twins are kept. FAILS on a no-R2 build."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n"
+        "## Decisions\n\n"
+        "- DEC-1: use approach X for the pipeline.\n"
+        "<details>\n"
+        "<summary>background</summary>\n"
+        "some collapsed detail here\n"
+        "</details>\n"
+        "## Conventions\n\n"
+        "- DEC-1: use approach X for the pipeline.\n"  # cross-section twin → KEPT
+        "- a unique conventions line\n"
+    )
+    lore = _write_lore(tmp_path, content)
+    assert lore.read_text().count("- DEC-1: use approach X for the pipeline.") == 2
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert (
+        hot.count("- DEC-1: use approach X for the pipeline.") == 2
+    ), "cross-section twin deleted (no dedup-boundary reset on the opaque <details>)"
+    assert "<details>" in hot and "</details>" in hot
+    assert "some collapsed detail here" in hot
+    assert "## Conventions" in hot
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
+# --- DEDUP BOUNDARY: within a contiguous run dedups; an opaque/heading boundary does not --
+
+
+def test_within_section_adjacent_duplicate_collapses(tmp_path):
+    """Two identical content bullets in one section with NO structural boundary between
+    them collapse keep-first (R2 does not regress ordinary within-run dedup). Passes on all
+    bases."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "- a repeated fact about the system.\n"
+        "- a repeated fact about the system.\n"  # adjacent dup → second collapsed
+        "- a unique fact.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert (
+        hot.count("- a repeated fact about the system.") == 1
+    ), "adjacent within-section duplicate was not collapsed keep-first"
+    assert "- a unique fact." in hot
+    assert "dedup 1" in r.stdout
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
+def test_dup_across_code_fence_both_kept(tmp_path):
+    """Two identical content bullets separated by a code fence (a ``__passthrough__``) are
+    BOTH kept — the fence is a structural boundary that resets dedup (R2, the new safe
+    behavior, asserted explicitly so it is intentional). FAILS on a no-R2 build (the fence
+    did not reset ``seen`` → second deduped)."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "- identical content line.\n"
+        "```text\n"
+        "some fenced sample\n"
+        "```\n"
+        "- identical content line.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert (
+        hot.count("- identical content line.") == 2
+    ), "duplicate separated by a code fence was wrongly deduped (boundary did not reset)"
+    assert hot.count("```") == 2, "a fence delimiter was lost"
+    assert "clean, no-op" in r.stdout, "an unexpected dedup/prune action fired"
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
+def test_dup_across_opaque_block_is_kept(tmp_path):
+    """Two identical content bullets separated by an opaque ``<div>`` block (blank-bounded,
+    so it does NOT absorb a heading) are BOTH kept — the opaque block resets dedup (R2).
+    FAILS on a no-R2 build."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "- identical content line.\n"
+        '<div class="callout">an opaque callout between the twins</div>\n'
+        "\n"
+        "- identical content line.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert (
+        hot.count("- identical content line.") == 2
+    ), "duplicate separated by an opaque <div> was wrongly deduped (boundary did not reset)"
+    assert '<div class="callout">an opaque callout between the twins</div>' in hot
+    assert "clean, no-op" in r.stdout, "an unexpected dedup/prune action fired"
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
+def test_HTML_after_paragraph_not_swallowed(tmp_path):
+    """A paragraph immediately followed by an HTML block start: the paragraph is its own
+    classifiable entry and the HTML block is opaque (not swallowed into the paragraph).
+    Proven by a leading-tagged prose entry that is PRUNED as its own unit while the
+    immediately-following ``<div>`` callout survives byte-for-byte — if the div were glued
+    into the paragraph, the whole unit (div included) would be pruned. Fails on f24547f,
+    where the HTML start was glued into the paragraph (no html break in the paragraph
+    break-set), so the div would be pruned along with the tagged prose.
+
+    The original variant proved non-swallowing via cross-block dedup; R2 now intentionally
+    resets dedup on an opaque boundary (so twins across an opaque block are BOTH kept),
+    making cross-block dedup an invalid discriminator here. The boundary-reset behavior is
+    covered by test_dup_across_opaque_block_is_kept and the cross-section tests."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "[superseded] prose that is its own tagged entry.\n"
+        '<div class="x">a callout right after the prose</div>\n'
+        "\n"
+        "A trailing prose line that stays.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Tagged prose pruned as its own unit; the adjacent HTML block is NOT swallowed into
+    # it (else the div would be pruned too) and survives opaque, byte-preserved.
+    assert "[superseded] prose that is its own tagged entry." not in hot
     assert '<div class="x">a callout right after the prose</div>' in hot
+    assert "A trailing prose line that stays." in hot
 
     sha1 = _sha(lore)
     r2 = _run(str(lore.parent), "--apply")
@@ -1035,14 +1323,16 @@ def test_dedup_is_section_scoped(tmp_path):
     assert _sha(lore) == sha1, "second apply was not idempotent"
 
 
-def test_HTML_block_before_heading_no_blank_advances_section(tmp_path):
-    """An HTML/comment block whose last line is immediately followed by a ``## heading``
-    (no blank line between) must NOT absorb that heading: the heading is emitted as a
-    structural ``__header__`` and advances ``section``, so a content line under the new
-    section is NOT wrongly judged a same-section duplicate of an identical line in the
-    prior section. Both cross-section twins are kept (dedup 0). Fails on 647a5e5, whose
-    blank-line-only HTML gather swallows the heading, leaving the second section's twin
-    attributed to the first section and silently deleted by the section-scoped dedup."""
+def test_HTML_comment_block_before_heading_cross_section_twins_both_kept(tmp_path):
+    """Cycle-5 HIGH (comment variant): an HTML/comment block whose last line is
+    immediately followed by a ``## heading`` (no blank line between) ABSORBS that heading
+    into one opaque ``__passthrough__`` unit (R1 — HTML is opaque to its blank-line/EOF
+    terminator, no inner stop rule). Section tracking does NOT advance, but the opaque
+    block is a STRUCTURAL BOUNDARY that resets the dedup ``seen`` set (R2), so the
+    identical content line after it is NOT judged a same-section duplicate. Both twins are
+    kept (dedup 0). Fails on a build with R1 reverted but no R2 — the absorbed heading
+    leaves the second twin in the prior section and the section-scoped dedup drops it.
+    """
     content = (
         "---\ntype: sanctum-lore\n---\n\n# Lore\n\n"
         "## Decisions\n\n"
@@ -1059,12 +1349,12 @@ def test_HTML_block_before_heading_no_blank_advances_section(tmp_path):
     assert r.returncode == 0, r.stderr
     hot = lore.read_text()
 
-    # Both twins survive: the heading advanced the section, so neither is a same-section
-    # duplicate. On 647a5e5 the swallowed heading drops the Conventions twin to zero → one.
+    # Both twins survive: the opaque block between them reset dedup, so the second is not a
+    # same-section duplicate. Without R2 the absorbed heading drops the twin to zero → one.
     assert (
         hot.count("- DEC-1: use approach X for the pipeline.") == 2
-    ), "cross-section twin silently deleted (heading absorbed into the HTML block)"
-    # The heading and the opaque comment line are both preserved.
+    ), "cross-section twin silently deleted (no dedup-boundary reset on the opaque block)"
+    # The heading (now inside the opaque block) and the comment line are both preserved.
     assert "## Conventions" in hot
     assert "<!-- reviewed 2026-01 -->" in hot
     assert "- a unique conventions line" in hot
