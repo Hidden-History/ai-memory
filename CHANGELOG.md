@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **TD-626** — The embedding service image is now prebuilt and published to GHCR
+  (`ghcr.io/hidden-history/ai-memory-embedding`) by a new
+  `publish-embedding-image` workflow, and `docker compose` / `scripts/install.sh`
+  pull it instead of baking the Jina v2 + bm25 models from HuggingFace on every
+  run. The bake downloads the models from HuggingFace, which rate-limits (HTTP
+  429) shared CI-runner egress IPs and intermittently failed both the install and
+  E2E jobs. The compose `embedding` service keeps its `build:` block as a
+  source-build fallback (`pull_policy: missing`), so a registry/cache miss still
+  bakes locally. As defense-in-depth for that fallback bake, an optional
+  `HF_TOKEN` BuildKit secret raises the HuggingFace rate limit, and
+  `huggingface_hub` is exact-pinned to `1.18.0` so 429 responses are honored with
+  precise backoff. The published image is multi-arch (`linux/amd64,linux/arm64`) so
+  Apple-Silicon operators get a native image. CI builds the embedding image from
+  source (rather than pulling) when a change touches embedding-relevant paths, so
+  the E2E job always tests the code under review rather than a stale prebuilt image.
+
+  **Operator note:** after the first publish, a maintainer must set the
+  `ai-memory-embedding` GHCR package to **Public** (repo → Packages → Package
+  settings → Change visibility) so anonymous `scripts/install.sh` pulls succeed
+  without authentication; until then those pulls fall back to a local source build.
+  A bare `docker compose up` expects the published image and relies on Compose's
+  build fallback to bake locally if it is absent; the scripted paths
+  (`scripts/install.sh`, CI) make that pull→build fallback explicit.
+
 ### Fixed
 
 - **BUG-318** — `aim-github-search` now defaults to the `github` Qdrant collection where

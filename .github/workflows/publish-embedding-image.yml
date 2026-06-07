@@ -1,0 +1,101 @@
+name: Publish embedding image
+
+# TD-626: prebuild the embedding image once and publish it to GHCR so that CI,
+# `docker compose`, and `scripts/install.sh` PULL the image instead of baking the
+# Jina v2 + bm25 models from HuggingFace on every push. The bake downloads the
+# models from HF, which rate-limits (429) shared GitHub-runner egress IPs and
+# flaked the build on both the install and E2E jobs. Running the bake here, once,
+# moves HuggingFace off every consumer's hot path.
+#
+# Tag scheme:
+#   - latest        — moving tag the compose/install path resolves by default
+#   - sha-<short>   — immutable per-commit tag for pinning via EMBEDDING_IMAGE_TAG
+#
+# The image also COPYs application `src/` at build time (docker/embedding/main.py loads
+# memory.metrics from it), so a src/ change can make the published image stale. The
+# transitive imports of memory.metrics are impractical to pin precisely, so the push
+# trigger watches the whole `src/**` subtree. The expensive model-bake layer depends only
+# on docker/embedding/**, so a src-only change republishes cheaply off the type=gha cache
+# without re-hitting HuggingFace.
+#
+# RELEASE GATE — package visibility: GITHUB_TOKEN can push to GHCR but cannot set package
+# visibility. After the FIRST publish, a maintainer must set the `ai-memory-embedding`
+# package to **Public** (GitHub → repo → Packages → the package → Package settings →
+# Change visibility) so anonymous `scripts/install.sh` pulls on operator machines succeed
+# without GHCR auth. Until then, unauthenticated pulls fall back to a local source build
+# (the HuggingFace bake) — functional but slower and 429-exposed. This step is NOT
+# automated here because the workflow token lacks the permission to flip visibility.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker/embedding/**
+      - src/**
+      - .github/workflows/publish-embedding-image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: publish-embedding
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/hidden-history/ai-memory-embedding
+
+jobs:
+  publish:
+    name: Build and push embedding image
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      # QEMU registers binfmt handlers so the amd64 runner can emulate the
+      # linux/arm64 build (Apple-Silicon native image). Required for the multi-arch
+      # build below — setup-buildx-action alone does not provide cross-arch emulation.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image tags
+        uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/embedding/Dockerfile
+          push: true
+          # Multi-arch so Apple-Silicon (arm64) operators get a native image instead
+          # of an emulated amd64 one. arm64 is built under QEMU emulation on the amd64
+          # runner; the model bake runs once per publish and is type=gha cached.
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # HF_TOKEN (optional repo secret) is delivered as a BuildKit secret and
+          # raises the HuggingFace API rate limit during the one-time model bake,
+          # adding defense-in-depth against 429 throttling. Absent secret → the
+          # bake downloads anonymously (Dockerfile guards on a non-empty secret).
+          secrets: |
+            hf_token=${{ secrets.HF_TOKEN }}

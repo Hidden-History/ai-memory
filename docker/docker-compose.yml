@@ -81,6 +81,19 @@ services:
     build:
       context: ..
       dockerfile: docker/embedding/Dockerfile
+    # TD-626: the builder stage downloads the Jina v2 + bm25 models from HuggingFace,
+    # which rate-limits (429) shared CI-runner egress IPs and flaked the bake on every
+    # push. The image is now prebuilt once and published to GHCR by
+    # .github/workflows/publish-embedding-image.yml. With both image: and build: present
+    # and pull_policy: missing, Compose pulls the prebuilt image and only bakes from
+    # source on a registry/cache miss — keeping HuggingFace off the hot path. Override
+    # EMBEDDING_IMAGE_TAG to pin a specific published tag instead of latest.
+    # A bare `docker compose up` (no script) expects the published GHCR image and relies
+    # on Compose's pull_policy: missing + build: fallback to bake locally if it is absent;
+    # the scripted paths (scripts/install.sh, CI) make that pull→build fallback explicit
+    # and surface which path ran.
+    image: ghcr.io/hidden-history/ai-memory-embedding:${EMBEDDING_IMAGE_TAG:-latest}
+    pull_policy: missing
     container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-embedding
     labels:
       <<: *ai-memory-labels
@@ -108,7 +121,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 15
-      start_period: 300s  # BUG-040: Increased for first-time model download (~500MB per model). Total wait: 300s + 30s*15 = 750s (12.5 min)
+      start_period: 120s  # TD-626: models are baked into the image (no runtime HuggingFace download); this only buffers ONNX disk-load + session init on slow disks. retries:15 @30s gives the real ceiling (450s of attempts after start_period).
     deploy:
       resources:
         limits:
