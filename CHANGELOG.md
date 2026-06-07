@@ -19,8 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   source-build fallback (`pull_policy: missing`), so a registry/cache miss still
   bakes locally. As defense-in-depth for that fallback bake, an optional
   `HF_TOKEN` BuildKit secret raises the HuggingFace rate limit, and
-  `huggingface_hub` is pinned to `>=1.2.0` so 429 responses are honored with
-  precise backoff.
+  `huggingface_hub` is exact-pinned to `1.18.0` so 429 responses are honored with
+  precise backoff. The published image is multi-arch (`linux/amd64,linux/arm64`) so
+  Apple-Silicon operators get a native image. CI builds the embedding image from
+  source (rather than pulling) when a change touches embedding-relevant paths, so
+  the E2E job always tests the code under review rather than a stale prebuilt image.
+
+  **Operator note:** after the first publish, a maintainer must set the
+  `ai-memory-embedding` GHCR package to **Public** (repo → Packages → Package
+  settings → Change visibility) so anonymous `scripts/install.sh` pulls succeed
+  without authentication; until then those pulls fall back to a local source build.
+  A bare `docker compose up` expects the published image and relies on Compose's
+  build fallback to bake locally if it is absent; the scripted paths
+  (`scripts/install.sh`, CI) make that pull→build fallback explicit.
 
 ### Fixed
 

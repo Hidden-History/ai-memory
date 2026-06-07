@@ -191,6 +191,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: integration-tests
+    # TD-626: packages:read lets GITHUB_TOKEN pull the same-repo GHCR embedding image
+    # even if the package is private; contents:read is required for checkout (job-level
+    # permissions replace the workflow default, so both must be listed here).
+    permissions:
+      contents: read
+      packages: read
     # Run E2E on main push, or when [e2e] in PR title
     if: |
       github.ref == 'refs/heads/main' ||
@@ -198,6 +204,30 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      # TD-626: when this PR/push changes the embedding image's own sources, the
+      # prebuilt GHCR image is stale against the change under test, so the "Start Docker
+      # services" step builds from source instead of pulling. Watched paths: the
+      # embedding build context, and the only src/ subtree the image loads at runtime
+      # (memory.metrics — imported by docker/embedding/main.py).
+      - name: Detect embedding-relevant changes
+        id: embedding-changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            embedding:
+              - docker/embedding/**
+              - src/memory/metrics**
+
+      # TD-626: authenticate to GHCR so the embedding pull works even if the
+      # ai-memory-embedding package is private. GITHUB_TOKEN carries packages:read for
+      # the same-repo image (see job-level permissions above).
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Create .env file with dummy credentials for CI
       - name: Create Docker environment file
@@ -226,11 +256,20 @@ jobs:
       - name: Start Docker services
         working-directory: docker
         run: |
-          # TD-626: pull the prebuilt embedding image from GHCR so the HuggingFace
-          # model bake (429-prone) stays off the E2E hot path. Fall back to a local
-          # source build if the pull fails (image not yet published / not public).
-          echo "Pulling prebuilt embedding image (building from source on miss)..."
-          docker compose pull embedding || docker compose build embedding
+          # TD-626: keep the HuggingFace model bake (429-prone) off the E2E hot path by
+          # pulling the prebuilt embedding image from GHCR. Two cases force a local source
+          # build instead: (1) embedding-relevant paths changed, so the published image is
+          # stale against the change under test; (2) the pull fails (image not yet
+          # published, private, or registry down).
+          if [ "${{ steps.embedding-changes.outputs.embedding }}" = "true" ]; then
+            echo "::notice::Embedding-relevant paths changed — building embedding from source so E2E tests the change under review (not a stale prebuilt image)"
+            docker compose build embedding
+          elif docker compose pull embedding; then
+            echo "::notice::Using prebuilt GHCR embedding image (TD-626 active — HuggingFace bake skipped)"
+          else
+            echo "::warning::GHCR pull failed — building embedding from source (HuggingFace 429 risk not mitigated for this run)"
+            docker compose build embedding
+          fi
           echo "Starting E2E services with docker-compose..."
           docker compose --profile monitoring up -d qdrant embedding prometheus grafana monitoring-api
           echo "Services started. Waiting for health checks..."
@@ -317,10 +356,10 @@ jobs:
           import sys
 
           url = 'http://localhost:28080/health'
-          max_attempts = 150  # 300s total (embedding needs model download time)
+          max_attempts = 150  # 300s total — generous buffer for ONNX disk-load + a source-build fallback bake
           delay = 2
 
-          print("Waiting for Embedding service (may take up to 5 minutes for first-time model download)...")
+          print("Waiting for Embedding service (models are baked into the image; loads from disk, no runtime download)...")
           for attempt in range(1, max_attempts + 1):
               try:
                   with urllib.request.urlopen(url, timeout=10) as response:
