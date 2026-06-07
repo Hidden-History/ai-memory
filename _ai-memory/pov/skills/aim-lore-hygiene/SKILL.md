@@ -59,11 +59,27 @@ The script is marker-driven (it never guesses an entry is low-utility):
   `[prune]`, a `[expired:YYYY-MM-DD]` TTL that has passed, or strikethrough
   (`~~...~~`).
 - **Archive (cold tier + pointer):** `[stale]`, `[archive]`.
-- **Dedup:** exact-duplicate entries are collapsed, keeping the first.
+- **Dedup:** exact-duplicate entries are collapsed, keeping the first. Table rows
+  (header, separator, content) are never deduped, so a second same-schema table
+  keeps its header and separator.
 - **Keep:** everything else.
 
-Tag entries with these markers (during a Pulse, or when the operator says "that's
-not right anymore") so the next hygiene pass acts on them safely.
+**Markers must be anchored.** A marker counts only in a dedicated position — as a
+**leading tag** right after the bullet/number prefix (`- [superseded] …`,
+recommended) or as a **trailing tag** at the end of the entry
+(`- … reversed [superseded]`). A marker merely *mentioned in prose* (e.g. an entry
+documenting the marker vocabulary — "Tag an entry `[superseded]` when…") is
+**ignored and kept**, never pruned. Tag entries during a Pulse, or when the
+operator says "that's not right anymore", so the next hygiene pass acts on them
+safely.
+
+## `--cap` on a directory (global override)
+
+Scanning a sanctum dir uses each hot file's own cap (LORE.md/MEMORY.md → 200).
+Passing `--cap N` **overrides every file in that dir with the single value N** — a
+global override, not a per-file map (use it to audit one explicit file, e.g.
+`--cap 300` for a project-root `CLAUDE.md`). `--cap` must be a positive integer.
+Per-file caps when scanning a dir remain a possible future option (not built).
 
 ## References
 

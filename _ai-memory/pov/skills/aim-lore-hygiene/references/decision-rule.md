@@ -17,6 +17,24 @@ The load-bearing distinction in lore hygiene. Two failure modes bound it:
 | Exact duplicate of an earlier entry | **Dedup** (keep the first) | (detected automatically) |
 | High retrieval frequency + still accurate | **Keep** | (no marker) |
 
+## Markers are matched only in an anchored position
+
+A marker classifies an entry **only** when it sits in a dedicated tag position, so
+that an entry which merely *talks about* a marker is never self-destructively pruned:
+
+- **Leading tag** (recommended): immediately after the bullet/number prefix, or the
+  first cell of a table row — `- [superseded] Old belief…`, `| [superseded] row | … |`.
+- **Trailing tag**: at the very end of the entry — `- A belief that was reversed [superseded]`.
+
+A marker appearing **mid-prose** — e.g. an entry documenting the vocabulary itself,
+"Tag an entry `[superseded]` when it is no longer accurate" — is **not** in either
+zone and is therefore **kept**. (Strikethrough `~~…~~` is anchored by definition: it
+wraps the whole entry. `[expired:YYYY-MM-DD]` follows the same leading/trailing rule.)
+
+**Table structural rows are never deduped.** Header and separator (`|---|`) rows are
+preserved, so a second table sharing a column schema keeps its own header and
+separator instead of having them collapsed away as "duplicates".
+
 Two invariants from BP-159 §6:
 
 - **Never silently delete anything with recall value** — archive it. Archive moves

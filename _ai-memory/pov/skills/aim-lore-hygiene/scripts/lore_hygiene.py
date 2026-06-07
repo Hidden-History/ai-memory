@@ -224,20 +224,55 @@ def is_table_separator(text: str) -> bool:
     return bool(re.fullmatch(r"\s*\|[\s:|-]+\|?\s*", text))
 
 
+# Strip a leading list/table prefix so a marker tag sitting in the ANCHORED leading
+# position can be matched: bullet (``- ``/``* ``), ordered number (``1. ``), or the
+# first table-cell pipe (``| ``).
+_LEADING_PREFIX_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+")
+_LEADING_CELL_RE = re.compile(r"^\s*\|\s*")
+_TRAILING_CELL_RE = re.compile(r"\s*\|\s*$")
+
+
+def _anchor_zones(text: str) -> tuple[str, str]:
+    """Return (leading, trailing) lowercased zones where a marker tag is *anchored*.
+
+    A marker only classifies an entry when it sits in one of two dedicated positions
+    (H1): the LEADING zone — the first line with its bullet/number/table-cell prefix
+    removed — or the TRAILING zone — the last line with a trailing table-cell pipe
+    removed. A marker merely *mentioned* in prose (e.g. an entry documenting the
+    marker vocabulary) falls in neither zone and is ignored, so it is never pruned.
+    """
+    lines = text.strip().splitlines()
+    first = lines[0] if lines else ""
+    last = lines[-1] if lines else ""
+    lead = _LEADING_PREFIX_RE.sub("", first)
+    lead = _LEADING_CELL_RE.sub("", lead).strip().lower()
+    trail = _TRAILING_CELL_RE.sub("", last).strip().lower()
+    return lead, trail
+
+
 def classify(text: str, today: date) -> tuple[str, str]:
-    """Apply the BP-159 §6 decision rule to one entry. Returns (action, reason)."""
-    lowered = text.lower()
+    """Apply the BP-159 §6 decision rule to one entry. Returns (action, reason).
+
+    Markers are matched only in an anchored position (leading tag after the
+    bullet/number/table-cell prefix, or a trailing tag at the end of the entry),
+    never as a bare substring anywhere in the prose (H1).
+    """
+    lead, trail = _anchor_zones(text)
+
+    def anchored(marker: str) -> bool:
+        return lead.startswith(marker) or trail.endswith(marker)
 
     for marker in PRUNE_MARKERS:
-        if marker in lowered:
-            return "prune", f"contains {marker} — superseded/contradicted/low-utility"
+        if anchored(marker):
+            return "prune", f"tagged {marker} — superseded/contradicted/low-utility"
 
     # GFM strikethrough across the whole entry content = struck-out / superseded.
     stripped = re.sub(r"^\s*([-*]|\d+\.)\s+", "", text.strip())
     if stripped.startswith("~~") and stripped.rstrip().endswith("~~"):
         return "prune", "struck-out (~~...~~) — superseded"
 
-    m = EXPIRY_RE.search(lowered)
+    # TTL marker, anchored leading or trailing.
+    m = EXPIRY_RE.match(lead) or re.search(r"\[expired:(\d{4}-\d{2}-\d{2})\]$", trail)
     if m:
         try:
             when = date.fromisoformat(m.group(1))
@@ -247,10 +282,10 @@ def classify(text: str, today: date) -> tuple[str, str]:
             return "prune", f"TTL expired on {m.group(1)}"
 
     for marker in ARCHIVE_MARKERS:
-        if marker in lowered:
+        if anchored(marker):
             return (
                 "archive",
-                f"contains {marker} — stale-but-meaningful, archived to cold tier",
+                f"tagged {marker} — stale-but-meaningful, archived to cold tier",
             )
 
     return "keep", ""
@@ -261,9 +296,23 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip()).lower()
 
 
+def _strip_leading_markers(body: str) -> str:
+    """Drop any leading classification marker(s) from a pointer body (M3) so the
+    one-line pointer reads clean (the ``_[archived …]_`` prefix already records it)."""
+    changed = True
+    while changed:
+        changed = False
+        for marker in PRUNE_MARKERS + ARCHIVE_MARKERS:
+            if body.lower().startswith(marker):
+                body = body[len(marker) :].lstrip()
+                changed = True
+    return body
+
+
 def pointer_for(text: str, today: date, archive_relpath: str) -> str:
     """One-line hot-file pointer left where an archived entry used to be."""
     body = re.sub(r"^\s*([-*]|\d+\.)\s+", "", text.strip().splitlines()[0]).strip()
+    body = _strip_leading_markers(body)
     if len(body) > POINTER_SUMMARY_CHARS:
         body = body[:POINTER_SUMMARY_CHARS].rstrip() + "…"
     return f"- _[archived {today.isoformat()}]_ {body} → {archive_relpath}"
@@ -318,6 +367,15 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
                 f"## [{today.isoformat()}] archived from {filename} — {sec_label}\n\n{unit}\n"
             )
             out_body.append(pointer_for(unit, today, archive_relpath))
+            continue
+
+        # keep — table rows (header/separator/content) are NEVER deduped: a file-
+        # global seen set would silently drop the header + separator of a second
+        # same-schema table and corrupt it (H2). Markers still prune/archive a
+        # tagged content row above; structural rows simply pass through.
+        if is_table_row(unit):
+            actions.append(EntryAction(unit, section, "keep", ""))
+            out_body.append(unit)
             continue
 
         # keep — but drop exact duplicates (BP-159 §7 dedup), keeping the first.
@@ -404,8 +462,18 @@ def print_plan(plan: FilePlan) -> None:
 
 
 def write_backup(path: Path, today: date) -> Path:
-    """Timestamped sidecar backup before any mutation."""
-    backup = path.with_suffix(path.suffix + f".{today.isoformat()}.bak")
+    """Timestamped sidecar backup before any mutation.
+
+    Two distinct applies on the same day must not collide (M1): a same-day backup
+    already on disk is never overwritten — a ``.N`` counter is appended so every
+    apply preserves its own pre-mutation original.
+    """
+    stamp = today.isoformat()
+    backup = path.parent / f"{path.name}.{stamp}.bak"
+    n = 1
+    while backup.exists():
+        backup = path.parent / f"{path.name}.{stamp}.{n}.bak"
+        n += 1
     backup.write_text(path.read_text())
     return backup
 
@@ -461,12 +529,20 @@ def apply_plan(
     if plan.archived_blocks:
         archive_path = path.parent / ARCHIVE_SUBDIR / f"{path.stem}.archive.md"
         archive_path.parent.mkdir(parents=True, exist_ok=True)
+        # Cold-append is idempotent (L3): a crash between this append and the hot-file
+        # write below leaves the hot file un-rewritten, so a rerun re-classifies the
+        # same entries to archive. Skipping blocks already present makes that rerun
+        # safe — no duplicate cold entries — while never losing archived content.
+        existing = archive_path.read_text() if archive_path.exists() else ""
+        appended = 0
         with archive_path.open("a") as fh:
             for block in plan.archived_blocks:
+                if block in existing:
+                    continue
                 fh.write(block + "\n")
-        print(
-            f"  {plan.filename}: archived {len(plan.archived_blocks)} entr(ies) → {archive_path.name}"
-        )
+                existing += block + "\n"
+                appended += 1
+        print(f"  {plan.filename}: archived {appended} entr(ies) → {archive_path.name}")
         if qdrant:
             push_to_qdrant(plan.archived_blocks, group_id, agent_id)
 
@@ -514,6 +590,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.cap is not None and args.cap <= 0:
+        parser.error(f"--cap must be a positive integer (got {args.cap}).")
     if args.qdrant and not args.apply:
         parser.error("--qdrant requires --apply (dry-run never writes anywhere).")
     if args.qdrant and not args.group_id:

@@ -260,3 +260,206 @@ def test_scans_both_hot_files_in_a_sanctum_dir(tmp_path):
     r = _run(str(sanctum))
     assert r.returncode == 0, r.stderr
     assert "LORE.md" in r.stdout and "MEMORY.md" in r.stdout
+
+
+# --- H1: anchored marker matching (substring-in-prose must NOT prune) -----------
+
+
+def test_H1_prose_mention_kept_anchored_tag_pruned(tmp_path):
+    """A marker mentioned in prose is recall-worthy and must be KEPT; only a marker
+    in an anchored (leading or trailing) position classifies the entry. Fails on the
+    old substring-anywhere matcher, which self-destructively prunes the prose entry."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Patterns & Conventions\n\n"
+        "- Tag an entry [superseded] when it is no longer accurate.\n"
+        "- [superseded] Old belief that was later proven wrong.\n"
+        "- A fact retired only at the end of its life [obsolete]\n"
+        "- A current, durable fact with no marker at all.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Prose mention — KEPT (the H1 regression: old code wrongly pruned this).
+    assert "Tag an entry [superseded] when it is no longer accurate." in hot
+    # Leading anchored tag — pruned.
+    assert "Old belief that was later proven wrong." not in hot
+    # Trailing anchored tag — pruned.
+    assert "A fact retired only at the end of its life" not in hot
+    # Untagged fact — kept.
+    assert "A current, durable fact with no marker at all." in hot
+
+
+# --- H2: table header/separator rows are never deduped --------------------------
+
+
+def test_H2_two_same_schema_tables_keep_headers_and_separators(tmp_path):
+    """Two tables sharing a column schema must each retain their header + separator
+    after --apply. Fails on the old file-global dedup, which drops the 2nd header."""
+    content = (
+        "---\ntype: sanctum-memory\n---\n\n# Memory\n\n"
+        "## Pending Items\n\n"
+        "| Item | Owner | Unblock |\n|------|-------|--------|\n"
+        "| task one | alice | review |\n\n"
+        "## Insights to Carry\n\n"
+        "| Item | Owner | Unblock |\n|------|-------|--------|\n"
+        "| task two | bob | merge |\n"
+    )
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True)
+    mem = sanctum / "MEMORY.md"
+    mem.write_text(content)
+
+    r = _run(str(mem), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = mem.read_text()
+
+    assert (
+        hot.count("| Item | Owner | Unblock |") == 2
+    ), "a table header was deduped away"
+    assert hot.count("|------|-------|--------|") == 2, "a separator was deduped away"
+    assert "| task one | alice | review |" in hot
+    assert "| task two | bob | merge |" in hot
+
+
+# --- M1: same-day applies must not overwrite the prior backup -------------------
+
+
+def test_M1_two_same_day_applies_produce_distinct_backups(tmp_path):
+    lore = _write_lore(tmp_path)
+    r1 = _run(str(lore.parent), "--apply")
+    assert r1.returncode == 0, r1.stderr
+    assert len(list(lore.parent.glob("LORE.md.*.bak"))) == 1
+
+    # Re-introduce same-day drift and apply again — must not clobber the 1st backup.
+    lore.write_text(_lore())
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+
+    backups = sorted(lore.parent.glob("LORE.md.*.bak"))
+    assert len(backups) == 2, "second same-day apply overwrote the first backup"
+    assert backups[0].name != backups[1].name
+
+
+# --- M2: --qdrant degrades gracefully when the runtime/Qdrant is absent ---------
+
+
+def test_M2_qdrant_runtime_absent_is_graceful_noop(tmp_path):
+    lore = _write_lore(tmp_path)
+    sanctum = lore.parent
+
+    r = _run(str(sanctum), "--apply", "--qdrant", "--group-id", "testproj")
+    assert r.returncode == 0, r.stderr  # no hard dependency, no crash
+
+    # The local archive (source of truth) is written regardless of the Qdrant tier.
+    assert (sanctum / "references" / "lore-archive" / "LORE.archive.md").exists()
+    # The Qdrant path executed and reported its status (push or graceful skip).
+    assert "qdrant:" in r.stdout
+
+
+# --- M3: classification marker must not leak into the pointer body --------------
+
+
+def test_M3_marker_stripped_from_pointer(tmp_path):
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Things Learned the Hard Way\n\n"
+        "- [stale] Historical decision about the old pipeline.\n"
+        "  Detail that now lives behind the index line.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert "_[archived " in hot, "no pointer was left"
+    assert "[stale]" not in hot, "classification marker leaked into the pointer"
+    assert "Historical decision about the old pipeline." in hot
+
+
+# --- M4: --cap override, multi-file apply, single-file invocation ----------------
+
+
+def test_M4_cap_override_changes_over_cap_status(tmp_path):
+    # ~225 unique keep-lines: over the 200 default, comfortably under a 300 override.
+    lore = _write_lore(tmp_path, _lore(keep=210, prune=0, archive=0, dup=0))
+    n = len(lore.read_text().splitlines())
+    assert 200 < n < 300, n
+
+    r_default = _run(str(lore))
+    assert "OVER CAP" in r_default.stdout
+
+    r_override = _run(str(lore), "--cap", "300")
+    assert r_override.returncode == 0, r_override.stderr
+    assert "OVER CAP" not in r_override.stdout
+    assert "/300 lines" in r_override.stdout
+
+
+def test_M4_multi_file_apply_mutates_both(tmp_path):
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True)
+    (sanctum / "LORE.md").write_text(_lore())
+    (sanctum / "MEMORY.md").write_text(
+        "---\ntype: sanctum-memory\n---\n\n# Memory\n\n## Pending Items\n\n"
+        "- [superseded] an old pending item that is now done.\n"
+        "- a live pending item to keep.\n"
+    )
+
+    r = _run(str(sanctum), "--apply")
+    assert r.returncode == 0, r.stderr
+    assert list(sanctum.glob("LORE.md.*.bak"))
+    assert list(sanctum.glob("MEMORY.md.*.bak"))
+
+    mem = (sanctum / "MEMORY.md").read_text()
+    assert "an old pending item that is now done." not in mem
+    assert "a live pending item to keep." in mem
+
+
+def test_M4_single_file_invocation(tmp_path):
+    lore = _write_lore(tmp_path)
+    # Pass the FILE itself (not the sanctum dir).
+    r = _run(str(lore), "--apply")
+    assert r.returncode == 0, r.stderr
+    assert len(lore.read_text().splitlines()) <= 200
+    assert list(lore.parent.glob("LORE.md.*.bak"))
+
+
+# --- L1: --cap <= 0 is guarded (no ZeroDivisionError) ---------------------------
+
+
+def test_L1_cap_zero_is_guarded(tmp_path):
+    lore = _write_lore(tmp_path)
+    r = _run(str(lore), "--cap", "0")
+    assert r.returncode != 0
+    assert "--cap must be a positive integer" in r.stderr
+
+
+# --- L3: a crash-rerun must not duplicate cold-tier entries ----------------------
+
+
+def test_L3_rerun_does_not_duplicate_cold_entries(tmp_path):
+    """Simulates a crash between cold-append and hot-write: the hot file keeps its
+    [stale] entry, so a rerun re-archives it. The cold tier must stay deduplicated."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Things Learned the Hard Way\n\n"
+        "- [stale] Historical decision 0 about the old pipeline.\n"
+        "  Context that mattered at the time.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r1 = _run(str(lore.parent), "--apply")
+    assert r1.returncode == 0, r1.stderr
+
+    # Re-introduce the same [stale] entry (the crash-rerun scenario) and re-apply.
+    lore.write_text(content)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+
+    archive = (
+        lore.parent / "references" / "lore-archive" / "LORE.archive.md"
+    ).read_text()
+    assert (
+        archive.count("Historical decision 0 about the old pipeline.") == 1
+    ), "cold tier accumulated a duplicate on rerun"
