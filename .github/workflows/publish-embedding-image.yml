@@ -50,6 +50,7 @@ jobs:
   publish:
     name: Build and push embedding image
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v6
 

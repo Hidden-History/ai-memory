@@ -218,6 +218,7 @@ jobs:
             embedding:
               - docker/embedding/**
               - src/memory/metrics**
+              - src/memory/__version__**
 
       # TD-626: authenticate to GHCR so the embedding pull works even if the
       # ai-memory-embedding package is private. GITHUB_TOKEN carries packages:read for
