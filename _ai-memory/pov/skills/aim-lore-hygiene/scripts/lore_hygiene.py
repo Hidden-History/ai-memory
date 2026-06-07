@@ -160,13 +160,85 @@ def is_pointer(line: str) -> bool:
     return "_[archived " in line and "→" in line
 
 
-def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
-    """Group body lines into (section, entry_text) units.
+# --- Structural-construct recognizers (the keep-when-uncertain backstop) ---------
+#
+# parse_entries is STRUCTURE-AWARE: it only ever lets the classifier/dedup touch
+# units it can confidently identify as genuine CONTENT (bullets, paragraphs, table
+# content rows). Every structural or ambiguous construct — code fences, thematic
+# breaks, table header+separator rows, blockquotes, indented code, raw HTML — is
+# emitted as an opaque ``__passthrough__`` unit: copied through byte-for-byte, never
+# classified, deduped, split, or rewritten. Data-safety beats cleverness: this skill
+# mutates the operator's OWN memory, so anything we cannot confidently classify we
+# KEEP intact (BP-159 §6 governing principle).
 
-    An entry is: a bullet (plus indented continuation lines), a table row, or a
-    contiguous paragraph. Headers and blank lines are structural separators, not
-    entries, and are emitted as their own ("__section__"/"__blank__"/"__header__")
-    units so reassembly can preserve document shape.
+# CommonMark code fence: 3+ backticks or tildes, up to 3 leading spaces of indent.
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+# CommonMark thematic break: 3+ matching ``-``/``*``/``_``, optional inner spaces.
+_THEMATIC_BREAK_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+
+
+def _fence_marker(line: str) -> tuple[str, int] | None:
+    """Return (fence_char, run_length) if ``line`` is a code-fence delimiter, else None."""
+    m = _FENCE_RE.match(line)
+    if not m:
+        return None
+    seq = m.group(1)
+    return seq[0], len(seq)
+
+
+def _is_fence_close(line: str, fence_char: str, fence_len: int) -> bool:
+    """A closing fence: same char, length ≥ opening run, and NO info string (CommonMark)."""
+    m = _FENCE_RE.match(line)
+    if not m:
+        return False
+    seq = m.group(1)
+    if seq[0] != fence_char or len(seq) < fence_len:
+        return False
+    return line[m.end() :].strip() == ""
+
+
+def is_thematic_break(line: str) -> bool:
+    return bool(_THEMATIC_BREAK_RE.match(line))
+
+
+def is_blockquote(line: str) -> bool:
+    return line.lstrip(" ").startswith(">")
+
+
+def is_indented_code(line: str) -> bool:
+    """A line indented ≥4 spaces (or a leading tab) — opaque at a unit boundary.
+
+    Only meaningful at the START of a fresh unit: bullet/paragraph continuation lines
+    are absorbed by their own branches and never reach this check, so a 4-space indent
+    here is a standalone indented-code block (CommonMark), kept opaque.
+    """
+    if not line.strip():
+        return False
+    if line.startswith("\t"):
+        return True
+    return len(line) - len(line.lstrip(" ")) >= 4
+
+
+def is_html_block_start(line: str) -> bool:
+    return line.lstrip(" ").startswith("<")
+
+
+def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
+    """Group body lines into (section, unit_text) units — STRUCTURE-AWARE.
+
+    Genuine CONTENT units carry their owning ``## section`` (or "" for preamble) and
+    are the ONLY units the classifier/dedup ever act on: bullets (plus indented
+    continuation lines), table CONTENT rows, and contiguous paragraphs.
+
+    Everything else is emitted with a special tag so reassembly preserves document
+    shape AND so it is never classified/deduped/split:
+      - ``__blank__``       — a blank line
+      - ``__header__``      — an ATX ``#`` heading line
+      - ``__passthrough__`` — an opaque structural/uncertain block kept byte-for-byte:
+        a whole code fence (open→close inclusive), a thematic break, a table
+        header+separator pair, a blockquote, an indented-code block, or a raw-HTML
+        block. Unterminated fences keep their remainder opaque (keep-when-uncertain).
     """
     entries: list[tuple[str, str]] = []
     section = ""
@@ -175,16 +247,82 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
     while i < n:
         line = body_lines[i]
         stripped = line.strip()
+
         if not stripped:
             entries.append(("__blank__", ""))
             i += 1
             continue
+
         if stripped.startswith("#"):
             if stripped.startswith("## "):
                 section = stripped
             entries.append(("__header__", line))
             i += 1
             continue
+
+        # Code fence → the ENTIRE block (delimiters + body) is one opaque unit.
+        fence = _fence_marker(line)
+        if fence is not None:
+            fence_char, fence_len = fence
+            block = [line]
+            i += 1
+            while i < n:
+                block.append(body_lines[i])
+                closed = _is_fence_close(body_lines[i], fence_char, fence_len)
+                i += 1
+                if closed:
+                    break
+            # Unterminated fence falls through here with the remainder kept opaque.
+            entries.append(("__passthrough__", "\n".join(block)))
+            continue
+
+        # Thematic break (``---``/``***``/``___``) — structural, never deduped.
+        if is_thematic_break(line):
+            entries.append(("__passthrough__", line))
+            i += 1
+            continue
+
+        if is_table_row(line):
+            # A header followed by a separator opens a real table: BOTH rows are
+            # structural passthrough (a tagged header is never classified — M-TBL-HDR,
+            # never orphan a separator). The contiguous CONTENT rows that follow are
+            # genuine content (classified/dropped-in-place, but never deduped — H2).
+            if i + 1 < n and is_table_separator(body_lines[i + 1]):
+                entries.append(("__passthrough__", line))
+                entries.append(("__passthrough__", body_lines[i + 1]))
+                i += 2
+                while (
+                    i < n
+                    and is_table_row(body_lines[i])
+                    and not is_table_separator(body_lines[i])
+                ):
+                    entries.append((section, body_lines[i]))
+                    i += 1
+                continue
+            # A pipe row not forming a header+separator table (e.g. a lone separator
+            # or a malformed one-off row) → treat as a content row; plan_file's
+            # is_table_separator guard still passes a bare separator through opaque.
+            entries.append((section, line))
+            i += 1
+            continue
+
+        # Keep-when-uncertain: blockquotes, indented code, raw HTML — opaque KEEP,
+        # gathered into one contiguous block so multi-line constructs stay intact.
+        if is_blockquote(line) or is_indented_code(line) or is_html_block_start(line):
+            if is_blockquote(line):
+                same = is_blockquote
+            elif is_indented_code(line):
+                same = is_indented_code
+            else:
+                same = is_html_block_start
+            block = [line]
+            i += 1
+            while i < n and body_lines[i].strip() and same(body_lines[i]):
+                block.append(body_lines[i])
+                i += 1
+            entries.append(("__passthrough__", "\n".join(block)))
+            continue
+
         if is_bullet(line):
             block = [line]
             i += 1
@@ -198,11 +336,9 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
                 i += 1
             entries.append((section, "\n".join(block)))
             continue
-        if is_table_row(line):
-            entries.append((section, line))
-            i += 1
-            continue
-        # Paragraph: contiguous non-blank, non-bullet, non-header, non-table lines.
+
+        # Paragraph: contiguous content lines, broken by any structural construct so a
+        # following fence/break/table is never swallowed into a classifiable unit.
         block = [line]
         i += 1
         while i < n:
@@ -212,6 +348,9 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
                 or nxt.strip().startswith("#")
                 or is_bullet(nxt)
                 or is_table_row(nxt)
+                or is_thematic_break(nxt)
+                or _fence_marker(nxt) is not None
+                or is_blockquote(nxt)
             ):
                 break
             block.append(nxt)
@@ -362,12 +501,16 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
     out_body: list[str] = []
 
     for section, unit in units:
-        if section in ("__blank__", "__header__"):
+        # Structural / opaque units are copied through byte-for-byte: blank lines,
+        # headers, and every __passthrough__ block (code fences, thematic breaks,
+        # table header+separator pairs, blockquotes, indented code, raw HTML). They
+        # are NEVER classified, deduped, or split — the keep-when-uncertain backstop.
+        if section in ("__blank__", "__header__", "__passthrough__"):
             out_body.append(unit)
             continue
 
-        # Never re-process a pointer we left on a prior run (idempotency) or a
-        # table separator row (structural, not content).
+        # Never re-process a pointer we left on a prior run (idempotency) or a bare
+        # table separator that reached us as a content row (structural, not content).
         if is_pointer(unit) or is_table_separator(unit):
             out_body.append(unit)
             continue

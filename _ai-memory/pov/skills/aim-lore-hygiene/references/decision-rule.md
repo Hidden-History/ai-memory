@@ -39,6 +39,28 @@ entire entry content; an entry with live un-struck text between spans is kept.
 > A single leading convention is unambiguous and data-safe. Place every classification
 > tag at the start of the entry.
 
+## The rule acts only on genuine content entries (structure-aware)
+
+The decision rule above is applied **only to genuine content entries** — bullets,
+paragraphs, and table content rows. The parser is structure-aware: every structural or
+ambiguous construct is opaque passthrough, copied byte-for-byte and **never classified,
+deduped, split, or rewritten**:
+
+- **Code fences** (```` ``` ````/`~~~`, info string included) — the whole block is one
+  opaque unit. A `[prune]`/`~~…~~`/marker token *inside* a fence is example text, not an
+  entry, and is kept. An unterminated fence keeps its remainder opaque.
+- **Table header + separator** rows are structural — a tagged header is never classified
+  (so a `|---|` separator is never orphaned). Only the content rows below are classified.
+- **Thematic breaks** (`---`, `***`, `___`) are structural delimiters, never deduped.
+- **Frontmatter** is split off and preserved verbatim.
+
+**Keep-when-uncertain (the safety posture).** Anything the parser cannot confidently
+identify as *either* a known structural construct *or* a genuine content entry —
+blockquotes (`>`), indented code, raw HTML, nested/odd constructs — is emitted as an
+opaque **keep**. It is never pruned, archived, deduped, or rewritten. Because this skill
+mutates the operator's *own* memory under `--apply`, data-safety beats cleverness: when
+in doubt, keep the block intact.
+
 **Table structural rows are never deduped.** Header and separator (`|---|`) rows are
 preserved, so a second table sharing a column schema keeps its own header and
 separator instead of having them collapsed away as "duplicates".

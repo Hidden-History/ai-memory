@@ -648,3 +648,241 @@ def test_L_plus_bullet_is_classified(tmp_path):
 
     assert "An old belief on a plus-bullet, now wrong." not in hot
     assert "A current fact on a plus-bullet that must be kept." in hot
+
+
+# --- Structure-aware parser (cycle-3 root-cause): structural constructs are opaque -
+#
+# The whole data-corruption class (fenced content deduped/pruned, thematic-break
+# dedup, tagged-table-header archive, keep-when-uncertain) closes at once because the
+# parser now classifies/dedups GENUINE CONTENT ENTRIES ONLY; every structural or
+# ambiguous construct is opaque passthrough. Each test below FAILS on f5b26b5.
+
+
+def test_FENCE_markerless_bullet_list_survives_intact(tmp_path):
+    """H-FENCE: a fenced bullet-list with NO markers must survive byte-for-byte — both
+    fence delimiters AND the fenced bullets. Fails on f5b26b5, where the parser saw
+    the fenced bullets as content: identical lines (incl. the closing ```` ``` ````)
+    deduped away, corrupting the fence."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Code Examples\n\n"
+        "```\n"
+        "- step one in the example\n"
+        "- step two in the example\n"
+        "- step one in the example\n"  # an exact dup line — must NOT be deduped
+        "```\n"
+        "\n"
+        "- A real bullet after the fence to keep.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert hot.count("```") == 2, "a fence delimiter was lost (fence corrupted)"
+    assert hot.count("- step one in the example") == 2, "fenced dup line was deduped"
+    assert "- step two in the example" in hot
+    assert "- A real bullet after the fence to keep." in hot
+
+
+def test_FENCE_marker_leading_line_inside_fence_is_kept(tmp_path):
+    """A marker-leading line INSIDE a code fence is fenced content, not a tagged entry,
+    and must be KEPT. Fails on f5b26b5, which pruned it as a [prune]-tagged bullet."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Code Examples\n\n"
+        "```bash\n"
+        "- [prune] this is example text demonstrating a marker, not a real entry\n"
+        "echo done\n"
+        "```\n"
+        "- [prune] a genuine tagged entry OUTSIDE the fence, which IS pruned.\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Inside the fence → kept verbatim (fence delimiters intact).
+    assert hot.count("```") == 2
+    assert "- [prune] this is example text demonstrating a marker" in hot
+    assert "echo done" in hot
+    # The genuine tagged entry outside the fence is still pruned.
+    assert "a genuine tagged entry OUTSIDE the fence" not in hot
+
+
+def test_FENCE_unterminated_keeps_remainder_opaque(tmp_path):
+    """An unterminated fence keeps its remainder opaque (keep-when-uncertain) — nothing
+    inside it is classified/deduped."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Code Examples\n\n"
+        "```\n"
+        "- [superseded] looks tagged but is inside an unterminated fence\n"
+        "- a duplicate line\n"
+        "- a duplicate line\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert "looks tagged but is inside an unterminated fence" in hot
+    assert hot.count("- a duplicate line") == 2, "deduped inside an unterminated fence"
+
+
+def test_TBL_HDR_tagged_header_keeps_table_valid(tmp_path):
+    """M-TBL-HDR: a tagged table HEADER row is structural — it must NOT be classified/
+    removed, so the separator is never orphaned. Fails on f5b26b5, which archived the
+    tagged header and left a dangling separator (corrupt table)."""
+    content = (
+        "---\ntype: sanctum-memory\n---\n\n# Memory\n\n## Pending Items\n\n"
+        "| [stale] Item | Owner | Unblock |\n"
+        "|------|-------|--------|\n"
+        "| live row one | alice | review |\n"
+        "| live row two | bob | merge |\n"
+    )
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True)
+    mem = sanctum / "MEMORY.md"
+    mem.write_text(content)
+
+    r = _run(str(mem), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = mem.read_text()
+
+    # The tagged header survives intact, atop its separator — table stays valid.
+    assert "| [stale] Item | Owner | Unblock |" in hot, "tagged header was removed"
+    assert hot.count("|------|-------|--------|") == 1, "separator orphaned/removed"
+    assert "| live row one | alice | review |" in hot
+    assert "| live row two | bob | merge |" in hot
+    # Nothing was archived (the header is structural, not a stale content entry).
+    archive_path = sanctum / "references" / "lore-archive" / "MEMORY.archive.md"
+    assert not archive_path.exists() or "Item" not in archive_path.read_text()
+
+
+def test_THEMATIC_breaks_are_not_deduped(tmp_path):
+    """Repeated thematic breaks (``---`` three times) are structural delimiters, never deduped.
+    Fails on f5b26b5, which deduped the repeats down to one."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Sections\n\n"
+        "- first fact\n\n"
+        "---\n\n"
+        "- second fact\n\n"
+        "---\n\n"
+        "- third fact\n\n"
+        "---\n\n"
+        "- fourth fact\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Count standalone ``---`` lines in the BODY (excludes the frontmatter fence,
+    # which is split off and reattached verbatim).
+    body = hot.split("\n---\n", 1)[-1]  # drop frontmatter open+close
+    assert body.count("\n---\n") == 3, "a thematic break was deduped away"
+    for fact in ("first", "second", "third", "fourth"):
+        assert f"- {fact} fact" in hot
+
+
+def test_UNCERTAIN_blockquote_and_html_kept_unchanged(tmp_path):
+    """Keep-when-uncertain: blockquotes and raw-HTML blocks are ambiguous constructs →
+    kept opaque, never classified or deduped, even when they contain a marker token or
+    duplicate lines. Fails on f5b26b5, which pruned the [superseded]-leading blockquote
+    line and deduped the repeated HTML line."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n## Notes\n\n"
+        "> [superseded] a quoted line that merely shows a marker, kept opaque\n"
+        "> a second quoted line\n"
+        "\n"
+        '<div class="callout">a raw html block</div>\n'
+        "\n"
+        '<div class="callout">a raw html block</div>\n'  # dup across a blank line
+        "\n"
+        "- a normal fact to keep\n"
+    )
+    lore = _write_lore(tmp_path, content)
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    assert "> [superseded] a quoted line that merely shows a marker" in hot
+    assert "> a second quoted line" in hot
+    assert hot.count('<div class="callout">a raw html block</div>') == 2
+    assert "- a normal fact to keep" in hot
+
+
+def test_REALISTIC_memory_file_only_genuine_entry_acted_on(tmp_path):
+    """A realistic MEMORY.md-shaped file (frontmatter + bullets + two same-schema
+    tables + a fenced code block + prose mentioning markers + ONE real tagged entry):
+    only the genuine tagged entry is acted on; everything structural is byte-preserved.
+    Fails on f5b26b5 across multiple constructs at once."""
+    content = (
+        "---\n"
+        "type: sanctum-memory\n"
+        "agent: parzival\n"
+        "---\n"
+        "\n"
+        "# Memory\n"
+        "\n"
+        "## Conventions\n"
+        "\n"
+        "- Tag an entry [superseded] in prose when it is no longer accurate.\n"
+        "- A durable convention with no marker.\n"
+        "\n"
+        "## Pending Items\n"
+        "\n"
+        "| Item | Owner | Unblock |\n"
+        "|------|-------|--------|\n"
+        "| pending task A | alice | review |\n"
+        "\n"
+        "## Insights to Carry\n"
+        "\n"
+        "| Item | Owner | Unblock |\n"
+        "|------|-------|--------|\n"
+        "| insight B | bob | n/a |\n"
+        "\n"
+        "## Snippets\n"
+        "\n"
+        "```text\n"
+        "- [prune] example showing how to tag a line — NOT a real entry\n"
+        "- a sample documentation line\n"
+        "- a sample documentation line\n"  # exact dup inside the fence
+        "```\n"
+        "\n"
+        "## Decisions\n"
+        "\n"
+        "- [superseded] the one genuine tagged entry that should be pruned.\n"
+        "- a live decision to keep.\n"
+    )
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True)
+    mem = sanctum / "MEMORY.md"
+    mem.write_text(content)
+
+    r = _run(str(mem), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = mem.read_text()
+
+    # ONLY the genuine tagged entry is gone.
+    assert "the one genuine tagged entry that should be pruned." not in hot
+    assert "- a live decision to keep." in hot
+
+    # Everything structural is byte-preserved.
+    assert "- Tag an entry [superseded] in prose when it is no longer accurate." in hot
+    assert "- A durable convention with no marker." in hot
+    assert hot.count("| Item | Owner | Unblock |") == 2, "a table header was lost"
+    assert hot.count("|------|-------|--------|") == 2, "a table separator was lost"
+    assert "| pending task A | alice | review |" in hot
+    assert "| insight B | bob | n/a |" in hot
+    assert hot.count("```") == 2, "a code fence delimiter was lost"
+    assert "- [prune] example showing how to tag a line — NOT a real entry" in hot
+    assert hot.count("- a sample documentation line") == 2, "fenced dup line deduped"
+
+    # Exactly one prune action, no archive/dedup churn on structure.
+    assert "prune 1" in r.stdout
+    assert "archive 0" in r.stdout
+    assert "dedup 0" in r.stdout

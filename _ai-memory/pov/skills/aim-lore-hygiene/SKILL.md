@@ -51,9 +51,31 @@ This file decides *when* to run, *which* files, and *how to read the plan*.
    explicit residual flag), and each archived entry should have a one-line pointer
    in the hot file. A second `--apply` on an already-clean file is a no-op.
 
+## What the script acts on (structure-aware, keep-when-uncertain)
+
+The script acts **only on genuine content entries** — bullets, paragraphs, and table
+content rows. It is structure-aware: every structural or ambiguous construct is opaque
+passthrough, copied byte-for-byte and **never classified, deduped, split, or
+rewritten**:
+
+- **Code fences** — the entire block (```` ``` ````/`~~~`, including the info string
+  and everything between the delimiters) is one opaque unit. A marker token *inside* a
+  fence is example text, never an entry; an unterminated fence keeps its remainder
+  opaque.
+- **Tables** — the header row and its `|---|` separator are structural (a tagged
+  header is never classified, so a separator is never orphaned). Only the *content*
+  rows below them are classified.
+- **Thematic breaks** (`---`, `***`, `___`) and other delimiters — structural, never
+  deduped.
+- **Anything else not confidently structural-or-content** (blockquotes, indented code,
+  raw HTML, odd constructs) — **kept opaque**. This is the keep-when-uncertain posture:
+  because the skill mutates the operator's own memory, when it cannot confidently
+  classify a block it keeps it intact rather than risk corrupting it.
+
 ## How entries are classified
 
-The script is marker-driven (it never guesses an entry is low-utility):
+Within genuine content entries, the script is marker-driven (it never guesses an entry
+is low-utility):
 
 - **Prune (delete):** `[superseded]`, `[contradicted]`, `[wrong]`, `[obsolete]`,
   `[prune]`, a `[expired:YYYY-MM-DD]` TTL that has passed, or a full-entry

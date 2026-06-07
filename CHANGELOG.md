@@ -17,10 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hot-file pointer (stale-but-meaningful), or deduped. Markers are anchored in the
   **leading position only** (after the bullet/number prefix, or in the first table
   cell), so prose that merely mentions or ends in a marker token is kept, never
-  pruned; partial strikethrough with live un-struck text is kept. Tables are treated
-  as structural: header/separator rows are never deduped, and a marker-tagged table
-  content row is dropped in place (archived rows still reach the cold tier) so the
-  table stays well-formed and no marker/pipe leaks into the hot file. Read-only
+  pruned; partial strikethrough with live un-struck text is kept. The parser is
+  **structure-aware**: only genuine content entries (bullets, paragraphs, table
+  content rows) are ever classified or deduped. Code fences (the whole block, info
+  string and all), thematic breaks (`---`/`***`/`___`), table header+separator
+  rows, and ambiguous constructs (blockquotes, indented code, raw HTML) are opaque
+  passthrough — copied byte-for-byte, never classified, deduped, or split — so a
+  marker token inside a fence or a tagged table header can never corrupt the file
+  (**keep-when-uncertain** is the safety posture: anything not confidently
+  structural-or-content is kept intact). A marker-tagged table content row is dropped
+  in place (archived rows still reach the cold tier) so the table stays well-formed
+  and no marker/pipe leaks into the hot file. Read-only
   **dry-run by default**; `--apply` writes a timestamped backup first and never
   auto-truncates recall-value content (over-cap files with no mechanical actions are
   flagged for a manual/LLM summarization pass). Built as a thin `SKILL.md` over an
