@@ -61,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   build fallback to bake locally if it is absent; the scripted paths
   (`scripts/install.sh`, CI) make that pull→build fallback explicit.
 
+  **Upgrade note (existing installs):** `scripts/install.sh` brings services up
+  with `--no-recreate`, so it will not recreate an already-running `embedding`
+  container — an existing install keeps its previous locally-built image. After
+  updating, run `~/.ai-memory/scripts/stack.sh restart` to recreate services and
+  pull the prebuilt GHCR image. (Fresh installs pull it automatically.)
+
 ### Fixed
 
 - **BUG-318** — `aim-github-search` now defaults to the `github` Qdrant collection where

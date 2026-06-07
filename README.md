@@ -64,6 +64,10 @@ python scripts/health-check.py
 
 After installation, start a new Claude Code session in your project — AI Memory injects relevant context automatically on session resume.
 
+### Upgrading an existing install
+
+After pulling a new version and re-running `./scripts/install.sh /path/to/your-project`, run `~/.ai-memory/scripts/stack.sh restart` to apply container/image changes. The installer brings services up with `--no-recreate` and won't restart already-running containers, so image and compose updates (for example, the prebuilt embedding image) take effect only after a restart.
+
 ---
 
 ## Installation
