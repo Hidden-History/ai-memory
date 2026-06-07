@@ -352,11 +352,20 @@ def parse_entries(body_lines: list[str]) -> list[tuple[str, str]]:
         # a same-kind ``startswith('<')`` predicate would stop at the first inner line,
         # leaking the remainder into the paragraph branch to be classified/deduped/pruned
         # — silent corruption of the operator's file. A block running to EOF with no
-        # trailing blank keeps its remainder opaque (keep-when-uncertain).
+        # trailing blank keeps its remainder opaque (keep-when-uncertain). The gather also
+        # stops at an ATX heading (keep-when-uncertain: a visible ``## heading`` is always
+        # structure) so a heading with no blank line before it is emitted as ``__header__``
+        # and advances ``section`` — never absorbed into the opaque block, which would
+        # mis-attribute the next section's entries and let the section-scoped dedup drop
+        # a legitimately distinct cross-section entry.
         if is_html_block_start(line):
             block = [line]
             i += 1
-            while i < n and body_lines[i].strip():
+            while (
+                i < n
+                and body_lines[i].strip()
+                and not body_lines[i].lstrip().startswith("#")
+            ):
                 block.append(body_lines[i])
                 i += 1
             entries.append(("__passthrough__", "\n".join(block)))

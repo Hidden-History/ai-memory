@@ -1035,6 +1035,46 @@ def test_dedup_is_section_scoped(tmp_path):
     assert _sha(lore) == sha1, "second apply was not idempotent"
 
 
+def test_HTML_block_before_heading_no_blank_advances_section(tmp_path):
+    """An HTML/comment block whose last line is immediately followed by a ``## heading``
+    (no blank line between) must NOT absorb that heading: the heading is emitted as a
+    structural ``__header__`` and advances ``section``, so a content line under the new
+    section is NOT wrongly judged a same-section duplicate of an identical line in the
+    prior section. Both cross-section twins are kept (dedup 0). Fails on 647a5e5, whose
+    blank-line-only HTML gather swallows the heading, leaving the second section's twin
+    attributed to the first section and silently deleted by the section-scoped dedup."""
+    content = (
+        "---\ntype: sanctum-lore\n---\n\n# Lore\n\n"
+        "## Decisions\n\n"
+        "- DEC-1: use approach X for the pipeline.\n"
+        "<!-- reviewed 2026-01 -->\n"  # HTML/comment block, no blank before next heading
+        "## Conventions\n\n"
+        "- DEC-1: use approach X for the pipeline.\n"  # cross-section twin → KEPT
+        "- a unique conventions line\n"
+    )
+    lore = _write_lore(tmp_path, content)
+    assert lore.read_text().count("- DEC-1: use approach X for the pipeline.") == 2
+
+    r = _run(str(lore.parent), "--apply")
+    assert r.returncode == 0, r.stderr
+    hot = lore.read_text()
+
+    # Both twins survive: the heading advanced the section, so neither is a same-section
+    # duplicate. On 647a5e5 the swallowed heading drops the Conventions twin to zero → one.
+    assert (
+        hot.count("- DEC-1: use approach X for the pipeline.") == 2
+    ), "cross-section twin silently deleted (heading absorbed into the HTML block)"
+    # The heading and the opaque comment line are both preserved.
+    assert "## Conventions" in hot
+    assert "<!-- reviewed 2026-01 -->" in hot
+    assert "- a unique conventions line" in hot
+
+    sha1 = _sha(lore)
+    r2 = _run(str(lore.parent), "--apply")
+    assert r2.returncode == 0, r2.stderr
+    assert _sha(lore) == sha1, "second apply was not idempotent"
+
+
 # --- L-CRLF: the file's original line ending is preserved ------------------------
 
 
