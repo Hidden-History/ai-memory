@@ -3727,8 +3727,9 @@ write_gemini_config() {
     local ad="$install_dir/src/memory/adapters"
 
     python3 -c "
-import json, sys
+import json, os, sys
 install_dir, project_id, py, ad = sys.argv[1:5]
+config_path = sys.argv[5]
 config = {
     'env': {
         'AI_MEMORY_INSTALL_DIR': install_dir,
@@ -3754,13 +3755,42 @@ config = {
         'PreCompress': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/pre_compress.py\"', 'timeout': 60000}]}]
     }
 }
-with open(sys.argv[5], 'w') as f:
+# TD-600: register the AI-Memory-owned guidance file in context.fileName so it
+# auto-loads with every prompt, WITHOUT dropping GEMINI.md or any user entries.
+# Setting context.fileName disables Gemini's implicit GEMINI.md default, so when
+# the user has no prior setting we must list GEMINI.md explicitly alongside ours.
+existing_names = None
+if os.path.exists(config_path):
+    try:
+        with open(config_path) as f:
+            existing_names = json.load(f).get('context', {}).get('fileName')
+    except (ValueError, OSError):
+        existing_names = None
+if existing_names is None:
+    names = ['GEMINI.md']
+elif isinstance(existing_names, str):
+    names = [existing_names]
+else:
+    names = list(existing_names)
+if 'AI-MEMORY.md' not in names:
+    names.append('AI-MEMORY.md')
+config['context'] = {'fileName': names}
+with open(config_path, 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
 " "$install_dir" "$project_id" "$py" "$ad" "$config_file"
 
     mkdir -p "$project_path/.gemini/commands"
     cp "$install_dir/src/memory/adapters/templates/gemini/"*.toml "$project_path/.gemini/commands/" 2>/dev/null || true
+
+    # TD-600: deploy the AI-Memory-owned guidance file to project root. Gemini
+    # discovers context files by basename in the project tree, so it lives at the
+    # root (never the user's GEMINI.md, which is left untouched).
+    local guidance_src="$install_dir/src/memory/adapters/templates/gemini/ai-memory.md"
+    if [[ -f "$guidance_src" ]]; then
+        cp "$guidance_src" "$project_path/AI-MEMORY.md"
+        log_success "Deployed agent-guidance file to $project_path/AI-MEMORY.md"
+    fi
 
     log_success "Gemini CLI config written to $config_file"
 }
@@ -3812,6 +3842,16 @@ with open(sys.argv[4], 'w') as f:
         fi
     done
 
+    # TD-600: deploy the AI-Memory-owned guidance rule. The .mdc carries
+    # `alwaysApply: true` frontmatter so Cursor includes it in every conversation.
+    # Own-file overwrite — never touches other .mdc, .cursorrules, or AGENTS.md.
+    local guidance_src="$install_dir/src/memory/adapters/templates/cursor/ai-memory.mdc"
+    if [[ -f "$guidance_src" ]]; then
+        mkdir -p "$project_path/.cursor/rules"
+        cp "$guidance_src" "$project_path/.cursor/rules/ai-memory.mdc"
+        log_success "Deployed agent-guidance rule to $project_path/.cursor/rules/ai-memory.mdc"
+    fi
+
     log_success "Cursor IDE config written to $config_file"
 }
 
@@ -3861,6 +3901,16 @@ with open(sys.argv[4], 'w') as f:
             cp "$install_dir/src/memory/adapters/templates/codex/$skill/SKILL.md" "$project_path/.codex/skills/$skill/" 2>/dev/null || true
         fi
     done
+
+    # TD-600: Codex has no always-on owned guidance file, so deliver guidance as
+    # a managed marker-block inside the project-root AGENTS.md (insert-if-absent /
+    # replace-in-place). merge_agents_md.py backs up + writes atomically and keeps
+    # everything outside the markers byte-for-byte.
+    local guidance_src="$install_dir/src/memory/adapters/templates/codex/ai-memory.md"
+    if [[ -f "$guidance_src" ]]; then
+        python3 "$install_dir/scripts/merge_agents_md.py" "$project_path/AGENTS.md" "$guidance_src" \
+            && log_success "Deployed agent-guidance block to $project_path/AGENTS.md"
+    fi
 
     log_success "Codex CLI config written to $config_file"
 }

@@ -9,14 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Agent-guidance rule file** — the installer now ships an AI-Memory-owned
-  `.claude/rules/ai-memory.md` into each project, auto-loaded by Claude Code at
-  session start. It explains how to work with the memory system (`aim-*` skills,
-  automatic recall, project scoping, capture toggling) and the general engineering
-  conduct AI-Memory expects. The installer owns this exact filename, so it is
-  overwritten idempotently on every install and never touches user-authored files —
-  not `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, or any other
-  `.claude/rules/*.md`. Deployed on both fresh installs and in-place updates.
+- **Agent-guidance file across all supported CLIs** — the installer now ships an
+  AI-Memory guidance file into each project for every supported CLI, auto-loaded at
+  session start, in that CLI's own always-on convention. It explains how to work with
+  the memory system (the per-CLI memory commands, automatic recall, project scoping)
+  and the general engineering conduct AI-Memory expects. Each CLI's command names are
+  used (`search-memory` / `memory-status` / `save-memory`):
+  - **Claude Code** — AI-Memory-owned `.claude/rules/ai-memory.md`.
+  - **Gemini CLI** — AI-Memory-owned `AI-MEMORY.md` at the project root, registered in
+    `context.fileName` in `.gemini/settings.json` by appending (never dropping
+    `GEMINI.md` or any user-set entries; the user's `GEMINI.md` is never written).
+  - **Cursor** — AI-Memory-owned `.cursor/rules/ai-memory.mdc` with
+    `alwaysApply: true`; never touches other `.mdc`, `.cursorrules`, or `AGENTS.md`.
+  - **Codex** — a managed marker-block (`<!-- BEGIN AI-MEMORY -->` …
+    `<!-- END AI-MEMORY -->`) in the project-root `AGENTS.md`, inserted if absent and
+    replaced in place on update. A backup is made and the write is atomic; everything
+    outside the markers is preserved byte-for-byte.
+
+  Every CLI's delivery is own-file or managed-block, idempotent on re-install, and
+  zero-clobber of user-authored files. Deployed on both fresh installs and in-place
+  updates.
 
 - **`aim-lore-hygiene` skill** — per-operator hygiene for always-injected sanctum
   files (`LORE.md`, `MEMORY.md`). Enforces the ~200-line cap, flags files crossing
