@@ -83,6 +83,12 @@ def splice_block(existing: str, content: str) -> str:
         end_idx = existing.find(END_MARKER)
         if end_idx > begin_idx:
             # Replace-in-place: keep bytes before BEGIN and after END untouched.
+            # Accepted residual: a file whose ONLY markers are a single balanced
+            # BEGIN…END pair (even wrapping purely user-authored text) is
+            # indistinguishable from a stale managed block, so replace-in-place
+            # applies. Refusing would break idempotent re-install. The original
+            # content is backup-recoverable if a real unintended replacement occurs.
+            # Do not change this branch to refuse — that would be a regression.
             pre = existing[:begin_idx]
             post = existing[end_idx + len(END_MARKER) :]
             return pre + block + post

@@ -69,6 +69,24 @@ class TestSpliceBlock:
         assert out.count(mam.BEGIN_MARKER) == 1
         assert out.count(mam.END_MARKER) == 1
 
+    def test_single_balanced_pair_is_treated_as_managed_block_accepted(self):
+        # Accepted residual: a file whose ONLY markers are a single balanced
+        # BEGIN…END pair is indistinguishable from a stale managed block, so
+        # replace-in-place applies. Refusing would break idempotent re-install.
+        # This test pins that accepted behavior; any future routing change that
+        # turns this into a refusal would be a regression.
+        user_owned_text = "user-authored text that happens to sit inside markers\n"
+        original = mam.BEGIN_MARKER + "\n" + user_owned_text + mam.END_MARKER
+        # First run: replace-in-place produces the managed block.
+        out = mam.splice_block(original, _CONTENT)
+        assert out.count(mam.BEGIN_MARKER) == 1
+        assert out.count(mam.END_MARKER) == 1
+        assert "search-memory" in out
+        assert user_owned_text not in out  # replaced, not preserved
+        # Second run is idempotent.
+        out2 = mam.splice_block(out, _CONTENT)
+        assert out == out2
+
 
 class TestMergeAgentsMd:
     def test_creates_new_agents_md(self, tmp_path, content_file):

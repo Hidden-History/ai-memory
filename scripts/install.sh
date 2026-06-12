@@ -3909,14 +3909,21 @@ with open(sys.argv[4], 'w') as f:
     # a managed marker-block inside the project-root AGENTS.md (insert-if-absent /
     # replace-in-place). merge_agents_md.py backs up + writes atomically and keeps
     # everything outside the markers byte-for-byte. On malformed markers it exits 2
-    # (warns to stderr, leaves file unchanged); || true ensures the install continues.
+    # (warns to stderr, leaves file unchanged); the install always continues.
     local guidance_src="$install_dir/src/memory/adapters/templates/codex/ai-memory.md"
     local merge_script="$install_dir/scripts/merge_agents_md.py"
     if [[ -f "$guidance_src" ]]; then
         if [[ -f "$merge_script" ]]; then
-            python3 "$merge_script" "$project_path/AGENTS.md" "$guidance_src" \
-                && log_success "Deployed agent-guidance block to $project_path/AGENTS.md" \
-                || true
+            if python3 "$merge_script" "$project_path/AGENTS.md" "$guidance_src"; then
+                log_success "Deployed agent-guidance block to $project_path/AGENTS.md"
+            else
+                rc=$?
+                if [[ "$rc" -eq 2 ]]; then
+                    : # malformed-marker refuse — merge_agents_md.py already warned to stderr; continue
+                else
+                    log_warning "Codex guidance deploy failed (exit ${rc}); AGENTS.md left unchanged — continuing install"
+                fi
+            fi
         else
             log_warning "merge_agents_md.py not found in $install_dir/scripts — skipping Codex guidance block"
         fi
