@@ -37,6 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Sanctum templates** — aligned the eight scaffolded sanctum files (`CREED`,
+  `PERSONA`, `BOND`, `LORE`, `MEMORY`, `CAPABILITIES`, `INDEX`, `PULSE`) to a
+  per-file memory-type content model: each file states its memory type, and content
+  that duplicated a canonical source held elsewhere is replaced with a pointer.
+  `CAPABILITIES` points to the live `parzival.md` `<menu>` instead of a
+  hand-maintained workflow table; the `CREED` anti-pattern catalog and the one-time
+  `LORE` bootstrapping guide move to new `references/` files (copied into every
+  sanctum) so they no longer load every session; `MEMORY` and `PULSE` point to the
+  `aim-lore-hygiene` skill for the curation procedure. Content moves only — the
+  eight-file structure is unchanged.
+
 - **TD-626** — The embedding service image is now prebuilt and published to GHCR
   (`ghcr.io/hidden-history/ai-memory-embedding`) by a new
   `publish-embedding-image` workflow, and `docker compose` / `scripts/install.sh`
