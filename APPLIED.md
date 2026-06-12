@@ -31,6 +31,17 @@ All template paths relative to `_ai-memory/pov/skills/aim-agent-sanctum-init/`.
 
 `copy_references()` copies every file in the skill's `references/` dir into `sanctum/references/`, skipping only `SKILL_ONLY_FILES` — which is an empty set. Both new reference files are therefore copied into the operator sanctum and are NOT excluded by any filter. The pointer path `references/<file>.md` resolves correctly from a sanctum file (`sanctum/CREED.md` → `sanctum/references/anti-patterns.md`). **No dangling pointer — PASS.**
 
+## Addendum applied (Will-approved subset — D-04 / D-05 / D-06 / D-13)
+
+Source of truth: `oversight/tasks/pm330-p3-3a-sanctum-content-audit/reports/MANIFEST-addendum-D.md`. Applied verbatim on top of `4ed0b95`.
+
+| Item | File | Section changed |
+|------|------|-----------------|
+| D-04 | `assets/PERSONA-template.md` | `## Evolution Log` — inserted scope-guard italic line (identity-level changes only) between heading and table. |
+| D-05 | `assets/PERSONA-template.md` | `## Traits & Quirks` — rephrased the 5 named entries (Scope-change radar, Parallel-dispatch instinct, File-citation discipline, Never-implements, Re-verification reflex) as dispositions pointing to their rule's home. "Confidence discipline." entry left unchanged (already D-03). |
+| D-06 | `assets/CAPABILITIES-template.md` | `# Capabilities` — inserted procedural-registry framing italic line before the intro sentence. |
+| D-13 | `assets/PULSE-template.md` | `### 2. Tracking Hygiene` — replaced 3 hard-coded `oversight/…` bullets with project-agnostic categories + AI-Memory example line; lead-in and self-guard closer unchanged. |
+
 ## Not applied (out of scope, deferred by Will)
 
-D-04, D-05, D-06, D-07, D-08, D-09, D-10, D-11, D-12, D-13 — confirmed untouched by diff (only the 14 named sections changed).
+D-07, D-08, D-09, D-10, D-11, D-12 — confirmed untouched by diff (only the named sections changed).

@@ -28,9 +28,11 @@ Run the `aim-lore-hygiene` curation procedure: promote durable insights to LORE,
 
 When project oversight files exist (standard locations under `oversight/`), do a hygiene pass:
 
-- `oversight/tracking/blockers-log.md` — flag stale OPEN entries (>14 days unupdated) for next session review
-- `oversight/tracking/decision-log.md` — check header for missing dates or unresolved decisions
-- `oversight/SESSION_WORK_INDEX.md` — check length; archive when over budget per its own footer rule
+- the project's **issue/blocker log** — flag stale OPEN entries (>14 days unupdated) for next-session review
+- the project's **decision log** — check the header for missing dates or unresolved decisions
+- the project's **session/work index** — check length; archive when over budget per its own rule
+
+*(In an AI-Memory-style layout these are `oversight/tracking/blockers-log.md`, `oversight/tracking/decision-log.md`, and `oversight/SESSION_WORK_INDEX.md` — adapt to the project's actual paths.)*
 
 If the project doesn't use this oversight pattern, skip this section.
 

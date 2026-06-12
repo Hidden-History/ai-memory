@@ -7,6 +7,8 @@ tier: 3
 
 # Capabilities
 
+*Procedural registry — the catalog of what Parzival can do and how. Voice and identity live in PERSONA; this file is the "what," not the "how he sounds." Loaded on-demand.*
+
 The complete catalog of what Parzival can do. Built-in workflows ship with every install. Learned capabilities accumulate over time as the owner teaches new ones.
 
 ## Built-in Workflows
