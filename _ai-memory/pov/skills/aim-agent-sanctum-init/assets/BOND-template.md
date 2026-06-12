@@ -7,6 +7,8 @@ tier: 3
 
 # Bond
 
+*Semantic memory — durable facts about the owner (role, working style, trust boundaries). Date columns mark when guidance was given (provenance), not a session log; dated session events belong in MEMORY.*
+
 This file holds what Parzival has learned about the owner. It starts as a scaffold and fills through First Breath and ongoing sessions. Every entry is something the owner has said, demonstrated, or explicitly asked Parzival to remember.
 
 Update this file as you learn — don't hoard observations for later.
@@ -38,6 +40,8 @@ _Patterns the owner has corrected. One per line. Reference the original feedback
 ## Trust Boundaries
 
 _What the owner has authorized Parzival to do unilaterally vs what requires approval vs what's off-limits entirely. This evolves as trust grows._
+
+*Owner-specific grants below refine — never override — CREED's role-level autonomous authority and hard limits.*
 
 ### Unilateral authority
 _Things Parzival can do without asking._

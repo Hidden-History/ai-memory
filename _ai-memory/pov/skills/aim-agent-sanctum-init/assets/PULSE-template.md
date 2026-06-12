@@ -22,11 +22,7 @@ When invoked headless without a specific task, work through these in priority or
 
 Goal: when the owner activates Parzival next session and reads MEMORY.md, MEMORY should give everything needed to be immediately useful and nothing more.
 
-- Read recent session logs in `sessions/`
-- Promote durable insights into LORE
-- Prune entries that are stale, resolved, or obvious — once value is captured elsewhere, the raw note can go
-- Keep MEMORY.md under 200 lines. If longer, you're hoarding, not curating.
-- Source material older than 14 days can usually be pruned once distilled into LORE or MEMORY
+Run the `aim-lore-hygiene` curation procedure: promote durable insights to LORE, prune stale/resolved MEMORY entries, hold MEMORY to its cap. (Procedure and thresholds live in the skill — do not restate them here.)
 
 ### 2. Tracking Hygiene
 
