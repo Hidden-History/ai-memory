@@ -1380,6 +1380,7 @@ main() {
     create_project_symlinks
     configure_project_hooks
     verify_project_hooks
+    deploy_ai_memory_rules
     setup_audit_directory
 
     # Parzival session agent (optional, SPEC-015)
@@ -1596,6 +1597,13 @@ sync_installed_files() {
         log_debug "Copying Claude Code commands..."
         mkdir -p "$dst_dir/.claude/commands"
         cp -r "$src_dir/.claude/commands/"* "$dst_dir/.claude/commands/" 2>/dev/null || true
+    fi
+
+    # .claude/rules/ — AI-Memory-owned agent-guidance rule file (TD-600)
+    if [[ -d "$src_dir/.claude/rules" ]]; then
+        log_debug "Copying Claude Code rules..."
+        mkdir -p "$dst_dir/.claude/rules"
+        cp -r "$src_dir/.claude/rules/"* "$dst_dir/.claude/rules/" 2>/dev/null || true
     fi
 
     # _ai-memory/ — deployable package (full replace: removes stale files not in source)
@@ -4922,6 +4930,23 @@ deploy_ai_memory_agents() {
     if [[ $agents_count -gt 0 ]]; then
         log_success "Deployed $agents_count agent(s) to $PROJECT_PATH/.claude/agents/"
     fi
+}
+
+# TD-600: Deploy the AI-Memory agent-guidance rule file to the project.
+# Claude Code auto-loads $PROJECT_PATH/.claude/rules/*.md at session start.
+# We own this exact filename (ai-memory.md), so overwriting it on each install
+# is idempotent-by-construction and never touches user-authored files —
+# not CLAUDE.md, not .claude/CLAUDE.md, not any other .claude/rules/*.md.
+deploy_ai_memory_rules() {
+    local src="$INSTALL_DIR/.claude/rules/ai-memory.md"
+    if [[ ! -f "$src" ]]; then
+        log_debug "No agent-guidance rule file found in INSTALL_DIR — skipping"
+        return 0
+    fi
+
+    mkdir -p "$PROJECT_PATH/.claude/rules"
+    cp "$src" "$PROJECT_PATH/.claude/rules/ai-memory.md"
+    log_success "Deployed agent-guidance rule to $PROJECT_PATH/.claude/rules/ai-memory.md"
 }
 
 # Write Parzival env vars into _ai-memory/pov/config.yaml

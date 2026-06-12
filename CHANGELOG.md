@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agent-guidance rule file** — the installer now ships an AI-Memory-owned
+  `.claude/rules/ai-memory.md` into each project, auto-loaded by Claude Code at
+  session start. It explains how to work with the memory system (`aim-*` skills,
+  automatic recall, project scoping, capture toggling) and the general engineering
+  conduct AI-Memory expects. The installer owns this exact filename, so it is
+  overwritten idempotently on every install and never touches user-authored files —
+  not `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, or any other
+  `.claude/rules/*.md`. Deployed on both fresh installs and in-place updates.
+
 - **`aim-lore-hygiene` skill** — per-operator hygiene for always-injected sanctum
   files (`LORE.md`, `MEMORY.md`). Enforces the ~200-line cap, flags files crossing
   the ~80%-of-cap compaction trigger, and applies the prune-vs-archive decision
