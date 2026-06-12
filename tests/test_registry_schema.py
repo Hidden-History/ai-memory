@@ -35,7 +35,7 @@ pytestmark = pytest.mark.skipif(not _JSONSCHEMA_OK, reason="jsonschema not insta
 # Paths
 # ---------------------------------------------------------------------------
 
-SKILL_ROOT = Path(__file__).parent.parent
+SKILL_ROOT = Path(__file__).resolve().parents[1] / "_ai-memory" / "skills" / "aim-sot"
 SCHEMA_FILE = SKILL_ROOT / "schema" / "registry.schema.json"
 TEMPLATE_FILE = SKILL_ROOT / "templates" / "registry.yaml.template"
 

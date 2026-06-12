@@ -29,19 +29,25 @@ All tests are hermetic (no network, no filesystem side-effects beyond reads;
 all writes are to pytest tmp_path fixtures only).
 """
 
+import importlib.util
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
-# Import the module under test directly.
-# sys.path injection is the correct pattern for test files (BP-013 Pattern A
-# is an anti-pattern for *deployed scripts*, not for test-time imports).
-sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
-import aim_sot_consult as consult
+_CONSULT_SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "_ai-memory"
+    / "skills"
+    / "aim-sot"
+    / "scripts"
+    / "aim_sot_consult.py"
+)
+_spec = importlib.util.spec_from_file_location("aim_sot_consult", _CONSULT_SCRIPT)
+consult = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(consult)
 
 # ---------------------------------------------------------------------------
 # Fixtures
