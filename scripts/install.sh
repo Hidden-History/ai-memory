@@ -3917,7 +3917,7 @@ with open(sys.argv[4], 'w') as f:
             if python3 "$merge_script" "$project_path/AGENTS.md" "$guidance_src"; then
                 log_success "Deployed agent-guidance block to $project_path/AGENTS.md"
             else
-                rc=$?
+                local rc=$?
                 if [[ "$rc" -eq 2 ]]; then
                     : # malformed-marker refuse — merge_agents_md.py already warned to stderr; continue
                 else
