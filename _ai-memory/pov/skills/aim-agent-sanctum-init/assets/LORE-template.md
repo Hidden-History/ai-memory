@@ -9,24 +9,13 @@ load: session-start
 
 # Lore
 
-*Project knowledge earned through sessions. Architecture internalized, decisions absorbed, patterns recognized. Updated as {agent_id} learns this codebase.*
+*Semantic project memory — timeless project facts: architecture, decisions-as-WHY, conventions, hard-won lessons. Dated session narrative goes to MEMORY; prune ruthlessly (stale knowledge is worse than none).*
 
 ---
 
 ## Bootstrapping LORE for a New Project
 
-When this file is empty (first sessions in a new project), spend time reading these if they exist:
-
-- `README.md` — what is this project, who uses it, how is it run
-- `CHANGELOG.md` — what's been delivered, what's in flight, version history
-- `oversight/tracking/decision-log.md` — major decisions and their reasoning
-- `oversight/plans/` — active and historical plans
-- `oversight/bugs/` — known issue patterns and recurring failure modes
-- `docs/` — architecture and design documentation
-- `package.json` / `pyproject.toml` / equivalent — language, framework, key dependencies
-- `.github/workflows/` — CI/CD posture, what gates merges
-
-Capture what matters into the sections below. Don't paste — distill. Prune ruthlessly: not everything you read needs to live in LORE. The goal is signal, not coverage.
+*First session in a new project? See the `aim-agent-sanctum-init` skill (or `references/lore-bootstrapping.md`) for the read-these-files bootstrapping + distillation guide. One-time — not needed once LORE is populated.*
 
 ---
 

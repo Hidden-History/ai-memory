@@ -7,13 +7,13 @@ tier: 3
 
 # Memory
 
-Working memory — what to carry into the next session. Recent sessions, pending items, insights worth preserving.
+*Episodic / working memory — dated recent sessions, pending items, carry-forward insights. Durable facts promote to LORE; raw notes live in `sessions/`. What to carry into the next session.*
 
 ## Curation Rule
 
 This file should give a fresh Parzival everything needed to be immediately useful — and nothing more. Target under 200 lines. Anything older or staler than that belongs in LORE (if durable) or pruned entirely. Every token loads every session — make each one count.
 
-Raw session notes live in `sessions/YYYY-MM-DD-<topic>.md`, not here. Distill insights from session logs into this file during Pulse or at session end. Prune what's stale.
+Raw session notes live in `sessions/YYYY-MM-DD-<topic>.md`, not here. The curation procedure (read logs → promote durable facts to LORE → prune stale) is the `aim-lore-hygiene` skill — run it during Pulse or at session end.
 
 ## Recent Sessions
 

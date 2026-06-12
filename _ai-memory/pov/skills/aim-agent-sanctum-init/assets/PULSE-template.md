@@ -22,19 +22,17 @@ When invoked headless without a specific task, work through these in priority or
 
 Goal: when the owner activates Parzival next session and reads MEMORY.md, MEMORY should give everything needed to be immediately useful and nothing more.
 
-- Read recent session logs in `sessions/`
-- Promote durable insights into LORE
-- Prune entries that are stale, resolved, or obvious — once value is captured elsewhere, the raw note can go
-- Keep MEMORY.md under 200 lines. If longer, you're hoarding, not curating.
-- Source material older than 14 days can usually be pruned once distilled into LORE or MEMORY
+Run the `aim-lore-hygiene` curation procedure: promote durable insights to LORE, prune stale/resolved MEMORY entries, hold MEMORY to its cap. (Procedure and thresholds live in the skill — do not restate them here.)
 
 ### 2. Tracking Hygiene
 
 When project oversight files exist (standard locations under `oversight/`), do a hygiene pass:
 
-- `oversight/tracking/blockers-log.md` — flag stale OPEN entries (>14 days unupdated) for next session review
-- `oversight/tracking/decision-log.md` — check header for missing dates or unresolved decisions
-- `oversight/SESSION_WORK_INDEX.md` — check length; archive when over budget per its own footer rule
+- the project's **issue/blocker log** — flag stale OPEN entries (>14 days unupdated) for next-session review
+- the project's **decision log** — check the header for missing dates or unresolved decisions
+- the project's **session/work index** — check length; archive when over budget per its own rule
+
+*(In an AI-Memory-style layout these are `oversight/tracking/blockers-log.md`, `oversight/tracking/decision-log.md`, and `oversight/SESSION_WORK_INDEX.md` — adapt to the project's actual paths.)*
 
 If the project doesn't use this oversight pattern, skip this section.
 
