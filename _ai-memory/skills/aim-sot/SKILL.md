@@ -27,6 +27,64 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
   aim_sot_consult.py <subcommand> [--json] [--registry PATH]
 ```
 
+## Detect-Propose — Invocation
+
+```bash
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  aim_sot_detect_propose.py run [--json] [--registry PATH] [--limit N] [--all]
+```
+
+```bash
+# Rebuild the 5b derived memory cache explicitly:
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  aim_sot_detect_propose.py reindex [--registry PATH]
+```
+
+**Hard invariant**: `detect-propose` NEVER writes `.sot/registry.yaml` — proposals only.
+The human applies edits manually; the registry is always committed and diff-reviewable.
+
+### Flags (`run`)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--limit N` | 20 | Cap new-candidate proposals per run |
+| `--all` | off | Disable cap — surface all new candidates |
+| `--json` | off | Machine-readable JSON output |
+| `--registry PATH` | (git root) | Override registry path |
+
+### Output — drift proposals
+
+Each drift proposal includes `drift_type` (one of `location / staleness_temporal /
+staleness_hash / declaration_reality`), `root_cause`, `impact`, and
+`recommended_action`.  A `declaration_reality` entry with `"k1_trigger": true`
+requires mandatory human re-confirmation before the description is considered valid
+(spec §5 K1).
+
+**Dual-firing on content change (by design):** when a file's hash changes, the engine
+emits *both* `staleness_hash` (re-verify the artifact) *and* `declaration_reality`
+(K1 trigger: description/tags must be re-confirmed by a human). These are
+complementary signals — consumers may act on `k1_trigger` independently of the
+staleness signal. Do not treat the two as duplicates; they require different actions.
+
+**Hash drift covers file `sot_location`s only:** content-hash drift (types 2b/3/K1)
+requires a readable file. When `sot_location` points to a **directory**, hash checks
+are no-ops by design (spec §5: "sha256(file)"); the directory boundary still
+participates in location and temporal-staleness drift. A directory-tree digest
+extension is being considered separately — it is not implemented in this version.
+
+### Output — new candidate proposals
+
+Structural fields (`boundary_type`, `sot_location`, `confidence`, `inferred_from`)
+are auto-inferred.  **Semantic fields (`owner`, `description`, `provenance_note`)
+are never auto-filled — human-authored always (BP-029).**
+
+### 5a and 5b caches
+
+- **5a** (`~/.ai-memory/drift-state/sot_drift_{project_id}.json`) — per-install drift
+  state; never committed.
+- **5b** (Qdrant `conventions` collection, `memory_type=sot_entry`) — derived memory
+  cache; deterministically rebuildable from the committed registry via `reindex`.
+
 ## Registry contract
 
 - `.sot/registry.yaml` is fully human-owned and committed; the schema and templates live in `_ai-memory/skills/aim-sot/`.

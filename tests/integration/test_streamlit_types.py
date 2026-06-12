@@ -119,8 +119,8 @@ class TestCollectionTypesValidation:
             len(COLLECTION_TYPES["code-patterns"]) == 4
         ), "code-patterns should have 4 types"
         assert (
-            len(COLLECTION_TYPES["conventions"]) == 5
-        ), "conventions should have 5 types"
+            len(COLLECTION_TYPES["conventions"]) == 6
+        ), "conventions should have 6 types"
         assert (
             len(COLLECTION_TYPES["discussions"]) == 11
         ), "discussions should have 11 types (V2.3.0: added discussion + 4 agent namespace types)"
@@ -146,7 +146,7 @@ class TestCollectionTypesValidation:
 
         C3.7: Validate conventions collection (WHAT rules to follow).
         """
-        expected = {"rule", "guideline", "port", "naming", "structure"}
+        expected = {"rule", "guideline", "port", "naming", "structure", "sot_entry"}
         actual = set(COLLECTION_TYPES["conventions"])
 
         assert (
@@ -221,11 +221,12 @@ class TestMemoryTypeEnumStructure:
         V2.0.6: 30 types (added GitHub sync, agent, decay, freshness types)
         V2.2.1: 31 types (added github_release)
         V2.3.0: 31 types (all collections aligned with MemoryType enum)
+        aim-sot Wave-1: 32 types (conventions now 6: +1 sot_entry)
         """
         all_types = list(MemoryType)
         assert (
-            len(all_types) == 31
-        ), f"MemoryType enum should have 31 types (V2.3.0 spec), got {len(all_types)}"
+            len(all_types) == 32
+        ), f"MemoryType enum should have 32 types (aim-sot Wave-1: +1 sot_entry), got {len(all_types)}"
 
     def test_memory_type_values_are_lowercase_snake_case(self):
         """Verify all MemoryType values use lowercase snake_case.

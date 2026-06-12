@@ -83,6 +83,7 @@ if MODELS_IMPORTED:
             MemoryType.PORT.value,
             MemoryType.NAMING.value,
             MemoryType.STRUCTURE.value,
+            MemoryType.SOT_ENTRY.value,
         ],
         "discussions": [
             MemoryType.DECISION.value,
@@ -124,7 +125,14 @@ else:
             "refactor",
             "file_pattern",
         ],
-        "conventions": ["rule", "guideline", "port", "naming", "structure"],
+        "conventions": [
+            "rule",
+            "guideline",
+            "port",
+            "naming",
+            "structure",
+            "sot_entry",
+        ],
         "discussions": [
             "decision",
             "discussion",

@@ -25,6 +25,7 @@ file fallback — the function signature must not change.
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -97,22 +98,80 @@ def _load_from_file(registry_path: Path) -> list[dict]:
     return [e for e in entries if isinstance(e, dict)]
 
 
+def _try_memory_cache(registry_path: Path) -> list[dict] | None:
+    """Try to load registry entries from the 5b derived memory cache.
+
+    Returns a list of entry dicts on success, or None if the store is
+    unreachable, the cache is empty, or project_id cannot be resolved.
+    The caller falls back to the committed registry file silently.
+    """
+    try:
+        _install = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
+        _src = os.path.join(_install, "src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
+
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+        from memory.config import COLLECTION_CONVENTIONS, get_config
+        from memory.project import resolve_project_id
+        from memory.qdrant_client import get_qdrant_client
+
+        project_id = resolve_project_id(
+            cwd=str(registry_path.parent.parent), warn=False
+        )
+        config = get_config()
+        client = get_qdrant_client(config)
+
+        entries: list[dict] = []
+        offset = None
+        while True:
+            points, next_offset = client.scroll(
+                collection_name=COLLECTION_CONVENTIONS,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="group_id", match=MatchValue(value=project_id)
+                        ),
+                        FieldCondition(key="type", match=MatchValue(value="sot_entry")),
+                    ]
+                ),
+                limit=100,
+                offset=offset,
+                with_payload=True,
+            )
+            for pt in points:
+                if pt.payload:
+                    try:
+                        parsed = json.loads(pt.payload.get("content", "{}"))
+                        if isinstance(parsed, dict):
+                            entries.append(parsed)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            if next_offset is None:
+                break
+            offset = next_offset
+
+        return entries if entries else None
+    except Exception:
+        return None
+
+
 def _load_entries(registry_path: Path) -> list[dict]:
     """Load registry entries for query.
 
-    5b-cache hook (Item 3): insert memory-cache lookup here before the
-    file fallback. Signature must not change. Item 3 adds:
-
-        entries = _try_memory_cache(project_id)
-        if entries is not None:
-            return entries
-
-    Note: project_id is derived INSIDE Item 3's implementation (from
-    registry_path / git-root), not passed in — the signature stays
-    registry_path-only. The _try_memory_cache line above is illustrative.
+    Try the 5b derived memory cache first (fast, agent-searchable).
+    Fall back to the committed registry file silently if the cache is
+    unavailable or empty (graceful — a user install may have no store).
+    Signature must not change (spec §4, Item 3 seam).
     """
-    # --- 5b cache slot (Item 3 inserts here) ---
-    # --- fallback: committed registry (Item 2 only) ---
+    # --- 5b cache read-through (Item 3) ---
+    cached = _try_memory_cache(registry_path)
+    if cached is not None:
+        return cached
+    # --- fallback: committed registry ---
     return _load_from_file(registry_path)
 
 
