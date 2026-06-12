@@ -13,8 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   AI-Memory guidance file into each project for every supported CLI, auto-loaded at
   session start, in that CLI's own always-on convention. It explains how to work with
   the memory system (the per-CLI memory commands, automatic recall, project scoping)
-  and the general engineering conduct AI-Memory expects. Each CLI's command names are
-  used (`search-memory` / `memory-status` / `save-memory`):
+  and the general engineering conduct AI-Memory expects. Each CLI's own command names
+  are used (Gemini and Cursor: `search-memory` / `memory-status` / `save-memory`;
+  Codex: `search-memory` / `memory-status`):
   - **Claude Code** — AI-Memory-owned `.claude/rules/ai-memory.md`.
   - **Gemini CLI** — AI-Memory-owned `AI-MEMORY.md` at the project root, registered in
     `context.fileName` in `.gemini/settings.json` by appending (never dropping

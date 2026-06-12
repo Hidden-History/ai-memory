@@ -3770,8 +3770,11 @@ if existing_names is None:
     names = ['GEMINI.md']
 elif isinstance(existing_names, str):
     names = [existing_names]
-else:
+elif isinstance(existing_names, list):
     names = list(existing_names)
+else:
+    # Non-string, non-list value (e.g. integer, boolean) — treat as absent.
+    names = ['GEMINI.md']
 if 'AI-MEMORY.md' not in names:
     names.append('AI-MEMORY.md')
 config['context'] = {'fileName': names}
@@ -3905,11 +3908,18 @@ with open(sys.argv[4], 'w') as f:
     # TD-600: Codex has no always-on owned guidance file, so deliver guidance as
     # a managed marker-block inside the project-root AGENTS.md (insert-if-absent /
     # replace-in-place). merge_agents_md.py backs up + writes atomically and keeps
-    # everything outside the markers byte-for-byte.
+    # everything outside the markers byte-for-byte. On malformed markers it exits 2
+    # (warns to stderr, leaves file unchanged); || true ensures the install continues.
     local guidance_src="$install_dir/src/memory/adapters/templates/codex/ai-memory.md"
+    local merge_script="$install_dir/scripts/merge_agents_md.py"
     if [[ -f "$guidance_src" ]]; then
-        python3 "$install_dir/scripts/merge_agents_md.py" "$project_path/AGENTS.md" "$guidance_src" \
-            && log_success "Deployed agent-guidance block to $project_path/AGENTS.md"
+        if [[ -f "$merge_script" ]]; then
+            python3 "$merge_script" "$project_path/AGENTS.md" "$guidance_src" \
+                && log_success "Deployed agent-guidance block to $project_path/AGENTS.md" \
+                || true
+        else
+            log_warning "merge_agents_md.py not found in $install_dir/scripts — skipping Codex guidance block"
+        fi
     fi
 
     log_success "Codex CLI config written to $config_file"

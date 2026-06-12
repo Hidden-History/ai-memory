@@ -110,3 +110,71 @@ class TestMergeAgentsMd:
         mam.merge_agents_md(str(agents), str(content_file))
         leftovers = list(tmp_path.glob(".AGENTS_*"))
         assert leftovers == []
+
+
+class TestSpliceBlockMalformedMarkers:
+    """splice_block raises MalformedMarkersError on every malformed marker state."""
+
+    def test_stray_begin_only_raises(self):
+        stray = "user content\n" + mam.BEGIN_MARKER + "\nmore user content\n"
+        with pytest.raises(mam.MalformedMarkersError):
+            mam.splice_block(stray, _CONTENT)
+
+    def test_stray_end_only_raises(self):
+        stray = "user content\n" + mam.END_MARKER + "\nmore user content\n"
+        with pytest.raises(mam.MalformedMarkersError):
+            mam.splice_block(stray, _CONTENT)
+
+    def test_end_before_begin_raises(self):
+        swapped = "pre\n" + mam.END_MARKER + "\nmid\n" + mam.BEGIN_MARKER + "\npost\n"
+        with pytest.raises(mam.MalformedMarkersError):
+            mam.splice_block(swapped, _CONTENT)
+
+    def test_duplicate_blocks_raises(self):
+        block = mam.build_block(_CONTENT)
+        two_blocks = "user\n" + block + "\n\n" + block + "\n"
+        with pytest.raises(mam.MalformedMarkersError):
+            mam.splice_block(two_blocks, _CONTENT)
+
+
+class TestMergeAgentsMdMalformed:
+    """merge_agents_md leaves the file byte-unchanged and warns on malformed markers."""
+
+    def _assert_refused_twice(
+        self, tmp_path, content_file, original_text: str, capsys
+    ) -> None:
+        """Two calls both refuse: file byte-identical to original, no backup, WARNING in stderr."""
+        agents = tmp_path / "AGENTS.md"
+        agents.write_text(original_text, encoding="utf-8")
+
+        # Run 1: must refuse without writing.
+        with pytest.raises(mam.MalformedMarkersError):
+            mam.merge_agents_md(str(agents), str(content_file))
+        assert agents.read_text(encoding="utf-8") == original_text
+        assert list(tmp_path.glob("AGENTS.md.backup.*")) == []
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+
+        # Run 2: same input (unchanged file) → same refusal; no stacking or deletion.
+        with pytest.raises(mam.MalformedMarkersError):
+            mam.merge_agents_md(str(agents), str(content_file))
+        assert agents.read_text(encoding="utf-8") == original_text
+
+    def test_stray_begin_user_content_not_deleted(self, tmp_path, content_file, capsys):
+        original = (
+            "important user content\n" + mam.BEGIN_MARKER + "\nmore user content\n"
+        )
+        self._assert_refused_twice(tmp_path, content_file, original, capsys)
+
+    def test_stray_end_does_not_stack(self, tmp_path, content_file, capsys):
+        original = "user content\n" + mam.END_MARKER + "\nmore user\n"
+        self._assert_refused_twice(tmp_path, content_file, original, capsys)
+
+    def test_end_before_begin_does_not_stack(self, tmp_path, content_file, capsys):
+        original = "pre\n" + mam.END_MARKER + "\nmid\n" + mam.BEGIN_MARKER + "\npost\n"
+        self._assert_refused_twice(tmp_path, content_file, original, capsys)
+
+    def test_duplicate_blocks_refused(self, tmp_path, content_file, capsys):
+        block = mam.build_block(_CONTENT)
+        original = "user\n" + block + "\n\n" + block + "\n"
+        self._assert_refused_twice(tmp_path, content_file, original, capsys)
