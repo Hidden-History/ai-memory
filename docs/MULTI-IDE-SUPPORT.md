@@ -59,17 +59,17 @@ During installation, you'll see:
 
 ### Manual IDE Selection
 
-Override auto-detection with the `--ide` flag:
+Override auto-detection with the `IDE_FLAG` environment variable:
 
 ```bash
 # Configure specific IDEs only
-./scripts/install.sh --ide gemini,cursor <your-project-dir>
+IDE_FLAG=gemini,cursor ./scripts/install.sh <your-project-dir>
 
 # Skip all non-Claude IDE config
-./scripts/install.sh --ide none <your-project-dir>
+IDE_FLAG=none ./scripts/install.sh <your-project-dir>
 
-# Force overwrite existing IDE configs
-./scripts/install.sh --force <your-project-dir>
+# Force overwrite existing IDE hook configs
+FORCE_IDE=true ./scripts/install.sh <your-project-dir>
 ```
 
 ### Adding IDEs to an Existing Installation
@@ -185,7 +185,7 @@ MCP tools are normalized across all IDEs:
 
 ### IDE not detected during installation
 - Ensure the IDE CLI is in your PATH (`gemini`, `codex`, `agent`/`cursor-agent`)
-- Use `--ide gemini,cursor` to skip detection and force configuration
+- Use `IDE_FLAG=gemini,cursor` to skip detection and force configuration
 
 ### Hooks not firing
 - Check that the config file exists (`.gemini/settings.json`, `.cursor/hooks.json`, etc.)

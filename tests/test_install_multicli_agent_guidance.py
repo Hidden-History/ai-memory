@@ -139,6 +139,42 @@ class TestGeminiGuidance:
         ]["fileName"]
         assert names.count("AI-MEMORY.md") == 1
 
+    def test_update_path_deploys_guidance_without_force(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """No-force re-install over an existing ai-memory hook config still deploys
+        the guidance file and registers context.fileName (regression for the
+        hook-config early-return that previously gated guidance deploy)."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        # Simulate an existing ai-memory settings.json (hook config already present).
+        existing_settings = {
+            "env": {"AI_MEMORY_INSTALL_DIR": "/old/path"},
+            "hooks": {},
+            "context": {"fileName": ["GEMINI.md"]},
+        }
+        (project / ".gemini" / "settings.json").write_text(
+            json.dumps(existing_settings), encoding="utf-8"
+        )
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        # Guidance file deployed even though the hook config was skipped.
+        guidance = project / "AI-MEMORY.md"
+        assert guidance.exists()
+        assert (
+            guidance.read_bytes()
+            == (_TEMPLATES / "gemini" / "ai-memory.md").read_bytes()
+        )
+        # context.fileName registration happened.
+        names = json.loads((project / ".gemini" / "settings.json").read_text())[
+            "context"
+        ]["fileName"]
+        assert "AI-MEMORY.md" in names
+        # Existing entry preserved.
+        assert "GEMINI.md" in names
+
 
 # --------------------------------------------------------------------------- #
 # Cursor
@@ -198,6 +234,26 @@ class TestCursorGuidance:
         assert [p.name for p in rules.iterdir()] == ["ai-memory.mdc"]
         assert (rules / "ai-memory.mdc").read_bytes() == first
 
+    def test_update_path_deploys_guidance_without_force(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """No-force re-install over an existing ai-memory hook config still deploys
+        the .mdc guidance rule (regression for the early-return gate)."""
+        project = tmp_path / "proj"
+        hooks_dir = project / ".cursor"
+        hooks_dir.mkdir(parents=True)
+        # Simulate an existing ai-memory hooks.json.
+        (hooks_dir / "hooks.json").write_text(
+            json.dumps({"AI_MEMORY_INSTALL_DIR": "/old"}), encoding="utf-8"
+        )
+
+        result = _call(install_sh_no_main, "write_cursor_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        mdc = project / ".cursor" / "rules" / "ai-memory.mdc"
+        assert mdc.exists()
+        assert "alwaysApply: true" in mdc.read_text(encoding="utf-8")
+
 
 # --------------------------------------------------------------------------- #
 # Codex
@@ -255,3 +311,25 @@ class TestCodexGuidance:
         second = agents.read_text(encoding="utf-8")
         assert first == second
         assert second.count("<!-- BEGIN AI-MEMORY -->") == 1
+
+    def test_update_path_deploys_guidance_without_force(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """No-force re-install over an existing ai-memory hook config still deploys
+        the AGENTS.md guidance block (regression for the early-return gate)."""
+        project = tmp_path / "proj"
+        hooks_dir = project / ".codex"
+        hooks_dir.mkdir(parents=True)
+        # Simulate an existing ai-memory hooks.json.
+        (hooks_dir / "hooks.json").write_text(
+            json.dumps({"AI_MEMORY_INSTALL_DIR": "/old"}), encoding="utf-8"
+        )
+
+        result = _call(install_sh_no_main, "write_codex_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        agents = project / "AGENTS.md"
+        assert agents.exists()
+        text = agents.read_text(encoding="utf-8")
+        assert "<!-- BEGIN AI-MEMORY -->" in text
+        assert "search-memory" in text

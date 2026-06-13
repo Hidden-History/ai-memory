@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Agent-guidance files now refresh on every install** — existing installations
+  pick up updated guidance automatically by re-running
+  `./scripts/install.sh <project-dir>`. No special flag is needed; the guidance
+  file for each configured CLI is deployed on every install, not only on the
+  initial setup.
+
 ### Added
 
 - **Agent-guidance file across all supported CLIs** — the installer now ships an

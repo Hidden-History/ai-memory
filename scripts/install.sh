@@ -3714,10 +3714,50 @@ write_gemini_config() {
     local project_id="$3"
     local force="${4:-false}"
     local config_file="$project_path/.gemini/settings.json"
+    local guidance_src="$install_dir/src/memory/adapters/templates/gemini/ai-memory.md"
+
+    # TD-600: deploy the guidance file and ensure context.fileName registration on
+    # every install — regardless of whether the hook config write is skipped below.
+    # Gemini discovers context files by basename, so AI-MEMORY.md lives at project
+    # root (the user's GEMINI.md is never touched).
+    if [[ -f "$guidance_src" ]]; then
+        cp "$guidance_src" "$project_path/AI-MEMORY.md"
+        log_success "Deployed agent-guidance file to $project_path/AI-MEMORY.md"
+    fi
+    # Ensure AI-MEMORY.md is registered in context.fileName when an existing
+    # settings.json would otherwise be skipped (append-preserve: never drops GEMINI.md
+    # or user entries; non-str/non-list type guard retained).
+    if [[ -f "$config_file" ]]; then
+        python3 -c "
+import json, sys
+config_path = sys.argv[1]
+try:
+    with open(config_path) as f:
+        cfg = json.load(f)
+except (ValueError, OSError):
+    cfg = {}
+ctx = cfg.setdefault('context', {})
+existing = ctx.get('fileName')
+if existing is None:
+    names = ['GEMINI.md']
+elif isinstance(existing, str):
+    names = [existing]
+elif isinstance(existing, list):
+    names = list(existing)
+else:
+    names = ['GEMINI.md']
+if 'AI-MEMORY.md' not in names:
+    names.append('AI-MEMORY.md')
+    ctx['fileName'] = names
+    with open(config_path, 'w') as f:
+        json.dump(cfg, f, indent=2)
+        f.write('\n')
+" "$config_file"
+    fi
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
-            log_warning "Gemini config already contains ai-memory hooks — skipping (use --force to overwrite)"
+            log_warning "Gemini config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
             return 0
         fi
     fi
@@ -3786,15 +3826,6 @@ with open(config_path, 'w') as f:
     mkdir -p "$project_path/.gemini/commands"
     cp "$install_dir/src/memory/adapters/templates/gemini/"*.toml "$project_path/.gemini/commands/" 2>/dev/null || true
 
-    # TD-600: deploy the AI-Memory-owned guidance file to project root. Gemini
-    # discovers context files by basename in the project tree, so it lives at the
-    # root (never the user's GEMINI.md, which is left untouched).
-    local guidance_src="$install_dir/src/memory/adapters/templates/gemini/ai-memory.md"
-    if [[ -f "$guidance_src" ]]; then
-        cp "$guidance_src" "$project_path/AI-MEMORY.md"
-        log_success "Deployed agent-guidance file to $project_path/AI-MEMORY.md"
-    fi
-
     log_success "Gemini CLI config written to $config_file"
 }
 
@@ -3804,10 +3835,20 @@ write_cursor_config() {
     local project_id="$3"
     local force="${4:-false}"
     local config_file="$project_path/.cursor/hooks.json"
+    local guidance_src="$install_dir/src/memory/adapters/templates/cursor/ai-memory.mdc"
+
+    # TD-600: deploy the AI-Memory-owned guidance rule on every install — regardless
+    # of whether the hook config write is skipped below. The .mdc carries
+    # `alwaysApply: true`; never touches other .mdc, .cursorrules, or AGENTS.md.
+    if [[ -f "$guidance_src" ]]; then
+        mkdir -p "$project_path/.cursor/rules"
+        cp "$guidance_src" "$project_path/.cursor/rules/ai-memory.mdc"
+        log_success "Deployed agent-guidance rule to $project_path/.cursor/rules/ai-memory.mdc"
+    fi
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
-            log_warning "Cursor config already contains ai-memory hooks — skipping (use --force to overwrite)"
+            log_warning "Cursor config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
             return 0
         fi
     fi
@@ -3845,16 +3886,6 @@ with open(sys.argv[4], 'w') as f:
         fi
     done
 
-    # TD-600: deploy the AI-Memory-owned guidance rule. The .mdc carries
-    # `alwaysApply: true` frontmatter so Cursor includes it in every conversation.
-    # Own-file overwrite — never touches other .mdc, .cursorrules, or AGENTS.md.
-    local guidance_src="$install_dir/src/memory/adapters/templates/cursor/ai-memory.mdc"
-    if [[ -f "$guidance_src" ]]; then
-        mkdir -p "$project_path/.cursor/rules"
-        cp "$guidance_src" "$project_path/.cursor/rules/ai-memory.mdc"
-        log_success "Deployed agent-guidance rule to $project_path/.cursor/rules/ai-memory.mdc"
-    fi
-
     log_success "Cursor IDE config written to $config_file"
 }
 
@@ -3864,10 +3895,34 @@ write_codex_config() {
     local project_id="$3"
     local force="${4:-false}"
     local config_file="$project_path/.codex/hooks.json"
+    local guidance_src="$install_dir/src/memory/adapters/templates/codex/ai-memory.md"
+    local merge_script="$install_dir/scripts/merge_agents_md.py"
+
+    # TD-600: deploy the guidance block on every install — regardless of whether the
+    # hook config write is skipped below. Managed marker-block in AGENTS.md
+    # (insert-if-absent / replace-in-place); merge_agents_md.py backs up + writes
+    # atomically; everything outside markers preserved byte-for-byte. On malformed
+    # markers (exit 2) it warns and leaves AGENTS.md unchanged; install continues.
+    if [[ -f "$guidance_src" ]]; then
+        if [[ -f "$merge_script" ]]; then
+            if python3 "$merge_script" "$project_path/AGENTS.md" "$guidance_src"; then
+                log_success "Deployed agent-guidance block to $project_path/AGENTS.md"
+            else
+                local rc=$?
+                if [[ "$rc" -eq 2 ]]; then
+                    : # malformed-marker refuse — merge_agents_md.py already warned to stderr; continue
+                else
+                    log_warning "Codex guidance deploy failed (exit ${rc}); AGENTS.md left unchanged — continuing install"
+                fi
+            fi
+        else
+            log_warning "merge_agents_md.py not found in $install_dir/scripts — skipping Codex guidance block"
+        fi
+    fi
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
-            log_warning "Codex config already contains ai-memory hooks — skipping (use --force to overwrite)"
+            log_warning "Codex config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
             return 0
         fi
     fi
@@ -3904,30 +3959,6 @@ with open(sys.argv[4], 'w') as f:
             cp "$install_dir/src/memory/adapters/templates/codex/$skill/SKILL.md" "$project_path/.codex/skills/$skill/" 2>/dev/null || true
         fi
     done
-
-    # TD-600: Codex has no always-on owned guidance file, so deliver guidance as
-    # a managed marker-block inside the project-root AGENTS.md (insert-if-absent /
-    # replace-in-place). merge_agents_md.py backs up + writes atomically and keeps
-    # everything outside the markers byte-for-byte. On malformed markers it exits 2
-    # (warns to stderr, leaves file unchanged); the install always continues.
-    local guidance_src="$install_dir/src/memory/adapters/templates/codex/ai-memory.md"
-    local merge_script="$install_dir/scripts/merge_agents_md.py"
-    if [[ -f "$guidance_src" ]]; then
-        if [[ -f "$merge_script" ]]; then
-            if python3 "$merge_script" "$project_path/AGENTS.md" "$guidance_src"; then
-                log_success "Deployed agent-guidance block to $project_path/AGENTS.md"
-            else
-                local rc=$?
-                if [[ "$rc" -eq 2 ]]; then
-                    : # malformed-marker refuse — merge_agents_md.py already warned to stderr; continue
-                else
-                    log_warning "Codex guidance deploy failed (exit ${rc}); AGENTS.md left unchanged — continuing install"
-                fi
-            fi
-        else
-            log_warning "merge_agents_md.py not found in $install_dir/scripts — skipping Codex guidance block"
-        fi
-    fi
 
     log_success "Codex CLI config written to $config_file"
 }
