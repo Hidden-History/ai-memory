@@ -59,22 +59,37 @@ During installation, you'll see:
 
 ### Manual IDE Selection
 
-Override auto-detection with the `--ide` flag:
+Override auto-detection with the `IDE_FLAG` environment variable:
 
 ```bash
 # Configure specific IDEs only
-./scripts/install.sh --ide gemini,cursor <your-project-dir>
+IDE_FLAG=gemini,cursor ./scripts/install.sh <your-project-dir>
 
 # Skip all non-Claude IDE config
-./scripts/install.sh --ide none <your-project-dir>
+IDE_FLAG=none ./scripts/install.sh <your-project-dir>
 
-# Force overwrite existing IDE configs
-./scripts/install.sh --force <your-project-dir>
+# Force overwrite existing IDE hook configs
+FORCE_IDE=true ./scripts/install.sh <your-project-dir>
 ```
 
 ### Adding IDEs to an Existing Installation
 
 Re-run the installer with Option 1 (Add project to existing installation). IDE detection runs automatically and will configure any newly detected IDEs.
+
+## Agent-Guidance File
+
+On install, AI-Memory also deploys an **agent-guidance file** into the project for each configured CLI. This is a short, always-loaded file that tells the agent how to work with the memory system — automatic capture/recall, the per-CLI memory commands, and `AI_MEMORY_PROJECT_ID` project-scoping — plus concise general engineering conduct. It is separate from the hook/adapter configuration above. Each file is AI-Memory-**owned** (or a managed block for Codex), so re-installing is idempotent and **user-authored files are never clobbered**.
+
+| CLI | Guidance file | Mechanism |
+|-----|---------------|-----------|
+| Claude Code | `.claude/rules/ai-memory.md` | owned file; auto-loaded at session start |
+| Gemini CLI | `AI-MEMORY.md` (project root) | owned file; appended to `context.fileName` in `.gemini/settings.json` (preserves `GEMINI.md` + user entries; the user's `GEMINI.md` is never written) |
+| Cursor | `.cursor/rules/ai-memory.mdc` | owned file with `alwaysApply: true`; other `.mdc` / `.cursorrules` / `AGENTS.md` untouched |
+| Codex | managed block in project-root `AGENTS.md` | Codex has no owned-file path, so an AI-Memory block delimited by `<!-- BEGIN AI-MEMORY -->` … `<!-- END AI-MEMORY -->` is inserted-if-absent / replaced-in-place; backup-first + atomic write; everything outside the markers is byte-preserved |
+
+**Codex safety behavior**: if the project's `AGENTS.md` already contains malformed or ambiguous AI-Memory markers (an unbalanced `BEGIN`/`END`, out-of-order, or duplicate markers), the deploy refuses and warns, leaving `AGENTS.md` unchanged and letting the install continue — it never deletes or duplicates user content. Resolve the markers manually and re-run to get the block.
+
+**Command names**: the guidance text uses each CLI's own memory commands — Gemini/Cursor use `search-memory` / `memory-status` / `save-memory`; Codex uses `search-memory` / `memory-status` (no `save-memory`); Claude uses the `aim-*` skills.
 
 ## IDE-Specific Details
 
@@ -170,7 +185,7 @@ MCP tools are normalized across all IDEs:
 
 ### IDE not detected during installation
 - Ensure the IDE CLI is in your PATH (`gemini`, `codex`, `agent`/`cursor-agent`)
-- Use `--ide gemini,cursor` to skip detection and force configuration
+- Use `IDE_FLAG=gemini,cursor` to skip detection and force configuration
 
 ### Hooks not firing
 - Check that the config file exists (`.gemini/settings.json`, `.cursor/hooks.json`, etc.)

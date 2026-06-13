@@ -1380,6 +1380,7 @@ main() {
     create_project_symlinks
     configure_project_hooks
     verify_project_hooks
+    deploy_ai_memory_rules
     setup_audit_directory
 
     # Parzival session agent (optional, SPEC-015)
@@ -1596,6 +1597,13 @@ sync_installed_files() {
         log_debug "Copying Claude Code commands..."
         mkdir -p "$dst_dir/.claude/commands"
         cp -r "$src_dir/.claude/commands/"* "$dst_dir/.claude/commands/" 2>/dev/null || true
+    fi
+
+    # .claude/rules/ — AI-Memory-owned agent-guidance rule file (TD-600)
+    if [[ -d "$src_dir/.claude/rules" ]]; then
+        log_debug "Copying Claude Code rules..."
+        mkdir -p "$dst_dir/.claude/rules"
+        cp -r "$src_dir/.claude/rules/"* "$dst_dir/.claude/rules/" 2>/dev/null || true
     fi
 
     # _ai-memory/ — deployable package (full replace: removes stale files not in source)
@@ -3706,10 +3714,50 @@ write_gemini_config() {
     local project_id="$3"
     local force="${4:-false}"
     local config_file="$project_path/.gemini/settings.json"
+    local guidance_src="$install_dir/src/memory/adapters/templates/gemini/ai-memory.md"
+
+    # TD-600: deploy the guidance file and ensure context.fileName registration on
+    # every install — regardless of whether the hook config write is skipped below.
+    # Gemini discovers context files by basename, so AI-MEMORY.md lives at project
+    # root (the user's GEMINI.md is never touched).
+    if [[ -f "$guidance_src" ]]; then
+        cp "$guidance_src" "$project_path/AI-MEMORY.md"
+        log_success "Deployed agent-guidance file to $project_path/AI-MEMORY.md"
+    fi
+    # Ensure AI-MEMORY.md is registered in context.fileName when an existing
+    # settings.json would otherwise be skipped (append-preserve: never drops GEMINI.md
+    # or user entries; non-str/non-list type guard retained).
+    if [[ -f "$config_file" ]]; then
+        python3 -c "
+import json, sys
+config_path = sys.argv[1]
+try:
+    with open(config_path) as f:
+        cfg = json.load(f)
+except (ValueError, OSError):
+    cfg = {}
+ctx = cfg.setdefault('context', {})
+existing = ctx.get('fileName')
+if existing is None:
+    names = ['GEMINI.md']
+elif isinstance(existing, str):
+    names = [existing]
+elif isinstance(existing, list):
+    names = list(existing)
+else:
+    names = ['GEMINI.md']
+if 'AI-MEMORY.md' not in names:
+    names.append('AI-MEMORY.md')
+    ctx['fileName'] = names
+    with open(config_path, 'w') as f:
+        json.dump(cfg, f, indent=2)
+        f.write('\n')
+" "$config_file"
+    fi
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
-            log_warning "Gemini config already contains ai-memory hooks — skipping (use --force to overwrite)"
+            log_warning "Gemini config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
             return 0
         fi
     fi
@@ -3719,8 +3767,9 @@ write_gemini_config() {
     local ad="$install_dir/src/memory/adapters"
 
     python3 -c "
-import json, sys
+import json, os, sys
 install_dir, project_id, py, ad = sys.argv[1:5]
+config_path = sys.argv[5]
 config = {
     'env': {
         'AI_MEMORY_INSTALL_DIR': install_dir,
@@ -3746,7 +3795,30 @@ config = {
         'PreCompress': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/pre_compress.py\"', 'timeout': 60000}]}]
     }
 }
-with open(sys.argv[5], 'w') as f:
+# TD-600: register the AI-Memory-owned guidance file in context.fileName so it
+# auto-loads with every prompt, WITHOUT dropping GEMINI.md or any user entries.
+# Setting context.fileName disables Gemini's implicit GEMINI.md default, so when
+# the user has no prior setting we must list GEMINI.md explicitly alongside ours.
+existing_names = None
+if os.path.exists(config_path):
+    try:
+        with open(config_path) as f:
+            existing_names = json.load(f).get('context', {}).get('fileName')
+    except (ValueError, OSError):
+        existing_names = None
+if existing_names is None:
+    names = ['GEMINI.md']
+elif isinstance(existing_names, str):
+    names = [existing_names]
+elif isinstance(existing_names, list):
+    names = list(existing_names)
+else:
+    # Non-string, non-list value (e.g. integer, boolean) — treat as absent.
+    names = ['GEMINI.md']
+if 'AI-MEMORY.md' not in names:
+    names.append('AI-MEMORY.md')
+config['context'] = {'fileName': names}
+with open(config_path, 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
 " "$install_dir" "$project_id" "$py" "$ad" "$config_file"
@@ -3763,10 +3835,20 @@ write_cursor_config() {
     local project_id="$3"
     local force="${4:-false}"
     local config_file="$project_path/.cursor/hooks.json"
+    local guidance_src="$install_dir/src/memory/adapters/templates/cursor/ai-memory.mdc"
+
+    # TD-600: deploy the AI-Memory-owned guidance rule on every install — regardless
+    # of whether the hook config write is skipped below. The .mdc carries
+    # `alwaysApply: true`; never touches other .mdc, .cursorrules, or AGENTS.md.
+    if [[ -f "$guidance_src" ]]; then
+        mkdir -p "$project_path/.cursor/rules"
+        cp "$guidance_src" "$project_path/.cursor/rules/ai-memory.mdc"
+        log_success "Deployed agent-guidance rule to $project_path/.cursor/rules/ai-memory.mdc"
+    fi
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
-            log_warning "Cursor config already contains ai-memory hooks — skipping (use --force to overwrite)"
+            log_warning "Cursor config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
             return 0
         fi
     fi
@@ -3813,10 +3895,34 @@ write_codex_config() {
     local project_id="$3"
     local force="${4:-false}"
     local config_file="$project_path/.codex/hooks.json"
+    local guidance_src="$install_dir/src/memory/adapters/templates/codex/ai-memory.md"
+    local merge_script="$install_dir/scripts/merge_agents_md.py"
+
+    # TD-600: deploy the guidance block on every install — regardless of whether the
+    # hook config write is skipped below. Managed marker-block in AGENTS.md
+    # (insert-if-absent / replace-in-place); merge_agents_md.py backs up + writes
+    # atomically; everything outside markers preserved byte-for-byte. On malformed
+    # markers (exit 2) it warns and leaves AGENTS.md unchanged; install continues.
+    if [[ -f "$guidance_src" ]]; then
+        if [[ -f "$merge_script" ]]; then
+            if python3 "$merge_script" "$project_path/AGENTS.md" "$guidance_src"; then
+                log_success "Deployed agent-guidance block to $project_path/AGENTS.md"
+            else
+                local rc=$?
+                if [[ "$rc" -eq 2 ]]; then
+                    : # malformed-marker refuse — merge_agents_md.py already warned to stderr; continue
+                else
+                    log_warning "Codex guidance deploy failed (exit ${rc}); AGENTS.md left unchanged — continuing install"
+                fi
+            fi
+        else
+            log_warning "merge_agents_md.py not found in $install_dir/scripts — skipping Codex guidance block"
+        fi
+    fi
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
-            log_warning "Codex config already contains ai-memory hooks — skipping (use --force to overwrite)"
+            log_warning "Codex config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
             return 0
         fi
     fi
@@ -4922,6 +5028,23 @@ deploy_ai_memory_agents() {
     if [[ $agents_count -gt 0 ]]; then
         log_success "Deployed $agents_count agent(s) to $PROJECT_PATH/.claude/agents/"
     fi
+}
+
+# TD-600: Deploy the AI-Memory agent-guidance rule file to the project.
+# Claude Code auto-loads $PROJECT_PATH/.claude/rules/*.md at session start.
+# We own this exact filename (ai-memory.md), so overwriting it on each install
+# is idempotent-by-construction and never touches user-authored files —
+# not CLAUDE.md, not .claude/CLAUDE.md, not any other .claude/rules/*.md.
+deploy_ai_memory_rules() {
+    local src="$INSTALL_DIR/.claude/rules/ai-memory.md"
+    if [[ ! -f "$src" ]]; then
+        log_debug "No agent-guidance rule file found in INSTALL_DIR — skipping"
+        return 0
+    fi
+
+    mkdir -p "$PROJECT_PATH/.claude/rules"
+    cp "$src" "$PROJECT_PATH/.claude/rules/ai-memory.md"
+    log_success "Deployed agent-guidance rule to $PROJECT_PATH/.claude/rules/ai-memory.md"
 }
 
 # Write Parzival env vars into _ai-memory/pov/config.yaml
