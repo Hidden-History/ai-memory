@@ -418,25 +418,38 @@ def test_subprocess_timeout_is_fail_open(adapter, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_event_contract_stop_maps_to_canonical_Stop():
-    """normalize_cursor_event('stop') → hook_event_name=='Stop' in VALID_HOOK_EVENTS.
+def test_event_contract_stop_maps_to_canonical_Stop(adapter, tmp_path):
+    """Adapter wires native 'stop' to normalize_cursor_event — not another event name.
 
-    Asserts the Cursor adapter wires the correct end-of-turn event and that the
-    resulting canonical name passes validate_canonical_event without raising.
+    Calls adapter.main() with a valid payload and asserts normalize_cursor_event
+    is invoked with event_name='stop'. Fails if the adapter reverts to passing
+    a different event name (e.g. preCompact).
     """
-    from memory.adapters.schema import (
-        VALID_HOOK_EVENTS,
-        normalize_cursor_event,
-        validate_canonical_event,
+    (tmp_path / ".sot").mkdir()
+    (tmp_path / ".sot" / "registry.yaml").write_text("entries: []\n")
+    payload = _make_payload(str(tmp_path))
+
+    import memory.adapters.schema as schema_mod
+
+    captured = []
+    original_normalize = schema_mod.normalize_cursor_event
+
+    def spy_normalize(raw, event_name):
+        captured.append(event_name)
+        return original_normalize(raw, event_name)
+
+    mock_run = MagicMock(return_value=_engine_ok())
+
+    with (
+        pytest.raises(SystemExit) as exc_info,
+        patch.object(sys, "stdin", io.StringIO(payload)),
+        patch.object(adapter.subprocess, "run", mock_run),
+        patch.object(schema_mod, "normalize_cursor_event", side_effect=spy_normalize),
+    ):
+        adapter.main()
+
+    assert exc_info.value.code == 0
+    assert captured == ["stop"], (
+        f"Adapter must wire native 'stop'; got {captured!r} "
+        "(reverted to preCompact?)"
     )
-
-    payload = {"session_id": "test-sess-cursor", "cwd": "/tmp/proj"}
-    event = normalize_cursor_event(payload, "stop")
-
-    assert (
-        event["hook_event_name"] == "Stop"
-    ), f"Expected canonical 'Stop', got {event['hook_event_name']!r}"
-    assert (
-        event["hook_event_name"] in VALID_HOOK_EVENTS
-    ), f"'Stop' missing from VALID_HOOK_EVENTS: {VALID_HOOK_EVENTS}"
-    validate_canonical_event(event)  # must not raise

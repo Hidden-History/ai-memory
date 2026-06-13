@@ -13,7 +13,7 @@ Loop guard: Gemini CLI exposes no `gemini_hook_active` analog to Claude's `stop_
 The propose-only design is structurally loop-free — this adapter never writes any tracked
 file, so there is no asyncRewake-style re-entry risk (BP-032).
 
-Opt-in: ships unregistered. See aim-sot SKILL.md § Gemini AfterAgent Hook.
+Opt-in: ships unregistered. See aim-sot SKILL.md § Gemini — AfterAgent hook.
 """
 
 import json

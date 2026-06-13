@@ -119,14 +119,14 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 
 ```json
 {
-  "verdict": "PASS | CONDITIONAL | FAIL",
+  "verdict": "PASS",
   "checks_run": ["S1","S2","S3","S4","R1","R2","R3","R4","C1","C2","C3","C4","K1","K2","K3","K4"],
-  "failures": [{"check": "R1", "entry_id": "my-svc", "detail": "..."}],
-  "warnings": [{"check": "R4", "entry_id": "my-svc", "detail": "..."}],
-  "ran_pass": ["S1","S2","S3","S4","R1","R4","C1","C3","K1","K2","K3","K4"],
+  "failures": [],
+  "warnings": [],
+  "ran_pass": ["S1","S2","S3","S4","R1","R2","R4","C1","C3","K1","K2","K3","K4"],
   "no_op":    ["R3","C2","C4"],
   "skipped":  [],
-  "pass_count": 12,
+  "pass_count": 13,
   "fail_count": 0
 }
 ```

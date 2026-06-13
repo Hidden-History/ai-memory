@@ -11,7 +11,7 @@ Loop guard: Codex exposes no `codex_hook_active` analog to Claude's `stop_hook_a
 The propose-only design is structurally loop-free — this adapter never writes any tracked
 file, so there is no asyncRewake-style re-entry risk (BP-032).
 
-Opt-in: ships unregistered. See aim-sot SKILL.md § Codex Stop Adapter.
+Opt-in: ships unregistered. See aim-sot SKILL.md § Codex — Stop hook.
 """
 
 import json

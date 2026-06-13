@@ -159,8 +159,11 @@ def _find_write_ops(source: str) -> list:
 # ---------------------------------------------------------------------------
 
 
-def test_registry_present_engine_invoked(adapter, tmp_path):
+def test_registry_present_engine_invoked(adapter, tmp_path, monkeypatch):
     """Registry exists → engine IS invoked, adapter exits 0."""
+    monkeypatch.delenv("GEMINI_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("GEMINI_CWD", raising=False)
+
     (tmp_path / ".sot").mkdir()
     (tmp_path / ".sot" / "registry.yaml").write_text("entries: []\n")
 
@@ -204,12 +207,15 @@ def test_no_registry_exits_quietly(adapter, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_engine_invoked_with_correct_args(adapter, tmp_path):
+def test_engine_invoked_with_correct_args(adapter, tmp_path, monkeypatch):
     """subprocess cmd must be: bash <run-with-env.sh full path> <engine full path>
     run --json --registry <registry_path>.
     Mutation guards: change bash→python, drop --json, drop --registry, bare script
     name → each breaks one of the asserts below.
     """
+    monkeypatch.delenv("GEMINI_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("GEMINI_CWD", raising=False)
+
     (tmp_path / ".sot").mkdir()
     (tmp_path / ".sot" / "registry.yaml").write_text("entries: []\n")
 
@@ -273,8 +279,9 @@ def test_non_git_env_still_runs(adapter, tmp_path):
     payload = _make_payload(str(tmp_path))
     mock_run = MagicMock(return_value=_engine_ok())
 
-    # Strip AI_MEMORY_PROJECT_ID from environment if present
-    clean_env = {k: v for k, v in os.environ.items() if k != "AI_MEMORY_PROJECT_ID"}
+    # Strip project-id and Gemini cwd-override env vars so resolve_cwd uses stdin cwd
+    _strip = {"AI_MEMORY_PROJECT_ID", "GEMINI_PROJECT_DIR", "GEMINI_CWD"}
+    clean_env = {k: v for k, v in os.environ.items() if k not in _strip}
 
     with (
         pytest.raises(SystemExit) as exc_info,
