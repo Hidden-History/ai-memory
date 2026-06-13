@@ -14,9 +14,9 @@ The registry lives in **the user's own repository** at `.sot/registry.yaml`, com
 
 ## Modes
 
-Three engine modes are implemented in subsequent build steps (Wave-1, Items 2–4):
+Three engine modes:
 
-- **consult** — read-only query engine over the user's committed `.sot/registry.yaml`. Subcommands: `list` (all entries), `get <id>` (full entry), `where <id>` (sot_location), `who <id>` (owner), `drift <id>` (drift_check). Global flags: `--registry PATH` (override path), `--json` (machine-readable output). Invoked via `run-with-env.sh` (Pattern B, BP-013). A 5b-cache slot in `_load_entries()` is ready for the derived memory cache (Item 3). Script: `_ai-memory/skills/aim-sot/scripts/aim_sot_consult.py`.
+- **consult** — read-only query engine over the user's committed `.sot/registry.yaml`. Subcommands: `list` (all entries), `get <id>` (full entry), `where <id>` (sot_location), `who <id>` (owner), `drift <id>` (drift_check). Global flags: `--registry PATH` (override path), `--json` (machine-readable output). Invoked via `run-with-env.sh` (Pattern B, BP-013). Script: `_ai-memory/skills/aim-sot/scripts/aim_sot_consult.py`.
 - **detect-propose** — hybrid auto-discover → propose: scans for candidate components, computes actual state, compares to the registry, and emits a proposed patch on drift or new candidates. Never writes the registry directly.
 - **verify** — 16-check gate (Schema · Referential · Completeness · Content). Mandatory before any apply; human approval (HITL) required. CI/pre-commit hook is opt-in only, never auto-installed.
 
@@ -202,6 +202,86 @@ Add the following entry to your project's `.claude/settings.json` (under `hooks.
 Once registered, the hook fires automatically at every Claude Code session end. It invokes
 `detect-propose` in propose-only mode and prints a one-line summary to stderr when drift
 or new candidates are detected. It never writes any committed file.
+
+---
+
+## Trigger Opt-in — Codex / Cursor / Gemini
+
+The Codex `Stop`, Cursor `preCompact`, and Gemini `PreCompress` adapters ship
+**unregistered** (BP-032). Add the relevant entry to your project's hook config to
+enable automatic SOT-drift detection for each CLI.
+
+### Codex — Stop hook
+
+Adapter: `src/memory/adapters/codex/sot_drift.py`  
+Config: `.codex/hooks.json` — add under `hooks.Stop`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_drift.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_drift.py\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Fires propose-only at every Codex session stop. Never writes any committed file.
+
+### Cursor — preCompact hook
+
+Adapter: `src/memory/adapters/cursor/sot_drift.py`  
+Config: `.cursor/hooks.json` — add under `hooks.preCompact`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "preCompact": [
+      {
+        "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_drift.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_drift.py\" || true",
+        "timeout": 30
+      }
+    ]
+  }
+}
+```
+
+Fires propose-only before every Cursor context compaction. Never writes any committed file.
+
+### Gemini — PreCompress hook
+
+Adapter: `src/memory/adapters/gemini/sot_drift.py`  
+Config: `.gemini/settings.json` — add under `hooks.PreCompress`:
+
+```json
+{
+  "hooks": {
+    "PreCompress": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_drift.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_drift.py\" || true",
+            "timeout": 60000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Fires propose-only before every Gemini CLI context compression. Never writes any committed file.
 
 ---
 
