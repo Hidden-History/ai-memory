@@ -1504,3 +1504,33 @@ def test_K1_empty_sha_conditional(tmp_path):
     assert k1, "empty last_verified_sha must emit a K1 CONDITIONAL warning (FV-2)"
     assert "no recorded content hash" in k1[0]["detail"]
     assert k1[0].get("kind") == "skipped_no_baseline"
+
+
+# ---------------------------------------------------------------------------
+# test_flat_registry_override_emits_verdict — DEFECT-3
+# ---------------------------------------------------------------------------
+
+
+def test_flat_registry_override_emits_verdict(tmp_path):
+    """DEFECT-3: a non-conforming --registry path must emit a verdict, not crash.
+
+    A flat --registry override (not under <root>/.sot/) makes
+    _project_root_from_registry return None. Pre-fix that None reached the path
+    checks (R1/R4/C3/discovery/K1) unguarded and raised TypeError; a validation
+    gate must never traceback. cmd_run now resolves declared locations relative
+    to the registry's own directory and emits a structured FAIL.
+    """
+    # Flat registry: parent dir is not '.sot' → project root resolves to None.
+    reg = tmp_path / "registry.yaml"
+    entry = _good_entry(tmp_path, create_file=False)  # file absent → R1 FAIL
+    reg.write_text(
+        yaml.dump({"schema_version": "1.0", "entries": [entry]}), encoding="utf-8"
+    )
+    assert vf._project_root_from_registry(reg) is None
+
+    args = _make_args(registry=str(reg))
+    verdict = _run_cmd(args, tmp_path)  # must not raise TypeError
+
+    assert verdict["verdict"] in {"PASS", "CONDITIONAL", "FAIL"}
+    r1 = [f for f in verdict["failures"] if f["check"] == "R1"]
+    assert r1, "R1 must resolve against the registry dir and FAIL on the absent file"

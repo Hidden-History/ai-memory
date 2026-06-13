@@ -1040,7 +1040,12 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
         existing_locs = None
 
     # --- Project root ---
+    # A conforming registry (<root>/.sot/registry.yaml) yields a project root we
+    # can safely scan; a flat --registry override yields None — resolve declared
+    # locations relative to the registry's directory so a validation gate emits a
+    # verdict rather than tracebacking on the None root.
     project_root = _project_root_from_registry(registry_path)
+    resolve_root = project_root if project_root is not None else registry_path.parent
 
     # --- K1: load 5a drift cache. A missing baseline surfaces CONDITIONAL (not a
     #     silent PASS); --project-id lets CI/teammates supply the id explicitly. ---
@@ -1059,7 +1064,7 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
     # --- Run all 16 checks ---
     failures, warnings = _run_all_checks(
         verify_entries,
-        project_root,
+        resolve_root,
         cache,
         sc,
         check_urls=getattr(args, "check_urls", False),
