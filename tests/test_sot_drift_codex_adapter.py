@@ -12,6 +12,8 @@ Coverage:
   T-CD08 — subprocess_timeout_is_fail_open: TimeoutExpired → exit 0
   T-CD09 — engine_nonzero_exit_is_fail_open: engine rc=1 → exit 0
   T-CD10 — timeout_handler_exits_0: _timeout_handler raises SystemExit(0)
+  T-CD11 — event_contract_Stop_maps_to_canonical_Stop: native 'Stop' → canonical 'Stop'
+             in VALID_HOOK_EVENTS; validate_canonical_event does not raise
 
 Dropped vs Wave-1 Claude reference: loop-guard (T-SH01/02) and worktree
 normalization (T-SH03/04/integration) — both Claude-specific; codex normalizer
@@ -404,3 +406,32 @@ def test_timeout_handler_exits_0(adapter):
     with pytest.raises(SystemExit) as exc_info:
         adapter._timeout_handler(signal.SIGALRM, None)
     assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# T-CD11 — event-contract: native 'Stop' → canonical 'Stop' (F-C-S-5)
+# ---------------------------------------------------------------------------
+
+
+def test_event_contract_Stop_maps_to_canonical_Stop():
+    """normalize_codex_event('Stop') → hook_event_name=='Stop' in VALID_HOOK_EVENTS.
+
+    Asserts the Codex adapter wires the correct end-of-turn event and that the
+    resulting canonical name passes validate_canonical_event without raising.
+    """
+    from memory.adapters.schema import (
+        VALID_HOOK_EVENTS,
+        normalize_codex_event,
+        validate_canonical_event,
+    )
+
+    payload = {"session_id": "test-sess-codex", "cwd": "/tmp/proj"}
+    event = normalize_codex_event(payload, "Stop")
+
+    assert (
+        event["hook_event_name"] == "Stop"
+    ), f"Expected canonical 'Stop', got {event['hook_event_name']!r}"
+    assert (
+        event["hook_event_name"] in VALID_HOOK_EVENTS
+    ), f"'Stop' missing from VALID_HOOK_EVENTS: {VALID_HOOK_EVENTS}"
+    validate_canonical_event(event)  # must not raise

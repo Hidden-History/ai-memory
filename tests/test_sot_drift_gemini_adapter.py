@@ -1,5 +1,5 @@
 """
-Tests for src/memory/adapters/gemini/sot_drift.py — Gemini PreCompress SOT-drift
+Tests for src/memory/adapters/gemini/sot_drift.py — Gemini AfterAgent SOT-drift
 trigger adapter (Wave-2).
 
 Coverage:
@@ -15,6 +15,10 @@ Coverage:
   T-GA08 — timeout_handler_exits_0: _timeout_handler raises SystemExit(0)
   T-GA09 — empty_stdin_exits_quietly: empty stdin → exit 0, no subprocess
   T-GA10 — subprocess_timeout_is_fail_open: TimeoutExpired → adapter exits 0
+  T-GA11 — event_contract_AfterAgent_maps_to_canonical_Stop: native 'AfterAgent' → 'Stop'
+             in VALID_HOOK_EVENTS; validate_canonical_event does not raise
+  T-GA12 — gemini_project_dir_preferred_over_stdin_cwd: GEMINI_PROJECT_DIR wins when
+             both env var and stdin cwd are set (F-C-S-6)
 
 All tests are hermetic (no network, tmp dirs, subprocess mocked).
 normalize_gemini_event + validate_canonical_event run against the real installed schema.
@@ -56,7 +60,7 @@ def adapter():
 
 
 def _make_payload(cwd, *, session_id="sess-gemini-abc"):
-    """Build a minimal Gemini PreCompress payload JSON string."""
+    """Build a minimal Gemini AfterAgent payload JSON string."""
     return json.dumps({"session_id": session_id, "cwd": cwd})
 
 
@@ -410,3 +414,76 @@ def test_subprocess_timeout_is_fail_open(adapter, tmp_path):
         adapter.main()
 
     assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# T-GA11 — event-contract: native 'AfterAgent' → canonical 'Stop' (F-C-S-5)
+# ---------------------------------------------------------------------------
+
+
+def test_event_contract_AfterAgent_maps_to_canonical_Stop():
+    """normalize_gemini_event('AfterAgent') → hook_event_name=='Stop' in VALID_HOOK_EVENTS.
+
+    Asserts the Gemini adapter wires the correct end-of-turn event and that the
+    resulting canonical name passes validate_canonical_event without raising.
+    """
+    from memory.adapters.schema import (
+        VALID_HOOK_EVENTS,
+        normalize_gemini_event,
+        validate_canonical_event,
+    )
+
+    payload = {"session_id": "test-sess-gemini", "cwd": "/tmp/proj"}
+    event = normalize_gemini_event(payload, "AfterAgent")
+
+    assert (
+        event["hook_event_name"] == "Stop"
+    ), f"Expected canonical 'Stop', got {event['hook_event_name']!r}"
+    assert (
+        event["hook_event_name"] in VALID_HOOK_EVENTS
+    ), f"'Stop' missing from VALID_HOOK_EVENTS: {VALID_HOOK_EVENTS}"
+    validate_canonical_event(event)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# T-GA12 — GEMINI_PROJECT_DIR preferred over stdin cwd (F-C-S-6)
+# ---------------------------------------------------------------------------
+
+
+def test_gemini_project_dir_preferred_over_stdin_cwd(adapter, tmp_path):
+    """GEMINI_PROJECT_DIR env var takes precedence over stdin cwd when both are set.
+
+    The adapter must resolve cwd to GEMINI_PROJECT_DIR (the reliable absolute
+    project root exposed by Gemini CLI) rather than the potentially-stale stdin
+    cwd field (BP-032 §Finding 1).
+    """
+    # GEMINI_PROJECT_DIR points to a SOT-enabled project
+    project_dir = tmp_path / "gemini_project"
+    project_dir.mkdir()
+    (project_dir / ".sot").mkdir()
+    (project_dir / ".sot" / "registry.yaml").write_text("entries: []\n")
+
+    # stdin cwd points somewhere else — adapter must NOT use it for registry lookup
+    other_dir = tmp_path / "other_dir"
+    other_dir.mkdir()
+
+    payload = _make_payload(str(other_dir))
+    mock_run = MagicMock(return_value=_engine_ok())
+
+    with (
+        pytest.raises(SystemExit) as exc_info,
+        patch.object(sys, "stdin", io.StringIO(payload)),
+        patch.object(adapter.subprocess, "run", mock_run),
+        patch.dict(os.environ, {"GEMINI_PROJECT_DIR": str(project_dir)}),
+    ):
+        adapter.main()
+
+    assert exc_info.value.code == 0
+    # Engine called — GEMINI_PROJECT_DIR resolved to a SOT-enabled project
+    mock_run.assert_called_once()
+    # Registry path in the subprocess call must use the GEMINI_PROJECT_DIR root
+    cmd = mock_run.call_args[0][0]
+    registry_idx = cmd.index("--registry")
+    assert (
+        str(project_dir / ".sot" / "registry.yaml") == cmd[registry_idx + 1]
+    ), f"Expected registry from GEMINI_PROJECT_DIR; got {cmd[registry_idx + 1]!r}"

@@ -7,6 +7,10 @@ or new candidates are found. Never writes any committed file.
 
 Input (stdin JSON): {session_id, cwd, ...}  (Codex Stop native payload)
 
+Loop guard: Codex exposes no `codex_hook_active` analog to Claude's `stop_hook_active`.
+The propose-only design is structurally loop-free — this adapter never writes any tracked
+file, so there is no asyncRewake-style re-entry risk (BP-032).
+
 Opt-in: ships unregistered. See aim-sot SKILL.md § Codex Stop Adapter.
 """
 

@@ -155,7 +155,17 @@ def resolve_session_id(payload: dict) -> str:
 
 
 def resolve_cwd(payload: dict, ide_source: str) -> str:
-    """Resolve cwd from IDE payload using fallback chain (FR-602)."""
+    """Resolve cwd from IDE payload using fallback chain (FR-602).
+
+    Gemini precedence: GEMINI_PROJECT_DIR env → stdin cwd → GEMINI_CWD env → os.getcwd().
+    GEMINI_PROJECT_DIR is the absolute project root exposed by Gemini CLI hooks
+    and is more reliable than the cwd field in the stdin payload (BP-032).
+    """
+    if ide_source == "gemini":
+        gemini_project_dir = os.environ.get("GEMINI_PROJECT_DIR")
+        if gemini_project_dir:
+            return gemini_project_dir
+
     cwd = payload.get("cwd")
     if cwd and isinstance(cwd, str) and cwd.strip():
         return cwd.strip()
@@ -210,6 +220,7 @@ _GEMINI_HOOK_MAP = {
     "BeforeAgent": "UserPromptSubmit",
     "PreCompress": "PreCompact",
     "SessionEnd": "SessionEnd",
+    "AfterAgent": "Stop",
 }
 
 # Gemini tool name → canonical tool name mapping

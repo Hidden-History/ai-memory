@@ -207,7 +207,7 @@ or new candidates are detected. It never writes any committed file.
 
 ## Trigger Opt-in — Codex / Cursor / Gemini
 
-The Codex `Stop`, Cursor `preCompact`, and Gemini `PreCompress` adapters ship
+The Codex `Stop`, Cursor `stop`, and Gemini `AfterAgent` adapters ship
 **unregistered** (BP-032). Add the relevant entry to your project's hook config to
 enable automatic SOT-drift detection for each CLI.
 
@@ -236,16 +236,16 @@ Config: `.codex/hooks.json` — add under `hooks.Stop`:
 
 Fires propose-only at every Codex session stop. Never writes any committed file.
 
-### Cursor — preCompact hook
+### Cursor — stop hook
 
 Adapter: `src/memory/adapters/cursor/sot_drift.py`  
-Config: `.cursor/hooks.json` — add under `hooks.preCompact`:
+Config: `.cursor/hooks.json` — add under `hooks.stop`:
 
 ```json
 {
   "version": 1,
   "hooks": {
-    "preCompact": [
+    "stop": [
       {
         "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_drift.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_drift.py\" || true",
         "timeout": 30
@@ -255,17 +255,17 @@ Config: `.cursor/hooks.json` — add under `hooks.preCompact`:
 }
 ```
 
-Fires propose-only before every Cursor context compaction. Never writes any committed file.
+Fires propose-only at end-of-turn (Cursor `stop` event). Never writes any committed file.
 
-### Gemini — PreCompress hook
+### Gemini — AfterAgent hook
 
 Adapter: `src/memory/adapters/gemini/sot_drift.py`  
-Config: `.gemini/settings.json` — add under `hooks.PreCompress`:
+Config: `.gemini/settings.json` — add under `hooks.AfterAgent`:
 
 ```json
 {
   "hooks": {
-    "PreCompress": [
+    "AfterAgent": [
       {
         "matcher": ".*",
         "hooks": [
@@ -281,7 +281,7 @@ Config: `.gemini/settings.json` — add under `hooks.PreCompress`:
 }
 ```
 
-Fires propose-only before every Gemini CLI context compression. Never writes any committed file.
+Fires propose-only at end-of-turn (Gemini `AfterAgent` event). Never writes any committed file.
 
 ---
 

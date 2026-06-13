@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Cursor IDE preCompact SOT-drift trigger adapter — propose-only, opt-in-OFF by default.
+"""Cursor IDE stop SOT-drift trigger adapter — propose-only, opt-in-OFF by default.
 
-Fires on Cursor preCompact event. Invokes the aim-sot detect-propose engine in
-propose-only mode and surfaces a one-line summary to stderr when drift or new
+Fires on Cursor stop event (end-of-turn). Invokes the aim-sot detect-propose engine
+in propose-only mode and surfaces a one-line summary to stderr when drift or new
 candidates are found. Never writes any committed file.
 
-Input (stdin JSON): Cursor preCompact payload (normalized via normalize_cursor_event)
+Input (stdin JSON): Cursor stop payload (normalized via normalize_cursor_event)
 
-Opt-in: ships unregistered. See aim-sot SKILL.md § Cursor PreCompact Hook.
+Loop guard: Cursor exposes no `cursor_hook_active` analog to Claude's `stop_hook_active`.
+The propose-only design is structurally loop-free — this adapter never writes any tracked
+file, so there is no asyncRewake-style re-entry risk (BP-032).
+
+Opt-in: ships unregistered. See aim-sot SKILL.md § Cursor Stop Hook.
 """
 
 import json
@@ -34,7 +38,7 @@ def _timeout_handler(signum, frame):
 
 
 def main():
-    """Main entry point for Cursor preCompact SOT-drift adapter."""
+    """Main entry point for Cursor stop SOT-drift adapter."""
     # Install global self-termination timeout (signal.alarm best practice).
     # Skipped in test environments to prevent SIGALRM leaks across tests.
     if not os.environ.get("PYTEST_CURRENT_TEST"):
@@ -62,7 +66,7 @@ def main():
                 validate_canonical_event,
             )
 
-            event = normalize_cursor_event(payload, "preCompact")
+            event = normalize_cursor_event(payload, "stop")
             validate_canonical_event(event)
         except (ValueError, ImportError):
             sys.exit(0)

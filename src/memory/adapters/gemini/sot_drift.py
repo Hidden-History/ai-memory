@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Gemini CLI PreCompress SOT-drift trigger adapter — propose-only, opt-in-OFF by default.
+"""Gemini CLI AfterAgent SOT-drift trigger adapter — propose-only, opt-in-OFF by default.
 
-Fires on Gemini CLI PreCompress event (canonical: PreCompact). Invokes the
+Fires on Gemini CLI AfterAgent event (end-of-turn; canonical: Stop). Invokes the
 aim-sot detect-propose engine in propose-only mode and surfaces a one-line
 summary to stderr when drift or new candidates are found. Never writes any
 committed file.
 
-Input (stdin JSON): Gemini PreCompress payload (normalized via normalize_gemini_event)
+Input (stdin JSON): Gemini AfterAgent payload (normalized via normalize_gemini_event)
+cwd resolution: prefers GEMINI_PROJECT_DIR env var over stdin cwd field (BP-032).
 
-Opt-in: ships unregistered. See aim-sot SKILL.md § Gemini PreCompact Hook.
+Loop guard: Gemini CLI exposes no `gemini_hook_active` analog to Claude's `stop_hook_active`.
+The propose-only design is structurally loop-free — this adapter never writes any tracked
+file, so there is no asyncRewake-style re-entry risk (BP-032).
+
+Opt-in: ships unregistered. See aim-sot SKILL.md § Gemini AfterAgent Hook.
 """
 
 import json
@@ -35,7 +40,7 @@ def _timeout_handler(signum, frame):
 
 
 def main():
-    """Main entry point for Gemini PreCompress SOT-drift adapter."""
+    """Main entry point for Gemini AfterAgent SOT-drift adapter."""
     # Install global self-termination timeout (signal.alarm best practice).
     # Skipped in test environments to prevent SIGALRM leaks across tests.
     if not os.environ.get("PYTEST_CURRENT_TEST"):
@@ -63,7 +68,7 @@ def main():
                 validate_canonical_event,
             )
 
-            event = normalize_gemini_event(payload, "PreCompress")
+            event = normalize_gemini_event(payload, "AfterAgent")
             validate_canonical_event(event)
         except (ValueError, ImportError):
             sys.exit(0)

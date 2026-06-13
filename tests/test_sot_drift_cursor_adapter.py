@@ -1,5 +1,5 @@
 """
-Tests for sot_drift.py — Cursor preCompact SOT-drift trigger adapter (Wave-2).
+Tests for sot_drift.py — Cursor stop SOT-drift trigger adapter (Wave-2).
 
 Coverage:
   T-CA01 — registry_present_engine_invoked: .sot/registry.yaml present → engine called, exit 0
@@ -14,6 +14,8 @@ Coverage:
   T-CA08 — timeout_handler_exits_0: _timeout_handler raises SystemExit(0)
   T-CA09 — empty_stdin_exits_quietly: empty stdin → exit 0, no subprocess
   T-CA10 — subprocess_timeout_is_fail_open: TimeoutExpired → adapter exits 0
+  T-CA11 — event_contract_stop_maps_to_canonical_Stop: native 'stop' → canonical 'Stop'
+             in VALID_HOOK_EVENTS; validate_canonical_event does not raise
 
 All tests are hermetic (no network, tmp dirs, subprocess mocked).
 normalize_cursor_event + validate_canonical_event run against the real installed schema.
@@ -55,7 +57,7 @@ def adapter():
 
 
 def _make_payload(cwd, *, session_id="sess-cursor-abc"):
-    """Build a minimal Cursor preCompact payload JSON string."""
+    """Build a minimal Cursor stop payload JSON string."""
     return json.dumps({"session_id": session_id, "cwd": cwd})
 
 
@@ -409,3 +411,32 @@ def test_subprocess_timeout_is_fail_open(adapter, tmp_path):
         adapter.main()
 
     assert exc_info.value.code == 0
+
+
+# ---------------------------------------------------------------------------
+# T-CA11 — event-contract: native 'stop' → canonical 'Stop' (F-C-S-5)
+# ---------------------------------------------------------------------------
+
+
+def test_event_contract_stop_maps_to_canonical_Stop():
+    """normalize_cursor_event('stop') → hook_event_name=='Stop' in VALID_HOOK_EVENTS.
+
+    Asserts the Cursor adapter wires the correct end-of-turn event and that the
+    resulting canonical name passes validate_canonical_event without raising.
+    """
+    from memory.adapters.schema import (
+        VALID_HOOK_EVENTS,
+        normalize_cursor_event,
+        validate_canonical_event,
+    )
+
+    payload = {"session_id": "test-sess-cursor", "cwd": "/tmp/proj"}
+    event = normalize_cursor_event(payload, "stop")
+
+    assert (
+        event["hook_event_name"] == "Stop"
+    ), f"Expected canonical 'Stop', got {event['hook_event_name']!r}"
+    assert (
+        event["hook_event_name"] in VALID_HOOK_EVENTS
+    ), f"'Stop' missing from VALID_HOOK_EVENTS: {VALID_HOOK_EVENTS}"
+    validate_canonical_event(event)  # must not raise
