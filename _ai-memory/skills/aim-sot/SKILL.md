@@ -85,6 +85,84 @@ are never auto-filled — human-authored always (BP-029).**
 - **5b** (Qdrant `conventions` collection, `memory_type=sot_entry`) — derived memory
   cache; deterministically rebuildable from the committed registry via `reindex`.
 
+## Verify — Invocation
+
+```bash
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  aim_sot_verify.py run [--json] [--registry PATH] [--proposal PATH] \
+  [--check-urls] [--exec-drift-checks]
+```
+
+### Flags (`run`)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--registry PATH` | (git root walk) | Override registry path |
+| `--proposal PATH` | (committed registry) | JSON/YAML file with `entries` key — gate a detect-propose output pre-apply |
+| `--check-urls` | off | Activate R2 URL resolution (default: no-op; no network hit offline) |
+| `--exec-drift-checks` | off | Activate K3 drift_check execution (default: parse + PATH-exists only) |
+| `--json` | off | Machine-readable JSON output |
+
+### Verdicts (BP-024 §3.3)
+
+| Verdict | Condition | Apply-eligible? |
+|---------|-----------|-----------------|
+| `PASS` | 0 failures, 0 warnings | Yes |
+| `CONDITIONAL` | 0 failures, ≥1 warning | Human review required; no auto-apply |
+| `FAIL` | ≥1 failure | Blocked; fix and re-run |
+
+### JSON output schema (BP-024 §2)
+
+```json
+{
+  "verdict": "PASS | CONDITIONAL | FAIL",
+  "checks_run": ["S1","S2","S3","S4","R1","R2","R3","R4","C1","C2","C3","C4","K1","K2","K3","K4"],
+  "failures": [{"check": "R1", "entry_id": "my-svc", "detail": "..."}],
+  "warnings": [{"check": "R4", "entry_id": "my-svc", "detail": "..."}],
+  "pass_count": 14,
+  "fail_count": 0
+}
+```
+
+### 16-check taxonomy (BP-024)
+
+| Category | Check | Verdict on issue |
+|----------|-------|-----------------|
+| Schema / Structural | S1 required fields + type | FAIL |
+| | S2 ID uniqueness | FAIL |
+| | S3 YAML parse | FAIL |
+| | S4 controlled vocabulary (enum) | FAIL |
+| Referential Integrity | R1 sot_location resolves (superseded exempt) | FAIL |
+| | R2 URL resolves (`--check-urls` only; never network by default) | CONDITIONAL |
+| | R3 cross-ref (no-op — no ID cross-ref fields in current schema) | — |
+| | R4 owner in CODEOWNERS (normalized, no hard-FAIL) | CONDITIONAL |
+| Completeness | C1 unregistered candidates (run detect-propose to register) | CONDITIONAL |
+| | C2 orphan entries (no-op — propose-only format adds, never removes) | — |
+| | C3 missing path + not superseded | FAIL |
+| | C4 count assertion (N/A — no declared-count field in current schema) | — |
+| Content Correctness | K1 content hash changed (mandatory on hash change — deterministic trigger) | CONDITIONAL |
+| | K2 last_verified date plausible (past, non-epoch) | FAIL |
+| | K3 drift_check executable (`--exec-drift-checks` for actual run) | FAIL (parse) / CONDITIONAL (PATH) |
+| | K4 sot_location collision | FAIL |
+
+**Soft-check rulings (wb-approved):** R2 is a strict no-op offline — URL fields do not affect the verdict without `--check-urls`. K3 never executes by default — security-safe. K1 is a deterministic hash trigger only, never a semantic judge. R4 normalizes `@handle` before comparing; mismatch is always CONDITIONAL, never FAIL.
+
+### Usage — standalone audit
+
+```bash
+# Audit the committed registry in the current project:
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  aim_sot_verify.py run --json
+```
+
+### Usage — pre-apply proposal gate
+
+```bash
+# Gate a detect-propose output before applying it to the registry:
+bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+  aim_sot_verify.py run --proposal /path/to/proposal.json --json
+```
+
 ## Registry contract
 
 - `.sot/registry.yaml` is fully human-owned and committed; the schema and templates live in `_ai-memory/skills/aim-sot/`.
