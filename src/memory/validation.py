@@ -84,6 +84,7 @@ def validate_payload(payload: dict) -> list[str]:
         "SDKWrapper",  # SDK-based conversation capture
         "agent:subagent",  # Agent-triggered storage
         "parzival_agent",  # Parzival session agent (SPEC-015)
+        "aim_sot_detect_propose",  # aim-sot 5b derived-memory reindex (PR #187)
     ]
     if (
         "source_hook" in payload

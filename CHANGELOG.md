@@ -180,6 +180,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **aim-sot 5b reindex** — `detect-propose reindex` now persists `sot_entry` rows.
+  The core payload allow-list rejected the reindex's `source_hook`, so every derived-
+  memory write silently failed and the cache stayed empty. The allow-list now accepts
+  it. When writes are rejected by validation the command reports the rejection
+  accurately and exits non-zero, instead of misreporting a connectivity problem; a
+  genuinely unreachable store still exits zero and leaves the existing cache intact.
+
 - **BUG-318** — `aim-github-search` now defaults to the `github` Qdrant collection where
   GitHub content lives. The as-documented invocation (no `--collection` flag) returns
   results instead of zero; `--collection` remains supported for cross-collection queries.

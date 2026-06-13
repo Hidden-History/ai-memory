@@ -754,10 +754,13 @@ def _check_declaration_reality_drift(
 class ReindexResult(NamedTuple):
     """Outcome of a 5b reindex.  ``ok`` distinguishes a real success (including
     a legitimately-empty registry) from a failure / store-unreachable — so the
-    caller never advances ``registry_sha`` on a failed rebuild (M1)."""
+    caller never advances ``registry_sha`` on a failed rebuild (M1).  ``reason``
+    classifies a failure so the caller reports it accurately (DEFECT-4): writes
+    rejected by core validation vs. the store being unreachable."""
 
     ok: bool
     stored: int
+    reason: str | None = None
 
 
 @contextlib.contextmanager
@@ -898,6 +901,7 @@ def _reindex_sot_entries(
                     )
 
             stored = 0
+            rejected = 0  # writes refused by core validation (DEFECT-4)
             for content in prepared:
                 try:
                     result = storage.store_memory(
@@ -911,21 +915,31 @@ def _reindex_sot_entries(
                     )
                     if result.get("status") in ("stored", "duplicate"):
                         stored += 1
+                except ValueError as exc:
+                    # store_memory raises ValueError("Validation failed: ...") when
+                    # the payload is refused by core validation (storage.py:375).
+                    # Count it so a 0-row reindex is reported as a validation
+                    # rejection, not a phantom connectivity issue (DEFECT-4).
+                    if "Validation failed" in str(exc):
+                        rejected += 1
+                    # other ValueErrors (and below) are non-fatal per-entry
                 except Exception:
                     pass  # per-entry failure is non-fatal
 
-            # Delete ran but every re-store failed (store went unreachable after
-            # the scroll) → the 5b cache is emptied-not-restored.  Report failure
-            # so the caller does NOT advance registry_sha and the rebuild retries
-            # next run rather than masking the loss (F-ENG2-2).
+            # Delete ran but every re-store failed → the 5b cache is
+            # emptied-not-restored.  Report failure so the caller does NOT advance
+            # registry_sha and the rebuild retries next run rather than masking the
+            # loss (F-ENG2-2).  Classify the cause so cmd_reindex reports it
+            # accurately: validation rejection vs. store-unreachable (DEFECT-4).
             if prepared and stored == 0:
-                return ReindexResult(False, 0)
+                reason = "validation_rejected" if rejected else "store_unreachable"
+                return ReindexResult(False, 0, reason)
         return ReindexResult(True, stored)
 
     except Exception:
         # Graceful no-op when the store is unreachable — existing 5b points are
         # untouched because no delete runs until after preparation succeeds.
-        return ReindexResult(False, 0)
+        return ReindexResult(False, 0, "store_unreachable")
 
 
 # ---------------------------------------------------------------------------
@@ -1220,6 +1234,17 @@ def cmd_reindex(args: argparse.Namespace) -> int:
 
     result = _reindex_sot_entries(registry_path, project_id)
     if not result.ok:
+        if result.reason == "validation_rejected":
+            # Writes were refused by core validation (e.g. source_hook not in the
+            # allow-list) — a real, actionable failure, not a connectivity issue.
+            # Exit non-zero so it is not mistaken for a transient store outage.
+            print(
+                f"aim-sot reindex: writes rejected by core validation for project "
+                f"'{project_id}'; 0 entries indexed (existing cache left intact). "
+                "Check src/memory/validation.py allow-lists.",
+                file=sys.stderr,
+            )
+            return 1
         print(
             f"aim-sot reindex: store unreachable for project '{project_id}'; "
             "existing cache left intact.",

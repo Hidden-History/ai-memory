@@ -1472,3 +1472,196 @@ def test_reindex_lock_releases_on_body_exception(tmp_path):
         # Lock released in finally → re-acquisition completes (no leak/deadlock).
         with dp._reindex_lock("proj"):
             pass
+
+
+# ===========================================================================
+# DEFECT-4 (PR #187) — 5b reindex writes 0 rows; silent + misdiagnosed
+# ===========================================================================
+
+# The reindex emits source_hook="aim_sot_detect_propose" (aim_sot_detect_propose.py
+# :907).  The core allow-list (memory.validation.valid_hooks) had no SOT value, so
+# every sot_entry write was rejected, stored=0, and cmd_reindex misreported it as
+# "store unreachable".  These tests hit the REAL validate_payload — the exact code
+# the mocked-store reindex tests above never exercised (they returned canned status).
+from memory.validation import validate_payload  # noqa: E402  (real core path)
+
+# Value the reindex emits at aim_sot_detect_propose.py:907 — kept in sync by intent.
+_SOT_REINDEX_SOURCE_HOOK = "aim_sot_detect_propose"
+
+
+# ---------------------------------------------------------------------------
+# T-DP36 — DEFECT-4: SOT reindex source_hook accepted by core validate_payload
+# ---------------------------------------------------------------------------
+
+
+def test_sot_source_hook_accepted_by_core_validation():
+    """Direct real-validation guard: the SOT reindex hook MUST be in the core
+    allow-list.  FAILS pre-fix (valid_hooks lacked it → 'Invalid source_hook')."""
+    errors = validate_payload(
+        {
+            "content": "x" * 20,
+            "group_id": "proj",
+            "type": "sot_entry",
+            "source_hook": _SOT_REINDEX_SOURCE_HOOK,
+        }
+    )
+    assert not any("source_hook" in e for e in errors), errors
+
+
+# ---------------------------------------------------------------------------
+# T-DP36b — DEFECT-4: a deliberately-bad source_hook is still rejected
+# ---------------------------------------------------------------------------
+
+
+def test_bad_source_hook_still_rejected_by_core_validation():
+    """The allow-list addition must not weaken the gate — an unknown hook still
+    returns the 'Invalid source_hook' error."""
+    errors = validate_payload(
+        {
+            "content": "x" * 20,
+            "group_id": "proj",
+            "type": "sot_entry",
+            "source_hook": "definitely_not_a_real_hook",
+        }
+    )
+    assert any("Invalid source_hook" in e for e in errors)
+
+
+class _RealValidationStore:
+    """Store double whose store_memory runs the REAL memory.validation.validate_payload
+    and raises ValueError exactly as storage.py:375 — so the reindex path is exercised
+    against the actual allow-list that escaped (the old mocks returned canned status and
+    never validated).  qdrant + storage surfaces, stateful like _StatefulStore."""
+
+    def __init__(self):
+        self.points: dict = {}
+        self._next = 0
+
+    def scroll(self, **kwargs):
+        return [type("P", (), {"id": i})() for i in self.points], None
+
+    def delete(self, **kwargs):
+        for i in list(kwargs["points_selector"]):
+            self.points.pop(i, None)
+
+    def store_memory(self, **kwargs):
+        payload = {
+            "content": kwargs["content"],
+            "group_id": kwargs["group_id"],
+            "type": kwargs["memory_type"].value,
+            "source_hook": kwargs["source_hook"],
+        }
+        errors = validate_payload(payload)
+        if errors:  # mirrors storage.py:365-375
+            raise ValueError(f"Validation failed: {errors}")
+        pid = self._next
+        self._next += 1
+        self.points[pid] = kwargs["content"]
+        return {"status": "stored"}
+
+
+# ---------------------------------------------------------------------------
+# T-DP37 — DEFECT-4: end-to-end — a sot_entry row persists through real validation
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_persists_row_through_real_validation(tmp_path):
+    """The reindex path stores a sot_entry through the REAL allow-list.  Pre-fix the
+    real validate_payload rejected source_hook → ValueError swallowed → stored=0 →
+    ok False; the assertion FAILS.  Post-fix the row persists (stored=1, ok True)."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(
+        registry_path,
+        [{"id": "core", "sot_location": "src/", "description": "Core lib"}],
+    )
+    store = _RealValidationStore()
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=store, _storage=store
+        )
+    assert result.ok is True
+    assert result.stored == 1
+    assert len(store.points) == 1  # sot_entry row persisted via the real allow-list
+
+
+# ---------------------------------------------------------------------------
+# T-DP38 — DEFECT-4: all writes rejected by validation → reason distinguishes it
+# ---------------------------------------------------------------------------
+
+
+class _RejectingStore:
+    """Every store_memory raises a validation ValueError (mirrors storage.py:375)."""
+
+    def scroll(self, **kwargs):
+        return [], None
+
+    def delete(self, **kwargs):
+        pass
+
+    def store_memory(self, **kwargs):
+        raise ValueError("Validation failed: [Invalid source_hook ...]")
+
+
+def test_reindex_validation_rejection_reports_reason(tmp_path):
+    """All writes rejected by validation → ReindexResult.reason='validation_rejected'
+    (distinct from store-unreachable).  FAILS pre-fix: ReindexResult had no reason
+    field — a bare (False, 0) indistinguishable from unreachable."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(registry_path, [{"id": "core", "sot_location": "src/"}])
+    store = _RejectingStore()
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=store, _storage=store
+        )
+    assert result.ok is False
+    assert result.stored == 0
+    assert result.reason == "validation_rejected"
+
+
+# ---------------------------------------------------------------------------
+# T-DP39 — DEFECT-4: cmd_reindex reports validation rejection + exits non-zero
+# ---------------------------------------------------------------------------
+
+
+def test_cmd_reindex_validation_rejection_exits_nonzero(tmp_path, capsys):
+    """cmd_reindex must NOT misreport a validation rejection as 'store unreachable':
+    it names validation rejection and returns non-zero.  FAILS pre-fix (returned 0
+    with the store-unreachable message; ReindexResult had no third field)."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(registry_path, [{"id": "core", "sot_location": "src/"}])
+    args = MagicMock()
+    args.registry = str(registry_path)
+    with (
+        _inject_project_id("proj"),
+        patch.object(
+            dp,
+            "_reindex_sot_entries",
+            return_value=dp.ReindexResult(False, 0, "validation_rejected"),
+        ),
+    ):
+        rc = dp.cmd_reindex(args)
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "validation" in err.lower()
+    assert "unreachable" not in err.lower()
+
+
+def test_cmd_reindex_store_unreachable_stays_graceful(tmp_path, capsys):
+    """Store-unreachable keeps the graceful contract: cache-intact message + exit 0
+    (transient, retried next run) — the validation-rejection fix must not change it."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(registry_path, [{"id": "core", "sot_location": "src/"}])
+    args = MagicMock()
+    args.registry = str(registry_path)
+    with (
+        _inject_project_id("proj"),
+        patch.object(
+            dp,
+            "_reindex_sot_entries",
+            return_value=dp.ReindexResult(False, 0, "store_unreachable"),
+        ),
+    ):
+        rc = dp.cmd_reindex(args)
+    err = capsys.readouterr().err
+    assert rc == 0
+    assert "unreachable" in err.lower()
