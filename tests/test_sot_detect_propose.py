@@ -30,6 +30,17 @@ Coverage:
   T-DP21 — cmd_run: JSON output shape (no-drift case) with project-id injected
   T-DP21b — cmd_run: drift fires (staleness_hash) — drift_proposals non-empty
   T-DP22 — sha change forces full re-check: clean+recent component IS re-checked
+  T-DP23 — K1 fires on registry-edit run: hash baselines preserved
+
+  H3 cycle-1 fixes (DD-A / DD-B / M1 / M5 / M6 + LOWs):
+  T-DP24 — DD-A: cheap stat pre-check busts the TTL skip on artifact edit
+  T-DP25 — DD-B: baseline held on drift + proposal re-fires; human reconfirm re-baselines
+  T-DP26 — DD-B record rules (cold-start unverified/missing, hold, reconfirm, missing-wins)
+  T-DP27 — M1: reindex failure does NOT advance registry_sha
+  T-DP28 — M1: prepare-before-delete — no destroy on parse error / transiently-empty
+  T-DP29 — M6/F-A2-9: reindex twice is idempotent through a stateful store schema
+  T-DP30 — LOW: write releases the lock + cleans the temp file on error
+  T-DP31 — M5: flat --registry path cannot trigger an unbounded discovery scan
 
 All tests are hermetic (no network, tmp dirs, store mocked via injection points).
 """
@@ -41,6 +52,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 
 # ---------------------------------------------------------------------------
@@ -367,7 +379,9 @@ def test_registry_not_written_behavioral(tmp_path, capsys):
             },
         ),
         patch.object(dp, "_write_drift_cache"),
-        patch.object(dp, "_reindex_sot_entries", return_value=0),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 0)
+        ),
     ):
         result = dp.cmd_run(args)
 
@@ -552,10 +566,19 @@ def test_reindex_graceful_store_unreachable(tmp_path):
     _write_registry(registry_path, [{"id": "core", "sot_location": "src/"}])
     bad_client = MagicMock()
     bad_client.scroll.side_effect = Exception("Connection refused")
-    count = dp._reindex_sot_entries(
-        registry_path, "test-proj", _qdrant_client=bad_client
-    )
-    assert count == 0
+    # _storage injected so a real MemoryStorage is never constructed; the scroll
+    # failure inside the reindex lock must surface as a failed (not silent-0)
+    # result and must NOT have deleted anything.
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path,
+            "test-proj",
+            _qdrant_client=bad_client,
+            _storage=MagicMock(),
+        )
+    assert result.ok is False
+    assert result.stored == 0
+    bad_client.delete.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -580,18 +603,20 @@ def test_reindex_deterministic(tmp_path):
     mock_storage = MagicMock()
     mock_storage.store_memory.return_value = {"status": "stored"}
 
-    count = dp._reindex_sot_entries(
-        registry_path,
-        "test-proj",
-        _qdrant_client=mock_client,
-        _storage=mock_storage,
-    )
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path,
+            "test-proj",
+            _qdrant_client=mock_client,
+            _storage=mock_storage,
+        )
     # Old point deleted
     mock_client.delete.assert_called_once()
     assert mock_client.delete.call_args[1]["points_selector"] == [42]
     # Both entries re-stored
     assert mock_storage.store_memory.call_count == 2
-    assert count == 2
+    assert result.ok is True
+    assert result.stored == 2
 
 
 # ---------------------------------------------------------------------------
@@ -616,9 +641,10 @@ def test_reindex_excludes_machine_state_fields(tmp_path):
     mock_storage = MagicMock()
     mock_storage.store_memory.return_value = {"status": "stored"}
 
-    dp._reindex_sot_entries(
-        registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
-    )
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
+        )
 
     call_kwargs = mock_storage.store_memory.call_args[1]
     content = json.loads(call_kwargs["content"])
@@ -671,7 +697,9 @@ def test_cmd_run_json_output(tmp_path, capsys):
         ),
         patch.object(dp, "_write_drift_cache"),
         patch.object(dp, "_registry_sha", return_value="newsha01"),
-        patch.object(dp, "_reindex_sot_entries", return_value=1),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 1)
+        ),
     ):
         result = dp.cmd_run(args)
 
@@ -729,7 +757,9 @@ def test_cmd_run_json_output_drift_fires(tmp_path, capsys):
         patch.object(dp, "_project_root_from_registry", return_value=tmp_path),
         patch.object(dp, "_read_drift_cache", return_value=seeded_cache),
         patch.object(dp, "_write_drift_cache"),
-        patch.object(dp, "_reindex_sot_entries", return_value=0),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 0)
+        ),
     ):
         result = dp.cmd_run(args)
 
@@ -780,7 +810,9 @@ def test_sha_change_forces_full_recheck(tmp_path, capsys):
         patch.object(dp, "_project_root_from_registry", return_value=tmp_path),
         patch.object(dp, "_read_drift_cache", return_value=stale_cache),
         patch.object(dp, "_write_drift_cache"),
-        patch.object(dp, "_reindex_sot_entries", return_value=0),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 0)
+        ),
     ):
         result = dp.cmd_run(args)
 
@@ -845,7 +877,9 @@ def test_k1_fires_on_registry_edit_baseline_preserved(tmp_path, capsys):
         patch.object(dp, "_project_root_from_registry", return_value=tmp_path),
         patch.object(dp, "_read_drift_cache", return_value=seeded_cache),
         patch.object(dp, "_write_drift_cache"),
-        patch.object(dp, "_reindex_sot_entries", return_value=0),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 0)
+        ),
         patch.object(dp, "_registry_sha", return_value="newsha"),
     ):
         result = dp.cmd_run(args)
@@ -870,3 +904,458 @@ def test_k1_fires_on_registry_edit_baseline_preserved(tmp_path, capsys):
         if d["drift_type"] == "declaration_reality"
     ]
     assert any(k1_flags), "K1 trigger must be set on declaration_reality drift"
+
+
+# ===========================================================================
+# H3 cycle-1 fixes — DD-A / DD-B / M1 / M5 / M6 + engine LOWs
+# ===========================================================================
+
+
+def _run_cmd_real_cache(
+    registry_path, cache_dir, capsys, *, project_id="proj", reindex=None
+):
+    """Drive cmd_run with a real (persisted) 5a cache under ``cache_dir``.
+
+    Returns (return_code, parsed_json_output).  The reindex is stubbed so no
+    real memory store is touched; everything else runs for real.
+    """
+    if reindex is None:
+        reindex = dp.ReindexResult(True, 0)
+    args = MagicMock()
+    args.registry = str(registry_path)
+    args.as_json = True
+    args.all = False
+    args.limit = 20
+    with (
+        _inject_project_id(project_id),
+        patch.object(dp, "_DRIFT_CACHE_DIR", cache_dir),
+        patch.object(dp, "_reindex_sot_entries", return_value=reindex),
+    ):
+        rc = dp.cmd_run(args)
+    return rc, json.loads(capsys.readouterr().out)
+
+
+def _read_cache(cache_dir, project_id="proj"):
+    with patch.object(dp, "_DRIFT_CACHE_DIR", cache_dir):
+        return dp._read_drift_cache(project_id)
+
+
+# ---------------------------------------------------------------------------
+# T-DP24 — DD-A: cheap stat pre-check busts the TTL skip on artifact edit
+# ---------------------------------------------------------------------------
+
+
+def test_dd_a_stat_busts_ttl_on_edit(tmp_path):
+    artifact = tmp_path / "api.yaml"
+    artifact.write_text("v1", encoding="utf-8")
+    st = artifact.stat()
+    cache = {
+        "components": {
+            "api": {
+                "sot_location": "api.yaml",
+                "last_verified_at": _now_iso(),
+                "drift_status": "clean",
+                "last_verified_mtime": st.st_mtime,
+                "last_verified_size": st.st_size,
+            }
+        }
+    }
+    # Unchanged clean+recent → skip honoured.
+    assert dp._should_skip_component("api", cache, tmp_path) is True
+    # Edit within the TTL (size + mtime change) → must NOT skip.
+    artifact.write_text("v1 modified longer content", encoding="utf-8")
+    assert dp._should_skip_component("api", cache, tmp_path) is False
+
+
+def test_dd_a_artifact_edit_within_ttl_detected(tmp_path, capsys):
+    """A clean+recent entry whose artifact was edited within the 7d TTL must
+    still surface drift (the pre-DD-A skip-before-hash would have hidden it)."""
+    cache_dir = tmp_path / "driftcache"
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    artifact = tmp_path / "openapi.yaml"
+    artifact.write_text("v1", encoding="utf-8")
+    _write_registry(registry_path, [{"id": "api", "sot_location": "openapi.yaml"}])
+
+    st = artifact.stat()
+    # Seed a clean+recent baseline for the *original* content, then edit it.
+    seeded = {
+        "schema_version": "1",
+        "project_id": "proj",
+        "generated_at": "",
+        "registry_sha": dp._registry_sha(registry_path),  # no reg change this run
+        "components": {
+            "api": {
+                "sot_location": "openapi.yaml",
+                "last_verified_at": _now_iso(),
+                "last_verified_sha": dp._sha256_short(artifact),
+                "last_verified_mtime": st.st_mtime,
+                "last_verified_size": st.st_size,
+                "drift_status": "clean",
+            }
+        },
+    }
+    with patch.object(dp, "_DRIFT_CACHE_DIR", cache_dir):
+        dp._write_drift_cache("proj", seeded)
+
+    artifact.write_text("v2 substantially different content", encoding="utf-8")
+    _, out = _run_cmd_real_cache(registry_path, cache_dir, capsys)
+    types = [d["drift_type"] for p in out["drift_proposals"] for d in p["drifts"]]
+    assert (
+        "staleness_hash" in types
+    ), "clean+recent entry edited within TTL must still be re-checked (DD-A)"
+
+
+# ---------------------------------------------------------------------------
+# T-DP25 — DD-B: baseline held on drift + proposal re-fires; human reconfirm
+# ---------------------------------------------------------------------------
+
+
+def test_dd_b_hold_baseline_and_refire(tmp_path, capsys):
+    cache_dir = tmp_path / "driftcache"
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    artifact = tmp_path / "openapi.yaml"
+    artifact.write_text("v1", encoding="utf-8")
+    _write_registry(
+        registry_path,
+        [{"id": "api", "sot_location": "openapi.yaml", "last_verified": _past_iso(30)}],
+    )
+
+    # Run 1 — cold-start establishes a baseline; drift_status=unverified.
+    _run_cmd_real_cache(registry_path, cache_dir, capsys)
+    rec1 = _read_cache(cache_dir)["components"]["api"]
+    assert rec1["drift_status"] == "unverified"
+    baseline_sha = rec1["last_verified_sha"]
+    assert baseline_sha
+
+    # Edit the artifact only (no registry change) — drift must fire, baseline held.
+    artifact.write_text("v2 different content", encoding="utf-8")
+    _, out2 = _run_cmd_real_cache(registry_path, cache_dir, capsys)
+    types2 = [d["drift_type"] for p in out2["drift_proposals"] for d in p["drifts"]]
+    assert "staleness_hash" in types2
+    rec2 = _read_cache(cache_dir)["components"]["api"]
+    assert rec2["drift_status"] == "drifted"
+    assert rec2["last_verified_sha"] == baseline_sha, "baseline must be HELD on drift"
+
+    # Re-run with no change — the proposal must re-fire (baseline still held).
+    _, out3 = _run_cmd_real_cache(registry_path, cache_dir, capsys)
+    types3 = [d["drift_type"] for p in out3["drift_proposals"] for d in p["drifts"]]
+    assert "staleness_hash" in types3, "un-acted proposal must re-fire next run"
+    assert _read_cache(cache_dir)["components"]["api"]["last_verified_sha"] == (
+        baseline_sha
+    )
+
+
+def test_dd_b_human_reconfirm_rebaselines(tmp_path, capsys):
+    cache_dir = tmp_path / "driftcache"
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    artifact = tmp_path / "openapi.yaml"
+    artifact.write_text("current content", encoding="utf-8")
+    # Human bumps last_verified to today — newer than the 30d-old machine check.
+    _write_registry(
+        registry_path,
+        [{"id": "api", "sot_location": "openapi.yaml", "last_verified": _past_iso(0)}],
+    )
+
+    old_at = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    seeded = {
+        "schema_version": "1",
+        "project_id": "proj",
+        "generated_at": "",
+        "registry_sha": "stale",  # forces reg_changed → force_recheck
+        "components": {
+            "api": {
+                "sot_location": "openapi.yaml",
+                "last_verified_at": old_at,
+                "last_verified_sha": "oldbase0",  # differs from current file
+                "drift_status": "drifted",
+            }
+        },
+    }
+    with patch.object(dp, "_DRIFT_CACHE_DIR", cache_dir):
+        dp._write_drift_cache("proj", seeded)
+
+    _run_cmd_real_cache(registry_path, cache_dir, capsys)
+    rec = _read_cache(cache_dir)["components"]["api"]
+    assert rec["drift_status"] == "clean", "human re-confirm must re-baseline to clean"
+    assert rec["last_verified_sha"] == dp._sha256_short(artifact)
+
+
+# ---------------------------------------------------------------------------
+# T-DP26 — DD-B record rules (unit)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_record_cold_start_unverified():
+    rec = dp._compute_component_record(
+        prior=None,
+        drifts=[],
+        current_sha="aaaa1111",
+        mtime=1.0,
+        size=10,
+        loc="x.yaml",
+        now_iso=_now_iso(),
+        human_reconfirmed=False,
+    )
+    assert rec["drift_status"] == "unverified"
+    assert rec["last_verified_sha"] == "aaaa1111"
+
+
+def test_compute_record_cold_start_missing():
+    rec = dp._compute_component_record(
+        prior=None,
+        drifts=[{"drift_type": "location"}],
+        current_sha=None,
+        mtime=None,
+        size=None,
+        loc="gone/",
+        now_iso=_now_iso(),
+        human_reconfirmed=False,
+    )
+    assert rec["drift_status"] == "missing"
+
+
+def test_compute_record_holds_on_drift():
+    prior = {
+        "last_verified_at": "2026-01-01T00:00:00+00:00",
+        "last_verified_sha": "oldbase0",
+        "last_verified_mtime": 1.0,
+        "last_verified_size": 5,
+    }
+    rec = dp._compute_component_record(
+        prior=prior,
+        drifts=[{"drift_type": "staleness_hash"}],
+        current_sha="newsha00",
+        mtime=2.0,
+        size=9,
+        loc="x.yaml",
+        now_iso=_now_iso(),
+        human_reconfirmed=False,
+    )
+    assert rec["drift_status"] == "drifted"
+    assert rec["last_verified_sha"] == "oldbase0"  # held
+    assert rec["last_verified_at"] == "2026-01-01T00:00:00+00:00"  # not refreshed
+
+
+def test_compute_record_reconfirm_advances():
+    prior = {"last_verified_at": "2026-01-01T00:00:00+00:00", "last_verified_sha": "o"}
+    rec = dp._compute_component_record(
+        prior=prior,
+        drifts=[{"drift_type": "staleness_hash"}],
+        current_sha="newsha00",
+        mtime=2.0,
+        size=9,
+        loc="x.yaml",
+        now_iso=_now_iso(),
+        human_reconfirmed=True,
+    )
+    assert rec["drift_status"] == "clean"
+    assert rec["last_verified_sha"] == "newsha00"
+
+
+def test_compute_record_missing_overrides_reconfirm():
+    """A human cannot re-confirm a now-missing artifact as clean."""
+    prior = {"last_verified_at": "2026-01-01T00:00:00+00:00", "last_verified_sha": "o"}
+    rec = dp._compute_component_record(
+        prior=prior,
+        drifts=[{"drift_type": "location"}],
+        current_sha=None,
+        mtime=None,
+        size=None,
+        loc="gone/",
+        now_iso=_now_iso(),
+        human_reconfirmed=True,
+    )
+    assert rec["drift_status"] == "missing"
+
+
+def test_human_reconfirmed_signal():
+    old = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    assert dp._human_reconfirmed({"last_verified": _past_iso(0)}, old) is True
+    assert dp._human_reconfirmed({"last_verified": _past_iso(20)}, old) is False
+    assert dp._human_reconfirmed({}, old) is False
+    assert dp._human_reconfirmed({"last_verified": _past_iso(0)}, "") is False
+
+
+# ---------------------------------------------------------------------------
+# T-DP27 — M1: reindex failure does NOT advance registry_sha
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_failure_holds_registry_sha(tmp_path, capsys):
+    cache_dir = tmp_path / "driftcache"
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    (tmp_path / "x.yaml").write_text("c", encoding="utf-8")
+    _write_registry(
+        registry_path,
+        [{"id": "api", "sot_location": "x.yaml", "last_verified": _past_iso(5)}],
+    )
+
+    # Reindex fails → registry_sha must stay empty so the rebuild retries.
+    _run_cmd_real_cache(
+        registry_path, cache_dir, capsys, reindex=dp.ReindexResult(False, 0)
+    )
+    assert _read_cache(cache_dir)["registry_sha"] == ""
+
+    # Reindex succeeds → registry_sha advances to the file's sha.
+    _run_cmd_real_cache(
+        registry_path, cache_dir, capsys, reindex=dp.ReindexResult(True, 1)
+    )
+    assert _read_cache(cache_dir)["registry_sha"] == dp._registry_sha(registry_path)
+
+
+# ---------------------------------------------------------------------------
+# T-DP28 — M1: prepare-before-delete (no destroy on parse error / empty)
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_no_delete_on_parse_error(tmp_path):
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text("entries: [unclosed", encoding="utf-8")  # invalid YAML
+    mock_client = MagicMock()
+    mock_storage = MagicMock()
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
+        )
+    assert result.ok is False
+    mock_client.scroll.assert_not_called()
+    mock_client.delete.assert_not_called()  # existing points preserved
+
+
+def test_reindex_empty_registry_preserves_existing(tmp_path):
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(registry_path, [])  # zero entries
+    mock_client = MagicMock()
+    mock_storage = MagicMock()
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
+        )
+    assert result.ok is True
+    assert result.stored == 0
+    mock_client.delete.assert_not_called()  # did NOT wipe on transiently-empty
+
+
+# ---------------------------------------------------------------------------
+# T-DP29 — M6/F-A2-9: reindex twice is idempotent through a real store schema
+# ---------------------------------------------------------------------------
+
+
+class _StatefulStore:
+    """Stateful fake of the qdrant client + storage that mimics the reindex
+    contract: store assigns a fresh id each call (as the real store would),
+    delete removes by id, scroll returns current ids.  Running reindex twice
+    must converge to exactly N points — no duplicate accumulation (I5/F-A2-9)."""
+
+    def __init__(self):
+        self.points: dict = {}
+        self._next = 0
+
+    # qdrant client surface
+    def scroll(self, **kwargs):
+        pts = [type("P", (), {"id": i})() for i in self.points]
+        return pts, None
+
+    def delete(self, **kwargs):
+        for i in list(kwargs["points_selector"]):
+            self.points.pop(i, None)
+
+    # storage surface
+    def store_memory(self, **kwargs):
+        pid = self._next
+        self._next += 1
+        self.points[pid] = kwargs["content"]
+        return {"status": "stored"}
+
+
+def test_reindex_twice_idempotent(tmp_path):
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    entries = [
+        {"id": f"c{i}", "sot_location": f"c{i}/", "description": str(i)}
+        for i in range(3)
+    ]
+    _write_registry(registry_path, entries)
+    store = _StatefulStore()
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        r1 = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=store, _storage=store
+        )
+        r2 = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=store, _storage=store
+        )
+    assert r1.ok and r2.ok
+    assert r1.stored == 3 and r2.stored == 3
+    assert len(store.points) == 3, "duplicate sot_entry points accumulated"
+
+
+# ---------------------------------------------------------------------------
+# T-DP30 — LOW: write releases the lock + cleans the temp file on error
+# ---------------------------------------------------------------------------
+
+
+def test_write_drift_cache_releases_lock_and_cleans_tmp_on_error(tmp_path):
+    data = {"schema_version": "1", "project_id": "proj", "components": {}}
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        with (
+            patch("os.replace", side_effect=OSError("disk full")),
+            pytest.raises(OSError),
+        ):
+            dp._write_drift_cache("proj", data)
+        # No orphan .tmp left behind (F-A2-7).
+        assert list(tmp_path.glob("*.tmp")) == []
+        # Lock was released in finally → a subsequent write succeeds (F-A2-10).
+        dp._write_drift_cache("proj", data)
+        readback = dp._read_drift_cache("proj")
+    assert readback["project_id"] == "proj"
+
+
+# ---------------------------------------------------------------------------
+# T-DP31 — M5: flat --registry path cannot trigger an unbounded scan
+# ---------------------------------------------------------------------------
+
+
+def test_project_root_conforming_vs_flat(tmp_path):
+    conforming = tmp_path / ".sot" / "registry.yaml"
+    assert dp._project_root_from_registry(conforming) == tmp_path
+    flat = tmp_path / "registry.yaml"
+    assert dp._project_root_from_registry(flat) is None
+
+
+def test_flat_registry_skips_discovery(tmp_path, capsys):
+    registry_path = tmp_path / "registry.yaml"  # no .sot parent
+    registry_path.write_text(
+        yaml.dump(
+            {
+                "schema_version": "1.0",
+                "entries": [
+                    {
+                        "id": "api",
+                        "sot_location": "x.yaml",
+                        "last_verified": _past_iso(5),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "x.yaml").write_text("c", encoding="utf-8")
+
+    args = MagicMock()
+    args.registry = str(registry_path)
+    args.as_json = True
+    args.all = False
+    args.limit = 20
+    with (
+        _inject_project_id("proj"),
+        patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path / "dc"),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 0)
+        ),
+        patch.object(dp, "_discover_candidates") as mock_disc,
+    ):
+        rc = dp.cmd_run(args)
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    mock_disc.assert_not_called()  # no unbounded scan on a flat path
+    assert out["candidate_proposals"] == []
