@@ -1665,3 +1665,77 @@ def test_cmd_reindex_store_unreachable_stays_graceful(tmp_path, capsys):
     err = capsys.readouterr().err
     assert rc == 0
     assert "unreachable" in err.lower()
+
+
+# ===========================================================================
+# DEFECT-2 (PR #187) — cold-start: no registry must run discovery (propose-only)
+# ===========================================================================
+
+# Pre-fix, cmd_run returned at the "No registry found" early-return (:1046-1049)
+# before the discovery scan, with a circular bail message.  Will's decision
+# (Option A) restores documented intent: with no .sot/registry.yaml, run discovery
+# and emit candidate proposals to stdout — never writing the registry.
+
+
+def _make_discoverable_tree(root: Path) -> None:
+    """A minimal layout the discovery scanners pick up (manifest + top dir)."""
+    (root / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
+    (root / "src").mkdir()
+
+
+# ---------------------------------------------------------------------------
+# T-DP40 — DEFECT-2: cold-start run emits candidates (cwd fallback), no file write
+# ---------------------------------------------------------------------------
+
+
+def test_cold_start_no_registry_emits_candidates_propose_only(
+    tmp_path, monkeypatch, capsys
+):
+    """No registry → discovery runs against the cwd-resolved root and emits
+    candidate proposals; NO .sot/registry.yaml is created (propose-only).  A flat
+    --registry forces the cwd fallback (parent.name != '.sot').  FAILS pre-fix
+    (early-return printed a circular bail with zero candidates)."""
+    _make_discoverable_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    args = MagicMock()
+    args.registry = str(tmp_path / "registry.yaml")  # flat, non-existent
+    args.as_json = True
+    args.all = False
+    args.limit = 20
+    with (
+        _inject_project_id("proj"),
+        patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path / "dc"),
+    ):
+        rc = dp.cmd_run(args)
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert out["candidate_proposals"], "cold-start must emit discovery candidates"
+    assert not (tmp_path / ".sot" / "registry.yaml").exists(), "must stay propose-only"
+
+
+# ---------------------------------------------------------------------------
+# T-DP41 — DEFECT-2: cold-start message is a bootstrap hint, not the circular bail
+# ---------------------------------------------------------------------------
+
+
+def test_cold_start_message_is_bootstrap_hint_not_circular(
+    tmp_path, monkeypatch, capsys
+):
+    """The corrected empty-state guidance points at .sot/registry.yaml and drops
+    the circular 'Run aim-sot detect-propose to create one'.  FAILS pre-fix."""
+    _make_discoverable_tree(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    args = MagicMock()
+    args.registry = str(tmp_path / "registry.yaml")
+    args.as_json = False
+    args.all = False
+    args.limit = 20
+    with (
+        _inject_project_id("proj"),
+        patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path / "dc"),
+    ):
+        rc = dp.cmd_run(args)
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Run aim-sot detect-propose to create one" not in out
+    assert ".sot/registry.yaml" in out  # actionable bootstrap hint

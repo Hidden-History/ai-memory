@@ -46,6 +46,24 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 **Hard invariant**: `detect-propose` NEVER writes `.sot/registry.yaml` — proposals only.
 The human applies edits manually; the registry is always committed and diff-reviewable.
 
+### First run — bootstrap from zero
+
+When no `.sot/registry.yaml` exists yet, `detect-propose run` still runs the
+discovery scan and emits **candidate proposals** for the project (it does not bail).
+Bootstrapping a new project:
+
+1. **Discover** — run `detect-propose run` (optionally `--all` to lift the cap). The
+   scan roots at the project root, or the current working directory when no registry
+   is present, and prints discovered candidates.
+2. **Copy** — review the candidates and copy the ones you want into a new
+   `.sot/registry.yaml` (start from `templates/registry.yaml.template`), authoring the
+   semantic fields (`owner`, `description`, `provenance_note`) by hand (BP-029).
+3. **Verify** — run `aim-sot verify` to gate the registry through the 16-check taxonomy.
+4. **Approve** — apply after a clean verdict + human approval (HITL).
+
+Discovery is still **propose-only** with no registry: candidates go to stdout and the
+registry is never created or written.
+
 ### Flags (`run`)
 
 | Flag | Default | Description |

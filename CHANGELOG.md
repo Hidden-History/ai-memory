@@ -187,6 +187,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accurately and exits non-zero, instead of misreporting a connectivity problem; a
   genuinely unreachable store still exits zero and leaves the existing cache intact.
 
+- **aim-sot cold start** — `detect-propose run` now runs the discovery scan and emits
+  candidate proposals when no `.sot/registry.yaml` exists yet, instead of bailing with
+  a circular message. Discovery from zero stays propose-only — the registry is never
+  created or written — and the empty-state output points to the bootstrap steps
+  (discover → copy → verify → approve).
+
 - **BUG-318** — `aim-github-search` now defaults to the `github` Qdrant collection where
   GitHub content lives. The as-documented invocation (no `--collection` flag) returns
   results instead of zero; `--collection` remains supported for cross-collection queries.

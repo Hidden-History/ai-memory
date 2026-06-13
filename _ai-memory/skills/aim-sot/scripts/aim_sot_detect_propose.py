@@ -1053,14 +1053,77 @@ def _load_registry_entries(registry_path: Path) -> tuple[list[dict], int]:
 # ---------------------------------------------------------------------------
 
 
+def _run_cold_start_discovery(
+    registry_path: Path | None, args: argparse.Namespace
+) -> int:
+    """Cold-start (no .sot/registry.yaml): run discovery and emit candidate
+    proposals so a project can be bootstrapped from zero (DEFECT-2, Option A).
+
+    Propose-only: candidates go to stdout with a hint to copy them into
+    .sot/registry.yaml — this never creates or writes the registry.  Kept fully
+    separate from the registry-present drift path: no drift detection, no 5b
+    reindex, no 5a cache.  The scan root is the conforming project root if the
+    path conforms, else the current working directory (registry_path is None or a
+    flat override) — discovery is bounded by the _pruned_walk cap (M5/F-A2-5).
+    """
+    scan_root = _project_root_from_registry(registry_path) if registry_path else None
+    if scan_root is None:
+        scan_root = Path(os.getcwd())
+
+    try:
+        _install = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
+        _src = os.path.join(_install, "src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
+        from memory.project import resolve_project_id
+
+        project_id = resolve_project_id(cwd=str(scan_root))
+    except Exception as exc:
+        print(f"Error: could not resolve project_id: {exc}", file=sys.stderr)
+        return 1
+
+    candidates = _discover_candidates(scan_root)
+    new_candidates = _filter_new_candidates(candidates, [])
+    limit = (
+        0
+        if getattr(args, "all", False)
+        else getattr(args, "limit", _DEFAULT_CANDIDATE_LIMIT)
+    )
+    capped, deferred_count = _apply_cap(new_candidates, limit)
+    candidate_proposals = [_make_candidate_proposal(c) for c in capped]
+
+    if getattr(args, "as_json", False):
+        print(
+            json.dumps(
+                {
+                    "drift_proposals": [],
+                    "candidate_proposals": candidate_proposals,
+                    "deferred_count": deferred_count,
+                    "project_id": project_id,
+                }
+            )
+        )
+    else:
+        print(
+            "No .sot/registry.yaml found — this project is not yet under SOT "
+            "tracking. Discovered the candidates below; review them, then copy the "
+            "ones you want into .sot/registry.yaml (authoring owner/description/"
+            "provenance_note by hand), and run aim-sot verify to approve.\n"
+        )
+        print(_format_human([], candidate_proposals, deferred_count))
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     """Main detect-propose run."""
     # --- Resolve registry ---
     registry_path = _find_registry(getattr(args, "registry", None))
     if registry_path is None or not registry_path.exists():
-        loc = f" at {registry_path}" if registry_path else ""
-        print(f"No registry found{loc}. Run aim-sot detect-propose to create one.")
-        return 0
+        # Cold-start: no registry yet → run discovery + propose (Option A,
+        # DEFECT-2).  Propose-only — never writes .sot/registry.yaml.
+        return _run_cold_start_discovery(registry_path, args)
 
     # --- Derive project_id ---
     try:

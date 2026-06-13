@@ -7,10 +7,13 @@
 # IMPORTANT — no-copy rule: every field is a pointer or provenance annotation.
 # Never paste or copy source content into this file. Point to it instead.
 #
-# Entries are added through the propose → verify → approve gate (aim-sot
-# detect-propose + verify modes). Machine-generated values (content hashes,
-# drift status, machine timestamps) are never stored here; they live in the
-# per-install drift cache (~/.ai-memory/drift-state/).
+# Entries are human-authored through the propose → verify → approve gate:
+# `aim-sot detect-propose` surfaces candidates + drift (it never writes this
+# file — proposals only, including the first-run discovery scan when no registry
+# exists yet); you copy the entries you want in by hand; `aim-sot verify` gates
+# them; you approve. Machine-generated values (content hashes, drift status,
+# machine timestamps) are never stored here; they live in the per-install drift
+# cache (~/.ai-memory/drift-state/).
 #
 # Validate this file: aim-sot verify
 
