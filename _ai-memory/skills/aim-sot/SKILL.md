@@ -24,20 +24,23 @@ Three engine modes are implemented in subsequent build steps (Wave-1, Items 2–
 
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  aim_sot_consult.py <subcommand> [--json] [--registry PATH]
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_consult.py" \
+  <subcommand> [--json] [--registry PATH]
 ```
 
 ## Detect-Propose — Invocation
 
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  aim_sot_detect_propose.py run [--json] [--registry PATH] [--limit N] [--all]
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_detect_propose.py" \
+  run [--json] [--registry PATH] [--limit N] [--all]
 ```
 
 ```bash
 # Rebuild the 5b derived memory cache explicitly:
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  aim_sot_detect_propose.py reindex [--registry PATH]
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_detect_propose.py" \
+  reindex [--registry PATH]
 ```
 
 **Hard invariant**: `detect-propose` NEVER writes `.sot/registry.yaml` — proposals only.
@@ -89,7 +92,8 @@ are never auto-filled — human-authored always (BP-029).**
 
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  aim_sot_verify.py run [--json] [--registry PATH] [--proposal PATH] \
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_verify.py" \
+  run [--json] [--registry PATH] [--proposal PATH] \
   [--check-urls] [--exec-drift-checks]
 ```
 
@@ -152,7 +156,8 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ```bash
 # Audit the committed registry in the current project:
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  aim_sot_verify.py run --json
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_verify.py" \
+  run --json
 ```
 
 ### Usage — pre-apply proposal gate
@@ -160,8 +165,45 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ```bash
 # Gate a detect-propose output before applying it to the registry:
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
-  aim_sot_verify.py run --proposal /path/to/proposal.json --json
+  "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_verify.py" \
+  run --proposal /path/to/proposal.json --json
 ```
+
+## Stop Hook — Opt-in
+
+The Claude `Stop` hook (`sot_drift_stop.py`) ships in `.claude/hooks/scripts/` but is
+**not auto-registered** in `settings.json` on install (BP-032 portability rule — the
+tool never writes into the user's VCS/hook config without explicit opt-in). The engine
+also runs standalone as the no-hook default (`detect-propose run` manually or via cron).
+
+### Manual enablement
+
+Add the following entry to your project's `.claude/settings.json` (under `hooks.Stop`):
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_drift_stop.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_drift_stop.py\" || true",
+            "timeout": 30000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Once registered, the hook fires automatically at every Claude Code session end. It invokes
+`detect-propose` in propose-only mode and prints a one-line summary to stderr when drift
+or new candidates are detected. It never writes any committed file.
+
+---
 
 ## Registry contract
 
