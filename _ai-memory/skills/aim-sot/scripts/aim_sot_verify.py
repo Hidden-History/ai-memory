@@ -178,10 +178,19 @@ def _build_verdict(
     flat "N/16" as "content was verified" when K1 was skipped or a check is inert.
     """
     fail_checks = {f["check"] for f in failures}
+    # Build cond_checks first from non-skipped warnings so that a check with both a
+    # real conditional warning AND a skipped_no_baseline warning (mixed-baseline
+    # registry — normal state) lands in cond, not skipped (DD-D). Precedence:
+    # fail > conditional > skipped (FV-1).
+    cond_checks = {
+        w["check"] for w in warnings if w.get("kind") != "skipped_no_baseline"
+    }
     skipped_checks = {
         w["check"] for w in warnings if w.get("kind") == "skipped_no_baseline"
     }
-    cond_checks = {w["check"] for w in warnings} - skipped_checks
+    # Subtract checks already classified into fail or cond. The - fail_checks term is
+    # dead code for the current check taxonomy (no check emits both a hard FAIL and a
+    # skipped_no_baseline warning) but is retained for forward-compatibility.
     skipped_checks = skipped_checks - fail_checks - cond_checks
 
     no_op = [
@@ -625,7 +634,7 @@ def _check_K1(
                 detail = (
                     "baseline unavailable: no drift baseline recorded for this entry "
                     "(baseline-loss)"
-                    if cache_populated
+                    if components  # this project's cache, not the global dir-wide glob
                     else "baseline unavailable: no drift cache has been built yet "
                     "(cold-start)"
                 ) + " — manual human confirmation required"
@@ -643,7 +652,16 @@ def _check_K1(
             continue
 
         current_sha = _sha256_short(full)
-        if current_sha and current_sha != cached_sha:
+        if current_sha is None:
+            warnings.append(
+                _warn(
+                    "K1",
+                    eid,
+                    "artifact unreadable: file exists but could not be hashed — "
+                    "manual human confirmation required",
+                )
+            )
+        elif current_sha != cached_sha:
             warnings.append(
                 _warn(
                     "K1",

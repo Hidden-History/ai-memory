@@ -705,18 +705,28 @@ def test_K1_unverified_conditional(tmp_path):
 
 
 def test_K1_baseline_loss_message(tmp_path):
-    """No record for the entry while a cache exists elsewhere → baseline-loss
-    message (distinct from genuine cold-start)."""
+    """No record for THIS entry while the project cache has other entries → baseline-loss
+    message (distinct from genuine cold-start).
+
+    After V-LOW-1 the project-scoped cache (bool(components)) determines the label, not
+    the global cache_populated flag. A project with other cached entries but no record
+    for this specific entry is 'baseline-loss' — not 'cold-start'.
+    """
     sot_file = tmp_path / "svc.py"
     sot_file.write_bytes(b"some content")
 
     entry = {"id": "svc", "sot_location": "svc.py", "status": "active"}
+    # Project cache has another component — 'svc' is absent (baseline-loss, not cold-start)
     _, warnings = vf._check_K1(
         [entry],
         tmp_path,
-        {"components": {}},
+        {
+            "components": {
+                "other-svc": {"last_verified_sha": "abcd1234", "drift_status": "clean"}
+            }
+        },
         project_id_resolved=True,
-        cache_populated=True,
+        cache_populated=False,  # global is irrelevant when project_id_resolved=True (V-LOW-1)
     )
     k1 = [w for w in warnings if w["check"] == "K1"]
     assert k1
@@ -961,7 +971,10 @@ def test_verdict_pass_no_codeowners(tmp_path):
 
 
 def test_verdict_conditional(tmp_path):
-    """Roster-present mismatch → R4 warning → CONDITIONAL."""
+    """Roster-present mismatch → R4 warning → CONDITIONAL.
+
+    K1 is also CONDITIONAL here (no cache supplied → cold-start skipped_no_baseline).
+    """
     entry = _good_entry(tmp_path)
     reg = _write_registry(tmp_path, [entry])
     # CODEOWNERS present but does NOT include @team-auth → R4 mismatch warning
@@ -1334,3 +1347,160 @@ def test_K3_exec_oserror_conditional():
     assert any(
         w["check"] == "K3" and "execution error" in w["detail"] for w in warnings
     )
+
+
+# ---------------------------------------------------------------------------
+# test_K1_mixed_baseline_cond_takes_precedence — FV-1 regression guard
+# ---------------------------------------------------------------------------
+
+
+def test_K1_mixed_baseline_cond_takes_precedence(tmp_path):
+    """FV-1: in a mixed-baseline registry (one entry has a real hash-drift K1,
+    another has an unverified-baseline K1), K1 must land in cond — not skipped.
+
+    The real drift warning (no kind) takes precedence over the skipped_no_baseline
+    marker from the unverified entry. FAILs on old bucket logic where cond_checks
+    was built as all-warnings minus skipped_checks (defeating DD-D).
+    """
+    # entry-drift: clean baseline, sha now changed → real hash-drift K1 (no kind)
+    drift_file = tmp_path / "svc-drift.py"
+    original_content = b"original content"
+    drift_file.write_bytes(original_content)
+    stale_sha = _sha256_short(original_content)
+    drift_file.write_bytes(b"modified content -- now different")
+
+    # entry-unverified: drift_status='unverified' → skipped_no_baseline K1
+    unverified_file = tmp_path / "svc-unverified.py"
+    unverified_file.write_bytes(b"stable content")
+
+    cache = {
+        "components": {
+            "entry-drift": {
+                "last_verified_sha": stale_sha,
+                "drift_status": "clean",
+            },
+            "entry-unverified": {
+                "last_verified_sha": _sha256_short(b"stable content"),
+                "drift_status": "unverified",
+            },
+        }
+    }
+    entries = [
+        {"id": "entry-drift", "sot_location": "svc-drift.py"},
+        {"id": "entry-unverified", "sot_location": "svc-unverified.py"},
+    ]
+
+    _, warnings = vf._check_K1(entries, tmp_path, cache, project_id_resolved=True)
+    verdict = vf._build_verdict([], warnings, ["K1"])
+
+    # K1 must be in cond (real drift present), never in skipped — FV-1
+    assert "K1" not in verdict["skipped"], (
+        "K1 must not be in skipped when a real hash-drift warning exists "
+        "(mixed-baseline registry — FV-1 precedence: cond > skipped)"
+    )
+    assert verdict["verdict"] == "CONDITIONAL"
+    drift_warns = [
+        w
+        for w in warnings
+        if w["check"] == "K1" and w.get("kind") != "skipped_no_baseline"
+    ]
+    assert drift_warns, "real hash-drift K1 warning (no kind) must be present"
+
+
+# ---------------------------------------------------------------------------
+# test_K1_cold_start_message_project_scoped — V-LOW-1 regression guard
+# ---------------------------------------------------------------------------
+
+
+def test_K1_cold_start_message_project_scoped(tmp_path):
+    """V-LOW-1: cold-start vs baseline-loss label must use THIS project's cache,
+    not the global dir-wide _drift_state_populated() glob.
+
+    A new project with empty components but global cache_populated=True must be
+    labeled 'cold-start' (correct), not 'baseline-loss' (mislabel). Fails on old
+    code that checked cache_populated instead of bool(components).
+    """
+    sot_file = tmp_path / "svc.py"
+    sot_file.write_bytes(b"some content")
+
+    entry = {"id": "svc", "sot_location": "svc.py"}
+    # This project's cache has no components (genuinely new project)
+    cache: dict = {"components": {}}
+
+    _, warnings = vf._check_K1(
+        [entry],
+        tmp_path,
+        cache,
+        project_id_resolved=True,
+        cache_populated=True,  # global glob says some other project has a cache
+    )
+    k1 = [w for w in warnings if w["check"] == "K1"]
+    assert k1
+    assert "cold-start" in k1[0]["detail"], (
+        "empty project-cache must yield 'cold-start', not 'baseline-loss', "
+        "regardless of the global cache_populated flag (V-LOW-1)"
+    )
+    assert "baseline-loss" not in k1[0]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# test_K1_unreadable_file_conditional — V-LOW-2 regression guard
+# ---------------------------------------------------------------------------
+
+
+def test_K1_unreadable_file_conditional(tmp_path):
+    """V-LOW-2: _sha256_short returns None (file exists but unreadable mid-check)
+    → K1 CONDITIONAL ('artifact unreadable'), not silent ran-pass.
+
+    Fails on old code where `if current_sha and ...` silently skipped the None case.
+    """
+    sot_file = tmp_path / "svc.py"
+    sot_file.write_bytes(b"some content")
+
+    cache = {
+        "components": {
+            "svc": {"last_verified_sha": "aabbccdd", "drift_status": "clean"}
+        }
+    }
+    entry = {"id": "svc", "sot_location": "svc.py"}
+
+    with patch.object(vf, "_sha256_short", return_value=None):
+        _, warnings = vf._check_K1([entry], tmp_path, cache, project_id_resolved=True)
+
+    k1 = [w for w in warnings if w["check"] == "K1"]
+    assert k1, "unreadable file must emit a K1 CONDITIONAL warning (V-LOW-2)"
+    assert "unreadable" in k1[0]["detail"]
+    # Must be a plain CONDITIONAL (in cond bucket), not skipped_no_baseline
+    assert k1[0].get("kind") != "skipped_no_baseline"
+
+
+# ---------------------------------------------------------------------------
+# test_K1_empty_sha_conditional — FV-2 (companion test for existing behavior)
+# ---------------------------------------------------------------------------
+
+
+def test_K1_empty_sha_conditional(tmp_path):
+    """FV-2: comp present, drift_status='clean', last_verified_sha='' →
+    K1 CONDITIONAL with 'no recorded content hash' detail.
+
+    A component record exists but the hash was never captured; the entry cannot
+    be declared clean without a recorded hash to compare against.
+    """
+    sot_file = tmp_path / "svc.py"
+    sot_file.write_bytes(b"some content")
+
+    cache = {
+        "components": {
+            "svc": {
+                "last_verified_sha": "",  # no hash recorded
+                "drift_status": "clean",
+            }
+        }
+    }
+    entry = {"id": "svc", "sot_location": "svc.py"}
+
+    _, warnings = vf._check_K1([entry], tmp_path, cache, project_id_resolved=True)
+    k1 = [w for w in warnings if w["check"] == "K1"]
+    assert k1, "empty last_verified_sha must emit a K1 CONDITIONAL warning (FV-2)"
+    assert "no recorded content hash" in k1[0]["detail"]
+    assert k1[0].get("kind") == "skipped_no_baseline"
