@@ -107,6 +107,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `INSTALL-GUIDE-POV.md` gains an `add-project` / shared-stack section documenting
     the `INSTALL_MODE=add-project` flow: when it triggers, what the installer skips
     vs. runs, prerequisites, per-project configuration, and verification steps.
+- **`aim-sot` Source-of-Truth subsystem** — new `aim-sot` skill that tracks where the
+  canonical truth lives for each boundary of the user's own project. A committed
+  `.sot/registry.yaml` (in the user's own repo) is the registry of record; the skill
+  ships the schema, templates, and a three-mode engine:
+  - **consult** — read-only query over the registry (served from the derived memory
+    cache, falling back to the committed file); answers "where does X live / who owns it"
+    for any component.
+  - **detect-propose** — hybrid auto-discover → propose: scans for candidate components,
+    computes actual state (SHA-256 of each `sot_location` file), and emits a **proposed
+    patch** on drift or new candidates. **Never writes the registry** — the propose-only
+    guarantee is unconditional; every registry change goes through the human-review +
+    verify gate. The baseline SHA is held (not advanced) when drift is detected, so the
+    proposal re-fires until a human confirms the change. Cold-start `drift_status` is
+    `unverified`, not `clean`.
+  - **verify** — 16-check gate (Schema · Referential · Completeness · Content) returning
+    PASS / CONDITIONAL / FAIL. K1 (content-hash check) reports CONDITIONAL — not a
+    silent pass — when no baseline exists. Verdicts distinguish checks that ran and
+    produced a result from no-op/inert checks and skipped-no-baseline checks.
+
+  Two runtime caches support the feature: a per-install drift cache
+  (`~/.ai-memory/drift-state/sot_drift_{project_id}.json`, machine-local, never
+  committed) and a derived memory cache (Qdrant `conventions` collection,
+  `memory_type=sot_entry`, rebuildable from the committed registry at any time via
+  `detect-propose reindex`). The Claude `Stop` hook and multi-CLI adapters (Codex,
+  Cursor, Gemini) ship with the install but are **not auto-registered** — opt-in only
+  (see `docs/AIM-SOT.md`). The engine also runs standalone (`detect-propose run`)
+  as the default no-hook path. All trigger paths are fail-open (exit 0 on any error).
 
 ### Changed
 
