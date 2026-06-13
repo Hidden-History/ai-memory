@@ -861,3 +861,142 @@ class TestMustNotTypesFilter:
         # query_filter exists (for group_id), but must_not should be None
         assert query_filter is not None
         assert query_filter.must_not is None
+
+
+class TestSotEntryExclusion:
+    """Regression tests for H1: sot_entry exclusion from untyped conventions queries.
+
+    F-C-3 / F-B-S-2 / F-C-S-9: sot_entry JSON blobs must not surface in general
+    conventions recall or per-turn injection. Explicit memory_type=["sot_entry"]
+    (the aim-sot consult path) must still work.
+    """
+
+    def test_untyped_conventions_search_excludes_sot_entry(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Untyped conventions search adds sot_entry to must_not filter (H1)."""
+        from src.memory.config import COLLECTION_CONVENTIONS
+
+        search = MemorySearch()
+        search.search(
+            query="naming convention",
+            collection=COLLECTION_CONVENTIONS,
+            group_id="test-project",
+        )
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        assert (
+            query_filter.must_not is not None
+        ), "must_not should be set for untyped conventions query"
+        excluded_types = query_filter.must_not[0].match.any
+        assert (
+            "sot_entry" in excluded_types
+        ), "sot_entry must be excluded from untyped conventions recall"
+
+    def test_explicit_sot_entry_type_bypasses_exclusion(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Explicit memory_type=["sot_entry"] bypasses the H1 must_not guard.
+
+        aim-sot consult passes memory_type=["sot_entry"] explicitly and must
+        still retrieve sot_entry records.
+        """
+        from src.memory.config import COLLECTION_CONVENTIONS
+
+        search = MemorySearch()
+        search.search(
+            query="sot entry query",
+            collection=COLLECTION_CONVENTIONS,
+            group_id="test-project",
+            memory_type=["sot_entry"],
+        )
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        # With explicit memory_type, must_not should NOT contain sot_entry exclusion
+        if query_filter.must_not:
+            for cond in query_filter.must_not:
+                excluded = getattr(cond.match, "any", [])
+                assert (
+                    "sot_entry" not in excluded
+                ), "explicit memory_type=['sot_entry'] must not be excluded"
+        # The must filter should include sot_entry as an inclusion filter
+        type_must = [c for c in query_filter.must if c.key == "type"]
+        assert len(type_must) == 1
+        assert "sot_entry" in type_must[0].match.any
+
+    def test_untyped_code_patterns_no_sot_exclusion(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Untyped code-patterns search is not affected by the H1 guard."""
+        from src.memory.config import COLLECTION_CODE_PATTERNS
+
+        search = MemorySearch()
+        search.search(
+            query="implementation pattern",
+            collection=COLLECTION_CODE_PATTERNS,
+            group_id="test-project",
+        )
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        # No must_not for code-patterns (unaffected collection)
+        assert query_filter.must_not is None
+
+    def test_explicit_must_not_types_caller_override_respected(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Caller-provided must_not_types is used as-is; H1 guard does not clobber it."""
+        from src.memory.config import COLLECTION_CONVENTIONS
+
+        search = MemorySearch()
+        search.search(
+            query="naming convention",
+            collection=COLLECTION_CONVENTIONS,
+            group_id="test-project",
+            must_not_types=["custom_type"],
+        )
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        assert query_filter.must_not is not None
+        excluded_types = query_filter.must_not[0].match.any
+        # Caller's explicit must_not_types is used (not the H1 default)
+        assert "custom_type" in excluded_types
+
+    def test_rule_and_guideline_types_unaffected(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """Explicit rule/guideline type filters on conventions are unaffected by H1."""
+        from src.memory.config import COLLECTION_CONVENTIONS
+
+        search = MemorySearch()
+        search.search(
+            query="naming convention",
+            collection=COLLECTION_CONVENTIONS,
+            group_id="test-project",
+            memory_type=["rule", "guideline", "naming"],
+        )
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        # must contains explicit type inclusion
+        type_must = [c for c in query_filter.must if c.key == "type"]
+        assert len(type_must) == 1
+        assert "rule" in type_must[0].match.any
+        # No must_not (caller provided memory_type; H1 guard does not fire)
+        if query_filter.must_not:
+            for cond in query_filter.must_not:
+                excluded = getattr(cond.match, "any", [])
+                assert "sot_entry" not in excluded
