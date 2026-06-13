@@ -42,6 +42,12 @@ Coverage:
   T-DP30 — LOW: write releases the lock + cleans the temp file on error
   T-DP31 — M5: flat --registry path cannot trigger an unbounded discovery scan
 
+  H3 cycle-2 fixes (F-ENG2-1 / F-ENG2-2 / F-ENG-4):
+  T-DP32 — F-ENG2-1: reindex serializes an UNQUOTED YAML date (no TypeError)
+  T-DP33 — F-ENG2-2: delete-then-all-stores-fail → ReindexResult.ok is False
+  T-DP34 — F-ENG-4: drift-cache write cleans the partial .tmp on json.dump error
+  T-DP35 — F-ENG-4: _reindex_lock releases the lock when the guarded body raises
+
 All tests are hermetic (no network, tmp dirs, store mocked via injection points).
 """
 
@@ -1359,3 +1365,110 @@ def test_flat_registry_skips_discovery(tmp_path, capsys):
     assert rc == 0
     mock_disc.assert_not_called()  # no unbounded scan on a flat path
     assert out["candidate_proposals"] == []
+
+
+# ===========================================================================
+# H3 cycle-2 fixes — F-ENG2-1 / F-ENG2-2 / F-ENG-4
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# T-DP32 — F-ENG2-1: reindex serializes an UNQUOTED YAML date (no TypeError)
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_serializes_unquoted_yaml_date(tmp_path):
+    """An unquoted registry ``last_verified: 2026-06-01`` parses as datetime.date.
+    json.dumps must serialize it (default=str → isoformat) instead of raising
+    TypeError and failing the whole reindex (FAILS on pre-fix code)."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    registry_path.parent.mkdir(parents=True)
+    # Raw YAML with an UNQUOTED date → yaml.safe_load yields datetime.date.
+    registry_path.write_text(
+        "schema_version: '1.0'\n"
+        "entries:\n"
+        "  - id: docs\n"
+        "    sot_location: docs/\n"
+        "    last_verified: 2026-06-01\n",
+        encoding="utf-8",
+    )
+    mock_client = MagicMock()
+    mock_client.scroll.side_effect = [([], None)]
+    mock_storage = MagicMock()
+    mock_storage.store_memory.return_value = {"status": "stored"}
+
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
+        )
+
+    assert result.ok is True, "reindex must not fail on a YAML-native date"
+    assert result.stored == 1
+    content = json.loads(mock_storage.store_memory.call_args[1]["content"])
+    assert content["last_verified"] == "2026-06-01"  # date → isoformat string
+
+
+# ---------------------------------------------------------------------------
+# T-DP33 — F-ENG2-2: delete-then-all-stores-fail → ReindexResult.ok is False
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_all_stores_fail_after_delete_reports_failure(tmp_path):
+    """Existing points were deleted but every store_memory raised → the 5b cache
+    is emptied-not-restored.  ok must be False so the caller does NOT advance
+    registry_sha (rebuild retries next run).  FAILS on pre-fix code (returned
+    ReindexResult(True, 0))."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(
+        registry_path,
+        [{"id": "core", "sot_location": "src/", "description": "Core"}],
+    )
+    existing_pt = MagicMock()
+    existing_pt.id = 7
+    mock_client = MagicMock()
+    mock_client.scroll.side_effect = [([existing_pt], None)]
+    mock_storage = MagicMock()
+    mock_storage.store_memory.side_effect = Exception("store unreachable")
+
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        result = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
+        )
+
+    mock_client.delete.assert_called_once()  # delete ran before the stores failed
+    assert result.ok is False
+    assert result.stored == 0
+
+
+# ---------------------------------------------------------------------------
+# T-DP34 — F-ENG-4: drift-cache write cleans the partial .tmp on json.dump error
+# ---------------------------------------------------------------------------
+
+
+def test_write_drift_cache_cleans_tmp_on_dump_error(tmp_path):
+    """A json.dump failure (earlier than os.replace) must still unlink the
+    partial .tmp — the real orphan-cleanup path (T-DP30 only covers os.replace)."""
+    data = {"schema_version": "1", "project_id": "proj", "components": {}}
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        with (
+            patch("json.dump", side_effect=ValueError("serialize failed")),
+            pytest.raises(ValueError),
+        ):
+            dp._write_drift_cache("proj", data)
+        assert list(tmp_path.glob("*.tmp")) == [], "orphan .tmp left after dump error"
+
+
+# ---------------------------------------------------------------------------
+# T-DP35 — F-ENG-4: _reindex_lock releases the lock when the guarded body raises
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_lock_releases_on_body_exception(tmp_path):
+    """_reindex_lock must release + close the fd even when the guarded body
+    raises, so a subsequent acquisition is not blocked (mirror T-DP30)."""
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        with pytest.raises(RuntimeError), dp._reindex_lock("proj"):
+            raise RuntimeError("body blew up")
+        # Lock released in finally → re-acquisition completes (no leak/deadlock).
+        with dp._reindex_lock("proj"):
+            pass

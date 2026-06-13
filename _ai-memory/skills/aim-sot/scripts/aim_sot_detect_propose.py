@@ -334,11 +334,20 @@ def _should_skip_component(
 
 
 def _human_reconfirmed(entry: dict, prior_at: str) -> bool:
-    """True when the registry's human ``last_verified`` date is newer than the
-    cache's ``last_verified_at`` — a fresh human re-confirmation (spec §3, DD-B).
+    """True when the registry's human ``last_verified`` date is STRICTLY newer
+    than the cache's ``last_verified_at`` — a fresh human re-confirmation
+    (spec §3, DD-B).
 
     This is the only machine-observable signal that ties a baseline advance to
     the human HITL act; without it the baseline is held on detected drift.
+
+    Heal condition (deviation-(a), F-ENG-2): the registry ``last_verified`` is
+    day-granular (a human date) while the held ``last_verified_at`` is a sub-day
+    machine timestamp.  The comparison is strict ``>``: a human re-confirm
+    registers only when the registry date is strictly later than the held
+    timestamp's date — a same-day fix+reconfirm is NOT recognized until a
+    strictly-later human date.  Strict ``>`` is deliberate; a day-granular ``>=``
+    would re-open H3-b (a same-day machine check could spuriously re-bless drift).
     """
     if not prior_at:
         return False
@@ -381,6 +390,13 @@ def _compute_component_record(
     cold_start = not prior or not prior_sha
 
     if cold_start:
+        # ``unverified`` is an intentionally-transient, in-session marker (DEC-
+        # PM332-D2, Option B): on the next no-drift run this entry promotes to
+        # ``clean`` via _advance() below even without an explicit human re-confirm.
+        # This is accepted behavior, not a defect — the residual cross-run risk is
+        # narrow and self-limiting; the durability tradeoff is documented in
+        # UNIFIED-FIX-SPEC §DD-B and docs/AIM-SOT.md.  The DD-C verify gate still
+        # surfaces the in-session cold-start as CONDITIONAL.
         return {
             "sot_location": loc,
             "last_verified_at": now_iso,
@@ -442,6 +458,13 @@ def _pruned_walk(root: Path, *, max_dirs: int = _MAX_DISCOVERY_DIRS):
     for visited, (dirpath, dirnames, filenames) in enumerate(os.walk(root)):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         if visited >= max_dirs:
+            # Surface the truncation rather than silently capping discovery
+            # ("no silent caps") — components below the cap are not scanned.
+            print(
+                f"aim-sot: discovery scan truncated at {max_dirs} directories; "
+                "components beyond the cap were not scanned.",
+                file=sys.stderr,
+            )
             return
         yield Path(dirpath), dirnames, filenames
 
@@ -811,7 +834,8 @@ def _reindex_sot_entries(
         )
         if not entries:
             # Keep existing points rather than wiping on a transiently-empty
-            # or unparseable registry (M1 prepare-then-replace).
+            # registry (M1 prepare-then-replace).  An unparseable registry never
+            # reaches here — yaml.safe_load raises to the outer except below.
             return ReindexResult(True, 0)
 
         if _qdrant_client is None:
@@ -824,10 +848,15 @@ def _reindex_sot_entries(
         storage = MemoryStorage(config=config) if _storage is None else _storage
 
         # Replacement payload set (content = non-machine-state fields).
+        # default=str serializes YAML-native datetime.date/datetime (an unquoted
+        # registry ``last_verified: 2026-06-01`` parses as datetime.date) to its
+        # isoformat string instead of raising TypeError and failing the whole
+        # reindex (F-ENG2-1).
         prepared: list[str] = [
             json.dumps(
                 {k: v for k, v in entry.items() if k not in _MACHINE_STATE_FIELDS},
                 ensure_ascii=False,
+                default=str,
             )
             for entry in entries
         ]
@@ -884,6 +913,13 @@ def _reindex_sot_entries(
                         stored += 1
                 except Exception:
                     pass  # per-entry failure is non-fatal
+
+            # Delete ran but every re-store failed (store went unreachable after
+            # the scroll) → the 5b cache is emptied-not-restored.  Report failure
+            # so the caller does NOT advance registry_sha and the rebuild retries
+            # next run rather than masking the loss (F-ENG2-2).
+            if prepared and stored == 0:
+                return ReindexResult(False, 0)
         return ReindexResult(True, stored)
 
     except Exception:
@@ -1056,6 +1092,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     project_root = _project_root_from_registry(registry_path)
     resolve_root = project_root if project_root is not None else registry_path.parent
     now_iso = datetime.now(timezone.utc).isoformat()
+    # Seeded from the prior cache so throttle-skipped entries retain their record.
+    # Records for entries since removed from the registry are left in place: they
+    # are never looked up (drift detection iterates registry entries only) and the
+    # 5a cache is deterministically rebuildable, so they are harmless (F-ENG-3).
     updated_components: dict = dict(cache.get("components", {}))
 
     # --- Drift detection across registry entries ---
