@@ -351,9 +351,11 @@ class MemorySearch:
         # and per-turn injection after a project runs reindex.
         # Explicit memory_type bypasses this guard (aim-sot consult passes
         # memory_type=["sot_entry"] explicitly and is unaffected).
+        # `not memory_types` covers both None and [] (defense-in-depth for direct
+        # callers that pass an empty list; upstream coerces []→None via effective_types).
         if (
             collection == COLLECTION_CONVENTIONS
-            and memory_types is None
+            and not memory_types
             and not must_not_types
         ):
             must_not_types = ["sot_entry"]

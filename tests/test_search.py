@@ -953,7 +953,12 @@ class TestSotEntryExclusion:
     def test_explicit_must_not_types_caller_override_respected(
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
-        """Caller-provided must_not_types is used as-is; H1 guard does not clobber it."""
+        """Caller-provided must_not_types is used as-is; H1 guard does not clobber it.
+
+        sot_entry must not bleed into the caller-supplied exclusion list when the
+        caller explicitly passes must_not_types (the H1 guard only fires when
+        must_not_types is falsy).
+        """
         from src.memory.config import COLLECTION_CONVENTIONS
 
         search = MemorySearch()
@@ -972,11 +977,48 @@ class TestSotEntryExclusion:
         excluded_types = query_filter.must_not[0].match.any
         # Caller's explicit must_not_types is used (not the H1 default)
         assert "custom_type" in excluded_types
+        # H1 guard must not inject sot_entry on top of caller's override
+        assert "sot_entry" not in excluded_types
+
+    def test_empty_list_memory_type_conventions_excludes_sot_entry(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """memory_type=[] on conventions triggers H1 guard (defense-in-depth).
+
+        An empty list is falsy; the guard uses `not memory_types` so both None
+        and [] cause sot_entry to land in must_not. Unreachable today (upstream
+        coerces []→None via effective_types), but blocks future direct-caller
+        regressions without needing upstream coordination.
+        """
+        from src.memory.config import COLLECTION_CONVENTIONS
+
+        search = MemorySearch()
+        search.search(
+            query="naming convention",
+            collection=COLLECTION_CONVENTIONS,
+            group_id="test-project",
+            memory_type=[],
+        )
+
+        call_args = mock_qdrant_client.query_points.call_args
+        query_filter = call_args.kwargs["query_filter"]
+
+        assert query_filter is not None
+        assert (
+            query_filter.must_not is not None
+        ), "must_not must be set for memory_type=[] (falsy — same guard path as None)"
+        excluded_types = query_filter.must_not[0].match.any
+        assert "sot_entry" in excluded_types
 
     def test_rule_and_guideline_types_unaffected(
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
-        """Explicit rule/guideline type filters on conventions are unaffected by H1."""
+        """Explicit rule/guideline type filters on conventions are unaffected by H1.
+
+        Representative for any non-empty memory_type list (e.g. port, structure,
+        naming): when memory_type is truthy the guard does not fire, so no
+        sot_entry exclusion is injected.
+        """
         from src.memory.config import COLLECTION_CONVENTIONS
 
         search = MemorySearch()
