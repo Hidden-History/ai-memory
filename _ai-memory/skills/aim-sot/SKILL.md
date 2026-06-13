@@ -123,10 +123,19 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
   "checks_run": ["S1","S2","S3","S4","R1","R2","R3","R4","C1","C2","C3","C4","K1","K2","K3","K4"],
   "failures": [{"check": "R1", "entry_id": "my-svc", "detail": "..."}],
   "warnings": [{"check": "R4", "entry_id": "my-svc", "detail": "..."}],
-  "pass_count": 14,
+  "ran_pass": ["S1","S2","S3","S4","R1","R4","C1","C3","K1","K2","K3","K4"],
+  "no_op":    ["R3","C2","C4"],
+  "skipped":  [],
+  "pass_count": 12,
   "fail_count": 0
 }
 ```
+
+**Outcome buckets** (M3 DD-D):
+- `ran_pass` — checks that ran substantively and produced zero findings.
+- `no_op` — structurally inert checks with the current schema (R3 / C2 / C4); no findings possible regardless of registry content.
+- `skipped` — checks that could not run because a drift baseline was unavailable (K1 cold-start, baseline-loss, or project-id resolution failure); a `skipped_no_baseline` CONDITIONAL warning is emitted for each.
+- `pass_count` = `len(ran_pass)` only — inert and skipped checks are **not** counted as passed, so a human reading `pass_count` knows exactly how many checks substantively verified content.
 
 ### 16-check taxonomy (BP-024)
 
@@ -144,12 +153,12 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 | | C2 orphan entries (no-op — propose-only format adds, never removes) | — |
 | | C3 missing path + not superseded | FAIL |
 | | C4 count assertion (N/A — no declared-count field in current schema) | — |
-| Content Correctness | K1 content hash changed (mandatory on hash change — deterministic trigger) | CONDITIONAL |
+| Content Correctness | K1 content hash changed or no baseline (hash-change: mandatory human re-confirm; no-baseline: `skipped_no_baseline` CONDITIONAL — never silent PASS) | CONDITIONAL |
 | | K2 last_verified date plausible (past, non-epoch) | FAIL |
 | | K3 drift_check executable (`--exec-drift-checks` for actual run) | FAIL (parse) / CONDITIONAL (PATH) |
 | | K4 sot_location collision | FAIL |
 
-**Soft-check rulings (wb-approved):** R2 is a strict no-op offline — URL fields do not affect the verdict without `--check-urls`. K3 never executes by default — security-safe. K1 is a deterministic hash trigger only, never a semantic judge. R4 normalizes `@handle` before comparing; mismatch is always CONDITIONAL, never FAIL.
+**Soft-check rulings (wb-approved):** R2 is a strict no-op offline — URL fields do not affect the verdict without `--check-urls`. K3 never executes by default — security-safe. K1 is a deterministic hash trigger only, never a semantic judge; when no baseline exists (cold-start, baseline-loss, or project-id resolution failure) K1 emits a `skipped_no_baseline` CONDITIONAL warning — it never silently passes as if content were verified. R4 normalizes `@handle` before comparing; mismatch is always CONDITIONAL, never FAIL.
 
 ### Usage — standalone audit
 
