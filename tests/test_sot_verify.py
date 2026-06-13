@@ -24,7 +24,15 @@ Coverage:
   T-VF-C4-na                                    — C4 is N/A (no findings ever)
   T-VF-K1-hash-changed                          — MANDATORY: hash change → K1 CONDITIONAL
   T-VF-K1-no-change                             — hash unchanged → K1 PASS
-  T-VF-K1-no-cache                              — no cache baseline → K1 PASS
+  T-VF-K1-cold-start                            — no baseline (cold-start) → K1 CONDITIONAL
+  T-VF-K1-unverified                            — drift_status=='unverified' → K1 CONDITIONAL
+  T-VF-K1-baseline-loss                         — populated cache, lost record → distinct msg
+  T-VF-K1-cold-start-cmd_run                    — cold-start end-to-end → verdict CONDITIONAL
+  T-VF-K1-resolution-failure                    — project_id None + populated cache → CONDITIONAL + stderr warn
+  T-VF-project-id-override                       — --project-id keys the cache directly → K1 ran-pass
+  T-VF-verdict-buckets                          — ran-pass / no-op / skipped reported distinctly
+  T-VF-K4-proposal-dup-committed                — proposed loc collides with committed loc → K4 FAIL
+  T-VF-K3-exec-nonzero / -timeout / -oserror    — --exec-drift-checks outcomes CONDITIONAL, never FAIL
   T-VF-K2-pass                                  — valid past date
   T-VF-K2-fail-future                           — future date
   T-VF-K2-fail-epoch                            — epoch default
@@ -132,30 +140,45 @@ def _make_args(**kwargs) -> argparse.Namespace:
     return argparse.Namespace(**defaults)
 
 
-def _run_cmd(args: argparse.Namespace, tmp_path: Path, *, cache: dict | None = None):
+def _run_cmd(
+    args: argparse.Namespace,
+    tmp_path: Path,
+    *,
+    cache: dict | None = None,
+    drift_state_populated: bool = False,
+    capture_stderr: bool = False,
+):
     """Run cmd_run with project_id + discover_candidates mocked. Returns verdict dict.
 
     When cache is not None, _resolve_project_id returns a dummy project id so
     _read_drift_cache is actually reached and returns the supplied cache dict.
     When cache is None, project_id stays None and K1 uses an empty cache (cold-start).
+    drift_state_populated controls the (hermetic) _drift_state_populated() result.
+    capture_stderr=True returns (verdict, stderr_text).
     """
     import io
-    from contextlib import redirect_stdout
+    from contextlib import redirect_stderr, redirect_stdout
 
     _cache = cache if cache is not None else {"components": {}}
     # Only activate the _read_drift_cache path when a cache dict is explicitly supplied.
     _project_id = "test-proj" if cache is not None else None
 
     buf = io.StringIO()
+    err = io.StringIO()
     with (
         patch.object(vf, "_resolve_project_id", return_value=_project_id),
         patch.object(vf, "_read_drift_cache", return_value=_cache),
         patch.object(vf, "_discover_candidates", return_value=[]),
+        patch.object(vf, "_drift_state_populated", return_value=drift_state_populated),
         redirect_stdout(buf),
+        redirect_stderr(err),
     ):
         vf.cmd_run(args)
 
-    return json.loads(buf.getvalue())
+    verdict = json.loads(buf.getvalue())
+    if capture_stderr:
+        return verdict, err.getvalue()
+    return verdict
 
 
 def _sha256_short(data: bytes) -> str:
@@ -624,21 +647,81 @@ def test_K1_no_change(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# T-VF-K1-no-cache — no cache baseline → K1 PASS (cold-start)
+# T-VF-K1-cold-start — no baseline (cold-start) → K1 CONDITIONAL, not silent PASS
 # ---------------------------------------------------------------------------
 
 
-def test_K1_no_cache(tmp_path):
+def test_K1_cold_start_conditional(tmp_path):
+    """Cold-start (no cache record) must surface CONDITIONAL — a missing baseline
+    means content was never machine-confirmed; silent PASS would mask that (H3-c)."""
     sot_file = tmp_path / "svc.py"
     sot_file.write_bytes(b"some content")
 
     empty_cache: dict = {"components": {}}
     entry = {"id": "svc", "sot_location": "svc.py", "status": "active"}
 
-    _, warnings = vf._check_K1([entry], tmp_path, empty_cache)
-    assert not [
-        w for w in warnings if w["check"] == "K1"
-    ], "K1 must not fire when there is no cache baseline"
+    _, warnings = vf._check_K1(
+        [entry], tmp_path, empty_cache, project_id_resolved=True, cache_populated=False
+    )
+    k1 = [w for w in warnings if w["check"] == "K1"]
+    assert k1, "cold-start (no baseline) must emit a K1 CONDITIONAL warning"
+    assert k1[0].get("kind") == "skipped_no_baseline"
+    assert "cold-start" in k1[0]["detail"]
+    assert "human confirmation" in k1[0]["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# T-VF-K1-unverified — drift_status=='unverified' baseline → K1 CONDITIONAL
+# ---------------------------------------------------------------------------
+
+
+def test_K1_unverified_conditional(tmp_path):
+    """An entry the engine recorded as drift_status=='unverified' (cold-start per
+    the 5a contract) has no confirmed baseline → K1 CONDITIONAL, not PASS."""
+    sot_file = tmp_path / "svc.py"
+    content = b"some content"
+    sot_file.write_bytes(content)
+
+    cache = {
+        "components": {
+            "svc": {
+                "last_verified_sha": _sha256_short(content),
+                "drift_status": "unverified",
+            }
+        }
+    }
+    entry = {"id": "svc", "sot_location": "svc.py", "status": "active"}
+
+    _, warnings = vf._check_K1([entry], tmp_path, cache, project_id_resolved=True)
+    k1 = [w for w in warnings if w["check"] == "K1"]
+    assert k1, "drift_status=='unverified' must emit a K1 CONDITIONAL warning"
+    assert k1[0].get("kind") == "skipped_no_baseline"
+    assert "unverified" in k1[0]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# T-VF-K1-baseline-loss — populated cache but entry record lost → distinct message
+# ---------------------------------------------------------------------------
+
+
+def test_K1_baseline_loss_message(tmp_path):
+    """No record for the entry while a cache exists elsewhere → baseline-loss
+    message (distinct from genuine cold-start)."""
+    sot_file = tmp_path / "svc.py"
+    sot_file.write_bytes(b"some content")
+
+    entry = {"id": "svc", "sot_location": "svc.py", "status": "active"}
+    _, warnings = vf._check_K1(
+        [entry],
+        tmp_path,
+        {"components": {}},
+        project_id_resolved=True,
+        cache_populated=True,
+    )
+    k1 = [w for w in warnings if w["check"] == "K1"]
+    assert k1
+    assert "baseline-loss" in k1[0]["detail"]
+    assert "cold-start" not in k1[0]["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -829,14 +912,22 @@ def test_proposal_mode(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+def _clean_baseline_cache(tmp_path: Path, entry: dict) -> dict:
+    """5a cache with a clean, matching baseline for entry so K1 ran-passes."""
+    sha = _sha256_short((tmp_path / entry["sot_location"]).read_bytes())
+    return {
+        "components": {entry["id"]: {"last_verified_sha": sha, "drift_status": "clean"}}
+    }
+
+
 def test_verdict_pass(tmp_path):
-    """Registry with one clean entry, CODEOWNERS with owner → PASS."""
+    """Registry with one clean entry + matching baseline, CODEOWNERS → PASS."""
     entry = _good_entry(tmp_path)
     reg = _write_registry(tmp_path, [entry])
     (tmp_path / "CODEOWNERS").write_text("* @team-auth\n", encoding="utf-8")
 
     args = _make_args(registry=str(reg))
-    verdict = _run_cmd(args, tmp_path)
+    verdict = _run_cmd(args, tmp_path, cache=_clean_baseline_cache(tmp_path, entry))
     assert verdict["verdict"] == "PASS"
     assert verdict["fail_count"] == 0
     assert not verdict["warnings"]
@@ -857,7 +948,7 @@ def test_verdict_pass_no_codeowners(tmp_path):
     # Intentionally no CODEOWNERS written
 
     args = _make_args(registry=str(reg))
-    verdict = _run_cmd(args, tmp_path)
+    verdict = _run_cmd(args, tmp_path, cache=_clean_baseline_cache(tmp_path, entry))
     assert (
         verdict["verdict"] == "PASS"
     ), "No CODEOWNERS must not prevent PASS — R4 absent-roster is a silent no-op"
@@ -915,23 +1006,20 @@ def test_verdict_fail(tmp_path):
 
 
 def test_pass_count_correct(tmp_path):
-    """Verify pass_count counts distinct check IDs with zero findings, not a subtraction."""
+    """pass_count counts ONLY ran-pass checks — no-op (R3/C2/C4) and skipped checks
+    are excluded so a flat count can't masquerade as full content verification."""
     entry = _good_entry(tmp_path)
     reg = _write_registry(tmp_path, [entry])
     (tmp_path / "CODEOWNERS").write_text("* @team-auth\n", encoding="utf-8")
 
     args = _make_args(registry=str(reg))
-    verdict = _run_cmd(args, tmp_path)
-    expected_pass_count = len(
-        [
-            c
-            for c in verdict["checks_run"]
-            if not any(
-                x["check"] == c for x in verdict["failures"] + verdict["warnings"]
-            )
-        ]
-    )
-    assert verdict["pass_count"] == expected_pass_count
+    verdict = _run_cmd(args, tmp_path, cache=_clean_baseline_cache(tmp_path, entry))
+
+    # pass_count == number of ran-pass checks (not a flat zero-findings subtraction)
+    assert verdict["pass_count"] == len(verdict["ran_pass"])
+    # The inert checks are reported as no-op, never as ran-pass.
+    assert set(verdict["no_op"]) == {"R3", "C2", "C4"}
+    assert not (set(verdict["ran_pass"]) & set(verdict["no_op"]))
 
 
 # ---------------------------------------------------------------------------
@@ -1035,3 +1123,214 @@ def test_K1_via_cmd_run(tmp_path):
     ), "K1 must fire end-to-end when cached sha differs from current sha"
     assert verdict["verdict"] == "CONDITIONAL"
     assert verdict["fail_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# T-VF-K1-cold-start-cmd_run — cold-start via cmd_run → verdict CONDITIONAL
+# ---------------------------------------------------------------------------
+
+
+def test_K1_cold_start_via_cmd_run(tmp_path):
+    """End-to-end: no drift cache at all + a file-typed entry → K1 skipped-no-baseline
+    → verdict CONDITIONAL (not the old silent PASS)."""
+    entry = _good_entry(tmp_path)
+    reg = _write_registry(tmp_path, [entry])
+    (tmp_path / "CODEOWNERS").write_text("* @team-auth\n", encoding="utf-8")
+
+    args = _make_args(registry=str(reg))
+    verdict = _run_cmd(args, tmp_path, drift_state_populated=False)
+
+    assert verdict["verdict"] == "CONDITIONAL"
+    assert verdict["fail_count"] == 0
+    assert "K1" in verdict["skipped"]
+    assert "K1" not in verdict["ran_pass"]
+    k1 = [w for w in verdict["warnings"] if w["check"] == "K1"]
+    assert k1 and "cold-start" in k1[0]["detail"]
+
+
+# ---------------------------------------------------------------------------
+# T-VF-K1-resolution-failure — project_id None + populated cache → CONDITIONAL + warn
+# ---------------------------------------------------------------------------
+
+
+def test_K1_resolution_failure_warns(tmp_path):
+    """project_id unresolved while a drift cache exists → K1 CONDITIONAL + a stderr
+    WARNING; a resolution failure must not silently zero a mandatory check (H3-c)."""
+    entry = _good_entry(tmp_path)
+    reg = _write_registry(tmp_path, [entry])
+    (tmp_path / "CODEOWNERS").write_text("* @team-auth\n", encoding="utf-8")
+
+    args = _make_args(registry=str(reg))
+    verdict, stderr = _run_cmd(
+        args, tmp_path, drift_state_populated=True, capture_stderr=True
+    )
+
+    assert verdict["verdict"] == "CONDITIONAL"
+    assert "K1" in verdict["skipped"]
+    k1 = [w for w in verdict["warnings"] if w["check"] == "K1"]
+    assert k1 and k1[0].get("kind") == "skipped_no_baseline"
+    assert "baseline-loss" in k1[0]["detail"]
+    assert "project_id could not be resolved" in stderr
+
+
+# ---------------------------------------------------------------------------
+# T-VF-project-id-override — --project-id supplies the cache key explicitly
+# ---------------------------------------------------------------------------
+
+
+def test_project_id_override_resolves(tmp_path):
+    """--project-id skips auto-resolution and keys into the drift cache directly,
+    so K1 ran-passes against a matching baseline even when _resolve_project_id fails."""
+    entry = _good_entry(tmp_path)
+    reg = _write_registry(tmp_path, [entry])
+    (tmp_path / "CODEOWNERS").write_text("* @team-auth\n", encoding="utf-8")
+
+    sha = _sha256_short((tmp_path / entry["sot_location"]).read_bytes())
+    cache = {
+        "components": {entry["id"]: {"last_verified_sha": sha, "drift_status": "clean"}}
+    }
+
+    import io
+    from contextlib import redirect_stdout
+
+    args = _make_args(registry=str(reg), project_id="explicit-proj")
+    resolve_mock = MagicMock(return_value=None)
+    read_mock = MagicMock(return_value=cache)
+
+    buf = io.StringIO()
+    with (
+        patch.object(vf, "_resolve_project_id", resolve_mock),
+        patch.object(vf, "_read_drift_cache", read_mock),
+        patch.object(vf, "_discover_candidates", return_value=[]),
+        patch.object(vf, "_drift_state_populated", return_value=False),
+        redirect_stdout(buf),
+    ):
+        vf.cmd_run(args)
+    verdict = json.loads(buf.getvalue())
+
+    resolve_mock.assert_not_called()  # override bypasses auto-resolution
+    read_mock.assert_called_once_with("explicit-proj")
+    assert verdict["verdict"] == "PASS"
+    assert "K1" in verdict["ran_pass"]
+    assert "K1" not in verdict["skipped"]
+
+
+# ---------------------------------------------------------------------------
+# T-VF-verdict-buckets — ran-pass / no-op / skipped reported distinctly
+# ---------------------------------------------------------------------------
+
+
+def test_verdict_buckets_distinct(tmp_path):
+    """The verdict separates ran-pass from inert no-ops (R3/C2/C4) and skipped-K1
+    so a human is not misled by a flat pass count (DD-D / M3)."""
+    entry = _good_entry(tmp_path)
+    reg = _write_registry(tmp_path, [entry])
+    (tmp_path / "CODEOWNERS").write_text("* @team-auth\n", encoding="utf-8")
+
+    # Cold-start: K1 skipped, R3/C2/C4 no-op, the rest ran-pass.
+    args = _make_args(registry=str(reg))
+    verdict = _run_cmd(args, tmp_path, drift_state_populated=False)
+
+    assert set(verdict["no_op"]) == {"R3", "C2", "C4"}
+    assert verdict["skipped"] == ["K1"]
+    assert "K1" not in verdict["ran_pass"]
+    for noop in ("R3", "C2", "C4"):
+        assert noop not in verdict["ran_pass"]
+    # The three buckets + findings partition checks_run with no double-counting.
+    finding_checks = {x["check"] for x in verdict["failures"] + verdict["warnings"]}
+    classified = set(verdict["ran_pass"]) | set(verdict["no_op"]) | finding_checks
+    assert classified == set(verdict["checks_run"])
+
+
+# ---------------------------------------------------------------------------
+# T-VF-K4-proposal-dup-committed — proposed loc collides with committed loc → FAIL
+# ---------------------------------------------------------------------------
+
+
+def test_K4_seed_committed_locations():
+    """Unit: _check_K4 seeded with committed locations fails a colliding proposal."""
+    proposal = [{"id": "svc-b", "sot_location": "svc-a.md"}]
+    failures, _ = vf._check_K4(proposal, existing_locs={"svc-a.md": "svc-a"})
+    assert any(
+        f["check"] == "K4" and "svc-a.md" in f["detail"] and "svc-a" in f["detail"]
+        for f in failures
+    )
+
+
+def test_K4_proposal_dup_committed_sot_location(tmp_path):
+    """End-to-end: a proposed entry claiming a committed entry's sot_location must
+    FAIL K4 in --proposal mode (symmetric with S2 id-collision seeding) (H4)."""
+    committed = _good_entry(tmp_path, entry_id="svc-a")  # sot_location svc-a.md
+    reg = _write_registry(tmp_path, [committed])
+    (tmp_path / "CODEOWNERS").write_text("* @team-auth\n", encoding="utf-8")
+
+    proposal_entry = {
+        "id": "svc-b",  # distinct id (so S2 does not fire) ...
+        "kind": "service",
+        "boundary_type": "path",
+        "sot_location": "svc-a.md",  # ... but collides with committed svc-a's loc
+        "owner": "@team-auth",
+        "description": "Proposed entry colliding on location",
+        "status": "proposed",
+    }
+    proposal_file = tmp_path / "proposal.json"
+    proposal_file.write_text(
+        json.dumps({"entries": [proposal_entry]}), encoding="utf-8"
+    )
+
+    args = _make_args(registry=str(reg), proposal=str(proposal_file))
+    verdict = _run_cmd(args, tmp_path)
+
+    k4_failures = [f for f in verdict["failures"] if f["check"] == "K4"]
+    assert k4_failures, "proposed loc colliding with a committed loc must FAIL K4"
+    assert any("svc-a" in f["detail"] for f in k4_failures)
+    assert verdict["verdict"] == "FAIL"
+    s2_failures = [f for f in verdict["failures"] if f["check"] == "S2"]
+    assert not s2_failures, "distinct ids → S2 must not fire (K4 is the gate here)"
+
+
+# ---------------------------------------------------------------------------
+# T-VF-K3-exec-* — --exec-drift-checks outcomes are CONDITIONAL, never FAIL (F-B-3)
+# ---------------------------------------------------------------------------
+
+
+def test_K3_exec_nonzero_conditional():
+    """A non-zero drift_check exit is CONDITIONAL — K3 verifies executability, not
+    the drift outcome; the exit code must never hard-FAIL the registry."""
+    entry = {"id": "svc", "drift_check": "mycmd --check"}
+    mock_result = MagicMock(returncode=2)
+    with (
+        patch.object(vf.shutil, "which", return_value="/usr/bin/mycmd"),
+        patch.object(vf.subprocess, "run", return_value=mock_result),
+    ):
+        failures, warnings = vf._check_K3([entry], exec_drift_checks=True)
+    assert not failures, "non-zero exit must be CONDITIONAL, never FAIL"
+    assert any(w["check"] == "K3" and "exited 2" in w["detail"] for w in warnings)
+
+
+def test_K3_exec_timeout_conditional():
+    entry = {"id": "svc", "drift_check": "slowcmd"}
+    with (
+        patch.object(vf.shutil, "which", return_value="/usr/bin/slowcmd"),
+        patch.object(
+            vf.subprocess,
+            "run",
+            side_effect=vf.subprocess.TimeoutExpired(cmd="slowcmd", timeout=10),
+        ),
+    ):
+        failures, warnings = vf._check_K3([entry], exec_drift_checks=True)
+    assert not failures
+    assert any(w["check"] == "K3" and "timed out" in w["detail"] for w in warnings)
+
+
+def test_K3_exec_oserror_conditional():
+    entry = {"id": "svc", "drift_check": "badcmd"}
+    with (
+        patch.object(vf.shutil, "which", return_value="/usr/bin/badcmd"),
+        patch.object(vf.subprocess, "run", side_effect=OSError("exec failed")),
+    ):
+        failures, warnings = vf._check_K3([entry], exec_drift_checks=True)
+    assert not failures
+    assert any(
+        w["check"] == "K3" and "execution error" in w["detail"] for w in warnings
+    )

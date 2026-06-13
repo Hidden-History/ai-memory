@@ -12,6 +12,8 @@ Flags (run):
     --registry PATH         Override registry path (skip git-root walk)
     --proposal PATH         JSON/YAML file with 'entries' key — gate a proposed
                             patch pre-apply instead of auditing the committed file
+    --project-id ID         Explicit project_id for the 5a drift cache (skips
+                            auto-resolution; use in CI or on resolution failure)
     --check-urls            Activate R2 URL resolution (default: no-op)
     --exec-drift-checks     Activate K3 drift_check execution (default: parse +
                             PATH-exists only; never run in trigger/propose paths)
@@ -62,6 +64,7 @@ _sha256_short = _dp._sha256_short
 _read_drift_cache = _dp._read_drift_cache
 _discover_candidates = _dp._discover_candidates
 _filter_new_candidates = _dp._filter_new_candidates
+_DRIFT_CACHE_DIR = _dp._DRIFT_CACHE_DIR
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -93,6 +96,25 @@ _CHECKS_ALL = [
 _URL_FIELDS: frozenset[str] = frozenset(
     {"docs_url", "source_repo", "ci_url", "runbook_url", "dashboard_url", "api_spec"}
 )
+
+# Checks that are structurally inert with the current registry.schema.json — they
+# never produce findings, so they must not be counted as substantively "passed"
+# (BP-024 verdict integrity). See the inline notes on each check.
+_NOOP_CHECKS: frozenset[str] = frozenset({"R3", "C2", "C4"})
+
+
+def _drift_state_populated() -> bool:
+    """True if the drift-state dir holds any sot_drift_*.json cache.
+
+    A populated cache means a drift baseline likely exists even when
+    _resolve_project_id fails for this project (baseline-loss / resolution
+    failure), which K1 must surface as CONDITIONAL rather than silent PASS.
+    """
+    try:
+        return any(_DRIFT_CACHE_DIR.glob("sot_drift_*.json"))
+    except OSError:
+        return False
+
 
 # ---------------------------------------------------------------------------
 # Schema loading — S1/S4 driven from registry.schema.json (stdlib json, no dep)
@@ -144,16 +166,42 @@ def _build_verdict(
     warnings: list[dict],
     checks_run: list[str],
 ) -> dict:
-    """Build the structured verdict.
+    """Build the structured verdict with distinct outcome buckets (BP-024 §2).
 
-    pass_count = distinct check IDs that produced zero failures AND zero warnings.
+    Each check is classified into exactly one bucket, precedence
+    fail > conditional > skipped-no-baseline > no-op > ran-pass:
+      ran_pass  — substantive check that ran and produced zero findings.
+      no_op     — structurally inert with the current schema (R3/C2/C4).
+      skipped   — could not run because a drift baseline was unavailable
+                  (K1 cold-start / baseline-loss / resolution failure).
+    pass_count counts ONLY ran_pass so a human is not misled into reading a
+    flat "N/16" as "content was verified" when K1 was skipped or a check is inert.
     """
-    checks_with_findings = {f["check"] for f in failures} | {
-        w["check"] for w in warnings
+    fail_checks = {f["check"] for f in failures}
+    skipped_checks = {
+        w["check"] for w in warnings if w.get("kind") == "skipped_no_baseline"
     }
-    pass_count = sum(1 for c in checks_run if c not in checks_with_findings)
-    fail_count = len(failures)
+    cond_checks = {w["check"] for w in warnings} - skipped_checks
+    skipped_checks = skipped_checks - fail_checks - cond_checks
 
+    no_op = [
+        c
+        for c in checks_run
+        if c in _NOOP_CHECKS
+        and c not in fail_checks
+        and c not in cond_checks
+        and c not in skipped_checks
+    ]
+    ran_pass = [
+        c
+        for c in checks_run
+        if c not in fail_checks
+        and c not in cond_checks
+        and c not in skipped_checks
+        and c not in _NOOP_CHECKS
+    ]
+
+    fail_count = len(failures)
     if fail_count > 0:
         verdict = "FAIL"
     elif warnings:
@@ -166,7 +214,10 @@ def _build_verdict(
         "checks_run": checks_run,
         "failures": failures,
         "warnings": warnings,
-        "pass_count": pass_count,
+        "ran_pass": ran_pass,
+        "no_op": no_op,
+        "skipped": sorted(skipped_checks),
+        "pass_count": len(ran_pass),
         "fail_count": fail_count,
     }
 
@@ -189,6 +240,17 @@ def _format_human(v: dict) -> str:
         lines.append(f"\nWarnings ({len(v['warnings'])})")
         for w in v["warnings"]:
             lines.append(f"  [{w['check']}] {w['entry_id']}: {w['detail']}")
+
+    lines.append("")
+    summary = f"Checks: {v['pass_count']} ran-pass"
+    if v["no_op"]:
+        summary += f", {len(v['no_op'])} no-op ({'/'.join(v['no_op'])})"
+    if v["skipped"]:
+        summary += (
+            f", {len(v['skipped'])} skipped-no-baseline ({'/'.join(v['skipped'])})"
+        )
+    summary += f", {v['fail_count']} fail"
+    lines.append(summary)
 
     lines.append("")
     if verdict == "PASS":
@@ -505,14 +567,24 @@ def _check_C3(entries: list[dict], project_root: Path) -> tuple[list[dict], list
 
 
 def _check_K1(
-    entries: list[dict], project_root: Path, cache: dict
+    entries: list[dict],
+    project_root: Path,
+    cache: dict,
+    *,
+    project_id_resolved: bool = True,
+    cache_populated: bool = False,
 ) -> tuple[list[dict], list[dict]]:
-    """K1: when sha256(artifact) != last_verified_sha → CONDITIONAL.
+    """K1: content-hash drift vs the 5a baseline (spec §5; mandatory trigger).
 
-    Deterministic trigger only (spec §5 change from spot-check).
-    No token overlap, no semantic heuristic, no regex matching.
-    Only applies to file sot_locations; directory paths are no-ops (spec §5).
-    Cold-start (no cache baseline) → PASS.
+    Deterministic trigger only — no token overlap, semantic heuristic, or regex.
+    Only file sot_locations carry a content hash; directory paths are no-ops.
+
+    A missing baseline is NOT a silent PASS. When a file-typed entry has no
+    usable baseline — cold-start (no cache record / drift_status=='unverified'),
+    baseline-loss, or a resolution failure (project_id unresolvable while a cache
+    exists) — K1 emits a 'skipped_no_baseline' CONDITIONAL warning ("manual human
+    confirmation required") so the verdict never reads as content-verified when it
+    was not. project_id_resolved / cache_populated come from cmd_run.
     """
     warnings: list[dict] = []
     components = cache.get("components", {})
@@ -528,9 +600,47 @@ def _check_K1(
         if not full.is_file():
             continue  # directory sot_locations: no content-hash drift (spec §5 literal)
 
-        cached_sha = components.get(eid, {}).get("last_verified_sha", "")
-        if not cached_sha:
-            continue  # no baseline → PASS (cold-start, not a hash-change event)
+        # Resolution failure: cannot key into the drift cache for this project.
+        if not project_id_resolved:
+            if cache_populated:
+                detail = (
+                    "drift baseline unavailable: project_id could not be resolved "
+                    "while a drift cache exists (baseline-loss); pass --project-id to "
+                    "resolve — manual human confirmation required"
+                )
+            else:
+                detail = (
+                    "baseline unavailable: no drift cache has been built yet "
+                    "(cold-start) — manual human confirmation required"
+                )
+            warnings.append({**_warn("K1", eid, detail), "kind": "skipped_no_baseline"})
+            continue
+
+        comp = components.get(eid)
+        cached_sha = (comp or {}).get("last_verified_sha", "")
+        drift_status = (comp or {}).get("drift_status", "")
+
+        if comp is None or drift_status == "unverified" or not cached_sha:
+            if comp is None:
+                detail = (
+                    "baseline unavailable: no drift baseline recorded for this entry "
+                    "(baseline-loss)"
+                    if cache_populated
+                    else "baseline unavailable: no drift cache has been built yet "
+                    "(cold-start)"
+                ) + " — manual human confirmation required"
+            elif drift_status == "unverified":
+                detail = (
+                    "baseline unverified: the machine has never confirmed this entry's "
+                    "content (cold-start) — manual human confirmation required"
+                )
+            else:
+                detail = (
+                    "baseline unavailable: no recorded content hash for this entry — "
+                    "manual human confirmation required"
+                )
+            warnings.append({**_warn("K1", eid, detail), "kind": "skipped_no_baseline"})
+            continue
 
         current_sha = _sha256_short(full)
         if current_sha and current_sha != cached_sha:
@@ -674,9 +784,19 @@ def _check_K3(
 # ---------------------------------------------------------------------------
 
 
-def _check_K4(entries: list[dict]) -> tuple[list[dict], list[dict]]:
+def _check_K4(
+    entries: list[dict],
+    existing_locs: "dict[str, str] | None" = None,
+) -> tuple[list[dict], list[dict]]:
+    """K4: no two entries claim the same sot_location.
+
+    existing_locs: pre-seed the seen-map with {sot_location: committed_id} so a
+    proposed entry whose location collides with a committed entry's location also
+    fails (BP-024 K4), symmetric with _check_S2's existing_ids. Audit mode passes
+    None (intra-entry dedup only).
+    """
     failures: list[dict] = []
-    seen: dict[str, str] = {}
+    seen: dict[str, str] = dict(existing_locs or {})
 
     for entry in entries:
         eid = entry.get("id", "<missing>")
@@ -712,12 +832,17 @@ def _run_all_checks(
     *,
     _urlopen=None,
     existing_ids: "set[str] | None" = None,
+    existing_locs: "dict[str, str] | None" = None,
+    project_id_resolved: bool = True,
+    cache_populated: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """Run checks S1-S4 / R1-R4 / C1-C4 / K1-K4.
 
     S3 is handled in cmd_run (YAML parse); R3/C2/C4 are no-ops with the
     current schema (see inline notes on each check).
-    existing_ids: committed registry IDs to seed S2 in proposal mode (BP-024).
+    existing_ids / existing_locs: committed registry IDs / locations to seed S2
+    and K4 in proposal mode (BP-024).
+    project_id_resolved / cache_populated: K1 baseline-availability context.
     Returns (failures, warnings).
     """
     failures: list[dict] = []
@@ -758,7 +883,13 @@ def _run_all_checks(
     # C4: no-op — schema has no declared-count field
 
     # K1 / K2 / K3 / K4
-    f, w = _check_K1(entries, project_root, cache)
+    f, w = _check_K1(
+        entries,
+        project_root,
+        cache,
+        project_id_resolved=project_id_resolved,
+        cache_populated=cache_populated,
+    )
     failures.extend(f)
     warnings.extend(w)
     f, w = _check_K2(entries)
@@ -767,7 +898,7 @@ def _run_all_checks(
     f, w = _check_K3(entries, exec_drift_checks)
     failures.extend(f)
     warnings.extend(w)
-    f, w = _check_K4(entries)
+    f, w = _check_K4(entries, existing_locs)
     failures.extend(f)
     warnings.extend(w)
 
@@ -875,20 +1006,37 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
         verify_entries, ec = _load_proposal(Path(proposal_path))
         if ec != 0:
             return 1
-        # S2: seed with committed IDs so proposed entries can't collide (BP-024 S2)
+        # Seed S2/K4 with committed IDs/locations so proposed entries can't
+        # collide with a committed entry (BP-024 S2/K4).
         existing_ids: set[str] | None = {
             e.get("id", "") for e in entries if e.get("id")
+        }
+        existing_locs: dict[str, str] | None = {
+            e["sot_location"]: e.get("id", "<committed>")
+            for e in entries
+            if e.get("sot_location")
         }
     else:
         verify_entries = entries
         existing_ids = None
+        existing_locs = None
 
     # --- Project root ---
     project_root = _project_root_from_registry(registry_path)
 
-    # --- K1: load 5a drift cache (graceful — K1 simply won't fire on failure) ---
-    project_id = _resolve_project_id(registry_path)
+    # --- K1: load 5a drift cache. A missing baseline surfaces CONDITIONAL (not a
+    #     silent PASS); --project-id lets CI/teammates supply the id explicitly. ---
+    project_id = getattr(args, "project_id", None) or _resolve_project_id(registry_path)
     cache = _read_drift_cache(project_id) if project_id else {"components": {}}
+    cache_populated = _drift_state_populated()
+    project_id_resolved = project_id is not None
+    if not project_id_resolved and cache_populated:
+        print(
+            "Warning: project_id could not be resolved but a drift cache exists; "
+            "K1 content checks reported CONDITIONAL (baseline-loss). Pass "
+            "--project-id to supply it explicitly.",
+            file=sys.stderr,
+        )
 
     # --- Run all 16 checks ---
     failures, warnings = _run_all_checks(
@@ -900,6 +1048,9 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
         exec_drift_checks=getattr(args, "exec_drift_checks", False),
         _urlopen=_urlopen,
         existing_ids=existing_ids,
+        existing_locs=existing_locs,
+        project_id_resolved=project_id_resolved,
+        cache_populated=cache_populated,
     )
 
     # --- S3 was checked above and passed; include it in the full verdict ---
@@ -940,6 +1091,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--proposal",
         metavar="PATH",
         help="JSON/YAML file with 'entries' key — gate a proposed patch pre-apply",
+    )
+    run_p.add_argument(
+        "--project-id",
+        metavar="ID",
+        dest="project_id",
+        help="Explicit project_id for the 5a drift cache (skips auto-resolution; "
+        "use in CI or when auto-resolution fails)",
     )
     run_p.add_argument(
         "--check-urls",
