@@ -485,10 +485,13 @@ def main() -> int:
         # debugging surface only.
         if _tier2_fallback_reject is not None:
             _r = _tier2_fallback_reject
+            _meta_budget = _greedy_meta.get("budget", 0)
+            _meta_tokens_used = _greedy_meta.get("tokens_used", 0)
+            _remaining = _meta_budget - _meta_tokens_used
             _marker = (
                 f"# [tier-2 fallback: handoff-class result rejected "
                 f"reason={_r.get('reason')} tokens={_r.get('tokens')} "
-                f"budget={_greedy_meta.get('budget')}]\n"
+                f"remaining={_remaining} budget={_meta_budget}]\n"
             )
             formatted = _marker + (formatted or "")
 
@@ -518,6 +521,7 @@ def main() -> int:
             collections_searched=collection_names,
             rejects=_greedy_meta.get("rejects"),
             fallback_signaled=_greedy_meta.get("fallback_signaled", False),
+            per_source=_greedy_meta.get("per_source"),
         )
 
         # SPEC-021: context_retrieval span — retrieval pipeline complete

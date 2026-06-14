@@ -880,6 +880,17 @@ def select_results_greedy(
     tier_label = "1_bootstrap" if tier == 1 else "2_injection"
     fallback_signaled = False
 
+    # PLAN-028 P2-3: per-source budget ledger (observe-only).
+    # Keyed by collection name. Each entry:
+    #   requested_tokens: sum of token counts for candidates that reached the
+    #       budget check (after score_gap/dedup/empty filters).
+    #   loaded_tokens: tokens actually selected from this collection.
+    #   dropped: {reason: {count, tokens?}} — tokens only present for
+    #       budget_exceeded (the only reason where we know the count at drop time).
+    # Reconciliation (budget-class): loaded_tokens + dropped["budget_exceeded"]["tokens"]
+    #   == requested_tokens per collection.
+    per_source: dict[str, dict] = {}
+
     def _record_reject(
         result: dict,
         reason: str,
@@ -904,6 +915,15 @@ def select_results_greedy(
                 "collection": collection_label,
             }
         )
+        # Per-source ledger: accumulate dropped count (and tokens for budget drops).
+        _ps = per_source.setdefault(
+            collection_label,
+            {"requested_tokens": 0, "loaded_tokens": 0, "dropped": {}},
+        )
+        _drop_entry = _ps["dropped"].setdefault(reason, {"count": 0})
+        _drop_entry["count"] += 1
+        if result_tokens is not None:
+            _drop_entry["tokens"] = _drop_entry.get("tokens", 0) + result_tokens
         # BP-158 P2: only budget/ceiling rejection of handoff-class results
         # signals fallback. Score-gap and dedup of handoff are not fallback
         # triggers (Layer 1 is deterministic limit=1; dedup of handoff means
@@ -995,11 +1015,20 @@ def select_results_greedy(
         # Count tokens accurately
         result_tokens = count_tokens(content)
 
+        # Per-source ledger: this result reached the budget check — tally requested.
+        _coll_key = result.get("collection") or "unknown"
+        _ps_entry = per_source.setdefault(
+            _coll_key,
+            {"requested_tokens": 0, "loaded_tokens": 0, "dropped": {}},
+        )
+        _ps_entry["requested_tokens"] += result_tokens
+
         # Check if this result fits in remaining budget
         if tokens_used + result_tokens <= budget:
             selected.append(result)
             _selected_token_counts.append(result_tokens)
             tokens_used += result_tokens
+            _ps_entry["loaded_tokens"] += result_tokens
         else:
             # Skip-and-continue: try next smaller result
             # (AD-6: don't truncate, don't stop — keep trying)
@@ -1084,6 +1113,7 @@ def select_results_greedy(
             "rejects": rejects,
             "budget": budget,
             "tokens_used": tokens_used,
+            "per_source": per_source,
         }
         return selected, tokens_used, meta
     return selected, tokens_used
@@ -1171,6 +1201,7 @@ def log_injection_event(
     gating_mode: str = "full",
     rejects: list[dict] | None = None,
     fallback_signaled: bool = False,
+    per_source: dict | None = None,
 ) -> None:
     """Log injection event to .audit/logs/injection-log.jsonl.
 
@@ -1201,6 +1232,11 @@ def log_injection_event(
             list — backward-compatible with callers that omit it.
         fallback_signaled: True iff a handoff-class result was budget/ceiling
             rejected (BP-158 P2). Persisted for audit. Defaults to False.
+        per_source: Per-collection budget ledger from select_results_greedy
+            (PLAN-028 P2-3). Each key is a collection name; value is
+            ``{requested_tokens, loaded_tokens, dropped: {reason: {count, tokens?}}}``.
+            Reconciliation: ``loaded_tokens + dropped["budget_exceeded"]["tokens"]
+            == requested_tokens`` per collection. Defaults to empty dict.
     """
     log_path = Path(audit_dir) / "logs" / "injection-log.jsonl"
 
@@ -1223,6 +1259,7 @@ def log_injection_event(
         "gating_mode": gating_mode,
         "rejects": rejects or [],
         "fallback_signaled": fallback_signaled,
+        "per_source": per_source or {},
     }
 
     try:
