@@ -312,6 +312,118 @@ Fires propose-only at end-of-turn (Gemini `AfterAgent` event). Never writes any 
 
 ---
 
+## Digest Session-Start Hook — Opt-in
+
+The aim-sot digest session-start hooks ship in their respective hook script directories
+but are **not auto-registered** (BP-032 portability rule). Each hook fires on session
+start, invokes `aim_sot_consult.py digest --json`, and injects a compact SOT digest as
+ambient session-start context. Ships propose-only (digest is read-only — never writes
+the registry).
+
+Opt-in gate: a `.sot/registry.yaml` in the project root is required (same gate as the
+drift hooks). No registry → hook exits with empty context.
+
+### Claude — SessionStart hook
+
+Script: `.claude/hooks/scripts/sot_digest_session_start.py`  
+Config: `.claude/settings.json` — add under `hooks.SessionStart`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_digest_session_start.py\" || true",
+            "timeout": 30000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Once registered, fires on every Claude Code session start and injects the SOT digest as
+`additionalContext`. Requires `.sot/registry.yaml` in the project root to activate.
+
+### Codex — SessionStart hook
+
+Script: `src/memory/adapters/codex/sot_digest_session_start.py`  
+Config: `.codex/hooks.json` — add under `hooks.SessionStart`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_digest_session_start.py\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Fires at Codex session start and injects the SOT digest as `systemMessage`.
+
+### Cursor — sessionStart hook
+
+Script: `src/memory/adapters/cursor/sot_digest_session_start.py`  
+Config: `.cursor/hooks.json` — add under `hooks.sessionStart`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_digest_session_start.py\" || true",
+        "timeout": 30
+      }
+    ]
+  }
+}
+```
+
+Fires at Cursor session start and injects the SOT digest as top-level `additional_context`.
+
+### Gemini — SessionStart hook
+
+Script: `src/memory/adapters/gemini/sot_digest_session_start.py`  
+Config: `.gemini/settings.json` — add under `hooks.SessionStart`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_digest_session_start.py\" || true",
+            "timeout": 60000
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Fires at Gemini session start and injects the SOT digest as `additionalContext`.
+
+---
+
 ## Registry contract
 
 - `.sot/registry.yaml` is fully human-owned and committed; the schema and templates live in `_ai-memory/skills/aim-sot/`.

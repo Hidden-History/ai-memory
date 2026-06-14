@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Cursor IDE SOT Digest Session-Start adapter — opt-in-OFF by default.
+
+Fires on Cursor sessionStart event. Invokes the aim-sot consult engine in digest
+mode and injects a compact SOT summary as ambient session-start context.
+Never writes any committed file.
+
+Input (stdin JSON): Cursor sessionStart payload (normalized via normalize_cursor_event)
+
+Opt-in: ships unregistered. See aim-sot SKILL.md § Digest Session-Start Hook.
+"""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+from pathlib import Path
+
+INSTALL_DIR = os.environ.get(
+    "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+)
+sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
+
+# Self-termination timeout — prevents adapter from hanging Cursor.
+# Inner subprocess.run uses a tighter 20s timeout; this outer guard
+# fires at 25s to kill the whole process if something escapes.
+HOOK_TIMEOUT_SECONDS = 25
+
+EMPTY_OUTPUT = {"additional_context": ""}
+
+
+def _timeout_handler(signum, frame):
+    """Self-terminate if adapter exceeds global SIGALRM timeout."""
+    sys.exit(0)
+
+
+def _render_digest(data: dict) -> str:
+    """Render digest JSON into compact context text.
+
+    Returns empty string if digest is empty or data is malformed.
+    """
+    lines = data.get("digest", [])
+    if not lines:
+        return ""
+    drift = data.get("drift", {})
+    clean = drift.get("clean", 0)
+    stale = drift.get("stale", 0)
+    unverified = drift.get("unverified", 0)
+    drift_line = f"drift: {clean} clean, {stale} stale, {unverified} unverified"
+    return "[ai-memory] SOT digest:\n" + "\n".join(lines) + "\n" + drift_line
+
+
+def main():
+    """Main entry point for Cursor sessionStart SOT-digest adapter."""
+    # Install global self-termination timeout (signal.alarm best practice).
+    # Skipped in test environments to prevent SIGALRM leaks across tests.
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        try:
+            signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(HOOK_TIMEOUT_SECONDS)
+        except (AttributeError, OSError):
+            pass  # SIGALRM not available on Windows
+
+    try:
+        # Parse stdin — fail-open on any parse error
+        raw = sys.stdin.read()
+        if not raw.strip():
+            print(json.dumps(EMPTY_OUTPUT))
+            sys.exit(0)
+
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            print(json.dumps(EMPTY_OUTPUT))
+            sys.exit(0)
+
+        # Normalize to canonical event — fail-open on schema errors.
+        # normalize_cursor_event handles cwd resolution per-CLI.
+        # Cursor uses camelCase event name "sessionStart" (maps to canonical "SessionStart").
+        try:
+            from memory.adapters.schema import (
+                normalize_cursor_event,
+                validate_canonical_event,
+            )
+
+            event = normalize_cursor_event(payload, "sessionStart")
+            validate_canonical_event(event)
+        except (ValueError, ImportError):
+            print(json.dumps(EMPTY_OUTPUT))
+            sys.exit(0)
+
+        cwd = event["cwd"]
+        if not cwd:
+            print(json.dumps(EMPTY_OUTPUT))
+            sys.exit(0)
+
+        # Only run against SOT-enabled projects — no registry means not opted in.
+        registry_path = Path(cwd) / ".sot" / "registry.yaml"
+        if not registry_path.exists():
+            print(json.dumps(EMPTY_OUTPUT))
+            sys.exit(0)
+
+        # Locate run-with-env.sh wrapper and engine script via module-level INSTALL_DIR.
+        run_with_env = os.path.join(INSTALL_DIR, "scripts", "memory", "run-with-env.sh")
+        engine_script = os.path.join(
+            INSTALL_DIR,
+            "_ai-memory",
+            "skills",
+            "aim-sot",
+            "scripts",
+            "aim_sot_consult.py",
+        )
+
+        # Invoke engine — digest mode, JSON output, explicit registry path.
+        result = subprocess.run(
+            [
+                "bash",
+                run_with_env,
+                engine_script,
+                "digest",
+                "--json",
+                "--registry",
+                str(registry_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                data = json.loads(result.stdout)
+                # Handle no_registry error shape (Opus MINOR-1: handle both shapes)
+                if data.get("error") != "no_registry":
+                    rendered = _render_digest(data)
+                    if rendered:
+                        # Cursor: top-level additional_context (NOT nested in hookSpecificOutput)
+                        print(json.dumps({"additional_context": rendered}))
+                        sys.exit(0)
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass  # fail-open: swallow malformed engine output
+
+        print(json.dumps(EMPTY_OUTPUT))
+
+    except Exception:
+        print(json.dumps(EMPTY_OUTPUT))  # never block Cursor
+
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
