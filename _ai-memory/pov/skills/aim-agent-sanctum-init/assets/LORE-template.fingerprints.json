@@ -1,0 +1,51 @@
+{
+  "template": "LORE-template.md",
+  "reference_version": "sha256:e738e0e74c8e211b1cecfae2e11889d7422dae562214cceb34066249939c5c2c",
+  "units": [
+    {
+      "id": "bootstrapping-lore-for-a-new-project",
+      "heading": "## Bootstrapping LORE for a New Project",
+      "guidance": "*First session in a new project? See the `aim-agent-sanctum-init` skill (or `references/lore-bootstrapping.md`) for the read-these-files bootstrapping + distillation guide. One-time \u2014 not needed once LORE is populated.*",
+      "fingerprint": "sha256:bb325dc73c8d15153ccbfe6e5837df639caa428a8a5f2852ac55d00e93da06b9",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "system-architecture",
+      "heading": "## System Architecture",
+      "guidance": "_What does this project do? How are its pieces connected? Write what you learn as you work._",
+      "fingerprint": "sha256:c5aae1e747c6d01c1a21bb80fb63e6f141643bf8e2cf828a8d214c6585540466",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "key-design-decisions",
+      "heading": "## Key Design Decisions",
+      "guidance": "_Major architectural or product decisions that shape ongoing work. Reference the decision-log for full context \u2014 copy the WHY, not the WHAT._",
+      "fingerprint": "sha256:e2dadef435be8e15c166b5a60de9db597cefeac9878646aa4262b2d51e14eccd",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "patterns-conventions",
+      "heading": "## Patterns & Conventions",
+      "guidance": "_Coding conventions, workflow patterns, naming rules, file layout. The conventions the owner cares about enough to correct when missed._",
+      "fingerprint": "sha256:3db5434d98ccfdb9a9236c0e470c8de7d98d9769e007049543181cae696faa04",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "things-learned-the-hard-way",
+      "heading": "## Things Learned the Hard Way",
+      "guidance": "_Gotchas, debugging lessons, and \"don't do this\" notes earned through actual sessions. Specific failures with specific causes \u2014 not generic advice._ *Prune ruthlessly. LORE is for what you USE, not what you've SEEN. Stale knowledge is worse than no knowledge.*",
+      "fingerprint": "sha256:8d23d53562ddc80460683b4ee7e9ba159f384611528d26a384f5206435855a6a",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "template": "CAPABILITIES-template.md",
+  "reference_version": "sha256:f8f9d2641d1fba452dbcb4c5256788ac0472529a997b6902b02fbca82ed1b833",
+  "units": [
+    {
+      "id": "built-in-workflows",
+      "heading": "## Built-in Workflows",
+      "guidance": "These are the workflows Parzival can route to from the activation menu; every install ships all of them. The canonical catalog \u2014 codes, names, descriptions, and order \u2014 is the `<menu>` block in `_ai-memory/pov/agents/parzival.md`. Read it from there. Do **not** keep a second copy here: a hand-maintained table silently drifts from the live menu (it already has).",
+      "fingerprint": "sha256:5074084d9f6a859d230b73d34731defdc348ee617bcfaf6be5c66a06eb19b3b0",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "learned-capabilities",
+      "heading": "## Learned Capabilities",
+      "guidance": "_Capabilities the owner has added over time. Each one's prompt lives in `capabilities/`. Register new capabilities here when added._ | Code | Name | Description | Source | Added | |------|------|-------------|--------|-------|",
+      "fingerprint": "sha256:2e9baa2dea83273f225b8b2298e1db417c36199aee4d8608ba4ac10cadcd4738",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "how-to-add-a-capability",
+      "heading": "## How to Add a Capability",
+      "guidance": "Tell Parzival \"I want you to be able to do X\" and he'll create it together with you. The new capability prompt gets saved to `capabilities/`, registered in this table, and is available in the next session. The owner's authority over capabilities is unilateral \u2014 Parzival ships extensible. For the full creation framework, load `references/capability-authoring.md` if present.",
+      "fingerprint": "sha256:455497076b2f5921861aaa5682e609c016b8862a87cae798b47ac008a76db25d",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "tools",
+      "heading": "## Tools",
+      "guidance": "Parzival prefers crafting his own tools over depending on external ones. A script written, saved, and tested is more reliable than an unfamiliar external API. The file system is the primary working surface \u2014 files are durable, observable, and version-controllable. Standard tools always available: - File system read/write within authorized dominion (per CREED Boundaries) - Subagent dispatch via the orchestration pipeline (per CREED Standing Orders + GC-21) - Web fetch and web search (for best-practices research per [BR]) - Shell execution within sandbox limits ### User-Provided Tools _MCP servers, APIs, or services the owner has made available. Document them here as they're added._",
+      "fingerprint": "sha256:384d9014a491be042caa1b2256eace65741dc5a362ebfd4f76fc5b97cded7de8",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    }
+  ]
+}

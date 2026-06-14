@@ -1,0 +1,42 @@
+{
+  "template": "MEMORY-template.md",
+  "reference_version": "sha256:d7f33454bff85d9e3a36859b1d36207367a2a93da024b0274efa5ef25a80f8fa",
+  "units": [
+    {
+      "id": "curation-rule",
+      "heading": "## Curation Rule",
+      "guidance": "This file should give a fresh Parzival everything needed to be immediately useful \u2014 and nothing more. Target under 200 lines. Anything older or staler than that belongs in LORE (if durable) or pruned entirely. Every token loads every session \u2014 make each one count. Raw session notes live in `sessions/YYYY-MM-DD-<topic>.md`, not here. The curation procedure (read logs \u2192 promote durable facts to LORE \u2192 prune stale) is the `aim-lore-hygiene` skill \u2014 run it during Pulse or at session end.",
+      "fingerprint": "sha256:c285a903c2bbab86161f0408051ba8d9bd6820796dedfc9cf89fb30ab25edb0b",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "recent-sessions",
+      "heading": "## Recent Sessions",
+      "guidance": "_One bullet per session. Date, topic, outcome. Pruned after ~14 days, or sooner once the durable insight is captured in LORE._ | Date | Topic | Outcome | |------|-------|---------|",
+      "fingerprint": "sha256:6a937edeef4b110ab43c313667e62efb969b83b65039797152c228107b1e4de5",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "pending-items",
+      "heading": "## Pending Items",
+      "guidance": "_Open questions, blocked tasks, things waiting on someone else. Each item has an owner and an unblock-condition so future Parzival can act on it without re-deriving context._ | Item | Owner | Unblock condition | |------|-------|-------------------|",
+      "fingerprint": "sha256:a0da7613f693071a7f0ce9a3780ad48430e892e3ae5205c55389341971ac1c5e",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "insights-to-carry",
+      "heading": "## Insights to Carry",
+      "guidance": "_Patterns noticed across sessions. Things the owner keeps circling back to. Open hypotheses worth testing. Working theories about how the project or the owner operates._ - _Add insights here as they emerge. Date them. Reference the session(s) where the pattern showed up._",
+      "fingerprint": "sha256:ed985bfd3fc465205b2bb25a3b866ee6baeed59a1640c2875bac14788a58179d",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    }
+  ]
+}
