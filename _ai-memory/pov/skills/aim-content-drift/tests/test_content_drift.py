@@ -427,6 +427,196 @@ def test_realistic_fresh_scaffold_all_eight_is_clean(tmp_path):
     assert "your sanctum is current" in r.stdout
 
 
+# --- HIGH-1 regression: a {placeholder} ORPHAN must not absorb operator prose ----
+
+# Each affected placeholder-bearing unit (BP-173 §3): the reference framing is kept
+# verbatim and only the {placeholder} token is resolved — once with a bare value
+# (genuinely pristine → still ORPHAN), once with a value PLUS operator-authored prose
+# (CUSTOMIZED → must never be recommended for removal). On b444740 the prose case was
+# absorbed by the placeholder's ``.+?`` under ``fullmatch`` → false ORPHAN/REMOVE.
+_PLACEHOLDER_ORPHAN_CASES = [
+    (
+        "BOND-template.md",
+        "BOND.md",
+        "owner",
+        {"{user_name}": "Alice"},
+        {
+            "{user_name}": "Alice — principal eng; told me NEVER auto-merge, do not delete"
+        },
+    ),
+    (
+        "CREED-template.md",
+        "CREED.md",
+        "standing-orders",
+        {"{communication_language}": "English"},
+        {"{communication_language}": "English, but always be terse and never hedge"},
+    ),
+    (
+        "PERSONA-template.md",
+        "PERSONA.md",
+        "identity",
+        {"{birth_date}": "2026-05-30"},
+        {"{birth_date}": "2026-05-30 (the day First Breath ran; never forget this)"},
+    ),
+    (
+        "PERSONA-template.md",
+        "PERSONA.md",
+        "evolution-log",
+        {"{birth_date}": "2026-05-30", "{user_name}": "Alice"},
+        {
+            "{birth_date}": "2026-05-30",
+            "{user_name}": "Alice the operator who keeps editing this log herself",
+        },
+    ),
+]
+
+
+def _fill(template_text: str, repl: dict) -> str:
+    out = template_text
+    for ph, val in repl.items():
+        out = out.replace(ph, val)
+    return out
+
+
+def _detect_orphan_case(tmp_path, template_name, op_name, unit_id, repl):
+    """Scaffold the operator file with the unit's placeholder(s) resolved per ``repl``,
+    mark that unit ORPHAN in the sidecar, and run detect (read-only). Returns stdout."""
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    sanctum.mkdir(parents=True, exist_ok=True)
+    (sanctum / op_name).write_text(
+        _fill(_real_template(template_name), repl), encoding="utf-8"
+    )
+    fp = _copy_sidecars(tmp_path / "fp")
+    sc_name = Path(template_name).stem + ".fingerprints.json"
+    sidecar = _load_sidecar(fp, sc_name)
+    _unit(sidecar, unit_id)["status"] = "orphan"
+    _write_sidecar(fp, sc_name, sidecar)
+    r = _run(str(sanctum), "--fingerprints-dir", str(fp))
+    assert r.returncode == 0, r.stderr
+    return r.stdout
+
+
+def test_HIGH1_placeholder_orphan_unit_level():
+    """is_pristine_remnant: a value-only fill is pristine (True); a value + added
+    operator prose is CUSTOMIZED (False). FAILS on b444740 (prose absorbed → True)."""
+    sys.path.insert(0, str(SCRIPT.parent))
+    import content_drift as cd
+
+    for (
+        template_name,
+        _op,
+        unit_id,
+        value_only,
+        customized,
+    ) in _PLACEHOLDER_ORPHAN_CASES:
+        sidecar = _load_sidecar(
+            REAL_ASSETS, Path(template_name).stem + ".fingerprints.json"
+        )
+        guidance = _unit(sidecar, unit_id)["guidance"]
+        pristine_body = cd.canonical_text([_fill(guidance, value_only)])
+        custom_body = cd.canonical_text([_fill(guidance, customized)])
+        assert (
+            cd.is_pristine_remnant(guidance, pristine_body) is True
+        ), f"{template_name}::{unit_id} value-only fill should be pristine (control)"
+        assert (
+            cd.is_pristine_remnant(guidance, custom_body) is False
+        ), f"{template_name}::{unit_id} value+prose fill must be CUSTOMIZED, not pristine"
+
+
+def test_HIGH1_placeholder_orphan_with_operator_prose_not_removed(tmp_path):
+    """detect: an ORPHAN placeholder unit whose operator filled the value AND added
+    prose is CUSTOMIZED — never recommended for removal (the cardinal guarantee)."""
+    for (
+        template_name,
+        op_name,
+        unit_id,
+        _value_only,
+        customized,
+    ) in _PLACEHOLDER_ORPHAN_CASES:
+        case_dir = tmp_path / unit_id
+        out = _detect_orphan_case(case_dir, template_name, op_name, unit_id, customized)
+        assert (
+            "ORPHAN" not in out
+        ), f"{op_name}::{unit_id} wrongly flagged ORPHAN\n{out}"
+        assert (
+            "REMOVE" not in out
+        ), f"{op_name}::{unit_id} wrongly recommends REMOVE\n{out}"
+        assert (
+            f"{op_name}::{unit_id}" not in out
+        ), f"{op_name}::{unit_id} surfaced\n{out}"
+
+
+def test_HIGH1_placeholder_orphan_value_only_still_orphan(tmp_path):
+    """Control (not over-broad): a genuinely-pristine remnant — placeholder resolved to
+    a bare value, no operator content added — still classifies ORPHAN."""
+    for (
+        template_name,
+        op_name,
+        unit_id,
+        value_only,
+        _customized,
+    ) in _PLACEHOLDER_ORPHAN_CASES:
+        case_dir = tmp_path / unit_id
+        out = _detect_orphan_case(case_dir, template_name, op_name, unit_id, value_only)
+        assert (
+            "ORPHAN" in out
+        ), f"{op_name}::{unit_id} value-only should be ORPHAN\n{out}"
+        assert f"{op_name}::{unit_id}" in out, f"{op_name}::{unit_id} missing\n{out}"
+
+
+# --- LOW #3: an unresolved scope refuses a project-stamped ack (no cross-project leak)
+
+
+def test_LOW3_offline_ignores_project_stamped_ack(tmp_path):
+    """When the project scope is unresolvable, a project-stamped ack file is ignored
+    (it could belong to another project) → findings are shown, not suppressed."""
+    import os
+
+    sanctum = tmp_path / "_ai-memory" / "sanctum" / "parzival"
+    lore = _scaffold_lore(sanctum)
+    lore.write_text(
+        _drop_section(lore.read_text(), "## Key Design Decisions"), encoding="utf-8"
+    )
+    fp = _copy_sidecars(tmp_path / "fp")
+    key = "LORE.md::key-design-decisions"
+    ref_fp = _unit(
+        _load_sidecar(fp, "LORE-template.fingerprints.json"), "key-design-decisions"
+    )["fingerprint"]
+    # A foreign, project-stamped ack that WOULD suppress the finding if applied.
+    ack = tmp_path / "ack.json"
+    ack.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "project_id": "some-other-project",
+                "acks": {key: {"reference_fingerprint": ref_fp, "class": "MISSING"}},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    env = {k: v for k, v in os.environ.items() if k != "AI_MEMORY_PROJECT_ID"}
+    r = _run(
+        str(sanctum), "--fingerprints-dir", str(fp), "--ack-file", str(ack), env=env
+    )
+    assert r.returncode == 0, r.stderr
+    assert "project scope is unresolved" in r.stdout
+    assert "MISSING" in r.stdout  # not suppressed by the foreign ack
+
+
+# --- LOW #4: resolve_scope locates src by walking up (not a hard-coded depth) ------
+
+
+def test_LOW4_resolve_scope_locates_src(monkeypatch):
+    """resolve_scope finds the repo's src/memory by walking up from the script's real
+    location (no hard-coded parents[N]) and delegates to the canonical resolver."""
+    sys.path.insert(0, str(SCRIPT.parent))
+    import content_drift as cd
+
+    monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "scope-via-walkup")
+    assert cd.resolve_scope(None, None) == "scope-via-walkup"
+
+
 # --- --emit-fingerprints leaves the templates byte-unchanged ------------------
 
 

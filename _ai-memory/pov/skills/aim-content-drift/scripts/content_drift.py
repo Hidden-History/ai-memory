@@ -115,6 +115,22 @@ DEFAULT_FINGERPRINTS_DIR = (
 # framing AROUND a placeholder is what is owned, so a placeholder matches any value.
 _PLACEHOLDER_RE = re.compile(r"\{[a-z_]+\}")
 
+# In the STRICT ORPHAN/remove test a placeholder may resolve ONLY to a simple value —
+# never to a clause of operator prose (the anti-clobber boundary). A value token is an
+# alphanumeric run (Unicode), optionally joined by apostrophes/hyphens (so "O'Brien",
+# "Mary-Jane", and the ISO "2026-05-30" are single values); underscores and prose
+# punctuation are excluded so a fill cannot absorb the emphasis/clause framing around
+# it.
+_VALUE_TOKEN = r"[^\W_]+(?:['\-][^\W_]+)*"
+# A resolved value is a short noun-phrase (a name, a date, a language), not a clause.
+# Cap the word count so unpunctuated added prose cannot masquerade as a fill. The cap
+# direction is always safe: exceeding it classifies the section CUSTOMIZED (keep),
+# never ORPHAN (remove).
+_MAX_PLACEHOLDER_VALUE_WORDS = 5
+_VALUE_RUN = (
+    rf"{_VALUE_TOKEN}(?:[ ]{_VALUE_TOKEN}){{0,{_MAX_PLACEHOLDER_VALUE_WORDS - 1}}}"
+)
+
 # Thematic breaks (---/***/___) are structural section delimiters, never part of a
 # unit's reference content.
 _THEMATIC_BREAK_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
@@ -195,6 +211,7 @@ def parse_units(body_lines: list[str]) -> dict[str, tuple[str, str]]:
     heading: str | None = None
     uid: str | None = None
     buf: list[str] = []
+    in_fence = False
 
     def flush() -> None:
         if uid is not None and heading is not None:
@@ -202,6 +219,17 @@ def parse_units(body_lines: list[str]) -> dict[str, tuple[str, str]]:
 
     for line in body_lines:
         stripped = line.strip()
+        if stripped.startswith("```"):
+            # A ``## `` inside a fenced code block is literal content, not a unit
+            # boundary; track the fence so it is not mis-parsed as a heading.
+            in_fence = not in_fence
+            if uid is not None:
+                buf.append(line)
+            continue
+        if in_fence:
+            if uid is not None:
+                buf.append(line)
+            continue
         if stripped.startswith("## "):
             flush()
             heading = stripped
@@ -241,13 +269,27 @@ def guidance_present(guidance_canonical: str, body_canonical: str) -> bool:
     return _presence_pattern(guidance_canonical).search(body_canonical) is not None
 
 
+def _pristine_pattern(guidance_canonical: str) -> re.Pattern:
+    """Compile the STRICT pattern for the ORPHAN/remove test: every literal framing
+    segment matched exactly, each ``{placeholder}`` matched only by a bounded
+    value-like run (``_VALUE_RUN``). Unlike ``_presence_pattern`` (placeholder → any
+    ``.+?`` run), a placeholder here cannot span operator-authored prose, so a section
+    that filled the placeholder AND added its own content does not ``fullmatch``.
+    """
+    parts = _PLACEHOLDER_RE.split(guidance_canonical)
+    return re.compile(_VALUE_RUN.join(re.escape(p) for p in parts))
+
+
 def is_pristine_remnant(guidance_canonical: str, body_canonical: str) -> bool:
-    """True if the operator's section is ONLY the reference guidance — no operator
-    content added. This is the strict, safe boundary for an ORPHAN remove
-    recommendation: any operator content makes the section CUSTOMIZED (keep)."""
+    """True if the operator's section is ONLY the reference guidance with each
+    placeholder resolved to a simple value — no operator content added. This is the
+    strict, safe boundary for an ORPHAN remove recommendation: any added prose (a
+    placeholder filled with more than a bare value, or any extra text around the
+    framing) makes the section CUSTOMIZED (keep). Bias is to CUSTOMIZED when
+    ambiguous — a false keep is acceptable, a false remove is the cardinal failure."""
     if not guidance_canonical:
         return body_canonical == ""
-    return _presence_pattern(guidance_canonical).fullmatch(body_canonical) is not None
+    return _pristine_pattern(guidance_canonical).fullmatch(body_canonical) is not None
 
 
 # --- Fingerprint sidecar generation (maintenance mode) ------------------------
@@ -333,7 +375,8 @@ def classify_file(
             if is_pristine_remnant(guidance, body):
                 drift_class = "ORPHAN"
                 diff_preview = (
-                    f"- REMOVE (reference-owned, uncustomized):\n{heading}\n{guidance}"
+                    f"- REMOVE? (reference-owned, looks like the original scaffold):\n"
+                    f"{heading}\n{guidance}"
                 )
             else:
                 continue  # operator customized it → CUSTOMIZED, never recommend removal
@@ -388,8 +431,9 @@ def _rationale(drift_class: str, op_filename: str, heading: str) -> str:
             f"framing; the template has since updated it. Review the change."
         )
     return (
-        f"The reference no longer includes '{name}'; it remains unchanged in your "
-        f"{op_filename} and can be removed."
+        f"The reference no longer includes '{name}'. Your {op_filename} still has it "
+        f"and it looks like the original scaffold text — if that is right, you may "
+        f"remove it; if you have come to rely on it, keep it."
     )
 
 
@@ -410,10 +454,14 @@ def resolve_scope(explicit: str | None, cwd: str | None) -> str:
     the import path so ``memory.project`` is importable, then delegates — no cwd-only
     inference, no hardcoded paths."""
     here = Path(__file__).resolve()
-    candidates = [
-        here.parents[5] / "src",  # repo root: .../_ai-memory/pov/skills/<skill>/scripts
-        Path.home() / ".ai-memory" / "src",  # runtime install
-    ]
+    candidates = []
+    # Walk up to find the repo root that owns ``src/memory`` (where the resolver lives)
+    # instead of hard-coding the skill's nesting depth — robust to layout changes.
+    for parent in here.parents:
+        if (parent / "src" / "memory").is_dir():
+            candidates.append(parent / "src")
+            break
+    candidates.append(Path.home() / ".ai-memory" / "src")  # runtime install fallback
     for cand in candidates:
         if cand.is_dir() and str(cand) not in sys.path:
             sys.path.insert(0, str(cand))
@@ -435,7 +483,13 @@ def default_ack_path(sanctum_dir: Path) -> Path:
 
 def load_acks(ack_path: Path, group_id: str | None) -> dict:
     """Load ack entries, refusing a file scoped to a different project (no
-    cross-project leak — T7). Returns the ``acks`` map only."""
+    cross-project leak — T7). Returns the ``acks`` map only.
+
+    When the project scope could not be resolved (``group_id is None``, e.g. offline)
+    a project-stamped ack file is also refused: without a resolved scope its ownership
+    cannot be verified, so applying it could let another project's acks suppress
+    findings. The safe direction is to ignore it and show the findings.
+    """
     if not ack_path.is_file():
         return {}
     try:
@@ -444,6 +498,13 @@ def load_acks(ack_path: Path, group_id: str | None) -> dict:
         print(f"  warning: could not read ack file {ack_path} — ignoring it")
         return {}
     file_pid = data.get("project_id")
+    if file_pid is not None and group_id is None:
+        print(
+            f"  warning: ack file {ack_path.name} is scoped to project "
+            f"'{file_pid}' but the current project scope is unresolved — ignoring it "
+            f"(no cross-project leak; showing findings)"
+        )
+        return {}
     if group_id is not None and file_pid is not None and file_pid != group_id:
         print(
             f"  warning: ack file {ack_path.name} is scoped to project "
