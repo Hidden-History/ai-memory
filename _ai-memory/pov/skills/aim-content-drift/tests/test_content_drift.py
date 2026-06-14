@@ -564,6 +564,73 @@ def test_HIGH1_placeholder_orphan_value_only_still_orphan(tmp_path):
         assert f"{op_name}::{unit_id}" in out, f"{op_name}::{unit_id} missing\n{out}"
 
 
+# --- MEDIUM-1 regression: a {placeholder} fill cannot carry punctuation-joined prose -
+
+# c5b6a07 closed the space-separated-prose hole but left a narrower bypass: the value
+# matcher treated an apostrophe/hyphen-joined run as a SINGLE token, so an unbounded
+# "a-b-c-…" chain (or "a'b'c'…" run) read as one value and stayed within the word cap →
+# operator prose absorbed → false ORPHAN/REMOVE. The bound now counts every sub-token,
+# so a long punctuation-joined run exceeds the cap and classifies CUSTOMIZED (keep).
+
+# A minimal reference framing with one placeholder (the BOND::owner shape).
+_MED1_GUIDANCE = "**Name:** {user_name} _Filled during First Breath: who they are._"
+
+# Punctuation-joined operator prose that MUST NOT read as a pristine fill (→ keep).
+_MED1_PROSE_FILLS = [
+    "Alice-principal-eng-NEVER-auto-merge-do-not-delete-my-files",  # hyphen chain
+    "Alice'is'telling'you'never'to'merge",  # apostrophe-joined run
+]
+# Legitimate short value fills that MUST stay pristine (→ control ORPHAN still fires).
+_MED1_LEGIT_FILLS = ["Mary-Jane", "O'Brien", "Alice Chen", "2026-05-30", "English"]
+
+
+def test_MEDIUM1_punctuation_joined_prose_is_not_pristine():
+    """is_pristine_remnant: an apostrophe/hyphen-joined operator-prose fill is
+    CUSTOMIZED (False); a legit short value fill stays pristine (True). FAILS on
+    c5b6a07 (the joined run collapsed to one token → absorbed → True)."""
+    sys.path.insert(0, str(SCRIPT.parent))
+    import content_drift as cd
+
+    guidance = cd.canonical_text([_MED1_GUIDANCE])
+    for prose in _MED1_PROSE_FILLS:
+        body = cd.canonical_text([_MED1_GUIDANCE.replace("{user_name}", prose)])
+        assert (
+            cd.is_pristine_remnant(guidance, body) is False
+        ), f"punctuation-joined prose {prose!r} must be CUSTOMIZED, not pristine"
+    for legit in _MED1_LEGIT_FILLS:
+        body = cd.canonical_text([_MED1_GUIDANCE.replace("{user_name}", legit)])
+        assert (
+            cd.is_pristine_remnant(guidance, body) is True
+        ), f"legit short fill {legit!r} must stay pristine (control — ORPHAN must still fire)"
+
+
+def test_MEDIUM1_punctuation_prose_orphan_not_removed(tmp_path):
+    """detect: a BOND::owner ORPHAN whose operator filled the value with a hyphen-joined
+    prose run is CUSTOMIZED — never recommended for removal (the cardinal guarantee)."""
+    prose = {"{user_name}": "Alice-principal-eng-NEVER-auto-merge-do-not-delete"}
+    out = _detect_orphan_case(
+        tmp_path / "prose", "BOND-template.md", "BOND.md", "owner", prose
+    )
+    assert "ORPHAN" not in out, f"hyphen-joined prose wrongly flagged ORPHAN\n{out}"
+    assert "REMOVE" not in out, f"hyphen-joined prose wrongly recommends REMOVE\n{out}"
+    assert "BOND.md::owner" not in out, f"BOND.md::owner surfaced\n{out}"
+
+
+def test_MEDIUM1_legit_short_fill_still_orphan(tmp_path):
+    """Control (not over-broad): a BOND::owner ORPHAN whose operator left a hyphenated
+    short name (Mary-Jane) as the only fill is a genuine pristine remnant → still
+    ORPHAN. Proves the bound did not kill the matcher."""
+    out = _detect_orphan_case(
+        tmp_path / "legit",
+        "BOND-template.md",
+        "BOND.md",
+        "owner",
+        {"{user_name}": "Mary-Jane"},
+    )
+    assert "ORPHAN" in out, f"legit short fill should still be ORPHAN\n{out}"
+    assert "BOND.md::owner" in out, f"BOND.md::owner missing\n{out}"
+
+
 # --- LOW #3: an unresolved scope refuses a project-stamped ack (no cross-project leak)
 
 

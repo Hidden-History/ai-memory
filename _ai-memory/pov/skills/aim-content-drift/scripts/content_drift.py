@@ -115,21 +115,21 @@ DEFAULT_FINGERPRINTS_DIR = (
 # framing AROUND a placeholder is what is owned, so a placeholder matches any value.
 _PLACEHOLDER_RE = re.compile(r"\{[a-z_]+\}")
 
-# In the STRICT ORPHAN/remove test a placeholder may resolve ONLY to a simple value —
-# never to a clause of operator prose (the anti-clobber boundary). A value token is an
-# alphanumeric run (Unicode), optionally joined by apostrophes/hyphens (so "O'Brien",
-# "Mary-Jane", and the ISO "2026-05-30" are single values); underscores and prose
+# In the STRICT ORPHAN/remove test a placeholder may resolve ONLY to a short,
+# value-shaped fill — never to a clause of operator prose (the anti-clobber boundary).
+# A value sub-token is one alphanumeric run (Unicode); underscores and prose
 # punctuation are excluded so a fill cannot absorb the emphasis/clause framing around
 # it.
-_VALUE_TOKEN = r"[^\W_]+(?:['\-][^\W_]+)*"
-# A resolved value is a short noun-phrase (a name, a date, a language), not a clause.
-# Cap the word count so unpunctuated added prose cannot masquerade as a fill. The cap
-# direction is always safe: exceeding it classifies the section CUSTOMIZED (keep),
-# never ORPHAN (remove).
-_MAX_PLACEHOLDER_VALUE_WORDS = 5
-_VALUE_RUN = (
-    rf"{_VALUE_TOKEN}(?:[ ]{_VALUE_TOKEN}){{0,{_MAX_PLACEHOLDER_VALUE_WORDS - 1}}}"
-)
+_VALUE_SUBTOKEN = r"[^\W_]+"
+# A resolved value is a SHORT run of sub-tokens joined by spaces, apostrophes, or
+# hyphens — a name, a date, a language ("Alice Chen", "Mary-Jane", "O'Brien",
+# "2026-05-30", "English"). The cap bounds the TOTAL sub-token count, so apostrophe-
+# and hyphen-joined runs are bounded too: an unbounded "a-b-c-…" chain or "a'b'c'…"
+# run exceeds the cap and is rejected, instead of collapsing to a single token as a
+# space-only word count would. The cap direction is always safe: exceeding it
+# classifies the section CUSTOMIZED (keep), never ORPHAN (remove).
+_MAX_PLACEHOLDER_VALUE_TOKENS = 5
+_VALUE_RUN = rf"{_VALUE_SUBTOKEN}(?:[ '\-]{_VALUE_SUBTOKEN}){{0,{_MAX_PLACEHOLDER_VALUE_TOKENS - 1}}}"
 
 # Thematic breaks (---/***/___) are structural section delimiters, never part of a
 # unit's reference content.

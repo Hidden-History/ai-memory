@@ -25,6 +25,17 @@ writes a sanctum file or a template. Applying a recommendation is the operator's
 manual edit (an `--apply` path is deferred). The only files the skill writes are its
 own per-project ack sidecar (via `--ack` / `--prune-ack`).
 
+**Known v1 limitation (the ORPHAN remove heuristic).** ORPHAN — the only class that
+recommends *removing* a section — fires only when the operator's section is a pristine
+scaffold remnant: the reference framing kept verbatim with each `{placeholder}`
+resolved to a short value (a name, a date, a language). The remnant test is a bounded
+heuristic, so a *short*, value-shaped fill that still preserves the full reference
+framing can read as pristine even if the operator meant it as content. This is safe by
+design: detect is read-only and the operator always decides, so a borderline ORPHAN is
+only ever a *suggestion to consider removing*, never an automatic edit. Longer or
+punctuation-joined fills exceed the bound and classify CUSTOMIZED (kept). A confirming
+`--apply` path is deferred to v1.1.
+
 ## When to use
 
 - A session-start sanctum drift check, or after the reference templates change.
