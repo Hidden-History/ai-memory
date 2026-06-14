@@ -97,7 +97,23 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     "matcher": "resume|compact",
                     "hooks": [session_start_hook],
                 }
-            ],
+            ]
+            + (
+                [
+                    {
+                        "matcher": "resume|compact",
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": _hook_cmd("sot_digest_session_start.py"),
+                                "timeout": 30000,
+                            }
+                        ],
+                    }
+                ]
+                if os.environ.get("AI_MEMORY_SOT_HOOKS", "on").lower() != "off"
+                else []
+            ),
             "UserPromptSubmit": [
                 {
                     "hooks": [
@@ -204,6 +220,21 @@ def generate_hook_config(hooks_dir: str, project_name: str) -> dict:
                     }
                 ]
                 if os.environ.get("LANGFUSE_ENABLED", "").lower() == "true"
+                else []
+            )
+            + (
+                [
+                    {
+                        "hooks": [
+                            {
+                                "type": "command",
+                                "command": _hook_cmd("sot_drift_stop.py"),
+                                "timeout": 30000,
+                            }
+                        ]
+                    }
+                ]
+                if os.environ.get("AI_MEMORY_SOT_HOOKS", "on").lower() != "off"
                 else []
             ),
         },

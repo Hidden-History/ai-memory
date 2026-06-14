@@ -3770,6 +3770,7 @@ if 'AI-MEMORY.md' not in names:
 import json, os, sys
 install_dir, project_id, py, ad = sys.argv[1:5]
 config_path = sys.argv[5]
+_sot_on = os.environ.get('AI_MEMORY_SOT_HOOKS', 'on').lower() != 'off'
 config = {
     'env': {
         'AI_MEMORY_INSTALL_DIR': install_dir,
@@ -3795,6 +3796,9 @@ config = {
         'PreCompress': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/pre_compress.py\"', 'timeout': 60000}]}]
     }
 }
+if _sot_on:
+    config['hooks']['SessionStart'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_digest_session_start.py\"', 'timeout': 30000}]})
+    config['hooks']['PreCompress'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_drift.py\"', 'timeout': 30000}]})
 # TD-600: register the AI-Memory-owned guidance file in context.fileName so it
 # auto-loads with every prompt, WITHOUT dropping GEMINI.md or any user entries.
 # Setting context.fileName disables Gemini's implicit GEMINI.md default, so when
@@ -3859,8 +3863,9 @@ write_cursor_config() {
     local env_prefix="AI_MEMORY_INSTALL_DIR=\"$install_dir\" AI_MEMORY_PROJECT_ID=\"$project_id\" QDRANT_HOST=\"localhost\" QDRANT_PORT=\"26350\" QDRANT_GRPC_PORT=\"26351\" EMBEDDING_HOST=\"127.0.0.1\" EMBEDDING_PORT=\"28080\" SIMILARITY_THRESHOLD=\"0.4\" LOG_LEVEL=\"INFO\""
 
     python3 -c "
-import json, sys
+import json, os, sys
 env_prefix, py, ad = sys.argv[1:4]
+_sot_on = os.environ.get('AI_MEMORY_SOT_HOOKS', 'on').lower() != 'off'
 config = {
     'version': 1,
     'hooks': {
@@ -3874,6 +3879,9 @@ config = {
         'preCompact': [{'command': f'{env_prefix} \"{py}\" \"{ad}/cursor/pre_compact.py\"', 'timeout': 30}]
     }
 }
+if _sot_on:
+    config['hooks']['sessionStart'].append({'command': f'{env_prefix} \"{py}\" \"{ad}/cursor/sot_digest_session_start.py\"', 'timeout': 30})
+    config['hooks']['preCompact'].append({'command': f'{env_prefix} \"{py}\" \"{ad}/cursor/sot_drift.py\"', 'timeout': 30})
 with open(sys.argv[4], 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
@@ -3933,8 +3941,9 @@ write_codex_config() {
     local env_prefix="AI_MEMORY_INSTALL_DIR=\"$install_dir\" AI_MEMORY_PROJECT_ID=\"$project_id\" QDRANT_HOST=\"localhost\" QDRANT_PORT=\"26350\" QDRANT_GRPC_PORT=\"26351\" EMBEDDING_HOST=\"127.0.0.1\" EMBEDDING_PORT=\"28080\" SIMILARITY_THRESHOLD=\"0.4\" LOG_LEVEL=\"INFO\""
 
     python3 -c "
-import json, sys
+import json, os, sys
 env_prefix, py, ad = sys.argv[1:4]
+_sot_on = os.environ.get('AI_MEMORY_SOT_HOOKS', 'on').lower() != 'off'
 config = {
     'hooks': {
         'SessionStart': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/session_start.py\"', 'timeout': 30}]}],
@@ -3946,6 +3955,9 @@ config = {
         'Stop': [{'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/stop.py\"', 'timeout': 30}]}]
     }
 }
+if _sot_on:
+    config['hooks']['SessionStart'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/sot_digest_session_start.py\"', 'timeout': 30}]})
+    config['hooks']['Stop'].append({'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/sot_drift.py\"', 'timeout': 30}]})
 with open(sys.argv[4], 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
