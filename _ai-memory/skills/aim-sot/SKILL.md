@@ -26,7 +26,7 @@ Three engine modes:
 
 1. **Discover** — run `detect-propose run` (see **Detect-Propose — Invocation**); emits candidate proposals, never writes the registry.
 2. **Author** — apply the [**Authoring**](#authoring) loop to each kept candidate; assemble into `.sot/registry.yaml` starting from `templates/registry.yaml.template`.
-3. **Verify** — run `verify` (see **Verify — Invocation**); all 16 checks must pass.
+3. **Verify** — run `verify` (see **Verify — Invocation**); **0 failures required**. On a fresh registry the verdict is **CONDITIONAL, not PASS** — cold-start K1 `skipped_no_baseline` and advisory (C1) warnings are expected and do not block apply (see **Verdicts**); literal `PASS` needs an established baseline.
 4. **Apply** — human applies the registry after a clean verdict (HITL).
 
 ### Update (ongoing — drift and new candidates)

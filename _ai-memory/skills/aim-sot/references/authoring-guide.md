@@ -69,6 +69,7 @@ In each checklist's "kind / boundary" column, the first token is the `kind` fiel
 | Canonical part | kind / boundary | SOT-location signal | Drift signal |
 |----------------|-----------------|---------------------|--------------|
 | **Interface contract** | `api` / component | `openapi.yaml` / `.proto` / `schema.graphql` — contract-first SOT | implementation route/field diverges from spec |
+| **API version + served endpoint** | `api` / concern | `openapi info.version` + `servers[]` URL (or the deployed `/openapi.json`) | deployed contract version or base URL ≠ the declared spec |
 | **Service implementation** | `service` / component | service dir + entrypoint | manifest/owner moved, entry stale |
 | **Ownership + on-call** | (owner field) | `service.datadog.yaml`/`catalog-info.yaml` `owner`/contacts | owner group disbanded/renamed |
 | **Runbook + dashboards** | links | `runbook_url`, `dashboard_url` | linked dashboard/runbook 404s |
