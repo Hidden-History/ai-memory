@@ -20,6 +20,29 @@ Three engine modes:
 - **detect-propose** — hybrid auto-discover → propose: scans for candidate components, computes actual state, compares to the registry, and emits a proposed patch on drift or new candidates. Never writes the registry directly.
 - **verify** — 16-check gate (Schema · Referential · Completeness · Content). Mandatory before any apply; human approval (HITL) required. CI/pre-commit hook is opt-in only, never auto-installed.
 
+## Lifecycle
+
+### Create (bootstrap a new project)
+
+1. **Discover** — run `detect-propose run` (see **Detect-Propose — Invocation**); emits candidate proposals, never writes the registry.
+2. **Author** — apply the [**Authoring**](#authoring) loop to each kept candidate; assemble into `.sot/registry.yaml` starting from `templates/registry.yaml.template`.
+3. **Verify** — run `verify` (see **Verify — Invocation**); all 16 checks must pass.
+4. **Apply** — human applies the registry after a clean verdict (HITL).
+
+### Update (ongoing — drift and new candidates)
+
+1. **Detect** — run `detect-propose run`; emits drift proposals and new-candidate proposals; never writes the registry.
+2. **Author** — apply the [**Authoring**](#authoring) loop to any changed or new entries.
+3. **Gate** — run `verify` via the **pre-apply proposal gate** (see **Usage — pre-apply proposal gate** under **Verify — Invocation**); mandatory before applying.
+4. **Apply** — human applies; drift is never auto-applied.
+
+### Cross-cutting invariants
+
+- **Propose-only** — `detect-propose` never writes `.sot/registry.yaml`.
+- **Verify gates apply** — the 16-check `verify` gate is mandatory before any apply.
+- **Human applies** — every registry change requires explicit human action (HITL).
+- **Never auto-rewrite** — no mode auto-applies drift or candidate proposals.
+
 ## Consult — Invocation
 
 ```bash
@@ -55,9 +78,10 @@ Bootstrapping a new project:
 1. **Discover** — run `detect-propose run` (optionally `--all` to lift the cap). The
    scan roots at the project root, or the current working directory when no registry
    is present, and prints discovered candidates.
-2. **Copy** — review the candidates and copy the ones you want into a new
-   `.sot/registry.yaml` (start from `templates/registry.yaml.template`), authoring the
-   semantic fields (`owner`, `description`, `provenance_note`) by hand (BP-029).
+2. **Author** — for each candidate you keep, apply the [**Authoring**](#authoring) loop
+   (categorize by type → propose entries → write each description to the D1–D4 rubric →
+   fix any FAIL before emit); assemble the results into a new `.sot/registry.yaml`
+   starting from `templates/registry.yaml.template`.
 3. **Verify** — run `aim-sot verify` to gate the registry through the 16-check taxonomy.
 4. **Approve** — apply after a clean verdict + human approval (HITL).
 
