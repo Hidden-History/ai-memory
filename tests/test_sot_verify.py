@@ -1534,3 +1534,91 @@ def test_flat_registry_override_emits_verdict(tmp_path):
     assert verdict["verdict"] in {"PASS", "CONDITIONAL", "FAIL"}
     r1 = [f for f in verdict["failures"] if f["check"] == "R1"]
     assert r1, "R1 must resolve against the registry dir and FAIL on the absent file"
+
+
+# ---------------------------------------------------------------------------
+# test_flat_registry_override_skips_discovery — DEFECT-3 MINOR-1
+# test_conforming_registry_still_discovers_C1 — DEFECT-3 MINOR-1 no-regression
+# ---------------------------------------------------------------------------
+
+
+def _run_cmd_with_discovery(args, candidates):
+    """Run cmd_run with _discover_candidates returning the given candidates.
+
+    Unlike _run_cmd (which mocks discovery → []), this lets discovery surface a
+    candidate so C1 can be exercised end-to-end. Returns the verdict dict.
+    """
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    buf = io.StringIO()
+    err = io.StringIO()
+    with (
+        patch.object(vf, "_resolve_project_id", return_value=None),
+        patch.object(vf, "_read_drift_cache", return_value={"components": {}}),
+        patch.object(vf, "_discover_candidates", return_value=candidates),
+        patch.object(vf, "_drift_state_populated", return_value=False),
+        redirect_stdout(buf),
+        redirect_stderr(err),
+    ):
+        vf.cmd_run(args)
+    return json.loads(buf.getvalue())
+
+
+def test_flat_registry_override_skips_discovery(tmp_path):
+    """DEFECT-3 MINOR-1: a flat --registry override must NOT emit spurious C1.
+
+    For a non-conforming --registry path _project_root_from_registry returns
+    None, so verify must skip auto-discovery (matching detect-propose's M5
+    skip-discovery contract) — otherwise it would scan registry.parent and fire
+    spurious "discovered component(s) not registered" C1 warnings.
+
+    Pre-fix: discovery ran unconditionally against resolve_root (= registry.parent,
+    non-None), so the surfaced candidate produced a C1 warning and this assertion
+    FAILED. Post-fix: discovery is gated off (discover=False) → no C1.
+    """
+    reg = tmp_path / "registry.yaml"
+    entry = _good_entry(tmp_path)  # file present → no R1/C3 failure
+    reg.write_text(
+        yaml.dump({"schema_version": "1.0", "entries": [entry]}), encoding="utf-8"
+    )
+    assert vf._project_root_from_registry(reg) is None
+
+    candidate = {
+        "id": "discovered-comp",
+        "boundary_type": "component",
+        "sot_location": "discovered-comp/",
+        "confidence": "high",
+        "inferred_from": "package.json",
+    }
+    args = _make_args(registry=str(reg))
+    verdict = _run_cmd_with_discovery(args, [candidate])
+
+    c1 = [w for w in verdict["warnings"] if w["check"] == "C1"]
+    assert not c1, (
+        "flat --registry must skip discovery; no spurious C1 warning expected "
+        f"(got: {c1})"
+    )
+
+
+def test_conforming_registry_still_discovers_C1(tmp_path):
+    """DEFECT-3 MINOR-1 no-regression: a conforming .sot/ registry STILL runs C1.
+
+    project_root is non-None for <root>/.sot/registry.yaml, so discovery runs and
+    an unregistered candidate produces a C1 warning. Passes pre- AND post-fix.
+    """
+    reg = _write_registry(tmp_path, [_good_entry(tmp_path)])
+    assert vf._project_root_from_registry(reg) == tmp_path
+
+    candidate = {
+        "id": "discovered-comp",
+        "boundary_type": "component",
+        "sot_location": "discovered-comp/",
+        "confidence": "high",
+        "inferred_from": "package.json",
+    }
+    args = _make_args(registry=str(reg))
+    verdict = _run_cmd_with_discovery(args, [candidate])
+
+    c1 = [w for w in verdict["warnings"] if w["check"] == "C1"]
+    assert c1, "conforming registry must still run discovery and surface C1"

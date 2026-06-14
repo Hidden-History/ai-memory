@@ -853,6 +853,7 @@ def _run_all_checks(
     existing_locs: "dict[str, str] | None" = None,
     project_id_resolved: bool = True,
     cache_populated: bool = False,
+    discover: bool = True,
 ) -> tuple[list[dict], list[dict]]:
     """Run checks S1-S4 / R1-R4 / C1-C4 / K1-K4.
 
@@ -861,6 +862,10 @@ def _run_all_checks(
     existing_ids / existing_locs: committed registry IDs / locations to seed S2
     and K4 in proposal mode (BP-024).
     project_id_resolved / cache_populated: K1 baseline-availability context.
+    discover: when False, C1 auto-discovery is skipped (empty discovered list) —
+    set for a non-conforming flat --registry root so verify matches
+    detect-propose's M5 skip-discovery contract instead of scanning the
+    registry's directory and emitting spurious C1 warnings.
     Returns (failures, warnings).
     """
     failures: list[dict] = []
@@ -890,7 +895,7 @@ def _run_all_checks(
     warnings.extend(w)
 
     # C1 / C2 (no-op) / C3 / C4 (no-op)
-    discovered = _discover_candidates(project_root)
+    discovered = _discover_candidates(project_root) if discover else []
     f, w = _check_C1(entries, discovered)
     failures.extend(f)
     warnings.extend(w)
@@ -1074,6 +1079,7 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
         existing_locs=existing_locs,
         project_id_resolved=project_id_resolved,
         cache_populated=cache_populated,
+        discover=project_root is not None,
     )
 
     # --- S3 was checked above and passed; include it in the full verdict ---

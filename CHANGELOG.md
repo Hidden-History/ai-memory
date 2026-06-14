@@ -180,6 +180,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **aim-sot verify** — `verify run --registry <path>` no longer crashes on a
+  non-conforming (flat) registry path. A registry outside `<root>/.sot/` makes the
+  project root resolve to `None`, which previously reached the path checks
+  (R1/R4/C3/discovery/K1) unguarded and raised `TypeError`. Declared locations now
+  resolve relative to the registry's own directory so the gate emits a structured
+  verdict, and auto-discovery is skipped for a flat root (matching `detect-propose`)
+  so no spurious "discovered component(s) not registered" findings are reported.
+
 - **aim-sot 5b reindex** — `detect-propose reindex` now persists `sot_entry` rows.
   The core payload allow-list rejected the reindex's `source_hook`, so every derived-
   memory write silently failed and the cache stayed empty. The allow-list now accepts
