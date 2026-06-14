@@ -193,6 +193,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   created or written — and the empty-state output points to the bootstrap steps
   (discover → copy → verify → approve).
 
+- **aim-sot consult flag ordering** — `consult` now accepts `--json` and `--registry`
+  after the subcommand (e.g. `consult list --json`, `consult get <id> --registry PATH`),
+  matching `detect-propose`/`verify` and the documented invocation. Previously these
+  flags were only accepted before the subcommand, so the documented form failed with
+  `unrecognized arguments`.
+
 - **BUG-318** — `aim-github-search` now defaults to the `github` Qdrant collection where
   GitHub content lives. The as-documented invocation (no `--collection` flag) returns
   results instead of zero; `--collection` remains supported for cross-collection queries.

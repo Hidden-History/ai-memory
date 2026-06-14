@@ -293,26 +293,30 @@ def cmd_field(entries: list[dict], entry_id: str, field: str, as_json: bool) -> 
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="aim_sot_consult",
-        description="Read-only query engine over .sot/registry.yaml",
-    )
-    parser.add_argument(
+    # Shared options live on the subcommands (post-subcommand ordering),
+    # consistent with detect-propose/verify and the SKILL.md example.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
         "--registry",
         metavar="PATH",
         help="Explicit path to registry.yaml (skips git-root walk)",
     )
-    parser.add_argument(
+    common.add_argument(
         "--json",
         action="store_true",
         dest="as_json",
         help="Machine-readable JSON output",
     )
+
+    parser = argparse.ArgumentParser(
+        prog="aim_sot_consult",
+        description="Read-only query engine over .sot/registry.yaml",
+    )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("list", help="List all entries")
+    sub.add_parser("list", help="List all entries", parents=[common])
     for name in ("get", "where", "who", "drift"):
-        p = sub.add_parser(name)
+        p = sub.add_parser(name, parents=[common])
         p.add_argument("id", help="Entry id")
 
     return parser

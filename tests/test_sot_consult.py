@@ -103,7 +103,7 @@ def registry(tmp_path: Path) -> Path:
 
 
 def test_c1_get_known_id(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "get", "auth-service"])
+    rc = consult.main(["get", "auth-service", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "auth-service" in out
@@ -117,7 +117,7 @@ def test_c1_get_known_id(registry: Path, capsys):
 
 
 def test_c2_get_unknown_id_human(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "get", "nonexistent"])
+    rc = consult.main(["get", "nonexistent", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "not found" in out.lower()
@@ -130,7 +130,7 @@ def test_c2_get_unknown_id_human(registry: Path, capsys):
 
 
 def test_c3_where_known_id(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "where", "auth-service"])
+    rc = consult.main(["where", "auth-service", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "src/auth/" in out
@@ -142,7 +142,7 @@ def test_c3_where_known_id(registry: Path, capsys):
 
 
 def test_c4_who_known_id(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "who", "auth-service"])
+    rc = consult.main(["who", "auth-service", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "@platform-team" in out
@@ -154,7 +154,7 @@ def test_c4_who_known_id(registry: Path, capsys):
 
 
 def test_c5_drift_with_check(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "drift", "auth-service"])
+    rc = consult.main(["drift", "auth-service", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "test -d src/auth" in out
@@ -166,7 +166,7 @@ def test_c5_drift_with_check(registry: Path, capsys):
 
 
 def test_c6_drift_absent_check(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "drift", "payments-api"])
+    rc = consult.main(["drift", "payments-api", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "(none configured)" in out
@@ -178,7 +178,7 @@ def test_c6_drift_absent_check(registry: Path, capsys):
 
 
 def test_c7_list_human(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "list"])
+    rc = consult.main(["list", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "auth-service" in out
@@ -191,7 +191,7 @@ def test_c7_list_human(registry: Path, capsys):
 
 
 def test_c8_list_json(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "--json", "list"])
+    rc = consult.main(["list", "--json", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     data = json.loads(out)
@@ -209,7 +209,7 @@ def test_c8_list_json(registry: Path, capsys):
 
 
 def test_c9_get_json_found(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "--json", "get", "auth-service"])
+    rc = consult.main(["get", "auth-service", "--json", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     data = json.loads(out)
@@ -224,7 +224,7 @@ def test_c9_get_json_found(registry: Path, capsys):
 
 
 def test_c10_get_json_not_found(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "--json", "get", "nonexistent"])
+    rc = consult.main(["get", "nonexistent", "--json", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     data = json.loads(out)
@@ -239,7 +239,7 @@ def test_c10_get_json_not_found(registry: Path, capsys):
 
 def test_c11_absent_registry_human(tmp_path: Path, capsys):
     absent = tmp_path / "no" / "registry.yaml"
-    rc = consult.main(["--registry", str(absent), "list"])
+    rc = consult.main(["list", "--registry", str(absent)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "no registry found" in out.lower()
@@ -252,7 +252,7 @@ def test_c11_absent_registry_human(tmp_path: Path, capsys):
 
 def test_c12_absent_registry_json(tmp_path: Path, capsys):
     absent = tmp_path / "no" / "registry.yaml"
-    rc = consult.main(["--registry", str(absent), "--json", "list"])
+    rc = consult.main(["list", "--json", "--registry", str(absent)])
     out = capsys.readouterr().out
     assert rc == 0
     data = json.loads(out)
@@ -268,7 +268,7 @@ def test_c12_absent_registry_json(tmp_path: Path, capsys):
 def test_c13_malformed_yaml(tmp_path: Path, capsys):
     bad = tmp_path / "registry.yaml"
     bad.write_text(": invalid: yaml: {{{", encoding="utf-8")
-    rc = consult.main(["--registry", str(bad), "list"])
+    rc = consult.main(["list", "--registry", str(bad)])
     assert rc == 1
     # Error goes to stderr for human mode
     captured = capsys.readouterr()
@@ -289,7 +289,7 @@ def test_c14_malformed_sibling_resilience(tmp_path: Path, capsys):
     }
     reg = _make_registry(tmp_path, [ENTRY_AUTH, malformed_entry])
     # Query the valid entry — must succeed despite malformed sibling.
-    rc = consult.main(["--registry", str(reg), "get", "auth-service"])
+    rc = consult.main(["get", "auth-service", "--registry", str(reg)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "auth-service" in out
@@ -362,13 +362,13 @@ def test_c15_registry_override_decoy(tmp_path: Path, capsys, monkeypatch):
     assert "decoy-entry" in out1
 
     # With --registry: override wins — alt-entry returned, decoy-entry absent.
-    rc2 = consult.main(["--registry", str(alt_reg), "get", "alt-entry"])
+    rc2 = consult.main(["get", "alt-entry", "--registry", str(alt_reg)])
     out2 = capsys.readouterr().out
     assert rc2 == 0
     assert "alt-entry" in out2
     assert "src/alt/" in out2
 
-    rc3 = consult.main(["--registry", str(alt_reg), "get", "decoy-entry"])
+    rc3 = consult.main(["get", "decoy-entry", "--registry", str(alt_reg)])
     out3 = capsys.readouterr().out
     assert rc3 == 0
     assert "not found" in out3.lower()
@@ -396,7 +396,7 @@ def test_c16_read_only_guarantee(tmp_path: Path):
 
 
 def test_c17_where_not_found_human(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "where", "ghost"])
+    rc = consult.main(["where", "ghost", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "not found" in out.lower()
@@ -404,7 +404,7 @@ def test_c17_where_not_found_human(registry: Path, capsys):
 
 
 def test_c18_who_not_found_human(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "who", "ghost"])
+    rc = consult.main(["who", "ghost", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "not found" in out.lower()
@@ -412,7 +412,7 @@ def test_c18_who_not_found_human(registry: Path, capsys):
 
 
 def test_c19_drift_not_found_human(registry: Path, capsys):
-    rc = consult.main(["--registry", str(registry), "drift", "ghost"])
+    rc = consult.main(["drift", "ghost", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     assert "not found" in out.lower()
@@ -426,7 +426,7 @@ def test_c19_drift_not_found_human(registry: Path, capsys):
 
 @pytest.mark.parametrize("subcmd", ["where", "who", "drift"])
 def test_c20_field_not_found_json(registry: Path, capsys, subcmd: str):
-    rc = consult.main(["--registry", str(registry), "--json", subcmd, "ghost"])
+    rc = consult.main([subcmd, "ghost", "--json", "--registry", str(registry)])
     out = capsys.readouterr().out
     assert rc == 0
     data = json.loads(out)
@@ -505,8 +505,55 @@ def test_c23_main_level_read_only(tmp_path: Path, capsys):
     reg = _make_registry(tmp_path, TWO_ENTRIES)
     files_before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
 
-    consult.main(["--registry", str(reg), "--json", "list"])
+    consult.main(["list", "--json", "--registry", str(reg)])
     capsys.readouterr()  # discard output
 
     files_after = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
     assert files_before == files_after, "main() wrote or modified a file"
+
+
+# ---------------------------------------------------------------------------
+# C24-C26 — DEFECT-1: --json / --registry accepted POST-subcommand
+# (consistent with detect-propose/verify and the SKILL.md example).
+# These FAIL on pre-fix code (flags were on the top-level parser) with
+# `SystemExit(2): unrecognized arguments`.
+# ---------------------------------------------------------------------------
+
+
+def test_c24_json_post_subcommand_list(registry: Path, capsys):
+    """`list --json` (flag AFTER subcommand) parses and emits valid JSON."""
+    rc = consult.main(["list", "--json", "--registry", str(registry)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    data = json.loads(out)
+    assert data["count"] == 2
+
+
+def test_c25_json_post_subcommand_get(registry: Path, capsys):
+    """`get <id> --json` (flag AFTER subcommand) parses and emits JSON."""
+    rc = consult.main(["get", "auth-service", "--json", "--registry", str(registry)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    data = json.loads(out)
+    assert data["found"] is True
+    assert data["entry"]["id"] == "auth-service"
+
+
+def test_c26_registry_post_subcommand(registry: Path, capsys):
+    """`list --registry PATH` (flag AFTER subcommand) resolves the registry."""
+    rc = consult.main(["list", "--registry", str(registry)])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "auth-service" in out
+    assert "payments-api" in out
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["--json", "list"], ["--registry", "X", "list"]],
+)
+def test_c27_pre_subcommand_ordering_rejected(argv: list[str]):
+    """Flags BEFORE the subcommand are no longer accepted (argparse exits 2)."""
+    with pytest.raises(SystemExit) as exc:
+        consult.main(argv)
+    assert exc.value.code == 2
