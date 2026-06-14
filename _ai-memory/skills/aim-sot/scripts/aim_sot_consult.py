@@ -10,6 +10,7 @@ Subcommands:
     where <id>               sot_location for the entry
     who   <id>               owner for the entry
     drift <id>               drift_check for the entry
+    digest                   Compact ambient summary of all entries + drift rollup
 
 Flags (all subcommands):
     --registry PATH          Override registry path (skip git-root walk)
@@ -31,6 +32,8 @@ import sys
 from pathlib import Path
 
 import yaml
+
+DIGEST_MAX_LINES = 200
 
 # ---------------------------------------------------------------------------
 # Registry resolution
@@ -269,6 +272,58 @@ def cmd_get(entries: list[dict], entry_id: str, as_json: bool) -> int:
     return 0
 
 
+def cmd_digest(entries: list[dict], as_json: bool) -> int:
+    # Drift rollup — pure dict inspection, no engine calls.
+    # drift_status enum (detect_propose.py): clean | drifted | missing | unverified.
+    # Absent drift_status (file-only registry, engine never ran) = indeterminate,
+    # counted in the unverified bucket alongside the explicit "unverified" value.
+    stale = sum(1 for e in entries if e.get("drift_status") in ("drifted", "missing"))
+    clean = sum(1 for e in entries if e.get("drift_status") == "clean")
+    unverified = len(entries) - clean - stale
+
+    if stale > 0:
+        drift_label = f"{stale} stale"
+    elif clean > 0:
+        drift_label = "clean"
+    else:
+        drift_label = "unverified"
+
+    lines = [
+        f"[{e.get('id', '(no id)')}]  {e.get('kind', '?')} · {e.get('owner', '?')}  →  {e.get('sot_location', '?')}"
+        for e in entries
+    ]
+    truncated = len(lines) > DIGEST_MAX_LINES
+
+    if as_json:
+        _emit_json(
+            {
+                "digest": lines[:DIGEST_MAX_LINES] if truncated else lines,
+                "count": len(entries),
+                "drift": {"clean": clean, "stale": stale, "unverified": unverified},
+                "truncated": truncated,
+            }
+        )
+        return 0
+
+    # Text mode — emit nothing for empty registry (no-noise per BP-035).
+    if not entries:
+        return 0
+
+    if truncated:
+        print(
+            f"SOT registry: {len(entries)} components"
+            f" (digest truncated — exceeds {DIGEST_MAX_LINES} lines)"
+        )
+        print(f"drift: {drift_label}")
+        print("Run 'aim-sot consult list' for the full set.")
+    else:
+        for line in lines:
+            print(line)
+        print(f"drift: {drift_label}")
+
+    return 0
+
+
 def cmd_field(entries: list[dict], entry_id: str, field: str, as_json: bool) -> int:
     """Shared handler for where / who / drift — single-field lookup."""
     entry = _lookup(entries, entry_id)
@@ -318,6 +373,9 @@ def _build_parser() -> argparse.ArgumentParser:
     for name in ("get", "where", "who", "drift"):
         p = sub.add_parser(name, parents=[common])
         p.add_argument("id", help="Entry id")
+    sub.add_parser(
+        "digest", help="Compact ambient summary + drift rollup", parents=[common]
+    )
 
     return parser
 
@@ -356,6 +414,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_field(entries, args.id, "owner", as_json)
     if cmd == "drift":
         return cmd_field(entries, args.id, "drift_check", as_json)
+    if cmd == "digest":
+        return cmd_digest(entries, as_json)
 
     return 0  # unreachable
 
