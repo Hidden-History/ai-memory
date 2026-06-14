@@ -602,20 +602,17 @@ Parzival uses a **five-layer constraint enforcement system** to maintain consist
 
 ## 🏛️ Architecture
 
-### Project Structure (v2.1)
+### Project Structure
 
 ```
 _ai-memory/pov/                            # POV module definition
+├── STEP-FILE-TEMPLATE.md                  # Template for authoring new workflow step files
 ├── agents/
 │   └── parzival.md                        # Main agent definition (persona, menu, rules)
-├── config.yaml                            # Module configuration (v2.1.0)
+├── config.yaml                            # Module configuration
 ├── constraints/                           # Layered constraint system
-│   ├── global/                            # GC-01 through GC-15 + GC-19 + GC-20
+│   ├── global/                            # GC-01 through GC-21
 │   │   ├── constraints.md                 # Summary + self-check schedule
-│   │   ├── GC-01-never-implement.md
-│   │   ├── GC-04-user-manages-parzival.md
-│   │   ├── GC-19-spawn-agents-as-teammates.md
-│   │   ├── GC-20-no-instruction-in-activation.md
 │   │   └── ...                            # One file per constraint
 │   ├── discovery/                         # Phase-specific: DC-01 through DC-07
 │   ├── architecture/                      # Phase-specific: AC-01 through AC-08
@@ -625,36 +622,43 @@ _ai-memory/pov/                            # POV module definition
 │   ├── release/                           # Phase-specific: RC-01 through RC-07
 │   ├── maintenance/                       # Phase-specific: MC-01 through MC-08
 │   └── init/                              # Init phase: IN-01 through IN-05
-├── data/                                  # Reference data (escalation, confidence, etc.)
+├── knowledge/                             # Reference docs (escalation, confidence, etc.)
+├── module-help.csv                        # Module command reference
 ├── references/                            # Lazy-loaded reference docs (loaded on-demand only)
 │   ├── workflow-map-details.md            # WORKFLOW-MAP detail (phase summaries, transitions)
 │   ├── auto-memory-best-practices.md      # Claude Code auto-memory directory guidance
 │   └── live-functionality-testing.md      # Live functionality test guidance
+├── scripts/                               # Utility scripts (status prepass, session index, etc.)
 ├── skills/                                # Full skill definitions (loaded on-demand)
 │   ├── aim-parzival-bootstrap/            # Cross-session memory bootstrap
 │   ├── aim-parzival-constraints/          # Constraint loading
 │   ├── aim-parzival-team-builder/         # Team design for parallel execution
-│   ├── aim-agent-dispatch/                # Agent instruction preparation (Layer 3a)
+│   ├── aim-agent-dispatch/                # Agent instruction preparation
 │   ├── aim-agent-lifecycle/               # Agent lifecycle management
-│   ├── aim-bmad-dispatch/                 # BMAD agent activation (Layer 3b)
-│   └── aim-model-dispatch/                # Model selection + multi-provider dispatch
-├── templates/                             # Oversight document templates (7 files)
+│   ├── aim-agent-sanctum-init/            # Sanctum scaffold and init
+│   ├── aim-lore-hygiene/                  # Lore hygiene checks
+│   ├── aim-model-dispatch/                # Model selection + multi-provider dispatch
+│   └── aim-tracking-freshness/            # Tracking freshness verification
+├── templates/                             # Oversight document templates
 │   ├── bug-report.template.md
 │   ├── correction.template.md
 │   ├── decision-log.template.md
 │   ├── session-handoff.template.md
+│   ├── tech-debt-report.template.md
 │   ├── verification-code.template.md
+│   ├── verification-fix.template.md
 │   ├── verification-production.template.md
 │   └── verification-story.template.md
 └── workflows/                             # Workflow engine
     ├── WORKFLOW-MAP.md                    # Master router (routing decision tree)
     ├── STEP-PREAMBLE.md                   # Shared boilerplate referenced by every step file
     ├── cycles/                            # Reusable atomic cycles
-    │   ├── agent-dispatch/                # Agent team management (9 steps)
+    │   ├── agent-dispatch/                # Agent team management
     │   ├── approval-gate/                 # User approval protocol
     │   ├── legitimacy-check/              # Issue triage
     │   ├── research-protocol/             # Verified research
     │   └── review-cycle/                  # Dev-review loop
+    ├── first-breath/                      # First-run onboarding workflow
     ├── init/                              # Init workflows (new + existing)
     ├── phases/                            # Phase workflows (7 phases)
     └── session/                           # Session workflows (start, status, close, etc.)

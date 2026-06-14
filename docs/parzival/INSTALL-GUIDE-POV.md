@@ -31,6 +31,7 @@
 - [🚀 Installation](#-installation)
   - [New Projects](#new-projects)
   - [Existing Projects](#existing-projects)
+  - [Adding a Project to a Shared Stack](#adding-a-project-to-a-shared-stack)
 - [🔄 Updating Parzival](#-updating-parzival)
 - [💡 Using Parzival](#-using-parzival)
 - [🛡️ Safety Features](#️-safety-features)
@@ -302,6 +303,81 @@ This safely updates all module code, regenerates skill shims, removes stale file
 
 Re-running `install.sh` is the entire update process. It adds any new module files, removes files that older versions placed elsewhere, and leaves your `oversight/` data untouched. There is no manual file surgery, no data migration, and no breaking changes between versions.
 
+### Adding a Project to a Shared Stack
+
+When AI Memory is already installed on your machine (the shared services at `~/.ai-memory/` are running), you can wire a second — or third, or fourth — project to those same services without touching Docker at all. This is `INSTALL_MODE=add-project`.
+
+#### When it triggers
+
+Run the installer from the new project directory:
+
+```bash
+./scripts/install.sh /path/to/new-project
+```
+
+The installer detects the existing `~/.ai-memory/` installation and prompts:
+
+```
+Found existing AI Memory installation
+
+Options:
+  1. Add project to existing installation (recommended)
+     - Reuses shared Docker services
+     - Creates project-level hooks via symlinks
+  2. Reinstall shared infrastructure (stop services, update files, restart)
+  3. Abort installation
+```
+
+Choose **1** to enter add-project mode. For automation, set `AI_MEMORY_ADD_PROJECT_MODE=true` to skip the prompt.
+
+#### What the installer does (and skips)
+
+| Step | add-project | full install |
+|------|:-----------:|:------------:|
+| Start Docker services (Qdrant, embeddings, Langfuse) | ⏭ skipped | ✅ |
+| Verify existing services are healthy | ✅ | — |
+| Update shared scripts to current version | ✅ | ✅ |
+| Configure per-project GitHub repo and Jira | ✅ | ✅ |
+| Create project hooks via symlinks | ✅ | ✅ |
+| Deploy AI Memory rules file | ✅ | ✅ |
+| Register project for GitHub sync | ✅ | ✅ |
+| Full infrastructure copy and env setup | ⏭ skipped | ✅ |
+
+The installer runs exactly two progress steps in this mode — `Prerequisites & Validation` and `Project Configuration` — instead of the six steps a full install requires.
+
+#### Prerequisites
+
+The shared stack must already be running before you start. Verify with:
+
+```bash
+docker ps | grep ai-memory
+```
+
+If services are stopped, restart them from the shared installation before running the project installer:
+
+```bash
+cd ~/.ai-memory/docker && bash ~/path/to/ai-memory/scripts/stack.sh restart
+```
+
+#### Per-project configuration
+
+`add-project` mode prompts for the new project's GitHub repository and Jira settings (if those integrations are enabled). These are stored alongside the other registered projects in `~/.ai-memory/config/projects.d/`. Each project gets its own isolated Qdrant namespace — the shared Qdrant instance routes memory by `AI_MEMORY_PROJECT_ID`, so projects never see each other's data.
+
+#### Verify the installation
+
+```bash
+cd /path/to/new-project
+claude
+```
+
+Then in Claude Code:
+
+```
+/pov:parzival-start
+```
+
+Parzival should load and confirm the project context. Run `aim-status` to confirm the correct project ID is active.
+
 ---
 
 ## 🔄 Updating Parzival
@@ -468,7 +544,7 @@ my-project/
 │       ├── agents/
 │       │   └── parzival.md         # Main agent definition
 │       ├── constraints/            # Global + phase constraints
-│       ├── data/                   # Reference data (complexity, confidence, escalation, etc.)
+│       ├── knowledge/              # Reference docs (complexity, confidence, escalation, etc.)
 │       ├── references/             # Lazy-loaded reference docs (loaded on-demand)
 │       ├── workflows/              # Phase workflows
 │       ├── skills/                 # 7 Parzival skills (source of truth)
