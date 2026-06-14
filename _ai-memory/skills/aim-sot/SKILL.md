@@ -319,3 +319,40 @@ Fires propose-only at end-of-turn (Gemini `AfterAgent` event). Never writes any 
 - **No machine-auto-bumped fields**: content hashes, drift status, and machine timestamps belong in the per-install drift cache (`~/.ai-memory/drift-state/sot_drift_{project_id}.json`), never in the committed registry.
 
 See `schema/registry.schema.json` and `templates/` for the machine-readable schema and user-facing starter templates.
+
+---
+
+## Authoring
+
+Use this loop to categorize the project, propose the right entries, and write gradeable descriptions. Full decision procedure and per-type checklists: `references/authoring-guide.md`. Contrastive calibration examples: `references/grading-exemplars.md` — read before grading.
+
+**1. Categorize** — Check each type's signals in order against the repo (see `references/authoring-guide.md → Categorize`). Record MATCH / NO-MATCH with the file(s) that triggered the match. Do not skip a type. Resolution: 0 matches → ask the user, do not guess; 1 match → run that type's checklist; ≥2 matches → superset: run each matched type's checklist scoped to its sub-tree, plus the monorepo cross-cutting checklist for shared ownership/membership.
+
+**2. Propose entries** — For each matched type, run its canonical-parts checklist (`references/authoring-guide.md → Per-type checklists`). Flag any expected part absent from the registry as a gap.
+
+**3. Write each description** — Author prose that names: what this part *is* and its role; who owns it (in the description or via the `owner` field — D2 is satisfied by either); why *this* location is the source of truth; how you'd know it went stale.
+
+**4. Grade each description** — Run D1–D4. PASS only if all four pass. Emit one line per dimension before the verdict (the cited token must be literally present — do not award a dimension because you *intended* to include it).
+
+| # | Check (yes/no) | YES requires | NO if |
+|---|----------------|--------------|-------|
+| **D1** Identity  | Names the artifact AND its role? | concrete noun + function/role phrase, >1 word beyond the `id` | empty, restates `id`, or pure type word ("the service", "config") |
+| **D2** Ownership | Resolvable owner present (description **or** `owner` field)? | @-handle, team name, or named role | "TBD", "the team", "us", or no owner anywhere on the row |
+| **D3** Authority | States WHY this location is the SOT? | "contract-first", "generated from", "canonical/declared", "single source", or `provenance_note` populated with the basis | only locates ("it's in /src"); asserts authority with no basis |
+| **D4** Drift     | Staleness signal present (description **or** `drift_check`/`last_verified`)? | a check command, "stale when…" clause, or verifiable condition | no way to tell if current; no `drift_check`, no staleness clause |
+
+Aggregate: PASS = D1 ∧ D2 ∧ D3 ∧ D4. WEAK = D1 passes, exactly one of D2/D3/D4 fails. FAIL = D1 fails OR ≥2 of D2/D3/D4 fail.
+
+Emit per dimension, then the verdict:
+
+```
+D1: yes/no — <noun + role phrase found, or why absent>
+D2: yes/no — <owner token found, or "none on row">
+D3: yes/no — <authority basis phrase found, or "locates only">
+D4: yes/no — <drift signal found, or "none">
+VERDICT: PASS | WEAK (name the failing dim) | FAIL (name the failing dims)
+```
+
+**5. Fix FAILs** — If FAIL: rewrite targeting the failed dimension(s) only; re-grade. Cap: 2 rewrite passes; if still FAIL after 2, surface to the user with the failing dimensions named. If WEAK: accept and flag the one missing dimension on the entry.
+
+**6. Emit** — Before emitting, run the schema-bind check (`references/authoring-guide.md §4`): entries with `kind` or `boundary_type` outside the valid enums are SCHEMA-INVALID and block emit. Never emit the registry while any entry is FAIL or SCHEMA-INVALID. See `references/authoring-guide.md → Emit structure` for the constrained output format.
