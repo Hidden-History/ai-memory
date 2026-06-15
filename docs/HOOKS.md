@@ -10,6 +10,7 @@
   - [PostToolUse](#posttooluse)
   - [PreCompact](#precompact)
   - [Stop](#stop)
+- [Tier 2 Per-Turn Context Injection](#tier-2-per-turn-context-injection)
 - [Activity Logging Hooks](#activity-logging-hooks)
   - [SessionEnd](#sessionend)
   - [UserPromptSubmit](#userpromptsubmit)
@@ -622,6 +623,321 @@ Fires after each response Claude generates.
 
 ---
 
+## 🔍 Tier 2 Per-Turn Context Injection
+
+**Adaptive semantic retrieval injected before each Claude response**
+
+### Overview
+
+The AI Memory Module uses a two-tier injection model:
+
+| Tier | Hook | Trigger | Purpose | Typical Token Budget |
+|------|------|---------|---------|----------------------|
+| **Tier 1 — Bootstrap** | `session_start.py` | `SessionStart` | Conventions + recent decisions, once per session | ~2–3 K tokens |
+| **Tier 2 — Per-turn** | `context_injection_tier2.py` | `UserPromptSubmit` | Adaptive semantic retrieval before every user turn | 500–1500 tokens |
+
+Tier 1 seeds the session with stable context at startup; Tier 2 keeps context fresh turn-by-turn by retrieving what is most relevant to the current prompt. Both tiers cooperate: point IDs injected by Tier 1 are tracked in `InjectionSessionState` so Tier 2 skips already-seen results on subsequent turns.
+
+### Trigger
+
+**Event:** `UserPromptSubmit` — fires before each user prompt is processed.
+
+**Script:** `.claude/hooks/scripts/context_injection_tier2.py`
+
+**Performance target:** <500ms total (NFR-P1, NFR-P5). Exit code always 0 — graceful degradation on any error, never blocks Claude.
+
+**Skip conditions (no injection, empty `additionalContext` returned):**
+- Prompt is empty or whitespace
+- Prompt is a slash command (matches `/[\w:./-]+`)
+- `injection_enabled = false` in config
+- Qdrant health check fails
+- Project ID cannot be resolved from `cwd`
+
+### Configuration
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/scripts/activity_logger.py --event user_prompt"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/scripts/context_injection_tier2.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Process Flow
+
+```
+UserPromptSubmit fires
+    ↓
+1.  Parse hook payload → prompt, session_id, cwd
+2.  resolve_project_id(cwd) → project group_id
+3.  Qdrant health check → graceful skip if unavailable
+4.  Skip if prompt is empty or a slash command
+5.  Load InjectionSessionState (cross-turn dedup + drift tracking)
+6.  route_collections(prompt) → target collection list
+7.  MemorySearch.search() per collection (fast_mode=True)
+8.  Apply freshness penalty to code-patterns results (score × penalty factor)
+9.  Re-sort all results by score descending
+10. Confidence gating → determine gating_mode
+11. compute_topic_drift(current_embedding, last_query_embedding)
+12. compute_adaptive_budget(best_score, results, session_state, config)
+13. Halve budget if gating_mode == "soft_gate" (min 50 tokens)
+14. select_results_greedy(results, budget, excluded_ids, ...)
+15. format_injection_output(selected, tier=2) → additionalContext
+16. Prepend remaining= reject marker if agent_handoff was budget-rejected
+17. log_injection_event(...) → .audit/logs/injection-log.jsonl
+18. Save updated InjectionSessionState
+    ↓
+Claude receives context via hookSpecificOutput.additionalContext
+```
+
+### Collection Routing (`route_collections`)
+
+`route_collections(prompt)` maps each prompt to one or more target collections, evaluated in priority order:
+
+| Priority | Condition | Collections targeted |
+|----------|-----------|----------------------|
+| 1. Keyword triggers | Decision / session / best-practices keyword detected | `discussions` and/or `conventions` |
+| 2. File path | Prompt contains a file path or recognized source extension | `code-patterns` |
+| 3. Intent detection | HOW / WHAT / WHY intent resolved | Intent-matched collection |
+| 4. Cascade (unknown) | None of the above match | `discussions` → `code-patterns` → `conventions` |
+
+When multiple keyword triggers resolve to the same collection (e.g., both a decision keyword and a session keyword match `discussions`), the duplicate route is deduplicated before searching. Keyword-trigger routing is backward-compatible with the old `unified_keyword_trigger.py` hook — no regression.
+
+### Adaptive Token Budget (`compute_adaptive_budget`)
+
+Budget is computed fresh each turn from three weighted signals:
+
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| `quality_signal` | 50% | Best retrieval score (cosine similarity, 0–1) |
+| `density_signal` | 30% | Fraction of results above `injection_confidence_threshold` |
+| `drift_signal` | 20% | Topic drift from previous query — higher drift means a new topic and more context needed |
+
+```
+budget = floor + int((ceiling − floor) × (0.5 × quality + 0.3 × density + 0.2 × drift))
+```
+
+Result is clamped to `[injection_budget_floor, injection_budget_ceiling]` (configured in `MemoryConfig`). Typical range: 500–1500 tokens.
+
+### Confidence Gating Modes
+
+Before computing budget, the best retrieval score is evaluated against configured per-collection thresholds to determine the gating mode:
+
+| Mode | Condition | Effect |
+|------|-----------|--------|
+| `hard_skip` | `best_score < injection_hard_floor` | No injection; exit with empty context |
+| `soft_skip` | `best_score < threshold − 0.05` | No injection; exit with empty context |
+| `soft_gate` | `best_score < threshold` | Inject with budget halved (minimum 50 tokens) |
+| `full` | `best_score ≥ threshold` | Inject with full computed budget |
+
+The threshold compared against is collection-specific — `injection_threshold_discussions`, `injection_threshold_code_patterns`, or `injection_threshold_conventions` — falling back to `injection_confidence_threshold` when the best-scoring collection is unknown.
+
+### Topic Drift (`compute_topic_drift`)
+
+```python
+drift = compute_topic_drift(current_embedding, previous_embedding)
+# Returns float in [0.0, 1.0]
+# 0.0 → same topic as previous turn (cosine similarity = 1.0)
+# 1.0 → completely different topic (orthogonal embeddings)
+# 0.5 → neutral default (first turn, or zero-norm vectors)
+```
+
+Computed as cosine distance (1 − cosine_similarity) between the current prompt's 768-dim embedding and the previous turn's embedding stored in `InjectionSessionState`. High drift increases the adaptive budget so the model receives more re-orientation context when conversation topics shift sharply.
+
+### Greedy Fill (`select_results_greedy`)
+
+Results are packed into the budget from highest score to lowest. Individual results are never truncated — each chunk is fully included or fully skipped. Skip-and-continue allows smaller results to fill remaining budget after an oversized one is rejected.
+
+**Selection logic per candidate (in order):**
+1. Skip if point ID is in `InjectionSessionState.injected_point_ids` (cross-turn dedup — includes IDs from Tier 1)
+2. Skip if content is empty
+3. Skip if content hash already selected this turn (BUG-172 cross-type dedup)
+4. Skip if `result_score < best_score × score_gap_threshold` (BUG-173 low-relevance gap filter)
+5. If `tokens_used + result_tokens ≤ budget`: select; else skip-and-continue
+
+**Score gap filter:** Default threshold 0.7 (results more than 30% below the best semantic score are dropped as noise). Configurable via `INJECTION_SCORE_GAP_THRESHOLD` env var.
+
+**Freshness penalty:** `code-patterns` results marked stale receive a score multiplier before gating and gap filtering. Candidates driven to score 0.0 by the penalty are dropped at the gap filter step and logged with reason `freshness_block` (not `score_gap`) in reject records for accurate attribution.
+
+### Reject Marker (`remaining=`)
+
+When an `agent_handoff`-type result is rejected by `select_results_greedy` due to `budget_exceeded` or `ceiling_exceeded`, a diagnostic comment is prepended to the injected context:
+
+```
+# [tier-2 fallback: handoff-class result rejected reason=budget_exceeded tokens=3200 remaining=180 budget=900]
+```
+
+| Field | Description |
+|-------|-------------|
+| `reason` | `budget_exceeded` or `ceiling_exceeded` |
+| `tokens` | Token count of the rejected result |
+| `remaining` | Unused budget at rejection time (`budget − tokens_used`) |
+| `budget` | Total adaptive budget computed for this turn |
+
+This is observe-only — it does not change which results are selected. Tier 2 has no filesystem fallback path. The rejected `agent_handoff` becomes eligible again after the next `/compact` resets `InjectionSessionState.injected_point_ids`.
+
+### Audit Log (`injection-log.jsonl`)
+
+Every turn — including skipped injections — is appended to `.audit/logs/injection-log.jsonl` by `log_injection_event()`. Each line is a self-contained JSON object.
+
+**Top-level fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | string | ISO 8601 UTC timestamp |
+| `tier` | int | `2` for all Tier 2 events |
+| `trigger` | string | `"UserPromptSubmit"` |
+| `project` | string | Resolved project `group_id` |
+| `session_id` | string | Claude Code session identifier |
+| `results_considered` | int | Total candidates returned across all searched collections |
+| `results_selected` | int | Results that passed greedy fill |
+| `tokens_used` | int | Tokens actually injected this turn |
+| `budget` | int | Adaptive budget computed for this turn |
+| `utilization_pct` | int | `tokens_used / budget × 100` |
+| `best_score` | float | Highest retrieval score (4 decimal places) |
+| `skipped_confidence` | bool | `true` when gating mode is `hard_skip` or `soft_skip` |
+| `topic_drift` | float | Cosine drift from previous query (4 decimal places) |
+| `collections_searched` | list[str] | Collections queried this turn |
+| `gap_threshold` | float | Score gap filter multiplier used |
+| `gating_mode` | string | `"hard_skip"`, `"soft_skip"`, `"soft_gate"`, or `"full"` |
+| `rejects` | list[object] | Per-drop reject records (see below) |
+| `fallback_signaled` | bool | `true` if an `agent_handoff` was budget/ceiling rejected |
+| `per_source` | object | Per-collection budget ledger (see below) |
+
+**Reject record shape** (each entry in `rejects[]`):
+
+| Field | Description |
+|-------|-------------|
+| `type` | Memory type of the rejected result (e.g., `"decision"`, `"agent_handoff"`) |
+| `tokens` | Token count — present only for `budget_exceeded`, otherwise `null` |
+| `score` | Retrieval score at rejection time |
+| `reason` | One of: `already_injected`, `empty_content`, `dedup`, `score_gap`, `freshness_block`, `budget_exceeded` |
+| `tier` | `"2_injection"` |
+| `collection` | Source collection name |
+
+**Per-collection budget ledger (`per_source` object):**
+
+Keyed by collection name.
+
+| Field | Description |
+|-------|-------------|
+| `requested_tokens` | Sum of token counts for candidates that passed all pre-budget filters (`already_injected`, `empty_content`, `dedup`, `score_gap`, `freshness_block`) and reached the budget check |
+| `loaded_tokens` | Tokens actually selected from this collection |
+| `dropped` | Per-reason map accumulating **all** reject reasons: `already_injected`, `empty_content`, `dedup`, `score_gap`, `freshness_block` (`count` only); `budget_exceeded` (`count` + `tokens`) |
+
+Reconciliation per collection (budget-class only): `loaded_tokens + dropped["budget_exceeded"]["tokens"] == requested_tokens`.
+
+**Example entry:**
+
+```json
+{
+  "timestamp": "2026-06-14T10:30:00Z",
+  "tier": 2,
+  "trigger": "UserPromptSubmit",
+  "project": "my-project",
+  "session_id": "sess-abc123",
+  "results_considered": 12,
+  "results_selected": 3,
+  "tokens_used": 820,
+  "budget": 1100,
+  "utilization_pct": 74,
+  "best_score": 0.8821,
+  "skipped_confidence": false,
+  "topic_drift": 0.3142,
+  "collections_searched": ["discussions", "code-patterns"],
+  "gap_threshold": 0.7,
+  "gating_mode": "full",
+  "rejects": [
+    {
+      "type": "decision",
+      "tokens": null,
+      "score": 0.521,
+      "reason": "score_gap",
+      "tier": "2_injection",
+      "collection": "discussions"
+    }
+  ],
+  "fallback_signaled": false,
+  "per_source": {
+    "discussions": {
+      "requested_tokens": 650,
+      "loaded_tokens": 650,
+      "dropped": {}
+    },
+    "code-patterns": {
+      "requested_tokens": 510,
+      "loaded_tokens": 170,
+      "dropped": {"score_gap": {"count": 2}, "budget_exceeded": {"count": 1, "tokens": 340}}
+    }
+  }
+}
+```
+
+### Troubleshooting
+
+<details>
+<summary><strong>No context injected despite relevant session history</strong></summary>
+
+**Diagnosis:**
+```bash
+# Check gating mode and scores for recent turns
+tail -5 ~/.ai-memory/.audit/logs/injection-log.jsonl | jq '{gating_mode, best_score, results_selected, skipped_confidence}'
+```
+
+**Possible Causes:**
+1. `gating_mode: "hard_skip"` or `"soft_skip"` — retrieval scores below threshold
+2. `results_selected: 0` after dedup — all candidates were already injected this session
+3. Slash command prompt — injection skipped for `/...` invocations
+
+**Solution:**
+```bash
+# Check configured thresholds
+grep "injection_confidence_threshold\|injection_hard_floor" ~/.ai-memory/.env
+```
+</details>
+
+<details>
+<summary><strong>Seeing the <code>remaining=</code> marker in injected context</strong></summary>
+
+The `# [tier-2 fallback: handoff-class result rejected ...]` comment means an `agent_handoff` result was too large to fit the computed token budget. It is observe-only — no recovery action is needed on your part.
+
+**Diagnosis:**
+```bash
+tail -1 ~/.ai-memory/.audit/logs/injection-log.jsonl | jq '{budget, tokens_used, fallback_signaled, per_source}'
+```
+
+After the next `/compact`, `InjectionSessionState.injected_point_ids` resets and the handoff becomes eligible again.
+</details>
+
+<details>
+<summary><strong>Hook exceeds 500ms performance target</strong></summary>
+
+**Diagnosis:**
+```bash
+grep "tier2_injection_complete" ~/.ai-memory/logs/hooks.log | tail -5 | python3 -c "import sys,json; [print(json.loads(l).get('duration_ms')) for l in sys.stdin]"
+```
+
+**Solutions:**
+1. Reduce `MAX_RETRIEVALS` — fewer candidates fetched per collection
+2. Verify Qdrant is on localhost (network latency dominates over embedding time)
+3. Check embedding service is pre-warmed; cold start adds ~2s on first call
+</details>
+
+---
+
 ## 📊 Activity Logging Hooks
 
 Activity logging hooks track session events for analytics and debugging. They write to `~/.ai-memory/logs/activity.log` asynchronously.
@@ -659,9 +975,14 @@ Activity logging hooks track session events for analytics and debugging. They wr
 
 ### UserPromptSubmit
 
-**Purpose:** Log each user prompt for session tracking
+**Purpose:** Two hooks run on this event:
 
-**Configuration:**
+1. **`activity_logger.py --event user_prompt`** — logs session tracking data (turn count, prompt length, project). This is the activity-logging side documented here.
+2. **`context_injection_tier2.py`** — performs per-turn semantic retrieval and injects relevant memories as context before Claude responds. See [Tier 2 Per-Turn Context Injection](#tier-2-per-turn-context-injection) for the full injection pipeline.
+
+> **Common misconception:** `UserPromptSubmit` is not only a logging hook. The Tier 2 semantic retrieval hook also fires here on every turn.
+
+**Configuration (activity logging):**
 ```json
 {
   "hooks": {
@@ -671,6 +992,10 @@ Activity logging hooks track session events for analytics and debugging. They wr
           {
             "type": "command",
             "command": ".claude/hooks/scripts/activity_logger.py --event user_prompt"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/scripts/context_injection_tier2.py"
           }
         ]
       }
@@ -679,7 +1004,7 @@ Activity logging hooks track session events for analytics and debugging. They wr
 }
 ```
 
-**Logged Data:**
+**Logged Data (activity_logger.py):**
 - Timestamp
 - Session ID
 - Prompt length

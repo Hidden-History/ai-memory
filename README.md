@@ -34,6 +34,8 @@
 - **LLM Observability** — Full pipeline tracing via Langfuse (opt-in); every hook span visible with timing and payloads.
 - **Progressive Context Injection** — Token-budget-aware delivery: session bootstrap, per-turn injection, confidence-filtered retrieval.
 
+See [docs/TEMPORAL-FEATURES.md](docs/TEMPORAL-FEATURES.md) for temporal decay configuration and freshness settings.
+
 ---
 
 ## Quick Start
@@ -86,6 +88,7 @@ After pulling a new version and re-running `./scripts/install.sh /path/to/your-p
 | Core + Langfuse (opt-in) | 15 services | 32 GiB | 8 cores |
 
 See [INSTALL.md](INSTALL.md) for step-by-step instructions covering macOS, Linux, and Windows (WSL2), manual installation, configuration options, and uninstallation.
+See [docs/MULTI-IDE-SUPPORT.md](docs/MULTI-IDE-SUPPORT.md) for Gemini CLI, Cursor, and Codex CLI adapter setup.
 
 ---
 
@@ -142,6 +145,7 @@ Memory retrieval fires automatically on:
 - **Session History Keywords** — "What have we done..." → searches session summaries
 
 See [docs/HOOKS.md](docs/HOOKS.md) for complete hook documentation and the full trigger keyword reference.
+See [docs/AI_MEMORY_ARCHITECTURE.md](docs/AI_MEMORY_ARCHITECTURE.md) for the full system architecture reference.
 
 ---
 
@@ -159,7 +163,7 @@ Parzival is an AI project manager for Claude Code. He manages the full project l
 
 Parzival is optional but recommended for complex multi-session projects. AI Memory's core features (semantic search, GitHub sync, skills, freshness detection) work independently.
 
-See [docs/parzival/](docs/parzival/) for the full Parzival documentation suite and [docs/DISPATCH-SKILLS.md](docs/DISPATCH-SKILLS.md) for multi-provider dispatch setup.
+See [Parzival documentation](docs/parzival/README-POV.md) for the full Parzival documentation suite and [docs/DISPATCH-SKILLS.md](docs/DISPATCH-SKILLS.md) for multi-provider dispatch setup.
 
 ---
 
@@ -250,6 +254,7 @@ python scripts/recover_hook_guards.py --apply
 ```
 
 See [docs/RECOVERY.md](docs/RECOVERY.md) for the complete recovery guide.
+See [docs/BACKUP-RESTORE.md](docs/BACKUP-RESTORE.md) for collection backup and restore procedures.
 
 ---
 
