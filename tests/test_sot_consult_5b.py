@@ -109,7 +109,7 @@ def test_try_memory_cache_store_unreachable(tmp_path):
         old[k] = sys.modules.get(k)
         sys.modules[k] = v
     try:
-        result = consult._try_memory_cache(registry_path)
+        result = consult._try_memory_cache(registry_path, "test-project")
     finally:
         for k, v in old.items():
             if v is None:
@@ -134,7 +134,7 @@ def test_try_memory_cache_empty_returns_none(tmp_path):
         old[k] = sys.modules.get(k)
         sys.modules[k] = v
     try:
-        result = consult._try_memory_cache(registry_path)
+        result = consult._try_memory_cache(registry_path, "test-project")
     finally:
         for k, v in old.items():
             if v is None:
@@ -163,7 +163,7 @@ def test_try_memory_cache_returns_entries(tmp_path):
         old[k] = sys.modules.get(k)
         sys.modules[k] = v
     try:
-        result = consult._try_memory_cache(registry_path)
+        result = consult._try_memory_cache(registry_path, "test-project")
     finally:
         for k, v in old.items():
             if v is None:
