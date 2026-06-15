@@ -25,6 +25,7 @@ file fallback — the function signature must not change.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -32,6 +33,20 @@ import sys
 from pathlib import Path
 
 import yaml
+
+# ---------------------------------------------------------------------------
+# Sibling import — reuse detect_propose's registry-SHA + 5a drift-cache helpers
+# so consult's freshness gate (Item 3) binds to the EXACT definitions the engine
+# writes; if the SHA algorithm or 5a cache layout changes, consult tracks it.
+# ---------------------------------------------------------------------------
+
+_DP_SCRIPT = Path(__file__).resolve().parent / "aim_sot_detect_propose.py"
+_dp_spec = importlib.util.spec_from_file_location("aim_sot_detect_propose", _DP_SCRIPT)
+_dp = importlib.util.module_from_spec(_dp_spec)
+_dp_spec.loader.exec_module(_dp)
+
+_registry_sha = _dp._registry_sha
+_read_drift_cache = _dp._read_drift_cache
 
 DIGEST_MAX_LINES = 200
 
@@ -101,12 +116,54 @@ def _load_from_file(registry_path: Path) -> list[dict]:
     return [e for e in entries if isinstance(e, dict)]
 
 
-def _try_memory_cache(registry_path: Path) -> list[dict] | None:
+def _resolve_project_id_for_cache(registry_path: Path) -> str | None:
+    """Resolve project_id for the 5a/5b cache lookup.
+
+    Returns None when the memory stack is unavailable (no install, import
+    failure) so the caller falls back to the committed registry file silently.
+    """
+    try:
+        _install = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
+        _src = os.path.join(_install, "src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
+
+        from memory.project import resolve_project_id
+
+        return resolve_project_id(cwd=str(registry_path.parent.parent), warn=False)
+    except Exception:
+        return None
+
+
+def _cache_is_fresh(registry_path: Path, project_id: str) -> bool:
+    """True iff the 5b cache provably reflects the committed registry.
+
+    The 5a drift cache records the ``registry_sha`` it was last rebuilt from, and
+    that field advances only on a successful reindex (detect_propose ``cmd_run``).
+    The 5b cache is rebuilt in the same reindex, so a 5a ``registry_sha`` equal to
+    the committed registry's SHA is the binding proof the 5b rows are current.
+
+    A mismatch (registry edited since the last reindex) or an absent/unreadable 5a
+    cache means the 5b rows may be stale or cross-state — the caller must bypass
+    the cache and read the committed file (Item 3 / A1 invariant: consult never
+    returns entries that don't match the committed registry).
+    """
+    committed_sha = _registry_sha(registry_path)
+    if not committed_sha:
+        return False
+    cached_sha = _read_drift_cache(project_id).get("registry_sha", "")
+    return bool(cached_sha) and cached_sha == committed_sha
+
+
+def _try_memory_cache(registry_path: Path, project_id: str) -> list[dict] | None:
     """Try to load registry entries from the 5b derived memory cache.
 
     Returns a list of entry dicts on success, or None if the store is
-    unreachable, the cache is empty, or project_id cannot be resolved.
-    The caller falls back to the committed registry file silently.
+    unreachable or the cache is empty. The caller falls back to the committed
+    registry file silently. ``project_id`` is resolved by the caller (and the
+    freshness gate applied) before this is invoked.
     """
     try:
         _install = os.environ.get(
@@ -119,12 +176,8 @@ def _try_memory_cache(registry_path: Path) -> list[dict] | None:
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
         from memory.config import COLLECTION_CONVENTIONS, get_config
-        from memory.project import resolve_project_id
         from memory.qdrant_client import get_qdrant_client
 
-        project_id = resolve_project_id(
-            cwd=str(registry_path.parent.parent), warn=False
-        )
         config = get_config()
         client = get_qdrant_client(config)
 
@@ -165,16 +218,20 @@ def _try_memory_cache(registry_path: Path) -> list[dict] | None:
 def _load_entries(registry_path: Path) -> list[dict]:
     """Load registry entries for query.
 
-    Try the 5b derived memory cache first (fast, agent-searchable).
-    Fall back to the committed registry file silently if the cache is
-    unavailable or empty (graceful — a user install may have no store).
+    Use the 5b derived memory cache (fast, agent-searchable, carries enriched
+    fields like ``drift_status``) ONLY when it provably reflects the committed
+    registry — i.e. the 5a cache's ``registry_sha`` matches the committed file's
+    SHA (A1 freshness gate). Otherwise fall back to the committed registry file
+    so consult never returns stale or cross-state entries (the cache-first read
+    previously shadowed the file after any registry edit).
     Signature must not change (spec §4, Item 3 seam).
     """
-    # --- 5b cache read-through (Item 3) ---
-    cached = _try_memory_cache(registry_path)
-    if cached is not None:
-        return cached
-    # --- fallback: committed registry ---
+    project_id = _resolve_project_id_for_cache(registry_path)
+    if project_id and _cache_is_fresh(registry_path, project_id):
+        cached = _try_memory_cache(registry_path, project_id)
+        if cached is not None:
+            return cached
+    # --- fallback: committed registry (cache stale, empty, or unavailable) ---
     return _load_from_file(registry_path)
 
 

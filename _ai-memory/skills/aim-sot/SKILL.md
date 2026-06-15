@@ -127,7 +127,7 @@ are never auto-filled — human-authored always (BP-029).**
 
 - **5a** (`~/.ai-memory/drift-state/sot_drift_{project_id}.json`) — per-install drift
   state; never committed.
-- **5b** (Qdrant `conventions` collection, `memory_type=sot_entry`) — derived memory
+- **5b** (Qdrant `conventions` collection, `type=sot_entry`) — derived memory
   cache; deterministically rebuildable from the committed registry via `reindex`.
 
 ## Verify — Invocation

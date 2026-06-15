@@ -1169,10 +1169,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     project_root = _project_root_from_registry(registry_path)
     resolve_root = project_root if project_root is not None else registry_path.parent
     now_iso = datetime.now(timezone.utc).isoformat()
-    # Seeded from the prior cache so throttle-skipped entries retain their record.
-    # Records for entries since removed from the registry are left in place: they
-    # are never looked up (drift detection iterates registry entries only) and the
-    # 5a cache is deterministically rebuildable, so they are harmless (F-ENG-3).
+    # Seeded from the prior cache so throttle-skipped entries (still in the
+    # registry, but TTL-skipped this run) retain their record.  Orphans — records
+    # for ids no longer in the committed registry — are pruned after the drift loop
+    # below so the 5a cache mirrors exactly the current registry, matching the 5b
+    # reindex prune and preventing a stale baseline from resurfacing if an id is
+    # later re-added.
     updated_components: dict = dict(cache.get("components", {}))
 
     # --- Drift detection across registry entries ---
@@ -1243,6 +1245,14 @@ def cmd_run(args: argparse.Namespace) -> int:
         candidate_proposals = [_make_candidate_proposal(c) for c in capped]
     else:
         capped, deferred_count, candidate_proposals = [], 0, []
+
+    # --- Prune 5a orphans: keep only ids present in the committed registry ---
+    # Mirrors the 5b reindex prune so the drift cache never retains a baseline for
+    # a component removed from (or never in) the current registry.
+    registry_ids = {e.get("id", "") for e in entries if e.get("id")}
+    updated_components = {
+        eid: rec for eid, rec in updated_components.items() if eid in registry_ids
+    }
 
     # --- Persist 5a cache ---
     cache["components"] = updated_components

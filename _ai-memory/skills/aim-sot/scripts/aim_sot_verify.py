@@ -965,6 +965,17 @@ def _load_proposal(proposal_path: Path) -> tuple[list[dict], int]:
         )
         return [], 1
 
+    # A wrong-shape proposal (a mapping lacking the 'entries' key) must be flagged
+    # explicitly rather than verified as an empty entry set — verifying [] yields a
+    # spurious pass-on-nothing that hides the malformed input (A2).
+    if "entries" not in data:
+        print(
+            "Error: proposal file lacks an 'entries' key "
+            '(expected {"entries": [...]})',
+            file=sys.stderr,
+        )
+        return [], 1
+
     entries = data.get("entries", [])
     if not isinstance(entries, list):
         print("Error: proposal 'entries' must be a list", file=sys.stderr)

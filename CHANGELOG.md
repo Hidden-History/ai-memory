@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`aim-sot consult` no longer returns stale registry entries** — consult read the
+  derived memory cache (5b) first and returned it whenever non-empty, with no binding
+  to the committed `.sot/registry.yaml`, so after any registry edit (or when another
+  project's rows shared the `group_id`) it shadowed the file with stale or cross-state
+  data. Consult now uses the cache only when the drift cache's `registry_sha` matches
+  the committed file's SHA, otherwise it falls back to the committed file; it remains
+  strictly read-only. Also: `verify --proposal` now flags a proposal that lacks an
+  `entries` key instead of silently verifying it as empty; `detect-propose run` prunes
+  drift-cache records for components no longer in the registry (parity with reindex);
+  and the SKILL.md 5b-cache field name is corrected to `type=sot_entry` to match the
+  engine. (`aim_sot_consult.py`, `aim_sot_verify.py`, `aim_sot_detect_propose.py`, `SKILL.md`)
+
 - **BUG-302: tier-2 fallback marker now shows `remaining=` alongside `tokens=` and `budget=`**
   — the marker previously printed `tokens=<N> budget=<total>`, which read as a false
   contradiction when `tokens < budget` but `tokens > budget − tokens_used`. Adding
