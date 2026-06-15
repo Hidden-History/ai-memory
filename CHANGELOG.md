@@ -74,6 +74,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skills-with-scripts standard). This is FILE-content hygiene, distinct from
   `aim-purge` (Qdrant-point purging).
 
+- **`docs/parzival/` POV docs refreshed (TD-544)** — three pre-existing doc-drift
+  items corrected:
+  - `data/` path under `_ai-memory/pov/` fixed to `knowledge/` in both
+    `README-POV.md` and `INSTALL-GUIDE-POV.md` (factual error in user-facing docs).
+  - `README-POV.md` project-structure tree refreshed to current layout: stale
+    `(v2.1)` label dropped; `scripts/`, `module-help.csv`, and
+    `STEP-FILE-TEMPLATE.md` added; skills list updated to reflect current skill set
+    (`aim-agent-sanctum-init`, `aim-lore-hygiene`, `aim-tracking-freshness` added;
+    `aim-bmad-dispatch` removed); templates list and `workflows/` directory updated
+    to match current on-disk contents.
+  - `INSTALL-GUIDE-POV.md` gains an `add-project` / shared-stack section documenting
+    the `INSTALL_MODE=add-project` flow: when it triggers, what the installer skips
+    vs. runs, prerequisites, per-project configuration, and verification steps.
+
 ### Changed
 
 - **Sanctum templates** — aligned the eight scaffolded sanctum files (`CREED`,
