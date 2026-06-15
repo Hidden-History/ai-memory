@@ -40,13 +40,24 @@ import yaml
 # writes; if the SHA algorithm or 5a cache layout changes, consult tracks it.
 # ---------------------------------------------------------------------------
 
-_DP_SCRIPT = Path(__file__).resolve().parent / "aim_sot_detect_propose.py"
-_dp_spec = importlib.util.spec_from_file_location("aim_sot_detect_propose", _DP_SCRIPT)
-_dp = importlib.util.module_from_spec(_dp_spec)
-_dp_spec.loader.exec_module(_dp)
+try:
+    _DP_SCRIPT = Path(__file__).resolve().parent / "aim_sot_detect_propose.py"
+    _dp_spec = importlib.util.spec_from_file_location(
+        "aim_sot_detect_propose", _DP_SCRIPT
+    )
+    _dp = importlib.util.module_from_spec(_dp_spec)
+    _dp_spec.loader.exec_module(_dp)
 
-_registry_sha = _dp._registry_sha
-_read_drift_cache = _dp._read_drift_cache
+    _registry_sha = _dp._registry_sha
+    _read_drift_cache = _dp._read_drift_cache
+except Exception:
+    # detect_propose absent or broken: degrade gracefully rather than die. consult
+    # runs in the default-on SessionStart digest hook, so it must keep serving the
+    # committed registry file. With the freshness helpers unavailable, _cache_is_fresh
+    # treats the cache as NOT fresh → consult falls back to the committed file.
+    _dp = None
+    _registry_sha = None
+    _read_drift_cache = None
 
 DIGEST_MAX_LINES = 200
 
@@ -149,7 +160,12 @@ def _cache_is_fresh(registry_path: Path, project_id: str) -> bool:
     cache means the 5b rows may be stale or cross-state — the caller must bypass
     the cache and read the committed file (Item 3 / A1 invariant: consult never
     returns entries that don't match the committed registry).
+
+    When the detect_propose sibling helpers are unavailable (import failed), the
+    cache cannot be proven fresh → return False so the caller serves the file.
     """
+    if _registry_sha is None or _read_drift_cache is None:
+        return False
     committed_sha = _registry_sha(registry_path)
     if not committed_sha:
         return False

@@ -5051,9 +5051,18 @@ deploy_ai_memory_skills() {
     # used for _ai-memory/pov/skills/. This runs on every install (not gated on
     # Parzival), matching aim-sot's always-on SOT hooks — so the skill is discoverable
     # wherever its hooks fire. Only skills NOT already deployed as a full copy above
-    # are shimmed (no clobber; idempotent on re-install). The aim-* prefix deliberately
-    # EXCLUDES parzival-save-*: those are oversight-internal Parzival skills, correctly
-    # absent from an end-user project's .claude/skills/ (the project has no Parzival).
+    # are shimmed (no clobber OF FULL COPIES — the skip-guard below protects a
+    # full-copy skill; the shim itself is an installer-managed artifact, rebuilt from
+    # scratch every run via write_ai_memory_skill_shim's truncating redirect). The
+    # aim-* prefix deliberately EXCLUDES parzival-save-*: those are oversight-internal
+    # Parzival skills, correctly absent from an end-user project's .claude/skills/
+    # (the project has no Parzival).
+    #
+    # ORDERING DEPENDENCY: this loop reads each skill's canonical SKILL.md from
+    # $PROJECT_PATH/_ai-memory/skills/, which the canonical-files deploy above
+    # (re)copies from INSTALL_DIR every run. It MUST run AFTER that copy so the
+    # regenerated shim reflects the current SKILL.md on re-install; reordering this
+    # loop before that deploy would silently shim stale (or missing) frontmatter.
     if [[ -d "$PROJECT_PATH/_ai-memory/skills" ]]; then
         local aim_shim_count=0
         for skill_dir in "$PROJECT_PATH/_ai-memory/skills"/aim-*/; do

@@ -69,14 +69,25 @@ def _seed_drift_cache(tmp_cache_dir: Path, project_id: str, registry_sha: str) -
     )
 
 
-def test_stale_cache_bypassed_returns_committed_entries(monkeypatch, tmp_path):
-    """PRE-FIX FAILING: a populated 5b cache from a different registry state (5a
-    registry_sha mismatched) must be bypassed; consult returns the committed file."""
+def test_stale_cache_bypassed_returns_committed_entries(monkeypatch, tmp_path, capsys):
+    """PRE-FIX FAILING (on the staleness ASSERTION, not a missing-symbol error):
+    a populated 5b cache from a different registry state (5a registry_sha
+    mismatched) must be bypassed; `consult list` returns the committed file.
+
+    Run against pre-fix consult.py (no freshness gate, no ``_dp``), this test must
+    fail on ``"STALE-ONLY" not in ids`` — proving the stale-row leak — rather than
+    erroring earlier on the fix-introduced ``_dp`` symbol. The ``_dp`` cache-dir
+    setup is therefore guarded so its absence does not short-circuit the path."""
     registry = _realistic_registry(tmp_path, n=12)
     project_id = "lane-a-test"
 
     cache_dir = tmp_path / "drift-state"
-    monkeypatch.setattr(consult._dp, "_DRIFT_CACHE_DIR", cache_dir)
+    # The 5a drift-cache dir lives on the detect_propose sibling module (``_dp``),
+    # a fix-introduced symbol. Guard the setup so pre-fix consult (no ``_dp``) does
+    # not raise AttributeError before reaching the staleness assertion below.
+    _dp = getattr(consult, "_dp", None)
+    if _dp is not None:
+        monkeypatch.setattr(_dp, "_DRIFT_CACHE_DIR", cache_dir)
     # 5a cache built from a DIFFERENT registry state → SHA cannot match committed.
     _seed_drift_cache(cache_dir, project_id, registry_sha="00000000")
 
@@ -89,11 +100,16 @@ def test_stale_cache_bypassed_returns_committed_entries(monkeypatch, tmp_path):
         consult, "_try_memory_cache", lambda *a, **k: stale_rows, raising=False
     )
 
-    entries = consult._load_entries(registry)
-    ids = {e.get("id") for e in entries}
+    # Drive the real CLI path (NIT-1): `consult list --registry <path> --json`.
+    rc = consult.main(["list", "--registry", str(registry), "--json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    ids = {e.get("id") for e in payload["entries"]}
 
     assert "STALE-ONLY" not in ids, "stale cache row leaked into consult output"
-    assert len(entries) == 12, "committed registry entries not returned on cache miss"
+    assert (
+        payload["count"] == 12
+    ), "committed registry entries not returned on cache miss"
     assert ids == {f"COMP-{i:02d}" for i in range(12)}
 
 
@@ -122,6 +138,38 @@ def test_fresh_cache_used_preserves_drift_status(monkeypatch, tmp_path):
     entries = consult._load_entries(registry)
     assert entries == enriched, "fresh cache should be used (enriched rows)"
     assert any(e.get("drift_status") == "drifted" for e in entries)
+
+
+def test_file_fallback_when_sibling_helpers_unavailable(monkeypatch, tmp_path):
+    """A-FIX-3: when the detect_propose sibling import fails, ``_registry_sha`` /
+    ``_read_drift_cache`` are None. ``_cache_is_fresh`` must then treat the cache as
+    NOT fresh so consult still serves the committed file — never hard-failing, and
+    never serving a cache it cannot prove fresh."""
+    registry = _realistic_registry(tmp_path, n=12)
+
+    # Simulate the degraded import (helpers unavailable).
+    monkeypatch.setattr(consult, "_registry_sha", None, raising=False)
+    monkeypatch.setattr(consult, "_read_drift_cache", None, raising=False)
+    # A project_id resolves and a (stale) 5b cache is reachable — the missing
+    # freshness helpers must still force the committed-file fallback.
+    monkeypatch.setattr(
+        consult, "_resolve_project_id_for_cache", lambda p: "lane-a-test", raising=False
+    )
+    monkeypatch.setattr(
+        consult,
+        "_try_memory_cache",
+        lambda *a, **k: [{"id": "STALE-ONLY", "kind": "x"}],
+        raising=False,
+    )
+
+    entries = consult._load_entries(registry)
+    ids = {e.get("id") for e in entries}
+
+    assert (
+        "STALE-ONLY" not in ids
+    ), "stale cache served despite missing freshness helpers"
+    assert len(entries) == 12, "committed registry not served on degraded import"
+    assert ids == {f"COMP-{i:02d}" for i in range(12)}
 
 
 def test_consult_is_read_only(monkeypatch, tmp_path):

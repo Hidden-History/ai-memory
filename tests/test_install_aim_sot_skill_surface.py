@@ -149,11 +149,27 @@ class TestAimSotSkillSurface:
 
         first = _deploy(install_sh_no_main, project, install_dir)
         assert first.returncode == 0, f"first deploy failed: {first.stderr}"
+
+        # Change the canonical aim-sot SKILL.md between deploys: the regenerated shim
+        # must reflect the new description on re-install (rebuilt from the freshly
+        # copied canonical, not staled from the first run).
+        new_desc = (
+            "Track the source-of-truth — REVISED for the re-install refresh test."
+        )
+        (install_dir / "_ai-memory" / "skills" / "aim-sot" / "SKILL.md").write_text(
+            _skill_md("aim-sot", new_desc, tools="Bash, Read"), encoding="utf-8"
+        )
+
         second = _deploy(install_sh_no_main, project, install_dir)
         assert second.returncode == 0, f"second deploy failed: {second.stderr}"
 
         sot = project / ".claude" / "skills" / "aim-sot" / "SKILL.md"
         assert sot.exists()
+        sot_text = sot.read_text(encoding="utf-8")
         # Exactly one LOAD line — re-install neither duplicates nor corrupts the shim.
-        assert sot.read_text(encoding="utf-8").count("**LOAD**") == 1
+        assert sot_text.count("**LOAD**") == 1
+        # Shim refreshed from the changed canonical — not staled from the first deploy.
+        assert (
+            new_desc in sot_text
+        ), "regenerated shim did not reflect the changed canonical SKILL.md"
         assert not (project / ".claude" / "skills" / "parzival-save-handoff").exists()

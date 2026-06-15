@@ -976,7 +976,7 @@ def _load_proposal(proposal_path: Path) -> tuple[list[dict], int]:
         )
         return [], 1
 
-    entries = data.get("entries", [])
+    entries = data["entries"]
     if not isinstance(entries, list):
         print("Error: proposal 'entries' must be a list", file=sys.stderr)
         return [], 1
