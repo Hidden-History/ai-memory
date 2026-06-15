@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `remaining=budget−tokens_used` makes the correct reject self-evident.
   (`context_injection_tier2.py` marker block)
 
+- **`aim-sot` is now discoverable as a skill in installed projects** — the skill's
+  engine lives under `_ai-memory/skills/aim-sot/`, which the installer copied as
+  canonical files but never surfaced to `.claude/skills/`, so Claude Code could not
+  index it even though its session/drift hooks were registered. `deploy_ai_memory_skills`
+  now generates a thin discovery shim in `.claude/skills/` for `aim-*` skills that live
+  under `_ai-memory/skills/` without a full copy. It runs on every install (matching
+  aim-sot's always-on SOT hooks), never clobbers a skill that already has a full copy,
+  and is idempotent on re-install; the `aim-*` prefix deliberately excludes the
+  oversight-internal `parzival-save-*` skills. The `AI_MEMORY_SOT_HOOKS` opt-out is now
+  documented as a commented line in `docker/.env.example`.
+  (`scripts/install.sh`, `docker/.env.example`)
+
 ### Added
 
 - **Per-source budget ledger in `select_results_greedy`** — `meta["per_source"]` now

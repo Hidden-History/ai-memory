@@ -4922,6 +4922,50 @@ setup_model_dispatch() {
     fi
 }
 
+# Write a thin discovery shim SKILL.md for a skill whose content lives outside
+# .claude/skills/. The shim carries frontmatter (so Claude Code can index it) plus
+# a LOAD pointer to the canonical SKILL.md. Mirrors the inline shim format used by
+# generate_parzival_skill_shims, factored out so deploy_ai_memory_skills can reuse it.
+# Args: <real_skill_dir> <skill_name> <claude_skills_dir> <load_path_prefix>
+write_ai_memory_skill_shim() {
+    local real_skill_dir="$1"
+    local skill_name="$2"
+    local claude_skills_dir="$3"
+    local load_path_prefix="$4"
+    local real_skill="$real_skill_dir/SKILL.md"
+    local shim_dir="$claude_skills_dir/$skill_name"
+
+    local name_line description_line tools_line context_line trigger_line title_line
+    name_line=$(grep -m1 "^name:" "$real_skill" 2>/dev/null || echo "name: $skill_name")
+    description_line=$(grep -m1 "^description:" "$real_skill" 2>/dev/null || echo "description: AI Memory skill")
+    tools_line=$(grep -m1 "^allowed-tools:" "$real_skill" 2>/dev/null || echo "")
+    context_line=$(grep -m1 "^context:" "$real_skill" 2>/dev/null || echo "")
+    trigger_line=$(grep -m1 "^trigger:" "$real_skill" 2>/dev/null || echo "")
+    title_line=$(grep -m1 "^# " "$real_skill" 2>/dev/null || echo "# $skill_name")
+
+    mkdir -p "$shim_dir"
+
+    {
+        echo "---"
+        echo "$name_line"
+        echo "$description_line"
+        if [[ -n "$tools_line" ]]; then
+            echo "$tools_line"
+        fi
+        if [[ -n "$context_line" ]]; then
+            echo "$context_line"
+        fi
+        if [[ -n "$trigger_line" ]]; then
+            echo "$trigger_line"
+        fi
+        echo "---"
+        echo ""
+        echo "$title_line"
+        echo ""
+        echo "**LOAD**: Read and follow \`$load_path_prefix/$skill_name/SKILL.md\`"
+    } > "$shim_dir/SKILL.md"
+}
+
 # Deploy skill shims from INSTALL_DIR/.claude/skills/ to project
 # Replaces the skill deployment loop formerly in create_project_symlinks()
 # Stale cleanup scoped to ai-memory prefixes only (R2-NF4: never delete user custom skills)
@@ -4999,6 +5043,34 @@ deploy_ai_memory_skills() {
         mkdir -p "$PROJECT_PATH/_ai-memory/skills"
         cp -r "$ai_mem_skills/"* "$PROJECT_PATH/_ai-memory/skills/" 2>/dev/null || true
         log_debug "Deployed _ai-memory/skills/ canonical files to project"
+    fi
+
+    # Surface user-facing aim-* skills whose engine lives under _ai-memory/skills/
+    # but that ship without a full .claude/skills/ copy (currently aim-sot). Generate
+    # a thin discovery shim so Claude Code indexes them, mirroring the thin-shim model
+    # used for _ai-memory/pov/skills/. This runs on every install (not gated on
+    # Parzival), matching aim-sot's always-on SOT hooks — so the skill is discoverable
+    # wherever its hooks fire. Only skills NOT already deployed as a full copy above
+    # are shimmed (no clobber; idempotent on re-install). The aim-* prefix deliberately
+    # EXCLUDES parzival-save-*: those are oversight-internal Parzival skills, correctly
+    # absent from an end-user project's .claude/skills/ (the project has no Parzival).
+    if [[ -d "$PROJECT_PATH/_ai-memory/skills" ]]; then
+        local aim_shim_count=0
+        for skill_dir in "$PROJECT_PATH/_ai-memory/skills"/aim-*/; do
+            [[ -d "$skill_dir" ]] || continue
+            [[ -f "$skill_dir/SKILL.md" ]] || continue
+            local aim_skill_name
+            aim_skill_name=$(basename "$skill_dir")
+            if [[ -d "$PROJECT_PATH/.claude/skills/$aim_skill_name" ]]; then
+                continue
+            fi
+            write_ai_memory_skill_shim "${skill_dir%/}" "$aim_skill_name" \
+                "$PROJECT_PATH/.claude/skills" "_ai-memory/skills"
+            aim_shim_count=$((aim_shim_count + 1))
+        done
+        if [[ $aim_shim_count -gt 0 ]]; then
+            log_success "Generated $aim_shim_count aim-* skill shim(s) in .claude/skills/"
+        fi
     fi
 }
 
