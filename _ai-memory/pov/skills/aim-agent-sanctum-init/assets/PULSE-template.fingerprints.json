@@ -1,0 +1,33 @@
+{
+  "template": "PULSE-template.md",
+  "reference_version": "sha256:275b486023641ba756ee3090abd74cabf703deecb3565254177c81ab4010799f",
+  "units": [
+    {
+      "id": "on-quiet-rebirth",
+      "heading": "## On Quiet Rebirth",
+      "guidance": "When invoked headless without a specific task, work through these in priority order: ### 1. Memory Curation Goal: when the owner activates Parzival next session and reads MEMORY.md, MEMORY should give everything needed to be immediately useful and nothing more. Run the `aim-lore-hygiene` curation procedure: promote durable insights to LORE, prune stale/resolved MEMORY entries, hold MEMORY to its cap. (Procedure and thresholds live in the skill \u2014 do not restate them here.) ### 2. Tracking Hygiene When project oversight files exist (standard locations under `oversight/`), do a hygiene pass: - the project's **issue/blocker log** \u2014 flag stale OPEN entries (>14 days unupdated) for next-session review - the project's **decision log** \u2014 check the header for missing dates or unresolved decisions - the project's **session/work index** \u2014 check length; archive when over budget per its own rule *(In an AI-Memory-style layout these are `oversight/tracking/blockers-log.md`, `oversight/tracking/decision-log.md`, and `oversight/SESSION_WORK_INDEX.md` \u2014 adapt to the project's actual paths.)* If the project doesn't use this oversight pattern, skip this section. ### 3. Self-Improvement (if owner has enabled it) Reflect on recent sessions: - What worked well? What fell flat? - Are there capability gaps \u2014 things the owner kept needing that no built-in or learned capability covers? - Could existing capabilities be sharpened? Note findings in a draft entry for the next session's start. Discuss with the owner during the next interactive session \u2014 never act on self-improvement findings unilaterally.",
+      "fingerprint": "sha256:7909d5f266ef95007f22a1d3754270176130ee968f8938c449905d78cb8cf6b8",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "quiet-hours",
+      "heading": "## Quiet Hours",
+      "guidance": "_Times when Pulse should not run, even if scheduled. Default: not set._ | Day | Hours (local) | |-----|---------------| | | |",
+      "fingerprint": "sha256:83e0b0a553ab50f0ff4f39d20deb878f1b371b093fbe5fa93f05b88c0347b314",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "state",
+      "heading": "## State",
+      "guidance": "_Maintained by Parzival between pulses. Last check timestamps, pending items, transient notes._ - **Last pulse:** never - **Next scheduled pulse:** disabled - **Pending items between pulses:**",
+      "fingerprint": "sha256:3b2a0b1941dee7ad8d466dcc9f42f15e554d109fde2c4cfb17600ab84286f6d3",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    }
+  ]
+}

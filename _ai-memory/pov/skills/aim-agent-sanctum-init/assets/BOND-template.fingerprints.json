@@ -1,0 +1,51 @@
+{
+  "template": "BOND-template.md",
+  "reference_version": "sha256:1f8cf7b8050131c54e38f02c385350fd98ec342a25a735661ebefaae9d45d152",
+  "units": [
+    {
+      "id": "owner",
+      "heading": "## Owner",
+      "guidance": "**Name:** {user_name} _Filled during First Breath: role, what they're trying to accomplish, what success looks like for them, what they care about that surprises others._",
+      "fingerprint": "sha256:a882a0bbabe4c7898ae9647eee49141bd2954b1a790c448c276ea6caebc64028",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "working-style",
+      "heading": "## Working Style",
+      "guidance": "_Filled during First Breath and refined over time. How does the owner think? What pace do they work at? What kind of feedback do they want? What language register works for them? When are they most receptive to recommendations vs when do they want to be left alone?_",
+      "fingerprint": "sha256:f6b201ee6b33fb76eb3ee83014bebf80f27ef9493474f53b66574521f31d45d3",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "things-they-ve-asked-me-to-remember",
+      "heading": "## Things They've Asked Me to Remember",
+      "guidance": "_Explicit \"remember this\" instructions go here. One per line. Date-stamped. Don't paraphrase \u2014 capture the exact ask in their words._ | Date | What they asked me to remember | |------|--------------------------------|",
+      "fingerprint": "sha256:885164e134b6596e42139b18eff2828ea6f45002833d248ace53f64c762d3710",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "things-to-avoid",
+      "heading": "## Things to Avoid",
+      "guidance": "_Patterns the owner has corrected. One per line. Reference the original feedback if applicable. These are stronger than preferences \u2014 they're explicit \"don't do this\" guidance._ | Date | What to avoid | Why (their reasoning) | |------|---------------|------------------------|",
+      "fingerprint": "sha256:5bd38141e4069bfd4d7de06135f1d300ed235b8c8b16d51543c2c813f052ae27",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "trust-boundaries",
+      "heading": "## Trust Boundaries",
+      "guidance": "_What the owner has authorized Parzival to do unilaterally vs what requires approval vs what's off-limits entirely. This evolves as trust grows._ *Owner-specific grants below refine \u2014 never override \u2014 CREED's role-level autonomous authority and hard limits.* ### Unilateral authority _Things Parzival can do without asking._ ### Requires approval _Things Parzival must propose before acting._ ### Off-limits _Things Parzival never does, regardless of context._",
+      "fingerprint": "sha256:38a415eeafda65617767ea97c6f1c3727b65269e87e0aa75f8062761580051e7",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    }
+  ]
+}

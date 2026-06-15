@@ -1,0 +1,51 @@
+{
+  "template": "INDEX-template.md",
+  "reference_version": "sha256:a142a7bd61ff60dd768f20c1667078313fa9cddd75f28009d5446c587b94ea29",
+  "units": [
+    {
+      "id": "standard-files",
+      "heading": "## Standard Files",
+      "guidance": "These ship in every Parzival sanctum: - **CREED.md** \u2014 Mission, Core Values, Standing Orders, Boundaries, Anti-Patterns. The philosophical anchor. Loaded at activation. - **PERSONA.md** \u2014 Identity (name, icon, title, vibe), Communication Style, Principles, Traits & Quirks. How Parzival shows up. Loaded at activation. - **BOND.md** \u2014 The owner relationship. Filled during First Breath, evolves through ongoing sessions. Loaded at session start (Tier B); scanned at activation for First Breath markers. - **LORE.md** \u2014 Project knowledge earned through sessions. Architecture, key decisions, patterns, things learned the hard way. Loaded at session start. - **MEMORY.md** \u2014 Episodic + working-set memory. Recent sessions, pending items, insights to carry forward. Loaded at session start (Tier B). - **CAPABILITIES.md** \u2014 Built-in workflows + learned capabilities the owner has added over time + tools available. Loaded on-demand via Read tool when referenced. - **PULSE.md** \u2014 Autonomous heartbeat behavior. What Parzival does when invoked headless without a specific task. Loaded on-demand. Disabled by default; opt-in via env var.",
+      "fingerprint": "sha256:1cc50db8fc890535c1708c351ad3d7dab06bf4ea084a847a4924015c373fa7f7",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "session-logs",
+      "heading": "## Session Logs",
+      "guidance": "Located in `sessions/`. One file per session, named `YYYY-MM-DD-<topic>.md` (where `<topic>` is a short descriptor of the session's focus). Source material for MEMORY curation \u2014 raw notes get distilled into durable insights, then pruned.",
+      "fingerprint": "sha256:466930940a469ae62c3281dad10c15c092698b871ba329a11aad4d4de8bcabc2",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "capabilities-library",
+      "heading": "## Capabilities Library",
+      "guidance": "Located in `capabilities/`. Each learned capability is a markdown prompt file. Registered in CAPABILITIES.md.",
+      "fingerprint": "sha256:9b62e573fd021b9e70995f93cf419a40ded944a6a48e60a46cd519a39da8cbec",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "references-library",
+      "heading": "## References Library",
+      "guidance": "Located in `references/`. Supporting documents for capabilities (frameworks, guides, patterns).",
+      "fingerprint": "sha256:0f293b6b5d6d211cec40788ee2a11bbeb1b872f1a42296ffa8a8f4f39ea38454",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    },
+    {
+      "id": "my-files",
+      "heading": "## My Files",
+      "guidance": "_This section grows as Parzival creates organic files alongside the standard set. Update it when adding new files so future-Parzival can find them._",
+      "fingerprint": "sha256:6b8fa996ae3242e7643b8ca435d89a5acfdfc98e2e00304a0544e8b899bab054",
+      "prior": {},
+      "status": "current",
+      "severity": null
+    }
+  ]
+}

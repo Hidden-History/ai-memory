@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Sanctum content-drift detection (`aim-content-drift`)** — a new skill that
+  compares an operator's scaffolded sanctum files (BOND, CAPABILITIES, CREED, INDEX,
+  LORE, MEMORY, PERSONA, PULSE) against the reference templates and surfaces
+  recommended additions/removals with rationale when the templates evolve. Detection
+  is read-only and never overwrites operator content: a section the operator has
+  written or customized is never recommended for removal. Intentional divergences can
+  be acknowledged in a per-project, diff-reviewable file so they stop resurfacing
+  until the reference changes again. Reference fingerprints ship alongside the
+  templates.
 - **Agent-guidance file across all supported CLIs** — the installer now ships an
   AI-Memory guidance file into each project for every supported CLI, auto-loaded at
   session start, in that CLI's own always-on convention. It explains how to work with
