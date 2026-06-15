@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **BUG-302: tier-2 fallback marker now shows `remaining=` alongside `tokens=` and `budget=`**
+  — the marker previously printed `tokens=<N> budget=<total>`, which read as a false
+  contradiction when `tokens < budget` but `tokens > budget − tokens_used`. Adding
+  `remaining=budget−tokens_used` makes the correct reject self-evident.
+  (`context_injection_tier2.py` marker block)
+
+### Added
+
+- **Per-source budget ledger in `select_results_greedy`** — `meta["per_source"]` now
+  carries a per-collection breakdown of `requested_tokens`, `loaded_tokens`, and
+  `dropped` counts by reason (`budget_exceeded`, `score_gap`, `freshness_block`,
+  `dedup`, `already_injected`, `empty_content`). Budget-exceeded drops include a
+  `tokens` tally so operators can verify reconciliation:
+  `loaded_tokens + dropped["budget_exceeded"]["tokens"] == requested_tokens` per
+  collection. The ledger is written to each `injection-log.jsonl` event under
+  `per_source`. Observe-only: selection output is unchanged. (`injection.py`,
+  `context_injection_tier2.py`)
+
 ### Changed
 
 - **Agent-guidance files now refresh on every install** — existing installations
