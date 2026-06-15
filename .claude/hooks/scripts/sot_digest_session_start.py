@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SOT Digest Session-Start Hook — propose-only, opt-in-OFF by default.
+"""SOT Digest Session-Start Hook — propose-only, default-on.
 
 Fires on Claude Code session start (SessionStart hook). Invokes the aim-sot
 consult engine in digest mode and injects a compact SOT summary as ambient
@@ -7,7 +7,8 @@ session-start context. Never writes any committed file.
 
 Input (stdin JSON): {session_id, cwd, source, ...}
 
-Opt-in: ships unregistered in settings.json. See aim-sot SKILL.md § Digest Session-Start Hook.
+Default-on: registered on install alongside the core ai-memory hooks.
+Disable with AI_MEMORY_SOT_HOOKS=off before install. See aim-sot SKILL.md § Digest Session-Start Hook.
 """
 
 import json

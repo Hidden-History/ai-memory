@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Gemini CLI AfterAgent SOT-drift trigger adapter — propose-only, opt-in-OFF by default.
+"""Gemini CLI AfterAgent SOT-drift trigger adapter — propose-only, default-on.
 
 Fires on Gemini CLI AfterAgent event (end-of-turn; canonical: Stop). Invokes the
 aim-sot detect-propose engine in propose-only mode and surfaces a one-line
@@ -13,7 +13,8 @@ Loop guard: Gemini CLI exposes no `gemini_hook_active` analog to Claude's `stop_
 The propose-only design is structurally loop-free — this adapter never writes any tracked
 file, so there is no asyncRewake-style re-entry risk (BP-032).
 
-Opt-in: ships unregistered. See aim-sot SKILL.md § Gemini — AfterAgent hook.
+Default-on: registered on install alongside the core ai-memory hooks.
+Disable with AI_MEMORY_SOT_HOOKS=off before install. See aim-sot SKILL.md § Gemini — AfterAgent hook.
 """
 
 import json

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SOT Drift Stop Hook — propose-only, opt-in-OFF by default.
+"""SOT Drift Stop Hook — propose-only, default-on.
 
 Fires on Claude Code session end (Stop hook). Invokes the aim-sot detect-propose
 engine in propose-only mode and surfaces a one-line summary to stderr when drift
@@ -7,7 +7,8 @@ or new candidates are found. Never writes any committed file.
 
 Input (stdin JSON): {session_id, transcript_path, cwd, stop_hook_active}
 
-Opt-in: ships unregistered in settings.json. See aim-sot SKILL.md § Stop Hook.
+Default-on: registered on install alongside the core ai-memory hooks.
+Disable with AI_MEMORY_SOT_HOOKS=off before install. See aim-sot SKILL.md § Stop Hook.
 """
 
 import json

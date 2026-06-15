@@ -220,16 +220,26 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
   run --proposal /path/to/proposal.json --json
 ```
 
-## Stop Hook — Opt-in
+## Stop Hook — Default-on
 
-The Claude `Stop` hook (`sot_drift_stop.py`) ships in `.claude/hooks/scripts/` but is
-**not auto-registered** in `settings.json` on install (BP-032 portability rule — the
-tool never writes into the user's VCS/hook config without explicit opt-in). The engine
-also runs standalone as the no-hook default (`detect-propose run` manually or via cron).
+The Claude `Stop` hook (`sot_drift_stop.py`) is **registered by default on install**
+alongside the core ai-memory hooks. To opt out, set `AI_MEMORY_SOT_HOOKS=off`
+(case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before
+running `install.sh`. Note: `AI_MEMORY_SOT_HOOKS=off` prevents adding the hooks on
+install; it does **not** remove hooks already registered by a prior install (settings
+merge is append/base-wins). To disable an existing install, remove the SOT hook entries
+manually from `settings.json` or re-run with `FORCE_IDE`.
 
-### Manual enablement
+> **BP-032 reconciliation**: the original portability concern is bounded — the hooks
+> self-guard on `.sot/registry.yaml` presence (no-op in non-SOT projects), and the
+> settings merge is backup + atomic + non-clobbering. Default-on is safe for
+> multi-project operators.
 
-Add the following entry to your project's `.claude/settings.json` (under `hooks.Stop`):
+The engine also runs standalone (`detect-propose run` manually or via cron).
+
+### Hook config reference
+
+The following entry is written to `.claude/settings.json` (under `hooks.Stop`) on install:
 
 ```json
 {
@@ -256,11 +266,14 @@ or new candidates are detected. It never writes any committed file.
 
 ---
 
-## Trigger Opt-in — Codex / Cursor / Gemini
+## Trigger Hooks — Codex / Cursor / Gemini
 
-The Codex `Stop`, Cursor `stop`, and Gemini `AfterAgent` adapters ship
-**unregistered** (BP-032). Add the relevant entry to your project's hook config to
-enable automatic SOT-drift detection for each CLI.
+The Codex `Stop`, Cursor `stop`, and Gemini `AfterAgent` adapters are **registered by
+default on install** (same as the Claude Stop hook above). Set `AI_MEMORY_SOT_HOOKS=off`
+before `install.sh` to skip registration for all SOT hooks. To register only specific
+adapters, remove the unwanted entries from your hook config after install.
+
+The hook config snippets below are written by the installer for reference:
 
 ### Codex — Stop hook
 
@@ -336,16 +349,20 @@ Fires propose-only at end-of-turn (Gemini `AfterAgent` event). Never writes any 
 
 ---
 
-## Digest Session-Start Hook — Opt-in
+## Digest Session-Start Hook — Default-on
 
-The aim-sot digest session-start hooks ship in their respective hook script directories
-but are **not auto-registered** (BP-032 portability rule). Each hook fires on session
-start, invokes `aim_sot_consult.py digest --json`, and injects a compact SOT digest as
-ambient session-start context. Ships propose-only (digest is read-only — never writes
+The aim-sot digest session-start hooks are **registered by default on install** alongside
+the core ai-memory hooks. Each hook fires on session start, invokes
+`aim_sot_consult.py digest --json`, and injects a compact SOT digest as ambient
+session-start context. Ships propose-only (digest is read-only — never writes
 the registry).
 
-Opt-in gate: a `.sot/registry.yaml` in the project root is required (same gate as the
-drift hooks). No registry → hook exits with empty context.
+Runtime gate: a `.sot/registry.yaml` in the project root is required (same gate as the
+drift hooks). No registry → hook exits with empty context (no-op in non-SOT projects).
+
+Disable all SOT hooks (drift + digest) by setting `AI_MEMORY_SOT_HOOKS=off`
+(case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before
+`install.sh`. See the Stop Hook § above for the kill-switch limitation note.
 
 ### Claude — SessionStart hook
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Codex CLI SOT Digest Session-Start adapter — opt-in-OFF by default.
+"""Codex CLI SOT Digest Session-Start adapter — default-on.
 
 Fires on Codex SessionStart event. Invokes the aim-sot consult engine in digest
 mode and injects a compact SOT summary as ambient session-start context.
@@ -7,7 +7,8 @@ Never writes any committed file.
 
 Input (stdin JSON): Codex SessionStart payload (normalized via normalize_codex_event)
 
-Opt-in: ships unregistered. See aim-sot SKILL.md § Digest Session-Start Hook.
+Default-on: registered on install alongside the core ai-memory hooks.
+Disable with AI_MEMORY_SOT_HOOKS=off before install. See aim-sot SKILL.md § Digest Session-Start Hook.
 """
 
 import json

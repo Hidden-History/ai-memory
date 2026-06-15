@@ -950,14 +950,15 @@ class TestSotEntryExclusion:
         # No must_not for code-patterns (unaffected collection)
         assert query_filter.must_not is None
 
-    def test_explicit_must_not_types_caller_override_respected(
+    def test_explicit_must_not_types_caller_gets_sot_entry_appended(
         self, mock_config, mock_qdrant_client, mock_embedding_client
     ):
-        """Caller-provided must_not_types is used as-is; H1 guard does not clobber it.
+        """Caller-provided must_not_types gets sot_entry appended (H1 union hardening).
 
-        sot_entry must not bleed into the caller-supplied exclusion list when the
-        caller explicitly passes must_not_types (the H1 guard only fires when
-        must_not_types is falsy).
+        For untyped conventions queries, sot_entry is always appended to must_not_types
+        (union), even when the caller provides an existing must_not_types list.
+        This prevents a caller passing an unrelated type from accidentally resurface
+        sot_entry rows. The caller's original type is preserved alongside sot_entry.
         """
         from src.memory.config import COLLECTION_CONVENTIONS
 
@@ -975,10 +976,10 @@ class TestSotEntryExclusion:
         assert query_filter is not None
         assert query_filter.must_not is not None
         excluded_types = query_filter.must_not[0].match.any
-        # Caller's explicit must_not_types is used (not the H1 default)
+        # Caller's explicit must_not_types is preserved
         assert "custom_type" in excluded_types
-        # H1 guard must not inject sot_entry on top of caller's override
-        assert "sot_entry" not in excluded_types
+        # H1 guard also appends sot_entry unconditionally (union)
+        assert "sot_entry" in excluded_types
 
     def test_empty_list_memory_type_conventions_excludes_sot_entry(
         self, mock_config, mock_qdrant_client, mock_embedding_client

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cursor IDE stop SOT-drift trigger adapter — propose-only, opt-in-OFF by default.
+"""Cursor IDE stop SOT-drift trigger adapter — propose-only, default-on.
 
 Fires on Cursor stop event (end-of-turn). Invokes the aim-sot detect-propose engine
 in propose-only mode and surfaces a one-line summary to stderr when drift or new
@@ -11,7 +11,8 @@ Loop guard: Cursor exposes no `cursor_hook_active` analog to Claude's `stop_hook
 The propose-only design is structurally loop-free — this adapter never writes any tracked
 file, so there is no asyncRewake-style re-entry risk (BP-032).
 
-Opt-in: ships unregistered. See aim-sot SKILL.md § Cursor — stop hook.
+Default-on: registered on install alongside the core ai-memory hooks.
+Disable with AI_MEMORY_SOT_HOOKS=off before install. See aim-sot SKILL.md § Cursor — stop hook.
 """
 
 import json
