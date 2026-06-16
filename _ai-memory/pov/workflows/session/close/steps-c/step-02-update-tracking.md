@@ -6,7 +6,7 @@ nextStepFile: './step-03-create-handoff.md'
 
 # Step 2: Update Tracking Files
 
-**Progress: Step 2 of 4** — Next: Create Handoff Document
+**Progress: Step 2 of 5** — Next: Create Handoff Document
 
 ## STEP GOAL:
 
@@ -77,13 +77,40 @@ For any decisions identified in Step 1 that were not yet logged:
 - Append to `{oversight_path}/tracking/decision-log.md` using the standard format
 - Include: date, context, options considered, decision, rationale
 
+**Rotate at write**: after appending, if `decision-log.md` is over its cap,
+rotate the oldest entries out of the live file in this same close:
+
+```bash
+python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
+  --apply {oversight_path}/tracking/decision-log.md \
+  --oversight-root {oversight_path}
+```
+
+This archives the oldest contiguous block to a dated shard and updates the
+`decision-log-INDEX.md` manifest in the same close — chronology preserved,
+by-id lookup intact. (The Step 4 gate re-checks; rotating here keeps it green.)
+
 ---
 
 ### 3. Log Unlogged Blockers
 
-For any blockers identified in Step 1 that were not yet logged:
-- Append to `{oversight_path}/tracking/blockers-log.md` using the standard format
-- Include: date, severity, affected task, description, resolution status
+`blockers-log.md` is a **register**: the live file holds **OPEN blockers only**,
+plus a reconciliation banner (`{N} active as of PM #{X}`). It is not an
+append-only diary of resolved items.
+
+For blockers identified in Step 1:
+- Append any newly-open blocker using the standard format (date, severity, affected task, description, resolution status)
+- When a blocker was resolved this session, **MOVE** it out of the live file to the dated archive — do not leave resolved entries inline
+- Update the reconciliation banner count to the number of blockers still open
+
+**Rotate at write**: if the live file is over cap after the update, rotate the
+oldest entries to the dated archive and refresh the banner:
+
+```bash
+python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
+  --apply {oversight_path}/tracking/blockers-log.md \
+  --oversight-root {oversight_path}
+```
 
 ---
 
@@ -126,14 +153,49 @@ root-caused in `oversight/tracking/RCA-tracking-system-drift-PM296.md` (RC-1).
 
 ---
 
-### 6. Verify Tracking State
+### 6. Overwrite the project-status.md Heartbeat
+
+`project-status.md` is the machine-routing heartbeat Parzival reads at every
+session start. **This close step owns its write** — one datum, one home.
+Overwrite it in place from the session's final state (do not append; do not
+narrate). Keep it within its 60-line / 6-KB cap; the narrative belongs in the
+handoff + `SESSION_WORK_INDEX.md`, never here.
+
+Overwrite `{oversight_path}/project-status.md` from the heartbeat schema:
+
+```yaml
+current_phase: {discovery|architecture|planning|execution|integration|release|maintenance}
+current_sprint: {n|null}
+active_task: {path|null}
+baseline_complete: {true|false}
+phases_complete:
+  discovery: {true|false}
+  architecture: {true|false}
+  planning_initialized: {true|false}
+key_files:
+  prd: {path|null}
+  architecture: {path|null}
+  project_context: {path|null}
+live_record: oversight/SESSION_WORK_INDEX.md
+last_session_summary: "{≤200 chars — date + PM# + what shipped/blocked/next}"
+open_issues: {count}
+```
+
+The contract front-matter + field schema are the source of truth in the
+`project-status.md` template seed (and `references/workflow-map-details.md`
+§"project-status.md Schema") — mirror it exactly.
+
+---
+
+### 7. Verify Tracking State
 
 After all updates, confirm:
 - Task tracker reflects current reality
-- Decision log includes all session decisions
-- Blockers log includes all session blockers
+- Decision log includes all session decisions (rotated if over cap; manifest updated)
+- Blockers log holds open items only + an accurate reconciliation banner
 - Risk register is current (update if user requested)
 - Bug/TD INDEX reconciled and in sync (per section 5)
+- `project-status.md` heartbeat overwritten in place with the session's final state
 
 ## CRITICAL STEP COMPLETION NOTE
 

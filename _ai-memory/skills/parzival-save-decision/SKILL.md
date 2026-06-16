@@ -65,7 +65,7 @@ is an equivalent contributor shortcut.
   `MemoryType.DECISION` — unmapped types skip the chunker)
 - Dedup: SHA-256 `content_hash` via `compute_content_hash()` — re-emit is idempotent
 - Failure mode: warn and continue; `decision-log.md` is the primary record
-- Per-DEC invocation from session-close `step-04-save-and-confirm.md`
+- Per-DEC invocation from session-close `step-05-save-and-confirm.md`
 
 ## References
 

@@ -6,7 +6,7 @@ nextStepFile: './step-02-update-tracking.md'
 
 # Step 1: Summarize Session Work
 
-**Progress: Step 1 of 4** — Next: Update Tracking Files
+**Progress: Step 1 of 5** — Next: Update Tracking Files
 
 ## STEP GOAL:
 
