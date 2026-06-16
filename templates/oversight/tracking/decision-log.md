@@ -25,6 +25,7 @@ reconciliation: "ONE manifest (DEC-id→title→shard→status) updated in the S
 
 ## Entry Format
 
+```md
 ### DEC-[ID]: [Decision Topic]
 - **Date**: [YYYY-MM-DD]
 - **Context**: [Why this decision was needed — 1 sentence]
@@ -34,6 +35,7 @@ reconciliation: "ONE manifest (DEC-id→title→shard→status) updated in the S
 - **Confidence**: [Verified/Informed/Inferred]
 - **Reversibility**: [Easy/Moderate/Difficult/Irreversible]
 - **Status**: [Active/Superseded]
+```
 
 ---
 

@@ -4,7 +4,7 @@ read_path: section-anchored
 owns: "active blocker records"
 cap_lines: 100
 cap_kb: 15
-rotation_trigger: on-close-over-cap
+rotation_trigger: on-close-over-cap  # auto-rotation deferred to TD-655; rotate manually until then
 archive_target: tracking/blockers-archive-{YYYY}.md
 index_file: N/A
 reconciliation: "live = OPEN only + '{N} active as of PM #{X}' banner; on resolve MOVE to archive"

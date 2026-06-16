@@ -4,7 +4,7 @@ read_path: section-anchored
 owns: "risk records (RSK-*)"
 cap_lines: 120
 cap_kb: 12
-rotation_trigger: on-close-over-cap
+rotation_trigger: on-close-over-cap  # auto-rotation deferred to TD-655; rotate manually until then
 archive_target: tracking/risk-archive-{YYYY}.md
 index_file: N/A
 reconciliation: "live = OPEN only + '{N} active as of PM #{X}' banner; on resolve MOVE to archive"

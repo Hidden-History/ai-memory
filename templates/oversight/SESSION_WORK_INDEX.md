@@ -4,7 +4,7 @@ read_path: whole-file
 owns: "live session narrative + recent-session window"
 cap_lines: 80
 cap_kb: 12
-rotation_trigger: on-close-over-cap
+rotation_trigger: on-close-over-cap  # auto-rotation deferred to TD-655; rotate manually until then
 archive_target: session-index/INDEX.md
 index_file: N/A
 reconciliation: "bounded window, shed oldest sessions → session-index/, header = one datestamp line"
@@ -64,7 +64,7 @@ _None_ (if no active blockers)
 
 | ID | Risk | Mitigation |
 |----|------|------------|
-| [RISK-XXX] | [Brief] | [Action] |
+| [RSK-XXX] | [Brief] | [Action] |
 
 _None_ (if no high risks)
 
