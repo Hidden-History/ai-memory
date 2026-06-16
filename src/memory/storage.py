@@ -1868,6 +1868,117 @@ class MemoryStorage:
             **extra_fields,
         )
 
+    def supersede_prior_agent_memories(
+        self,
+        *,
+        group_id: str,
+        agent_id: str,
+        memory_type: str,
+        exclude_memory_id: str | None = None,
+        collection: str = COLLECTION_DISCUSSIONS,
+    ) -> int:
+        """Mark prior agent memories of one type as superseded (is_current=False).
+
+        D4 F-2 (DEC-PM338-D4.2): write-time supersession. The handoff save path
+        calls this after storing a new handoff to auto-demote the previous
+        handoff(s) for the same agent_id + group_id. Points are flagged in place
+        (set_payload), NEVER deleted — the D6 read filter excludes only
+        explicitly-superseded points, and deletion would destroy history.
+
+        Only currently-live points are demoted (must_not is_current==False), so
+        re-running is idempotent. The just-stored point is left untouched via
+        exclude_memory_id.
+
+        Args:
+            group_id: Project scope (multi-tenancy isolation).
+            agent_id: Agent whose prior memories are superseded.
+            memory_type: Memory type to supersede (e.g. "agent_handoff").
+            exclude_memory_id: Point id to leave untouched (the new memory).
+            collection: Qdrant collection (default discussions).
+
+        Returns:
+            Count of points demoted to is_current=False (0 on failure).
+        """
+        scroll_filter = Filter(
+            must=[
+                FieldCondition(key="group_id", match=MatchValue(value=group_id)),
+                FieldCondition(key="agent_id", match=MatchValue(value=agent_id)),
+                FieldCondition(key="type", match=MatchValue(value=memory_type)),
+            ],
+            must_not=[
+                FieldCondition(key="is_current", match=MatchValue(value=False)),
+            ],
+        )
+        ids_to_demote: list = []
+        next_offset = None
+        try:
+            while True:
+                points, next_offset = self.qdrant_client.scroll(
+                    collection_name=collection,
+                    scroll_filter=scroll_filter,
+                    limit=128,
+                    offset=next_offset,
+                    with_payload=False,
+                    with_vectors=False,
+                )
+                ids_to_demote.extend(
+                    p.id for p in points if str(p.id) != str(exclude_memory_id)
+                )
+                if next_offset is None:
+                    break
+            if ids_to_demote:
+                self.qdrant_client.set_payload(
+                    collection_name=collection,
+                    payload={"is_current": False},
+                    points=ids_to_demote,
+                )
+                logger.info(
+                    "agent_memories_superseded",
+                    extra={
+                        "group_id": group_id,
+                        "agent_id": agent_id,
+                        "memory_type": memory_type,
+                        "count": len(ids_to_demote),
+                    },
+                )
+        except Exception as e:
+            logger.warning(
+                "supersede_prior_agent_memories_failed",
+                extra={
+                    "error": str(e),
+                    "group_id": group_id,
+                    "agent_id": agent_id,
+                    "memory_type": memory_type,
+                },
+            )
+            return 0
+        return len(ids_to_demote)
+
+    def supersede_memory_by_id(
+        self, memory_id: str, *, collection: str = COLLECTION_DISCUSSIONS
+    ) -> bool:
+        """Mark a single memory point superseded (is_current=False) by id.
+
+        D4 F-2 (DEC-PM338-D4.2): opt-in supersession for the insight save path
+        (``--supersedes <id>``). Flags in place (set_payload), never deletes.
+
+        Returns:
+            True on success, False on failure.
+        """
+        try:
+            self.qdrant_client.set_payload(
+                collection_name=collection,
+                payload={"is_current": False},
+                points=[memory_id],
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                "supersede_memory_by_id_failed",
+                extra={"error": str(e), "memory_id": memory_id},
+            )
+            return False
+
     def _check_duplicate(
         self, content_hash: str, collection: str, group_id: str
     ) -> str | None:

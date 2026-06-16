@@ -42,15 +42,21 @@ class TestParzivalBootstrap:
         assert handoff_calls[0].kwargs["memory_type"] == ["agent_handoff"]
         assert handoff_calls[0].kwargs["limit"] == 1
 
-        # Insights use search with agent_id="parzival"
-        parzival_search_calls = [
+        # D6 P1: insights now use deterministic get_recent (not semantic search).
+        insight_calls = [
+            call
+            for call in mock_search.get_recent.call_args_list
+            if call.kwargs.get("agent_id") == "parzival"
+            and call.kwargs.get("memory_type") == ["agent_insight"]
+        ]
+        assert len(insight_calls) == 1
+        assert insight_calls[0].kwargs["limit"] == 3
+        # Insights no longer go through semantic search().
+        assert [
             call
             for call in mock_search.search.call_args_list
-            if call.kwargs.get("agent_id") == "parzival"
-        ]
-        assert len(parzival_search_calls) == 1
-        assert parzival_search_calls[0].kwargs["memory_type"] == ["agent_insight"]
-        assert parzival_search_calls[0].kwargs["limit"] == 3
+            if call.kwargs.get("memory_type") == ["agent_insight"]
+        ] == []
 
     def test_always_uses_parzival_layered_retrieval(self):
         """retrieve_bootstrap_context always uses Parzival layered priority (gating is at caller level)."""
@@ -72,13 +78,14 @@ class TestParzivalBootstrap:
         ]
         assert len(handoff_calls) >= 1
 
-        # Insights layer: search WAS called with agent_id="parzival"
-        parzival_search_calls = [
+        # Insights layer: D6 P1 uses get_recent (agent-scoped), not search.
+        insight_calls = [
             call
-            for call in mock_search.search.call_args_list
+            for call in mock_search.get_recent.call_args_list
             if call.kwargs.get("agent_id") == "parzival"
+            and call.kwargs.get("memory_type") == ["agent_insight"]
         ]
-        assert len(parzival_search_calls) >= 1
+        assert len(insight_calls) >= 1
 
     def test_parzival_bootstrap_skips_github_when_disabled(self):
         """GitHub enrichment skipped when github_sync_enabled=False."""
