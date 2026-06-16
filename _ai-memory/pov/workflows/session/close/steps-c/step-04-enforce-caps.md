@@ -47,8 +47,10 @@ absent. Caps are byte **and** line — either breach fails.
 
 ### 2. Rotate Any Over-Cap File
 
-For each SYSTEM FAILURE block, run the remedy command it printed — for a
-rotatable file (append-only-log / register / live-index) the remedy is:
+For each SYSTEM FAILURE block, run the remedy command it printed.
+
+For `decision-log.md` (the verified id-H3 append-only-log) the remedy is
+`--apply`:
 
 ```bash
 python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
@@ -57,12 +59,17 @@ python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_r
 ```
 
 This moves the oldest contiguous block of whole entries into a dated archive
-shard, updates the manifest (`decision-log-INDEX.md`) or the reconciliation
-banner (registers), and writes a thin live pointer — chronology preserved.
+shard, updates the `decision-log-INDEX.md` manifest, and writes a thin live
+pointer — chronology preserved.
+
+For a table-row / multi-table register or live-index (`blockers-log.md`,
+`risk-register.md`, `SESSION_WORK_INDEX.md`, `session-index/INDEX.md`) the gate
+**REFUSES** `--apply` — safe field-aware auto-rotation is deferred to TD-655.
+Hand-trim the oldest/resolved rows into the archive table by hand, then re-run.
 
 For a heartbeat / thin-register file (`rotation_trigger: none`, e.g.
-`project-status.md`, `task-tracker.md`) the gate cannot rotate it: trim it by
-hand to the schema, then re-run.
+`project-status.md`, `task-tracker.md`) the gate likewise cannot rotate it: trim
+it by hand to the schema, then re-run.
 
 ### 3. Re-Run Until Clean
 

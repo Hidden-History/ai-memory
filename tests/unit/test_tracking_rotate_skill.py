@@ -258,6 +258,30 @@ def test_apply_decision_log_rotates_and_updates_manifest(tmp_path: Path) -> None
         assert e.block.lstrip().startswith("### DEC-")
 
 
+def test_apply_prefix_sibling_root_no_crash(tmp_path: Path) -> None:
+    """A file in a *prefix-sibling* dir of oversight-root (root '.../oversight',
+    file '.../oversight-backup/...') must not crash the rel computation.
+
+    The old ``str(file).startswith(str(root))`` containment test is True for a
+    prefix-sibling, so ``relative_to`` raised an uncaught ValueError. The
+    ``is_relative_to`` guard makes it fall back cleanly to ``file_path.name``.
+    """
+    root = _make_oversight(tmp_path)
+    sibling = tmp_path / "oversight-backup" / "tracking"
+    sibling.mkdir(parents=True)
+    log = sibling / "decision-log.md"
+    log.write_text(_decision_log(3), encoding="utf-8")
+
+    result = _run("--apply", str(log), "--oversight-root", str(root))
+
+    # No uncaught traceback from the rel computation.
+    assert "Traceback" not in result.stderr, result.stderr
+    assert "ValueError" not in result.stderr, result.stderr
+    # Falls back to file_path.name and reaches the governed-file check cleanly.
+    assert result.returncode == 1
+    assert "not a governed file" in result.stderr
+
+
 def _decision_log_seed(n_entries: int) -> str:
     """decision-log.md in its REAL seed shape: title + 'How to Use' +
     'Entry Format' (with the literal ``### DEC-[ID]:`` example) + '## Decisions'

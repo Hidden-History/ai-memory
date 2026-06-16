@@ -702,7 +702,7 @@ def run_apply(
 
     rel = (
         file_path.resolve().relative_to(oversight_root.resolve()).as_posix()
-        if str(file_path.resolve()).startswith(str(oversight_root.resolve()))
+        if file_path.resolve().is_relative_to(oversight_root.resolve())
         else file_path.name
     )
 

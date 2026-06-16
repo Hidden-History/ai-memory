@@ -74,10 +74,10 @@ Wait for user confirmation. Only update `{oversight_path}/tracking/task-tracker.
 ### 2. Log Unlogged Decisions
 
 For any decisions identified in Step 1 that were not yet logged:
-- Append to `{oversight_path}/tracking/decision-log.md` using the standard format
+- **Prepend** at the TOP of the `## Decisions` section (newest-first) of `{oversight_path}/tracking/decision-log.md` using the standard format — the seed contract and the `aim-tracking-rotate` skill both require newest-at-top; appending at the bottom would cause rotation to archive the newest decisions
 - Include: date, context, options considered, decision, rationale
 
-**Rotate at write**: after appending, if `decision-log.md` is over its cap,
+**Rotate at write**: after prepending, if `decision-log.md` is over its cap,
 rotate the oldest entries out of the live file in this same close:
 
 ```bash

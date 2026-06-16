@@ -36,7 +36,7 @@ If `{decisionLogTemplate}` exists, use it as the format for the entry. Otherwise
 
 ### 2. Write Decision Entry
 
-Append to `{oversight_path}/tracking/decision-log.md`:
+**Prepend** the new entry at the TOP of the `## Decisions` section (newest-first) of `{oversight_path}/tracking/decision-log.md` — the seed contract and the `aim-tracking-rotate` skill both require newest-at-top; appending at the bottom would cause rotation to archive the newest decisions:
 
 ```markdown
 ### DEC-[next sequential number]: [Decision Topic]
@@ -93,7 +93,7 @@ Every decision must have a closed feedback loop. Before completing this step:
 ## TERMINATION STEP PROTOCOLS:
 
 - This is a FINAL step — workflow completion required
-- Append decision entry to decision-log.md with all required fields before confirming
+- Prepend decision entry to the top of decision-log.md with all required fields before confirming
 - Follow-up trigger MUST be set in the entry (Section 5) before step completes
 - Note any related tracking updates (task tracker, architecture decisions, blocker log)
 - Present confirmation to user and await their direction to continue work
