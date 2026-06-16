@@ -378,6 +378,17 @@ class MemorySearch:
                 )
             )
 
+        # D6 P0 (DEC-PM338-D6.1): on the discussions collection exclude ONLY
+        # explicitly-superseded points via must_not(is_current==False). Legacy
+        # field-absent points are RETAINED (absent != False); a match(is_current
+        # ==True) would silently drop every such point (catastrophic loss). The
+        # github namespace keeps its own match(is_current==True) above — a
+        # separate collection, intentionally NOT unified.
+        if collection == COLLECTION_DISCUSSIONS:
+            must_not_conditions.append(
+                FieldCondition(key="is_current", match=MatchValue(value=False))
+            )
+
         if filter_conditions or must_not_conditions:
             query_filter = Filter(
                 must=filter_conditions if filter_conditions else None,
@@ -1133,12 +1144,26 @@ class MemorySearch:
                 )
             )
 
+        # D6 P0 (DEC-PM338-D6.1): on the discussions collection exclude ONLY
+        # explicitly-superseded points via must_not(is_current==False). Legacy
+        # field-absent points are RETAINED (absent != False). github keeps its
+        # own match(is_current==True) above — separate collection, not unified.
+        must_not_conditions = []
+        if collection == COLLECTION_DISCUSSIONS:
+            must_not_conditions.append(
+                FieldCondition(key="is_current", match=MatchValue(value=False))
+            )
+
         start_time = time.perf_counter()
         try:
             points, _ = self.client.scroll(
                 collection_name=collection,
-                scroll_filter=(
-                    Filter(must=filter_conditions) if filter_conditions else None
+                # filter_conditions always carries the unconditional group_id
+                # match (built above), so the Filter is always constructed —
+                # no field-absent fallback branch is reachable here.
+                scroll_filter=Filter(
+                    must=filter_conditions,
+                    must_not=must_not_conditions or None,
                 ),
                 limit=limit,
                 order_by=OrderBy(key="timestamp", direction=Direction.DESC),
