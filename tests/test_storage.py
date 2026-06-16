@@ -110,6 +110,59 @@ def test_store_memory_embedding_failure(
     assert call_args[1]["points"][0].vector == [0.0] * 768
 
 
+def test_store_memory_sot_entry_preserves_owner_handle(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
+    """F1 (e): a SOT_ENTRY write keeps owner/added_by handles byte-faithful so the
+    derived 5b cache matches the committed registry (the HANDLE exemption is scoped
+    to SOT_ENTRY)."""
+    monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+
+    storage = MemoryStorage()
+    result = storage.store_memory(
+        content='{"id": "core", "owner": "@hidden-history", "added_by": "@hidden-history"}',
+        cwd=str(tmp_path),
+        group_id="test-project",
+        memory_type=MemoryType.SOT_ENTRY,
+        source_hook="aim_sot_detect_propose",
+        session_id="aim_sot_reindex_test-project",
+        collection="conventions",
+    )
+
+    assert result["status"] == "stored"
+    stored_content = mock_qdrant_client.upsert.call_args[1]["points"][0].payload[
+        "content"
+    ]
+    assert "@hidden-history" in stored_content
+    assert "[HANDLE_REDACTED]" not in stored_content
+
+
+def test_store_memory_non_sot_still_masks_handle(
+    mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
+):
+    """F1 (f) cross-write regression guard: a NON-SOT write containing a handle is
+    STILL redacted — the SOT_ENTRY exemption must not weaken masking for any other
+    memory type."""
+    monkeypatch.setattr("src.memory.project.detect_project", lambda cwd: "test-project")
+
+    storage = MemoryStorage()
+    result = storage.store_memory(
+        content="Reviewed by @hidden-history in the discussion thread",
+        cwd=str(tmp_path),
+        group_id="test-project",
+        memory_type=MemoryType.IMPLEMENTATION,
+        source_hook="PostToolUse",
+        session_id="sess-123",
+    )
+
+    assert result["status"] == "stored"
+    stored_content = mock_qdrant_client.upsert.call_args[1]["points"][0].payload[
+        "content"
+    ]
+    assert "[HANDLE_REDACTED]" in stored_content
+    assert "@hidden-history" not in stored_content
+
+
 def test_store_memory_qdrant_failure(
     mock_config, mock_qdrant_client, mock_embedding_client, tmp_path, monkeypatch
 ):
@@ -368,6 +421,7 @@ def test_store_memory_passes_source_type_to_scanner(
     mock_scanner.scan.assert_called_once_with(
         "Test content for source_type forwarding",
         source_type="github_issue",
+        exempt_handle_pii=False,
     )
 
 
@@ -400,6 +454,7 @@ def test_store_memory_defaults_source_type_to_user_session(
     mock_scanner.scan.assert_called_once_with(
         "Test content default source_type",
         source_type="user_session",
+        exempt_handle_pii=False,
     )
 
 

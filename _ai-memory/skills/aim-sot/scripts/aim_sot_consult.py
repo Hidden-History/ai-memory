@@ -35,9 +35,9 @@ from pathlib import Path
 import yaml
 
 # ---------------------------------------------------------------------------
-# Sibling import — reuse detect_propose's registry-SHA + 5a drift-cache helpers
-# so consult's freshness gate (Item 3) binds to the EXACT definitions the engine
-# writes; if the SHA algorithm or 5a cache layout changes, consult tracks it.
+# Sibling import — reuse detect_propose's registry-SHA helper so consult's
+# freshness gate (Item 3) computes the committed SHA with the EXACT definition the
+# reindex stamps onto the 5b rows; if the SHA algorithm changes, consult tracks it.
 # ---------------------------------------------------------------------------
 
 try:
@@ -49,15 +49,14 @@ try:
     _dp_spec.loader.exec_module(_dp)
 
     _registry_sha = _dp._registry_sha
-    _read_drift_cache = _dp._read_drift_cache
 except Exception:
     # detect_propose absent or broken: degrade gracefully rather than die. consult
     # runs in the default-on SessionStart digest hook, so it must keep serving the
-    # committed registry file. With the freshness helpers unavailable, _cache_is_fresh
-    # treats the cache as NOT fresh → consult falls back to the committed file.
+    # committed registry file. With the freshness helper unavailable, _cache_is_fresh
+    # cannot compute the committed SHA → treats the cache as NOT fresh → consult
+    # falls back to the committed file.
     _dp = None
     _registry_sha = None
-    _read_drift_cache = None
 
 DIGEST_MAX_LINES = 200
 
@@ -148,38 +147,14 @@ def _resolve_project_id_for_cache(registry_path: Path) -> str | None:
         return None
 
 
-def _cache_is_fresh(registry_path: Path, project_id: str) -> bool:
-    """True iff the 5b cache provably reflects the committed registry.
+def _scroll_sot_payloads(project_id: str) -> list[dict] | None:
+    """Scroll every 5b ``sot_entry`` payload for ``project_id`` from the store.
 
-    The 5a drift cache records the ``registry_sha`` it was last rebuilt from, and
-    that field advances only on a successful reindex (detect_propose ``cmd_run``).
-    The 5b cache is rebuilt in the same reindex, so a 5a ``registry_sha`` equal to
-    the committed registry's SHA is the binding proof the 5b rows are current.
-
-    A mismatch (registry edited since the last reindex) or an absent/unreadable 5a
-    cache means the 5b rows may be stale or cross-state — the caller must bypass
-    the cache and read the committed file (Item 3 / A1 invariant: consult never
-    returns entries that don't match the committed registry).
-
-    When the detect_propose sibling helpers are unavailable (import failed), the
-    cache cannot be proven fresh → return False so the caller serves the file.
-    """
-    if _registry_sha is None or _read_drift_cache is None:
-        return False
-    committed_sha = _registry_sha(registry_path)
-    if not committed_sha:
-        return False
-    cached_sha = _read_drift_cache(project_id).get("registry_sha", "")
-    return bool(cached_sha) and cached_sha == committed_sha
-
-
-def _try_memory_cache(registry_path: Path, project_id: str) -> list[dict] | None:
-    """Try to load registry entries from the 5b derived memory cache.
-
-    Returns a list of entry dicts on success, or None if the store is
-    unreachable or the cache is empty. The caller falls back to the committed
-    registry file silently. ``project_id`` is resolved by the caller (and the
-    freshness gate applied) before this is invoked.
+    Single source of truth for the 5b read, shared by the freshness gate and the
+    entry parser so consult scrolls the rows once per query. Returns the raw
+    Qdrant payload dicts (carrying both ``content`` and the stamped
+    ``registry_sha``), or None when the store is unreachable / the memory stack is
+    unavailable. An empty list means no rows for this project.
     """
     try:
         _install = os.environ.get(
@@ -197,7 +172,7 @@ def _try_memory_cache(registry_path: Path, project_id: str) -> list[dict] | None
         config = get_config()
         client = get_qdrant_client(config)
 
-        entries: list[dict] = []
+        payloads: list[dict] = []
         offset = None
         while True:
             points, next_offset = client.scroll(
@@ -216,37 +191,89 @@ def _try_memory_cache(registry_path: Path, project_id: str) -> list[dict] | None
             )
             for pt in points:
                 if pt.payload:
-                    try:
-                        parsed = json.loads(pt.payload.get("content", "{}"))
-                        if isinstance(parsed, dict):
-                            entries.append(parsed)
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+                    payloads.append(pt.payload)
             if next_offset is None:
                 break
             offset = next_offset
 
-        return entries if entries else None
+        return payloads
     except Exception:
         return None
+
+
+def _parse_cached_entries(payloads: list[dict]) -> list[dict]:
+    """Parse the registry-entry dict out of each 5b payload's ``content`` field."""
+    entries: list[dict] = []
+    for p in payloads:
+        try:
+            parsed = json.loads(p.get("content", "{}"))
+            if isinstance(parsed, dict):
+                entries.append(parsed)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return entries
+
+
+def _cache_is_fresh(registry_path: Path, payloads: list[dict]) -> bool:
+    """True iff every 5b row was stamped with the committed registry's SHA.
+
+    The reindex stamps each 5b row with ``registry_sha`` = the engine's
+    ``_registry_sha`` of the registry it rebuilt from. consult recomputes that SHA
+    on the committed file and trusts the cache only when EVERY row carries exactly
+    that SHA — binding freshness to the rows' own provenance rather than the
+    per-install 5a drift cache (which a bare ``reindex`` does not advance). A
+    mismatch (registry edited since the reindex), a mixed stamp (cross-state rows
+    sharing the group_id), or an unstamped pre-F2 row all fail the equality and
+    force the committed-file fallback (A1 invariant: consult never returns entries
+    that don't match the committed registry).
+
+    When the detect_propose sibling ``_registry_sha`` helper is unavailable
+    (import failed), the committed SHA cannot be computed → return False so the
+    caller serves the file.
+    """
+    if _registry_sha is None:
+        return False
+    committed_sha = _registry_sha(registry_path)
+    if not committed_sha or not payloads:
+        return False
+    stamped = {p.get("registry_sha") for p in payloads}
+    return stamped == {committed_sha}
+
+
+def _try_memory_cache(registry_path: Path, project_id: str) -> list[dict] | None:
+    """Try to load registry entries from the 5b derived memory cache.
+
+    Returns a list of entry dicts on success, or None if the store is
+    unreachable or the cache is empty. The caller falls back to the committed
+    registry file silently. ``project_id`` is resolved by the caller (and the
+    freshness gate applied) before this is invoked.
+    """
+    payloads = _scroll_sot_payloads(project_id)
+    if not payloads:
+        return None
+    entries = _parse_cached_entries(payloads)
+    return entries if entries else None
 
 
 def _load_entries(registry_path: Path) -> list[dict]:
     """Load registry entries for query.
 
-    Use the 5b derived memory cache (fast, agent-searchable, carries enriched
-    fields like ``drift_status``) ONLY when it provably reflects the committed
-    registry — i.e. the 5a cache's ``registry_sha`` matches the committed file's
-    SHA (A1 freshness gate). Otherwise fall back to the committed registry file
-    so consult never returns stale or cross-state entries (the cache-first read
-    previously shadowed the file after any registry edit).
+    Use the 5b derived memory cache (fast, agent-searchable) ONLY when it provably
+    reflects the committed registry — i.e. every 5b row carries a stamped
+    ``registry_sha`` equal to the committed file's SHA (A1 freshness gate).
+    Otherwise fall back to the committed registry file so consult never returns
+    stale or cross-state entries (the cache-first read previously shadowed the file
+    after any registry edit). The rows are scrolled once and reused for both the
+    freshness check and the entry parse.
     Signature must not change (spec §4, Item 3 seam).
     """
     project_id = _resolve_project_id_for_cache(registry_path)
-    if project_id and _cache_is_fresh(registry_path, project_id):
-        cached = _try_memory_cache(registry_path, project_id)
-        if cached is not None:
-            return cached
+    if project_id:
+        payloads = _scroll_sot_payloads(project_id)
+        if payloads and _cache_is_fresh(registry_path, payloads):
+            entries = _parse_cached_entries(payloads)
+            if entries:
+                return entries
     # --- fallback: committed registry (cache stale, empty, or unavailable) ---
     return _load_from_file(registry_path)
 

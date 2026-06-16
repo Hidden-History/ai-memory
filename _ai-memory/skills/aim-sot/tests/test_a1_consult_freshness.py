@@ -5,9 +5,12 @@ the 5b derived memory cache first and returned it whenever non-empty, with no
 binding to the committed registry's SHA — so after any registry edit (or when
 another project's rows shared the group_id) it shadowed the file with stale rows.
 
-The freshness gate binds the 5b read to the 5a drift cache's ``registry_sha``
-(which advances only on a successful reindex): cache is used only when that SHA
+The freshness gate (F2) binds the 5b read to the ``registry_sha`` the reindex
+STAMPS onto every 5b row: the cache is used only when every row's stamped SHA
 matches the committed file's SHA, else consult falls back to the committed file.
+Binding to the rows' own stamp (not the per-install 5a drift cache) is what lets a
+bare ``reindex`` — which rebuilds 5b but does not advance 5a — serve the fresh
+cache instead of file-falling-back forever.
 
 Run targeted only:
     pytest tests/test_a1_consult_freshness.py
@@ -52,52 +55,32 @@ def _realistic_registry(root: Path, n: int = 12) -> Path:
     return path
 
 
-def _seed_drift_cache(tmp_cache_dir: Path, project_id: str, registry_sha: str) -> None:
-    tmp_cache_dir.mkdir(parents=True, exist_ok=True)
-    safe_id = project_id.replace("/", "__")
-    (tmp_cache_dir / f"sot_drift_{safe_id}.json").write_text(
-        json.dumps(
-            {
-                "schema_version": "1",
-                "project_id": project_id,
-                "generated_at": "",
-                "registry_sha": registry_sha,
-                "components": {},
-            }
-        ),
-        encoding="utf-8",
-    )
+def _stamped_payloads(entries: list[dict], registry_sha) -> list[dict]:
+    """Build 5b Qdrant payloads as the reindex writes them: the entry JSON in
+    ``content`` plus the stamped ``registry_sha`` top-level field."""
+    return [{"content": json.dumps(e), "registry_sha": registry_sha} for e in entries]
 
 
 def test_stale_cache_bypassed_returns_committed_entries(monkeypatch, tmp_path, capsys):
-    """PRE-FIX FAILING (on the staleness ASSERTION, not a missing-symbol error):
-    a populated 5b cache from a different registry state (5a registry_sha
-    mismatched) must be bypassed; `consult list` returns the committed file.
+    """A populated 5b cache stamped with a DIFFERENT registry SHA must be bypassed;
+    `consult list` returns the committed file.
 
-    Run against pre-fix consult.py (no freshness gate, no ``_dp``), this test must
-    fail on ``"STALE-ONLY" not in ids`` — proving the stale-row leak — rather than
-    erroring earlier on the fix-introduced ``_dp`` symbol. The ``_dp`` cache-dir
-    setup is therefore guarded so its absence does not short-circuit the path."""
+    This is the staleness invariant: a stamped SHA that does not equal the
+    committed file's SHA proves the rows predate the current registry state, so the
+    cache cannot be served."""
     registry = _realistic_registry(tmp_path, n=12)
     project_id = "lane-a-test"
-
-    cache_dir = tmp_path / "drift-state"
-    # The 5a drift-cache dir lives on the detect_propose sibling module (``_dp``),
-    # a fix-introduced symbol. Guard the setup so pre-fix consult (no ``_dp``) does
-    # not raise AttributeError before reaching the staleness assertion below.
-    _dp = getattr(consult, "_dp", None)
-    if _dp is not None:
-        monkeypatch.setattr(_dp, "_DRIFT_CACHE_DIR", cache_dir)
-    # 5a cache built from a DIFFERENT registry state → SHA cannot match committed.
-    _seed_drift_cache(cache_dir, project_id, registry_sha="00000000")
 
     monkeypatch.setattr(
         consult, "_resolve_project_id_for_cache", lambda p: project_id, raising=False
     )
-    # Simulate a populated 5b cache holding stale/cross-state rows.
+    # 5b rows stamped from a DIFFERENT registry state → stamp cannot match committed.
     stale_rows = [{"id": "STALE-ONLY", "kind": "x", "sot_location": "gone.py"}]
     monkeypatch.setattr(
-        consult, "_try_memory_cache", lambda *a, **k: stale_rows, raising=False
+        consult,
+        "_scroll_sot_payloads",
+        lambda *a, **k: _stamped_payloads(stale_rows, "00000000"),
+        raising=False,
     )
 
     # Drive the real CLI path (NIT-1): `consult list --registry <path> --json`.
@@ -114,15 +97,13 @@ def test_stale_cache_bypassed_returns_committed_entries(monkeypatch, tmp_path, c
 
 
 def test_fresh_cache_used_preserves_drift_status(monkeypatch, tmp_path):
-    """When the 5a registry_sha matches the committed file, the enriched 5b cache
-    is used so digest still surfaces drift_status (no regression of that path)."""
+    """When every 5b row's stamped SHA matches the committed file, the enriched 5b
+    cache is used so digest still surfaces any ``drift_status`` the rows carry (no
+    regression of that path). This is the bare-``reindex`` happy path: rows stamped
+    with the committed SHA are served without a following ``run``."""
     registry = _realistic_registry(tmp_path, n=12)
     project_id = "lane-a-test"
     committed_sha = consult._registry_sha(registry)
-
-    cache_dir = tmp_path / "drift-state"
-    monkeypatch.setattr(consult._dp, "_DRIFT_CACHE_DIR", cache_dir)
-    _seed_drift_cache(cache_dir, project_id, registry_sha=committed_sha)  # MATCH
 
     monkeypatch.setattr(
         consult, "_resolve_project_id_for_cache", lambda p: project_id, raising=False
@@ -132,7 +113,10 @@ def test_fresh_cache_used_preserves_drift_status(monkeypatch, tmp_path):
         {"id": "COMP-01", "drift_status": "clean", "sot_location": "b.py"},
     ]
     monkeypatch.setattr(
-        consult, "_try_memory_cache", lambda *a, **k: enriched, raising=False
+        consult,
+        "_scroll_sot_payloads",
+        lambda *a, **k: _stamped_payloads(enriched, committed_sha),  # MATCH
+        raising=False,
     )
 
     entries = consult._load_entries(registry)
@@ -140,25 +124,101 @@ def test_fresh_cache_used_preserves_drift_status(monkeypatch, tmp_path):
     assert any(e.get("drift_status") == "drifted" for e in entries)
 
 
-def test_file_fallback_when_sibling_helpers_unavailable(monkeypatch, tmp_path):
-    """A-FIX-3: when the detect_propose sibling import fails, ``_registry_sha`` /
-    ``_read_drift_cache`` are None. ``_cache_is_fresh`` must then treat the cache as
-    NOT fresh so consult still serves the committed file — never hard-failing, and
-    never serving a cache it cannot prove fresh."""
+def test_registry_edit_without_reindex_falls_back_to_committed(monkeypatch, tmp_path):
+    """Cardinal A1 invariant: after a registry EDIT with no following reindex, the
+    5b rows' stamp no longer matches the committed SHA → consult serves the
+    committed file, never the now-stale cache."""
+    registry = _realistic_registry(tmp_path, n=12)
+    project_id = "lane-a-test"
+    sha_before_edit = consult._registry_sha(registry)
+
+    # 5b rows were stamped at the pre-edit registry state.
+    stale_rows = [{"id": "STALE-ONLY", "kind": "x", "sot_location": "gone.py"}]
+    monkeypatch.setattr(
+        consult, "_resolve_project_id_for_cache", lambda p: project_id, raising=False
+    )
+    monkeypatch.setattr(
+        consult,
+        "_scroll_sot_payloads",
+        lambda *a, **k: _stamped_payloads(stale_rows, sha_before_edit),
+        raising=False,
+    )
+
+    # Human edits the committed registry → its SHA advances; no reindex follows.
+    _realistic_registry(tmp_path, n=11)
+    assert consult._registry_sha(registry) != sha_before_edit
+
+    entries = consult._load_entries(registry)
+    ids = {e.get("id") for e in entries}
+    assert "STALE-ONLY" not in ids, "stale cache served after registry edit"
+    assert len(entries) == 11, "edited committed registry not served"
+
+
+def test_mixed_stamps_bypassed(monkeypatch, tmp_path):
+    """Cross-state safety: if the 5b rows carry MIXED stamps (e.g. another
+    project's rows shared the group_id, or a partial reindex), the cache cannot be
+    proven uniformly fresh → consult serves the committed file."""
+    registry = _realistic_registry(tmp_path, n=12)
+    project_id = "lane-a-test"
+    committed_sha = consult._registry_sha(registry)
+
+    monkeypatch.setattr(
+        consult, "_resolve_project_id_for_cache", lambda p: project_id, raising=False
+    )
+    # One row matches committed, one is stamped from another state → not uniform.
+    mixed = [
+        {"content": json.dumps({"id": "FRESH"}), "registry_sha": committed_sha},
+        {"content": json.dumps({"id": "STALE"}), "registry_sha": "00000000"},
+    ]
+    monkeypatch.setattr(
+        consult, "_scroll_sot_payloads", lambda *a, **k: mixed, raising=False
+    )
+
+    entries = consult._load_entries(registry)
+    ids = {e.get("id") for e in entries}
+    assert ids == {f"COMP-{i:02d}" for i in range(12)}, "mixed-stamp cache leaked"
+
+
+def test_unstamped_rows_bypassed(monkeypatch, tmp_path):
+    """Pre-F2 rows (no ``registry_sha`` stamp) cannot be proven fresh → file
+    fallback. Guards the upgrade path where a cache predates the stamping fix."""
+    registry = _realistic_registry(tmp_path, n=12)
+    project_id = "lane-a-test"
+
+    monkeypatch.setattr(
+        consult, "_resolve_project_id_for_cache", lambda p: project_id, raising=False
+    )
+    unstamped = [{"content": json.dumps({"id": "OLD-ROW"})}]  # no registry_sha key
+    monkeypatch.setattr(
+        consult, "_scroll_sot_payloads", lambda *a, **k: unstamped, raising=False
+    )
+
+    entries = consult._load_entries(registry)
+    ids = {e.get("id") for e in entries}
+    assert "OLD-ROW" not in ids, "unstamped pre-F2 cache served"
+    assert len(entries) == 12
+
+
+def test_file_fallback_when_sibling_helper_unavailable(monkeypatch, tmp_path):
+    """A-FIX-3: when the detect_propose sibling import fails, ``_registry_sha`` is
+    None. ``_cache_is_fresh`` must then treat the cache as NOT fresh so consult
+    still serves the committed file — never hard-failing, and never serving a cache
+    it cannot prove fresh (the committed SHA is uncomputable)."""
     registry = _realistic_registry(tmp_path, n=12)
 
-    # Simulate the degraded import (helpers unavailable).
+    # Simulate the degraded import (helper unavailable).
     monkeypatch.setattr(consult, "_registry_sha", None, raising=False)
-    monkeypatch.setattr(consult, "_read_drift_cache", None, raising=False)
-    # A project_id resolves and a (stale) 5b cache is reachable — the missing
-    # freshness helpers must still force the committed-file fallback.
+    # A project_id resolves and a (stamped) 5b cache is reachable — the missing
+    # freshness helper must still force the committed-file fallback.
     monkeypatch.setattr(
         consult, "_resolve_project_id_for_cache", lambda p: "lane-a-test", raising=False
     )
     monkeypatch.setattr(
         consult,
-        "_try_memory_cache",
-        lambda *a, **k: [{"id": "STALE-ONLY", "kind": "x"}],
+        "_scroll_sot_payloads",
+        lambda *a, **k: [
+            {"content": json.dumps({"id": "STALE-ONLY"}), "registry_sha": "anything"}
+        ],
         raising=False,
     )
 
@@ -167,7 +227,7 @@ def test_file_fallback_when_sibling_helpers_unavailable(monkeypatch, tmp_path):
 
     assert (
         "STALE-ONLY" not in ids
-    ), "stale cache served despite missing freshness helpers"
+    ), "stale cache served despite missing freshness helper"
     assert len(entries) == 12, "committed registry not served on degraded import"
     assert ids == {f"COMP-{i:02d}" for i in range(12)}
 

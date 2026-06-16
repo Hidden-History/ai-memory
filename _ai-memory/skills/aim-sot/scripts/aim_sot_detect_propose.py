@@ -850,6 +850,14 @@ def _reindex_sot_entries(
 
         storage = MemoryStorage(config=config) if _storage is None else _storage
 
+        # Stamp every 5b row with the SHA of the registry it was rebuilt from, so
+        # consult can prove the cache fresh against the committed file directly
+        # (F2): a bare ``reindex`` rebuilds 5b but does not advance the 5a drift
+        # cache, so binding consult's freshness gate to 5a left it file-falling-back
+        # forever after a reindex.  ``registry_sha`` is not a MemoryPayload field, so
+        # it lands as a top-level Qdrant payload field via ``**extra_fields``.
+        registry_sha = _registry_sha(registry_path)
+
         # Replacement payload set (content = non-machine-state fields).
         # default=str serializes YAML-native datetime.date/datetime (an unquoted
         # registry ``last_verified: 2026-06-01`` parses as datetime.date) to its
@@ -912,6 +920,7 @@ def _reindex_sot_entries(
                         session_id=f"aim_sot_reindex_{project_id}",
                         group_id=project_id,
                         collection=COLLECTION_CONVENTIONS,
+                        registry_sha=registry_sha,
                     )
                     if result.get("status") in ("stored", "duplicate"):
                         stored += 1

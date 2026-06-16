@@ -664,6 +664,41 @@ def test_reindex_excludes_machine_state_fields(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# T-DP20c — F2: 5b reindex stamps the committed registry SHA on every row
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_stamps_registry_sha(tmp_path):
+    """Every stored 5b row carries ``registry_sha`` = the engine's _registry_sha of
+    the committed registry, so consult can prove the cache fresh against the file
+    (F2)."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(
+        registry_path,
+        [
+            {"id": "core", "sot_location": "src/", "owner": "@hidden-history"},
+            {"id": "api", "sot_location": "api/", "owner": "@hidden-history"},
+        ],
+    )
+
+    mock_client = MagicMock()
+    mock_client.scroll.side_effect = [([], None)]
+    mock_storage = MagicMock()
+    mock_storage.store_memory.return_value = {"status": "stored"}
+
+    with patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path):
+        dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
+        )
+
+    expected_sha = dp._registry_sha(registry_path)
+    assert expected_sha  # non-empty
+    assert mock_storage.store_memory.call_count == 2
+    for call in mock_storage.store_memory.call_args_list:
+        assert call.kwargs["registry_sha"] == expected_sha
+
+
+# ---------------------------------------------------------------------------
 # T-DP21 — cmd_run: JSON output shape with project-id injected
 # ---------------------------------------------------------------------------
 

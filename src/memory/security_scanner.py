@@ -621,6 +621,8 @@ class SecurityScanner:
         content: str,
         force_ner: bool = False,
         source_type: str = "user_session",
+        *,
+        exempt_handle_pii: bool = False,
     ) -> ScanResult:
         """Scan a single text. Returns ScanResult with action, cleaned content, and findings.
 
@@ -630,6 +632,10 @@ class SecurityScanner:
                        of instance config. Used by batch operations per SPEC-009.
             source_type: Origin of content. Defaults to "user_session" (highest scrutiny).
                          Use "github_*" for GitHub-sourced content (relaxed mode skips L2).
+            exempt_handle_pii: When True, drop PII_HANDLE (GitHub @handle) findings
+                       before masking so ownership handles survive. Secret BLOCKING
+                       and EMAIL/IP/CC/SSN/NAME masking are unaffected. Used only for
+                       SOT_ENTRY writes (intentional owner/added_by handles).
         """
         start_time = time.perf_counter()
 
@@ -709,6 +715,14 @@ class SecurityScanner:
             layer3_findings = _scan_layer3_spacy(content)
             all_findings.extend(layer3_findings)
             layers_executed.append(3)
+
+        # F1 (SOT owner fidelity): drop GitHub-handle PII findings when the caller
+        # explicitly exempts them. HANDLE pattern ONLY — secret BLOCKING (returned
+        # above) and EMAIL/IP/CC/SSN/NAME masking stay fully active.
+        if exempt_handle_pii:
+            all_findings = [
+                f for f in all_findings if f.finding_type != FindingType.PII_HANDLE
+            ]
 
         # Apply masks using shared helper
         masked_content, action = self._apply_masks_and_determine_action(
