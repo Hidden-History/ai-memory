@@ -146,6 +146,7 @@ Memory retrieval fires automatically on:
 
 See [docs/HOOKS.md](docs/HOOKS.md) for complete hook documentation and the full trigger keyword reference.
 See [docs/AI_MEMORY_ARCHITECTURE.md](docs/AI_MEMORY_ARCHITECTURE.md) for the full system architecture reference.
+See [docs/AIM-SOT.md](docs/AIM-SOT.md) for the Source-of-Truth subsystem — registry schema, consult / detect-propose / verify engine, and automatic drift detection hooks.
 
 ---
 
