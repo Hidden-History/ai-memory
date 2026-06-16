@@ -49,8 +49,12 @@ extract_title = _mod.extract_title
 extract_severity = _mod.extract_severity
 render_bugs_index = _mod.render_bugs_index
 render_td_index = _mod.render_td_index
+render_closed_shard = _mod.render_closed_shard
+_status_summary = _mod._status_summary
+_warn_if_over_cap = _mod._warn_if_over_cap
 find_records = _mod.find_records
 parse_index_ids = _mod.parse_index_ids
+parse_closed_shard_ids = _mod.parse_closed_shard_ids
 compute_staleness = _mod.compute_staleness
 parse_record_file = _mod.parse_record_file
 BUG_RECORD_RE = _mod.BUG_RECORD_RE
@@ -720,8 +724,10 @@ class TestSeverityNormalization:
 # ---------------------------------------------------------------------------
 
 
-class TestStatusVerbatim:
-    """Verify that status is emitted verbatim (not truncated) in rendered INDEX."""
+class TestStatusSummary:
+    """Verify status is summarized (truncated) in the rendered INDEX while
+    classification (``is_closed``) is unaffected — display truncation is
+    classification-safe (D5 Fix A)."""
 
     def _make_record(self, status: str, is_closed: bool = False) -> Record:
         return Record(
@@ -734,35 +740,71 @@ class TestStatusVerbatim:
             title="Test Bug",
         )
 
-    def test_long_open_status_not_truncated(self) -> None:
-        """A status longer than 70 chars must appear verbatim in the Open section."""
+    def test_long_open_status_truncated(self) -> None:
+        """A long open status is summarized (≤64 chars), not emitted verbatim."""
         long_status = (
             "REOPENED (PM #295, 2026-05-18) — REGRESSION: the v2.4.0 fix + "
             "v2.4.1 regression coverage did NOT hold; the identical AttributeError recurs"
         )
-        assert (
-            len(long_status) > 70
-        ), "precondition: status is long enough to trigger old truncation"
+        assert len(long_status) > 64, "precondition: status exceeds the summary budget"
         rendered = render_bugs_index([self._make_record(long_status)], [], "2026-05-18")
         assert (
-            long_status in rendered
-        ), "long status must appear verbatim in rendered INDEX"
+            long_status not in rendered
+        ), "long status must be summarized, not verbatim"
+        summary = _status_summary(long_status)
+        assert summary in rendered, "the summarized status must appear in the INDEX"
+        assert len(summary) <= 64
 
-    def test_long_closed_status_not_truncated(self) -> None:
-        """A status longer than 70 chars must appear verbatim in the Closed section."""
+    def test_long_closed_status_truncated(self) -> None:
+        """A long closed status is summarized (≤64 chars), not emitted verbatim."""
         long_status = (
             "FIXED v2.4.0 (released 2026-05-13, tag `v2.4.0`, merge `93ad34b`, PR #131) "
             "— 3-component MVF bundle landed: C-1 structured WARN log + Prometheus counter"
         )
-        assert (
-            len(long_status) > 70
-        ), "precondition: status is long enough to trigger old truncation"
+        assert len(long_status) > 64, "precondition: status exceeds the summary budget"
         rendered = render_bugs_index(
             [self._make_record(long_status, is_closed=True)], [], "2026-05-18"
         )
         assert (
-            long_status in rendered
-        ), "long closed status must appear verbatim in rendered INDEX"
+            long_status not in rendered
+        ), "long closed status must be summarized, not verbatim"
+        summary = _status_summary(long_status)
+        assert summary in rendered, "the summarized status must appear in the INDEX"
+        assert len(summary) <= 64
+
+    def test_500_char_status_classification_unchanged(self) -> None:
+        """500-char status → cell ≤64 chars AND ``is_closed`` unchanged.
+
+        classify_status reads the full raw status at parse time; the display
+        summary never feeds classification (D5 classification-invariance).
+        """
+        long_closed = "FIXED " + "detail " * 80  # > 500 chars, classifies CLOSED
+        assert len(long_closed) > 500
+        assert classify_status(long_closed, "bug") is True
+        record = self._make_record(
+            long_closed, is_closed=classify_status(long_closed, "bug")
+        )
+        rendered = render_bugs_index([record], [], "2026-05-18")
+        summary = _status_summary(long_closed)
+        assert len(summary) <= 64
+        assert long_closed not in rendered
+        assert record.is_closed is True
+
+    def test_eight_word_prefix_exactly_64_chars_stays_within_budget(self) -> None:
+        """Word-truncated 8-word prefix landing exactly on 64 chars stays ≤64.
+
+        Regression for the off-by-one in the char guard: with a strict ``>`` the
+        64-char word-prefix skipped char-truncation, then the appended ellipsis
+        pushed the cell to 65 chars. The ``>=`` guard trims to 63 first.
+        """
+        # 8 tokens summing to exactly 64 chars (incl. the 7 interior spaces):
+        # one 8-char word + seven 7-char words = 57 chars + 7 spaces = 64.
+        prefix = " ".join(["a" * 8] + ["b" * 7] * 7)
+        assert len(prefix) == 64, "precondition: 8-word prefix is exactly 64 chars"
+        # A 9th word forces word-level truncation so the ellipsis path is taken.
+        summary = _status_summary(prefix + " ninth")
+        assert summary.endswith("…")
+        assert len(summary) <= 64, f"summary exceeded 64 chars: {summary!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -784,29 +826,35 @@ class TestRenderTdIndex:
             title="Test TD",
         )
 
-    def test_long_open_status_not_truncated(self) -> None:
-        """render_td_index emits open raw_status verbatim (no truncation)."""
+    def test_long_open_status_truncated(self) -> None:
+        """render_td_index summarizes a long open status (≤64 chars, not verbatim)."""
         long_status = (
             "OPEN — DEFERRED to post-v2.4.0 hygiene pass per directive PM #296; "
             "blocked on PLAN-028 P0 baseline rebuild completing first"
         )
-        assert len(long_status) > 70
+        assert len(long_status) > 64
         rendered = render_td_index(
             [self._make_td_record(long_status)], [], "2026-05-18"
         )
-        assert long_status in rendered
+        assert long_status not in rendered
+        summary = _status_summary(long_status)
+        assert summary in rendered
+        assert len(summary) <= 64
 
-    def test_long_closed_status_not_truncated(self) -> None:
-        """render_td_index emits closed raw_status verbatim (no truncation)."""
+    def test_long_closed_status_truncated(self) -> None:
+        """render_td_index summarizes a long closed status (≤64 chars, not verbatim)."""
         long_status = (
             "IMPLEMENTED (all phases complete on feature/v2.0.4-cleanup, pending merge) "
             "— closed per PM #284 review; all sub-tasks A-E verified"
         )
-        assert len(long_status) > 70
+        assert len(long_status) > 64
         rendered = render_td_index(
             [self._make_td_record(long_status, is_closed=True)], [], "2026-05-18"
         )
-        assert long_status in rendered
+        assert long_status not in rendered
+        summary = _status_summary(long_status)
+        assert summary in rendered
+        assert len(summary) <= 64
 
     def test_companion_note_in_header(self) -> None:
         """render_td_index wires the companions param: excluded names appear in header."""
@@ -823,6 +871,126 @@ class TestRenderTdIndex:
         """render_td_index omits the companion note when there are no companions."""
         rendered = render_td_index([self._make_td_record("OPEN")], [], "2026-05-18")
         assert "companion file(s) excluded" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# TestClosedShardAndFrontMatter
+# ---------------------------------------------------------------------------
+
+
+class TestClosedShardAndFrontMatter:
+    """Fix B / GAP-2: CLOSED.md sharding, last-10 inline window, D2 front-matter,
+    and INDEX + CLOSED.md (union) id-parsing."""
+
+    def _closed_bug(self, n: int) -> Record:
+        return Record(
+            filename=f"BUG-{n:03d}-x.md",
+            numeric_id=f"{n:03d}",
+            kind="bug",
+            raw_status="FIXED",
+            is_closed=True,
+            sev="LOW",
+            title=f"Closed bug {n}",
+        )
+
+    def test_bugs_index_has_d2_front_matter(self) -> None:
+        """Generated bugs INDEX opens with the D2 register contract front-matter."""
+        rendered = render_bugs_index([self._closed_bug(1)], [], "2026-06-16")
+        assert rendered.startswith("---\nclass: register\n")
+        assert "read_path: section-anchored" in rendered
+        assert 'owns: "generated bug-or-TD index + closed-history shard"' in rendered
+        assert "cap_lines: 100" in rendered
+        assert "cap_kb: 12" in rendered
+        assert "rotation_trigger: none" in rendered
+        assert "archive_target: ./CLOSED.md" in rendered
+
+    def test_td_index_has_d2_front_matter(self) -> None:
+        """Generated TD INDEX opens with the D2 register contract front-matter (150/18)."""
+        td_rec = Record(
+            filename="TECH-DEBT-001-x.md",
+            numeric_id="001",
+            kind="td",
+            raw_status="RESOLVED",
+            is_closed=True,
+            sev="LOW",
+            title="Closed TD",
+        )
+        rendered = render_td_index([td_rec], [], "2026-06-16")
+        assert rendered.startswith("---\nclass: register\n")
+        assert 'owns: "generated bug-or-TD index + closed-history shard"' in rendered
+        assert "cap_lines: 150" in rendered
+        assert "cap_kb: 18" in rendered
+        assert "rotation_trigger: none" in rendered
+        assert "archive_target: ./CLOSED.md" in rendered
+
+    def test_closed_section_caps_at_last_10_with_pointer(self) -> None:
+        """INDEX ## Closed lists only the most recent 10 + a count pointer."""
+        records = [self._closed_bug(n) for n in range(1, 16)]  # 15 closed
+        rendered = render_bugs_index(records, [], "2026-06-16")
+        assert "[Full closed history → ./CLOSED.md] (15)" in rendered
+        closed_section = rendered.split("## Closed Bugs", 1)[1]
+        # 10 inline rows = the 10 highest numeric IDs (006..015)
+        assert "BUG-015" in closed_section
+        assert "BUG-006" in closed_section
+        assert "BUG-005" not in closed_section  # oldest 5 sharded out
+        row_count = sum(
+            1 for ln in closed_section.splitlines() if ln.startswith("| BUG-")
+        )
+        assert row_count == 10
+
+    def test_closed_shard_holds_full_history_and_is_idempotent(self) -> None:
+        """CLOSED.md holds every closed record and re-renders byte-identical."""
+        records = [self._closed_bug(n) for n in range(1, 16)]
+        shard_a = render_closed_shard(records, "bug", "2026-06-16")
+        shard_b = render_closed_shard(records, "bug", "2026-06-16")
+        assert shard_a == shard_b  # idempotent
+        for n in range(1, 16):
+            assert f"BUG-{n:03d}" in shard_a  # full history (all 15)
+
+    def test_gap2_sharded_closed_records_not_false_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """--check parses INDEX + CLOSED.md (union) → zero false missing_* after sharding."""
+        bugs_dir = tmp_path / "bugs"
+        td_dir = tmp_path / "tech-debt"
+        bugs_dir.mkdir()
+        td_dir.mkdir()
+        for n in range(1, 16):
+            (bugs_dir / f"BUG-{n:03d}-x.md").write_text(
+                f"# BUG-{n:03d}: X\n\n**Status**: FIXED\n**Severity**: LOW\n",
+                encoding="utf-8",
+            )
+        bugs_records = [
+            parse_record_file(bugs_dir / f"BUG-{n:03d}-x.md", "bug")
+            for n in range(1, 16)
+        ]
+        bugs_index = bugs_dir / "INDEX.md"
+        bugs_index.write_text(
+            render_bugs_index(bugs_records, [], "2026-06-16"), encoding="utf-8"
+        )
+        (bugs_dir / "CLOSED.md").write_text(
+            render_closed_shard(bugs_records, "bug", "2026-06-16"), encoding="utf-8"
+        )
+        td_index = td_dir / "INDEX.md"
+        td_index.write_text(
+            "# Technical Debt Index\n\n## Open\n\n## Closed\n\n", encoding="utf-8"
+        )
+
+        staleness = compute_staleness(bugs_records, [], [], bugs_index, td_index)
+        # The 5 oldest closed bugs are only in CLOSED.md; GAP-2 union prevents
+        # them from being reported as missing from the INDEX.
+        assert staleness["missing_bug"] == []
+
+    def test_parse_closed_shard_ids_reads_rows(self, tmp_path: Path) -> None:
+        """parse_closed_shard_ids returns every BUG id listed in a CLOSED.md shard."""
+        records = [self._closed_bug(n) for n in range(1, 4)]
+        shard = tmp_path / "CLOSED.md"
+        shard.write_text(
+            render_closed_shard(records, "bug", "2026-06-16"), encoding="utf-8"
+        )
+        ids = parse_closed_shard_ids(shard, "BUG")
+        assert set(ids) == {"001", "002", "003"}
+        assert parse_closed_shard_ids(tmp_path / "NONE.md", "BUG") == []
 
 
 # ---------------------------------------------------------------------------
@@ -1107,6 +1275,55 @@ class TestDivergenceDetection:
         assert "BUG-002-new-bug.md" in staleness["missing_bug"]
         assert "BUG-001-open-bug.md" not in staleness["missing_bug"]
 
+    def test_closed_shard_only_match_not_misattributed_to_index(
+        self, tmp_path: Path
+    ) -> None:
+        """Fix (LOW): an open record correctly in the INDEX Open section whose ID
+        also appears (stale) in CLOSED.md must NOT be reported as a divergence
+        attributed to the INDEX Closed section.
+
+        The divergence-detail message attributes a placement to the INDEX, so it
+        reads the INDEX-only closed list; the CLOSED.md shard union feeds only the
+        missing_*/orphan computation. Before the fix the union leaked into the
+        divergence check and produced a false "in Closed section of bugs/INDEX.md".
+        """
+        bugs_dir = tmp_path / "bugs"
+        td_dir = tmp_path / "tech-debt"
+        bugs_dir.mkdir()
+        td_dir.mkdir()
+
+        (bugs_dir / "BUG-001-open-bug.md").write_text(
+            "# BUG-001: Open Bug\n\n**Status**: OPEN\n", encoding="utf-8"
+        )
+        bugs_index = bugs_dir / "INDEX.md"
+        bugs_index.write_text(
+            "# Bug Tracker Index\n\n"
+            "## Open\n\n"
+            "| BUG-001 | OPEN |\n\n"  # correctly placed in Open
+            "## Closed Bugs\n\n",
+            encoding="utf-8",
+        )
+        # Stale shard still lists BUG-001 as closed (the shard is regenerated
+        # wholesale on --write, so a stale entry is plausible mid-cycle).
+        (bugs_dir / "CLOSED.md").write_text(
+            "# Closed Bug Records\n\n"
+            "| ID | Title | Status | Link |\n"
+            "|----|-------|--------|------|\n"
+            "| BUG-001 | Open Bug | FIXED | [file](./BUG-001-open-bug.md) |\n",
+            encoding="utf-8",
+        )
+        td_index = self._make_minimal_td_index(td_dir)
+
+        bugs_records = [parse_record_file(bugs_dir / "BUG-001-open-bug.md", "bug")]
+        staleness = compute_staleness(bugs_records, [], [], bugs_index, td_index)
+
+        assert staleness["divergences"] == [], (
+            "a CLOSED.md-only closed match must not be misattributed to the "
+            "INDEX Closed section"
+        )
+        # Union still suppresses a false missing_* for the sharded ID.
+        assert staleness["missing_bug"] == []
+
 
 # ---------------------------------------------------------------------------
 # TestCheckWriteContract
@@ -1385,3 +1602,40 @@ class TestCheckWriteContract:
         assert (
             "fully in sync" not in result.stdout
         ), "--check must NOT print 'fully in sync ✓' — that is a false-clean."
+
+
+# ---------------------------------------------------------------------------
+# TestWarnIfOverCap
+# ---------------------------------------------------------------------------
+
+
+class TestWarnIfOverCap:
+    """Fix 4: _warn_if_over_cap is a sensor — stderr WARNING when over cap, and
+    silent + no-op (no raise, no exit) when under cap."""
+
+    def test_over_line_cap_emits_warning(self, capsys, tmp_path: Path) -> None:
+        path = tmp_path / "INDEX.md"
+        content = "\n".join(["line"] * 50)  # 50 lines, over a 10-line cap
+        ret = _warn_if_over_cap(path, content, cap_lines=10, cap_kb=1000)
+        captured = capsys.readouterr()
+        assert ret is None  # return unchanged — sensor, not a crash
+        assert "WARNING" in captured.err
+        assert "over cap" in captured.err
+        assert captured.out == ""  # nothing on stdout
+
+    def test_over_kb_cap_emits_warning(self, capsys, tmp_path: Path) -> None:
+        path = tmp_path / "INDEX.md"
+        content = "x" * 4096  # 4 KB, single line, over a 1-KB cap
+        _warn_if_over_cap(path, content, cap_lines=1000, cap_kb=1)
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert "over cap" in captured.err
+
+    def test_under_cap_no_warning(self, capsys, tmp_path: Path) -> None:
+        path = tmp_path / "INDEX.md"
+        content = "\n".join(["line"] * 5)  # tiny, well under both caps
+        ret = _warn_if_over_cap(path, content, cap_lines=100, cap_kb=12)
+        captured = capsys.readouterr()
+        assert ret is None
+        assert captured.err == ""
+        assert captured.out == ""
