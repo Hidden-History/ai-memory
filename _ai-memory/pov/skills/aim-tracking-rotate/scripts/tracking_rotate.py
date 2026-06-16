@@ -24,10 +24,14 @@ bounds bloat). Two modes:
                      monotonic; across shards/rotations it is not guaranteed.
 
 Ownership boundary (vs aim-tracking-freshness / D5): rotate owns the
-append-only-log + register archival (decision-log shards + manifest,
-blockers/risk archive, SESSION_WORK_INDEX tail-shed, session-index quarterly).
-It does NOT touch the generated bugs/INDEX.md or tech-debt/INDEX.md — those and
-their CLOSED.md shards are owned by aim-tracking-freshness.
+append-only-log + register archival. --check enforces the cap on every governed
+file; --apply auto-rotation is currently shipped only for the id-H3 append-only
+log (decision-log shards + manifest). The table-under-severity registers and
+multi-table live-indexes (blockers-log, risk-register, SESSION_WORK_INDEX,
+session-index/INDEX) are --check-enforced but --apply-deferred to TD-655 (see
+MANUAL_ROTATION_FILES) — they rotate by hand for now. rotate does NOT touch the
+generated bugs/INDEX.md or tech-debt/INDEX.md — those and their CLOSED.md shards
+are owned by aim-tracking-freshness.
 
 Contract source of truth: PARZIVAL-OVERSIGHT-SOT.md §14 (D1 cap mapping, D2
 per-seed values) and BP-167 Part C (rotation lifecycle).
@@ -119,6 +123,37 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
 # made one of these look rotatable (cap + rotation_trigger:on-* + archive_target),
 # --apply must refuse it here — no double ownership.
 FRESHNESS_OWNED: frozenset[str] = frozenset({"bugs/INDEX.md", "tech-debt/INDEX.md"})
+
+# Governed files whose REAL seed format is a table-under-severity/status register
+# or a multi-table live-index, where the entry-boundary auto-rotation here cannot
+# safely move whole records (DEC-PM339-D7, Will-approved Option A). Verified
+# against the seed templates:
+#   - blockers-log.md  : "Active Blockers" TABLE + "### BLK-" Detail H3 +
+#                        "Resolved Blockers" TABLE — archiving the H3 details
+#                        orphans the matching table rows.
+#   - risk-register.md : TABLE rows under "### Critical/High/Medium/Low" severity
+#                        headers — the H3 boundary matches a severity header, not
+#                        a record.
+#   - SESSION_WORK_INDEX.md : FOUR distinct tables (Active Task / Last 5 Sessions
+#                        / Active Blockers / High Priority Risks); a bare '^\\| '
+#                        match sheds rows from the wrong table, and the
+#                        last-5 window is hand-managed (ordering not guaranteed
+#                        newest-first).
+#   - session-index/INDEX.md : "### [Month YYYY]" H3 sections + Current-Year and
+#                        Archive tables — mixed structure.
+# --check still enforces their caps (they stay in FALLBACK_REGISTRY); --apply
+# refuses them non-destructively and points at manual rotation. Field-aware safe
+# auto-rotation for these formats is deferred to TD-655. Enforced by rel-path
+# (not the front-matter contract) so a future cap-contract seed cannot re-enable
+# an unsafe --apply.
+MANUAL_ROTATION_FILES: frozenset[str] = frozenset(
+    {
+        "tracking/blockers-log.md",
+        "tracking/risk-register.md",
+        "SESSION_WORK_INDEX.md",
+        "session-index/INDEX.md",
+    }
+)
 
 # Latest SESSION_HANDOFF_*.md (detail-record, whole-file, 60/8). Discovered by
 # glob rather than fixed path; --apply on a handoff is not supported here
@@ -333,7 +368,13 @@ def run_check(oversight_root: Path) -> int:
         if not over_cap(lines, nbytes, gf.contract):
             continue
         kb = nbytes / 1024
-        if gf.contract.rotatable and gf.contract.archive_target:
+        if gf.rel in MANUAL_ROTATION_FILES:
+            remedy = (
+                f"rotate {gf.rel} by hand — move resolved/old rows to its "
+                "archive table/shard (table-row / mixed-format auto-rotation "
+                "is deferred to TD-655)"
+            )
+        elif gf.contract.rotatable and gf.contract.archive_target:
             eff = effective_entry_pattern(gf.contract, None)
             if rotation_can_help(gf.path, gf.contract, eff, now):
                 ep = (
@@ -671,6 +712,22 @@ def run_apply(
         print(
             f"ERROR: {rel} is owned by aim-tracking-freshness (generated INDEX) "
             "— not rotatable by aim-tracking-rotate.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Manual-rotation guard (DEC-PM339-D7 Option A): refuse the table-under-
+    # severity / mixed-format registers BEFORE any read or write — safe field-
+    # aware auto-rotation is deferred to TD-655. Non-destructive: nothing is
+    # mutated, exit non-zero.
+    if rel in MANUAL_ROTATION_FILES:
+        print(
+            f"REFUSED: {rel} is a table-row / mixed-format register (table rows "
+            "under severity/status sections, or a multi-table live-index). Safe "
+            "field-aware auto-rotation is deferred to TD-655, so --apply makes "
+            "NO changes here.\n"
+            "  Rotate manually: move the resolved/oldest rows into the archive "
+            "table/shard by hand. `--check` still enforces the cap.",
             file=sys.stderr,
         )
         return 1

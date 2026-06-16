@@ -51,6 +51,7 @@ is_resolved = _mod.is_resolved
 FALLBACK_REGISTRY = _mod.FALLBACK_REGISTRY
 DEFAULT_ENTRY_PATTERN = _mod.DEFAULT_ENTRY_PATTERN
 POINTER_MARKER = _mod.POINTER_MARKER
+MANUAL_ROTATION_FILES = _mod.MANUAL_ROTATION_FILES
 
 
 # ---------------------------------------------------------------------------
@@ -111,18 +112,28 @@ def _blockers_log(n_entries: int, active: int) -> str:
     return head + "".join(blocks)
 
 
-def _table_index(n_rows: int, title: str) -> str:
-    """Newest-first table-row live-index (SWI / session-index shape).
+def _synthetic_register_fm(
+    archive: str = "tracking/sample-archive-{YYYY}.md",
+    cap_lines: int = 100,
+    cap_kb: float = 15,
+) -> str:
+    """Front-matter for a synthetic, *non-production* register file.
 
-    Header row ``| ID | Summary |`` + separator are preamble-adjacent; data rows
-    ``| S-### | ... |`` are the rotatable entries (entry_pattern ``^\\| ``).
+    The production registers (blockers-log / risk-register) refuse --apply and
+    defer to TD-655 (MANUAL_ROTATION_FILES). The status-based register-rotation
+    code stays dormant for TD-655; these synthetic-register tests keep it
+    covered via a rel-path NOT in MANUAL_ROTATION_FILES.
     """
-    head = f"# {title}\n\n## Sessions\n\n| ID | Summary |\n|---|---|\n"
-    rows = "".join(
-        f"| S-{i:03d} | summary line number {i} goes here for bulk |\n"
-        for i in range(n_rows, 0, -1)
+    return (
+        "---\n"
+        "class: register\n"
+        "read_path: section-anchored\n"
+        f"cap_lines: {cap_lines}\n"
+        f"cap_kb: {cap_kb}\n"
+        "rotation_trigger: on-close-over-cap\n"
+        f"archive_target: {archive}\n"
+        "---\n"
     )
-    return head + rows
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +258,80 @@ def test_apply_decision_log_rotates_and_updates_manifest(tmp_path: Path) -> None
         assert e.block.lstrip().startswith("### DEC-")
 
 
+def _decision_log_seed(n_entries: int) -> str:
+    """decision-log.md in its REAL seed shape: title + 'How to Use' +
+    'Entry Format' (with the literal ``### DEC-[ID]:`` example) + '## Decisions'
+    with newest-first entries. Mirrors templates/oversight/tracking/decision-log.md
+    so the archive-end (oldest = tail) is verified against the format operators
+    actually get.
+    """
+    head = (
+        "# Decision Log\n\n"
+        "**Last Updated**: 2026-06-16\n"
+        "**Format**: Append-only — add new entries at the top, newest first\n\n"
+        "---\n\n"
+        "## How to Use\n\n"
+        "- Quick decisions go here (1-3 lines per entry)\n\n"
+        "## Entry Format\n\n"
+        "### DEC-[ID]: [Decision Topic]\n"
+        "- **Date**: [YYYY-MM-DD]\n"
+        "- **Status**: [Active/Superseded]\n\n"
+        "---\n\n"
+        "## Decisions\n\n"
+    )
+    # Newest-first: DEC-PM{n} at the top, DEC-PM001 oldest at the bottom.
+    blocks = "".join(
+        f"### DEC-PM{i:03d}-D1: decision number {i}\n"
+        f"- **Date**: 2026-06-{(i % 28) + 1:02d}\n"
+        f"- **Decision**: did thing {i}.\n"
+        f"- **Rationale**: because {i}.\n"
+        f"- **Status**: Active\n\n"
+        for i in range(n_entries, 0, -1)
+    )
+    return head + blocks
+
+
+def test_apply_decision_log_seed_format(tmp_path: Path) -> None:
+    """Verify --apply on a fixture matching the REAL decision-log seed: the
+    OLDEST real decisions (tail) are archived, the NEWEST stay live, ids are
+    conserved, and the live file lands within cap.
+    """
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    before = _decision_log_seed(60)
+    log.write_text(before, encoding="utf-8")
+    pre_ids = set(re.findall(r"### (DEC-PM\d+-D1)", before))
+
+    result = _run(
+        "--apply", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = log.read_text(encoding="utf-8")
+    lines, _ = measure(new_text)
+    assert lines <= FALLBACK_REGISTRY["tracking/decision-log.md"].cap_lines
+
+    shard = root / "tracking" / "archive" / "decision-log-ARCHIVE-2026-06.md"
+    shard_text = shard.read_text(encoding="utf-8")
+
+    # Archive end is correct: oldest (DEC-PM001) archived, newest (DEC-PM060) live.
+    assert "DEC-PM001-D1" in shard_text
+    assert "DEC-PM001-D1" not in new_text
+    assert "DEC-PM060-D1" in new_text
+    assert "DEC-PM060-D1" not in shard_text
+
+    # The 'Entry Format' example heading stays in the live file (kept at head),
+    # never archived, and the live pointer is present.
+    assert "### DEC-[ID]: [Decision Topic]" in new_text
+    assert POINTER_MARKER in new_text
+
+    # Id conservation across live + shard for every real decision id.
+    live_ids = set(re.findall(r"### (DEC-PM\d+-D1)", new_text))
+    shard_ids = set(re.findall(r"### (DEC-PM\d+-D1)", shard_text))
+    assert live_ids | shard_ids == pre_ids
+    assert not (live_ids & shard_ids)  # no id both live and archived
+
+
 def test_apply_idempotent_pointer(tmp_path: Path) -> None:
     root = _make_oversight(tmp_path)
     log = root / "tracking" / "decision-log.md"
@@ -263,17 +348,24 @@ def test_apply_idempotent_pointer(tmp_path: Path) -> None:
 
 
 def test_apply_register_updates_banner(tmp_path: Path) -> None:
+    """Status-based register rotation (dormant for TD-655) on a *synthetic*
+    register at a non-production rel-path. The production registers refuse
+    --apply (see the MANUAL_ROTATION_FILES tests below); this keeps the
+    register-rotation code that TD-655 will reuse under test.
+    """
     root = _make_oversight(tmp_path)
-    blk = root / "tracking" / "blockers-log.md"
+    reg = root / "tracking" / "sample-register.md"
     # 10 newest OPEN, 50 oldest RESOLVED -> resolved rotate out, open stay live.
-    blk.write_text(_blockers_log(60, active=10), encoding="utf-8")
+    reg.write_text(
+        _synthetic_register_fm() + _blockers_log(60, active=10), encoding="utf-8"
+    )
 
     result = _run(
-        "--apply", str(blk), "--oversight-root", str(root), "--period", "2026-06"
+        "--apply", str(reg), "--oversight-root", str(root), "--period", "2026-06"
     )
     assert result.returncode == 0, result.stderr
 
-    new_text = blk.read_text(encoding="utf-8")
+    new_text = reg.read_text(encoding="utf-8")
     kept = parse_entries(new_text, DEFAULT_ENTRY_PATTERN).entries
     # M-1: banner reflects the OPEN count, with no stale "as of PM #X" suffix.
     open_kept = sum(1 for e in kept if not is_resolved(e))
@@ -281,7 +373,7 @@ def test_apply_register_updates_banner(tmp_path: Path) -> None:
     assert f"**{open_kept} active**" in new_text
     assert "as of PM" not in new_text
 
-    archive = root / "tracking" / "blockers-archive-2026.md"
+    archive = root / "tracking" / "sample-archive-2026.md"
     assert archive.is_file()
     assert POINTER_MARKER in new_text
 
@@ -297,27 +389,28 @@ def test_apply_register_updates_banner(tmp_path: Path) -> None:
 
 
 def test_apply_register_never_archives_old_open_blocker(tmp_path: Path) -> None:
-    """H-5: an OPEN blocker that is the OLDEST entry must stay live; only
-    RESOLVED entries are archived even though they are newer than it.
+    """H-5: an OPEN entry that is the OLDEST must stay live; only RESOLVED
+    entries are archived even though they are newer than it. Exercised on a
+    synthetic register (production registers refuse --apply; TD-655).
     """
     root = _make_oversight(tmp_path)
-    blk = root / "tracking" / "blockers-log.md"
-    head = "# Blockers Log\n\n**1 active as of PM #9**\n\n## Active Blockers\n\n"
+    reg = root / "tracking" / "sample-register.md"
+    head = "# Sample Register\n\n**1 active as of PM #9**\n\n## Active\n\n"
     blocks = []
     for i in range(40, 0, -1):  # newest-first: BUG-040 .. BUG-001 (oldest)
         status = "Open" if i == 1 else "Resolved"
         blocks.append(
             f"### BUG-{i:03d}: blocker {i}\n\n**Status**: {status}\n\nDetail {i}.\n\n"
         )
-    blk.write_text(head + "".join(blocks), encoding="utf-8")
+    reg.write_text(_synthetic_register_fm() + head + "".join(blocks), encoding="utf-8")
 
     result = _run(
-        "--apply", str(blk), "--oversight-root", str(root), "--period", "2026-06"
+        "--apply", str(reg), "--oversight-root", str(root), "--period", "2026-06"
     )
     assert result.returncode == 0, result.stderr
 
-    new_text = blk.read_text(encoding="utf-8")
-    archive = root / "tracking" / "blockers-archive-2026.md"
+    new_text = reg.read_text(encoding="utf-8")
+    archive = root / "tracking" / "sample-archive-2026.md"
     archived_text = archive.read_text(encoding="utf-8") if archive.is_file() else ""
 
     # The old OPEN blocker remains live and was NOT archived.
@@ -361,55 +454,185 @@ def test_apply_reapply_no_double_append(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# --apply : live-index table-row rotation (H-3)
+# --apply : table-row / mixed-format registers REFUSE (DEC-PM339-D7, TD-655)
 # ---------------------------------------------------------------------------
 
 
-def test_apply_session_work_index_table_rows(tmp_path: Path) -> None:
-    """H-3: SESSION_WORK_INDEX.md rotates by table row (contract entry_pattern
-    '^\\| '), not the H3 default — previously found zero entries.
+def _multitable_swi(n_sessions: int) -> str:
+    """SESSION_WORK_INDEX.md in its REAL seed shape: four distinct tables.
+
+    A bare '^\\| ' match would shed rows from the wrong table, so --apply must
+    refuse this file rather than rotate it.
     """
+    sessions = "".join(
+        f"| 2026-06-{i:02d} | TASK-{i:03d} | did thing {i} | ✅ |\n"
+        for i in range(n_sessions, 0, -1)
+    )
+    return (
+        "# Session Work Index\n\n## Current Sprint\n\n**Sprint**: S1\n\n"
+        "## Active Task\n\n| Field | Value |\n|-------|-------|\n"
+        "| ID | TASK-999 |\n| Status | In Progress |\n\n"
+        "## Last 5 Sessions\n\n| Date | Task ID | Summary | Status |\n"
+        "|------|---------|---------|--------|\n" + sessions + "\n"
+        "## Active Blockers\n\n| ID | Description | Status |\n|----|----|----|\n"
+        "| BLK-001 | a blocker | Awaiting X |\n\n"
+        "## High Priority Risks\n\n| ID | Risk | Mitigation |\n|----|----|----|\n"
+        "| RISK-001 | a risk | do a thing |\n"
+    )
+
+
+def _seed_blockers_log(n_resolved: int) -> str:
+    """blockers-log.md in its REAL seed shape: Active table + BLK Detail H3 +
+    Resolved table."""
+    resolved_rows = "".join(
+        f"| BLK-{i:03d} | blocker {i} | fixed it | 2026-06-{i:02d} | learned {i} |\n"
+        for i in range(n_resolved, 0, -1)
+    )
+    return (
+        "# Blockers Log\n\n**Last Updated**: 2026-06-16\n\n"
+        "## Active Blockers\n\n| ID | Blocker | Severity | Status |\n"
+        "|----|---------|----------|--------|\n"
+        "| BLK-900 | active one | High | Active |\n\n"
+        "## Blocker Details\n\n"
+        "### BLK-900: active one\n\n**Status**: Active\n\nDetail.\n\n"
+        "## Resolved Blockers\n\n| ID | Blocker | Resolution | Date | Learning |\n"
+        "|----|---------|------------|------|----------|\n" + resolved_rows
+    )
+
+
+def _seed_risk_register(n_rows: int) -> str:
+    """risk-register.md in its REAL seed shape: rows under '### Critical/High/...'
+    severity headers."""
+    rows = "".join(
+        f"| RISK-{i:03d} | risk {i} | impact | Med | mitigate {i} | who | Open |\n"
+        for i in range(n_rows, 0, -1)
+    )
+    return (
+        "# Risk Register\n\n**Last Updated**: 2026-06-16\n\n"
+        "## Active Risks\n\n### Critical\n\n"
+        "| ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |\n"
+        "|----|------|--------|------------|------------|-------|--------|\n" + rows
+    )
+
+
+def test_apply_refuses_blockers_log_non_destructive(tmp_path: Path) -> None:
+    """--apply on the production blockers-log refuses without mutating the file
+    (DEC-PM339-D7 Option A; table-under-status, deferred to TD-655)."""
+    root = _make_oversight(tmp_path)
+    blk = root / "tracking" / "blockers-log.md"
+    before = _seed_blockers_log(60)
+    blk.write_text(before, encoding="utf-8")
+
+    result = _run(
+        "--apply", str(blk), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 1
+    assert "REFUSED" in result.stderr
+    assert "TD-655" in result.stderr
+    # Non-destructive: file unchanged and no archive shard created.
+    assert blk.read_text(encoding="utf-8") == before
+    assert not (root / "tracking" / "blockers-archive-2026.md").exists()
+
+
+def test_apply_refuses_risk_register_non_destructive(tmp_path: Path) -> None:
+    """--apply on the production risk-register refuses without mutating the file
+    (rows under severity headers; deferred to TD-655)."""
+    root = _make_oversight(tmp_path)
+    rsk = root / "tracking" / "risk-register.md"
+    before = _seed_risk_register(80)
+    rsk.write_text(before, encoding="utf-8")
+
+    result = _run(
+        "--apply", str(rsk), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 1
+    assert "REFUSED" in result.stderr
+    assert "TD-655" in result.stderr
+    assert rsk.read_text(encoding="utf-8") == before
+    assert not (root / "tracking" / "risk-archive-2026.md").exists()
+
+
+def test_apply_refuses_session_work_index_non_destructive(tmp_path: Path) -> None:
+    """--apply on the multi-table SESSION_WORK_INDEX refuses (a bare '^\\| ' match
+    would shed rows from the wrong table); deferred to TD-655."""
     root = _make_oversight(tmp_path)
     swi = root / "SESSION_WORK_INDEX.md"
-    swi.write_text(_table_index(100, "Session Work Index"), encoding="utf-8")
+    before = _multitable_swi(40)
+    swi.write_text(before, encoding="utf-8")
 
     result = _run(
         "--apply", str(swi), "--oversight-root", str(root), "--period", "2026-06"
     )
-    assert result.returncode == 0, result.stderr
-
-    new_text = swi.read_text(encoding="utf-8")
-    lines, _ = measure(new_text)
-    assert lines <= FALLBACK_REGISTRY["SESSION_WORK_INDEX.md"].cap_lines
-
-    archive = root / "session-index" / "INDEX.md"
-    assert archive.is_file()
-    archive_text = archive.read_text(encoding="utf-8")
-    assert "| S-001 |" in archive_text  # oldest row archived
-    assert "| S-100 |" in new_text  # newest row kept live
-    assert "| ID | Summary |" in new_text  # header row retained
-    assert POINTER_MARKER in new_text
+    assert result.returncode == 1
+    assert "REFUSED" in result.stderr
+    assert swi.read_text(encoding="utf-8") == before
+    # session-index/INDEX.md must not have been written as a side effect.
+    assert not (root / "session-index" / "INDEX.md").exists()
 
 
-def test_apply_session_index_table_rows(tmp_path: Path) -> None:
-    """H-3: session-index/INDEX.md rotates by table row into a quarterly shard."""
+def test_apply_refuses_session_index_non_destructive(tmp_path: Path) -> None:
+    """--apply on session-index/INDEX.md refuses (mixed month-H3 + tables);
+    deferred to TD-655."""
     root = _make_oversight(tmp_path)
     idx = root / "session-index" / "INDEX.md"
-    idx.write_text(_table_index(150, "Session Index"), encoding="utf-8")
+    before = (
+        "# Session Index\n\n## Current Year: 2026\n\n### June 2026\n\n"
+        "| Week | Dates | Sessions | Key Work |\n|------|-------|----------|------|\n"
+        "| Week 1 | Jun 01 - Jun 07 | 3 | did stuff |\n\n"
+        "## Archive\n\n| Quarter | Sessions | Location |\n|---|---|---|\n"
+        "| 2026-Q1 | 12 | archive/2026-Q1.md |\n"
+    )
+    idx.write_text(before, encoding="utf-8")
 
     result = _run(
         "--apply", str(idx), "--oversight-root", str(root), "--period", "2026-06"
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 1
+    assert "REFUSED" in result.stderr
+    assert idx.read_text(encoding="utf-8") == before
 
-    new_text = idx.read_text(encoding="utf-8")
-    lines, _ = measure(new_text)
-    assert lines <= FALLBACK_REGISTRY["session-index/INDEX.md"].cap_lines
 
-    shard = root / "session-index" / "archive" / "2026-Q2.md"
-    assert shard.is_file()
-    assert "| S-001 |" in shard.read_text(encoding="utf-8")
-    assert POINTER_MARKER in new_text
+def test_all_manual_files_refuse_apply(tmp_path: Path) -> None:
+    """Every rel-path in MANUAL_ROTATION_FILES refuses --apply non-destructively
+    (guards against a future registry edit silently re-enabling one)."""
+    assert len(MANUAL_ROTATION_FILES) == 4
+    for expected in (
+        "tracking/blockers-log.md",
+        "tracking/risk-register.md",
+        "SESSION_WORK_INDEX.md",
+        "session-index/INDEX.md",
+    ):
+        assert expected in MANUAL_ROTATION_FILES
+    for rel in MANUAL_ROTATION_FILES:
+        root = _make_oversight(tmp_path / rel.replace("/", "_"))
+        target = root / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        before = f"# {rel}\n\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+        target.write_text(before, encoding="utf-8")
+        result = _run("--apply", str(target), "--oversight-root", str(root))
+        assert result.returncode == 1, rel
+        assert "REFUSED" in result.stderr, rel
+        assert target.read_text(encoding="utf-8") == before, rel
+
+
+def test_check_still_enforces_cap_on_manual_files(tmp_path: Path) -> None:
+    """--check stays UNIVERSAL: a manual-rotation register over cap still blocks
+    closeout, with a manual (TD-655) remedy that does NOT loop back to --apply."""
+    root = _make_oversight(tmp_path)
+    # blockers-log cap is 100 lines; 60 resolved rows + details blow past it.
+    blk = root / "tracking" / "blockers-log.md"
+    blk.write_text(
+        _seed_blockers_log(120) + "\n".join(f"x {i}" for i in range(60)) + "\n",
+        encoding="utf-8",
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1
+    assert "SYSTEM FAILURE" in result.stderr
+    assert "blockers-log.md" in result.stderr
+    assert "TD-655" in result.stderr
+    assert "by hand" in result.stderr
+    assert "--apply" not in result.stderr  # do not loop the operator back
 
 
 # ---------------------------------------------------------------------------
@@ -417,8 +640,8 @@ def test_apply_session_index_table_rows(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _all_open_blockers(n: int) -> str:
-    head = f"# Blockers Log\n\n**{n} active as of PM #9**\n\n## Active Blockers\n\n"
+def _all_open_register(n: int) -> str:
+    head = f"# Sample Register\n\n**{n} active as of PM #9**\n\n## Active\n\n"
     blocks = "".join(
         f"### BUG-{i:03d}: blocker {i}\n\n**Status**: Open\n\nDetail line {i}.\n\n"
         for i in range(n, 0, -1)
@@ -426,29 +649,46 @@ def _all_open_blockers(n: int) -> str:
     return head + blocks
 
 
+def _decision_log_huge_preamble() -> str:
+    """A decision-log whose preamble alone exceeds the 150-line cap: even the
+    maximal rotation cannot bring it under cap (exhausted)."""
+    head = (
+        "# Decision Log\n\n"
+        + "".join(f"preamble narrative line {i}\n" for i in range(160))
+        + "\n## Decisions\n\n"
+    )
+    entries = (
+        "### DEC-PM002-D1 — two\n\nbody two\n\n"
+        "### DEC-PM001-D1 — one\n\nbody one\n\n"
+    )
+    return head + entries
+
+
 def test_apply_exhausted_exits_nonzero(tmp_path: Path) -> None:
     """H-4: when every live entry is OPEN and the file is over cap, --apply
     cannot rotate it under cap — it must exit non-zero with a hand-trim remedy
     (never exit 0, which would deadlock the gate into re-running --apply).
+    Exercised on a synthetic register (production registers refuse --apply).
     """
     root = _make_oversight(tmp_path)
-    blk = root / "tracking" / "blockers-log.md"
-    blk.write_text(_all_open_blockers(80), encoding="utf-8")
+    reg = root / "tracking" / "sample-register.md"
+    reg.write_text(_synthetic_register_fm() + _all_open_register(80), encoding="utf-8")
 
     result = _run(
-        "--apply", str(blk), "--oversight-root", str(root), "--period", "2026-06"
+        "--apply", str(reg), "--oversight-root", str(root), "--period", "2026-06"
     )
     assert result.returncode == 1
     assert "exhausted" in result.stderr.lower()
 
 
 def test_check_remedy_handtrim_when_exhausted(tmp_path: Path) -> None:
-    """H-4: --check's remedy for an exhausted file points to a hand-trim, NOT
-    back to --apply.
+    """H-4: --check's remedy for an exhausted file (here the supported
+    append-only decision-log whose preamble alone exceeds cap) points to a
+    hand-trim, NOT back to --apply.
     """
     root = _make_oversight(tmp_path)
-    blk = root / "tracking" / "blockers-log.md"
-    blk.write_text(_all_open_blockers(80), encoding="utf-8")
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_decision_log_huge_preamble(), encoding="utf-8")
 
     result = _run("--check", "--oversight-root", str(root))
     assert result.returncode == 1
