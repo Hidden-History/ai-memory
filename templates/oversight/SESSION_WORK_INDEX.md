@@ -1,8 +1,18 @@
+---
+class: live-index
+read_path: whole-file
+owns: "live session narrative + recent-session window"
+cap_lines: 80
+cap_kb: 12
+rotation_trigger: on-close-over-cap
+archive_target: session-index/INDEX.md
+index_file: N/A
+reconciliation: "bounded window, shed oldest sessions → session-index/, header = one datestamp line"
+---
 # Session Work Index
 
 **Purpose**: Quick context loading for session start (~400 tokens max)
 **Updated**: [YYYY-MM-DD]
-**Line Limit**: Keep under 80 lines. Archive to session-index/ when exceeded.
 
 ---
 
@@ -33,11 +43,6 @@
 |------|---------|---------|--------|
 | [YYYY-MM-DD] | [ID] | [One sentence] | ✅ |
 | [YYYY-MM-DD] | [ID] | [One sentence] | ✅ |
-| [YYYY-MM-DD] | [ID] | [One sentence] | ✅ |
-| [YYYY-MM-DD] | [ID] | [One sentence] | ✅ |
-| [YYYY-MM-DD] | [ID] | [One sentence] | ✅ |
-
-**Full history**: `session-index/INDEX.md`
 
 ---
 
@@ -69,6 +74,6 @@ _None_ (if no high risks)
 
 - **Session history**: `session-index/INDEX.md`
 - **Task tracker**: `tracking/task-tracker.md`
-- **Decisions**: `decisions/decisions-log.md`
+- **Decisions**: `tracking/decision-log.md`
 - **Blockers**: `tracking/blockers-log.md`
 - **Risks**: `tracking/risk-register.md`

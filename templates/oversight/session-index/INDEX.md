@@ -1,3 +1,14 @@
+---
+class: live-index
+read_path: qdrant-or-cold
+owns: "per-session archive roster"
+cap_lines: 120
+cap_kb: 10
+rotation_trigger: on-close-over-cap
+archive_target: session-index/archive/{YYYY-Q#}.md
+index_file: N/A
+reconciliation: "1 row/session, header = 1 line, quarterly shards over cap"
+---
 # Session Index
 
 **Purpose**: Navigate historical sessions (keeps SESSION_WORK_INDEX.md lean)
