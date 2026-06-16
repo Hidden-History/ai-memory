@@ -93,9 +93,11 @@ def main() -> int:
 
     status = result.get("status", "unknown")
     if status == "stored":
-        # D4 F-2: opt-in supersession — demote a named prior insight.
+        # D4 F-2: opt-in supersession — demote a named prior insight, scoped to
+        # the active project so a mistyped id cannot demote another tenant's
+        # point on the shared Qdrant (RSK-021 / W-02).
         if args.supersedes:
-            storage.supersede_memory_by_id(args.supersedes)
+            storage.supersede_memory_by_id(args.supersedes, group_id=group_id)
         print(
             f"Insight saved to Qdrant (id: {result.get('memory_id', 'unknown')[:8]}...)"
         )

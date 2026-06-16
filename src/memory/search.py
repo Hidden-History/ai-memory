@@ -1158,13 +1158,12 @@ class MemorySearch:
         try:
             points, _ = self.client.scroll(
                 collection_name=collection,
-                scroll_filter=(
-                    Filter(
-                        must=filter_conditions,
-                        must_not=must_not_conditions or None,
-                    )
-                    if filter_conditions
-                    else None
+                # filter_conditions always carries the unconditional group_id
+                # match (built above), so the Filter is always constructed —
+                # no field-absent fallback branch is reachable here.
+                scroll_filter=Filter(
+                    must=filter_conditions,
+                    must_not=must_not_conditions or None,
                 ),
                 limit=limit,
                 order_by=OrderBy(key="timestamp", direction=Direction.DESC),

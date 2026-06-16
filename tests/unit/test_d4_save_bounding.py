@@ -32,7 +32,9 @@ if _LIB not in sys.path:
 from parzival_save_common import (  # noqa: E402
     HANDOFF_MAX_BYTES,
     HANDOFF_MAX_LINES,
+    HANDOFF_SINGLE_VECTOR_MAX_TOKENS,
     INSIGHT_MAX_CHARS,
+    _count_tokens,
     bound_handoff_content,
     bound_insight_content,
 )
@@ -113,6 +115,30 @@ def _overcap_handoff_body() -> str:
     return body
 
 
+def _token_dense_handoff_body() -> str:
+    """A token-dense handoff (~36 KB of JSON-like lines, ~2.2 ch/tok).
+
+    Token-dense content packs more real tokens per byte than the chunker's
+    char-estimate (len/4) assumes, so even a byte-bounded lead can breach the
+    3000-token whole-store threshold. This fixture proves bound_handoff_content
+    verifies the ACTUAL token count and tightens the byte budget so the result
+    is guaranteed single-vector.
+    """
+    header = (
+        "# Session Handoff\n\n"
+        "## Executive Summary\nDense JSON state dump follows.\n\n"
+        "## Next Steps\nShip v2.7.0.\n\n"
+        "## State\n"
+    )
+    dense = "\n".join(
+        f'{{"k":{i},"v":{i * 7},"s":"a1b2c3d4","t":67890,"u":12345}},'
+        for i in range(800)
+    )
+    body = header + dense
+    assert len(body.encode("utf-8")) > HANDOFF_MAX_BYTES
+    return body
+
+
 def _count_points(client: QdrantClient) -> int:
     return client.count(collection_name="discussions").count
 
@@ -189,6 +215,38 @@ def test_overcap_handoff_stores_single_point_not_many(storage_with_inmemory):
     )
     added = _count_points(storage.qdrant_client) - before
     assert added == 1, f"Bounded handoff must store exactly 1 point, got {added}."
+
+
+def test_token_dense_handoff_bounded_under_single_vector_threshold():
+    """DONE-WHEN: a token-dense handoff is bounded to <= the chunker's
+    single-vector token threshold (not just the byte cap)."""
+    body = _token_dense_handoff_body()
+    # Precondition: the raw byte-cap-sized prefix is token-dense enough to breach
+    # the 3000-token threshold — proving the byte cap alone is insufficient.
+    raw_prefix = body.encode("utf-8")[:HANDOFF_MAX_BYTES].decode("utf-8", "ignore")
+    assert _count_tokens(raw_prefix) > HANDOFF_SINGLE_VECTOR_MAX_TOKENS
+
+    bounded = bound_handoff_content(body, source_path="/abs/handoff.md")
+    assert "[truncated — full handoff: /abs/handoff.md]" in bounded
+    assert len(bounded.encode("utf-8")) <= HANDOFF_MAX_BYTES
+    # The binding guarantee: actual token count is under the whole-store cap.
+    assert _count_tokens(bounded) <= HANDOFF_SINGLE_VECTOR_MAX_TOKENS
+
+
+def test_token_dense_handoff_stores_single_point(storage_with_inmemory):
+    """A token-dense bounded handoff stores as exactly ONE point."""
+    storage, _config = storage_with_inmemory
+    before = _count_points(storage.qdrant_client)
+    storage.store_agent_memory(
+        content=bound_handoff_content(
+            _token_dense_handoff_body(), source_path="/abs/handoff.md"
+        ),
+        memory_type="agent_handoff",
+        agent_id="parzival",
+        group_id="proj-dense",
+    )
+    added = _count_points(storage.qdrant_client) - before
+    assert added == 1, f"Token-dense bounded handoff must store 1 point, got {added}."
 
 
 def test_overcap_insight_stores_single_point(storage_with_inmemory):
@@ -301,6 +359,94 @@ def test_supersede_by_id_demotes_single_point(storage_with_inmemory):
         storage.qdrant_client, group_id=group_id, pid=pid, ts="2026-01-01T00:00:00Z"
     )
 
-    assert storage.supersede_memory_by_id(pid) is True
+    assert storage.supersede_memory_by_id(pid, group_id=group_id) is True
     rec = storage.qdrant_client.retrieve(collection_name="discussions", ids=[pid])[0]
     assert rec.payload["is_current"] is False
+
+
+def test_supersede_by_id_cross_project_not_demoted(storage_with_inmemory):
+    """RSK-021 / W-02: a --supersedes id belonging to ANOTHER project's
+    group_id is NOT demoted and returns False (shared-Qdrant tenant safety)."""
+    import uuid
+
+    storage, _config = storage_with_inmemory
+    other_group = "document-pipeline"  # e.g. DocIntel on the shared Qdrant
+    active_group = "proj-active"
+    foreign_pid = str(uuid.uuid4())
+    _insert_handoff(
+        storage.qdrant_client,
+        group_id=other_group,
+        pid=foreign_pid,
+        ts="2026-01-01T00:00:00Z",
+    )
+
+    # Active project tries to supersede a foreign point — must be a no-op.
+    assert storage.supersede_memory_by_id(foreign_pid, group_id=active_group) is False
+    rec = storage.qdrant_client.retrieve(
+        collection_name="discussions", ids=[foreign_pid]
+    )[0]
+    # Foreign point is untouched (is_current never set to False).
+    assert rec.payload.get("is_current", True) is True
+
+
+def test_supersede_by_id_missing_point_returns_false(storage_with_inmemory):
+    import uuid
+
+    storage, _config = storage_with_inmemory
+    assert (
+        storage.supersede_memory_by_id(str(uuid.uuid4()), group_id="proj-active")
+        is False
+    )
+
+
+def test_supersede_by_id_empty_group_id_raises(storage_with_inmemory):
+    import uuid
+
+    storage, _config = storage_with_inmemory
+    with pytest.raises(ValueError, match="explicit project scope"):
+        storage.supersede_memory_by_id(str(uuid.uuid4()), group_id="")
+
+
+def test_supersede_prior_empty_group_id_raises(storage_with_inmemory):
+    storage, _config = storage_with_inmemory
+    with pytest.raises(ValueError, match="explicit project scope"):
+        storage.supersede_prior_agent_memories(
+            group_id="", agent_id="parzival", memory_type="agent_handoff"
+        )
+
+
+def test_supersede_prior_does_not_demote_other_project(storage_with_inmemory):
+    """Cross-project isolation: a live point with a DIFFERENT group_id (same
+    agent_id/type) is NOT demoted by a supersede scoped to the active project."""
+    import uuid
+
+    storage, _config = storage_with_inmemory
+    active_group = "proj-active"
+    other_group = "document-pipeline"
+    active_pid = str(uuid.uuid4())
+    foreign_pid = str(uuid.uuid4())
+    _insert_handoff(
+        storage.qdrant_client,
+        group_id=active_group,
+        pid=active_pid,
+        ts="2026-01-01T00:00:00Z",
+    )
+    _insert_handoff(
+        storage.qdrant_client,
+        group_id=other_group,
+        pid=foreign_pid,
+        ts="2026-01-01T00:00:00Z",
+    )
+
+    demoted = storage.supersede_prior_agent_memories(
+        group_id=active_group, agent_id="parzival", memory_type="agent_handoff"
+    )
+    assert demoted == 1  # only the active-project point
+
+    recs = storage.qdrant_client.retrieve(
+        collection_name="discussions", ids=[active_pid, foreign_pid]
+    )
+    by_id = {str(r.id): r.payload for r in recs}
+    assert by_id[active_pid]["is_current"] is False
+    # Foreign-project point is untouched.
+    assert by_id[foreign_pid].get("is_current", True) is True

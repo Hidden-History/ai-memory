@@ -1898,7 +1898,16 @@ class MemoryStorage:
 
         Returns:
             Count of points demoted to is_current=False (0 on failure).
+
+        Raises:
+            ValueError: if group_id is empty (tenant-isolation guard — an
+                unscoped supersede could demote another project's memories).
         """
+        if not group_id:
+            raise ValueError(
+                "supersede_prior_agent_memories requires explicit project scope "
+                "(group_id); refusing to run unscoped across all tenants"
+            )
         scroll_filter = Filter(
             must=[
                 FieldCondition(key="group_id", match=MatchValue(value=group_id)),
@@ -1955,17 +1964,65 @@ class MemoryStorage:
         return len(ids_to_demote)
 
     def supersede_memory_by_id(
-        self, memory_id: str, *, collection: str = COLLECTION_DISCUSSIONS
+        self,
+        memory_id: str,
+        *,
+        group_id: str,
+        collection: str = COLLECTION_DISCUSSIONS,
     ) -> bool:
         """Mark a single memory point superseded (is_current=False) by id.
 
         D4 F-2 (DEC-PM338-D4.2): opt-in supersession for the insight save path
         (``--supersedes <id>``). Flags in place (set_payload), never deletes.
 
+        Tenant-safety (RSK-021 / W-02): the shared Qdrant hosts other projects
+        (e.g. DocIntel group_id="document-pipeline"). A mistyped/copy-pasted id
+        must never demote another project's point. The target is retrieved and
+        its ``group_id`` verified against the active project BEFORE demotion;
+        a missing point or a cross-project point is a no-op that returns False.
+
+        Args:
+            memory_id: Point id to supersede.
+            group_id: Active project scope; the point is demoted only if its
+                own group_id matches this value.
+            collection: Qdrant collection (default discussions).
+
         Returns:
-            True on success, False on failure.
+            True if an in-project point was demoted; False if the point is
+            missing, belongs to another project, or the operation failed.
+
+        Raises:
+            ValueError: if group_id is empty (tenant-isolation guard).
         """
+        if not group_id:
+            raise ValueError(
+                "supersede_memory_by_id requires explicit project scope "
+                "(group_id); refusing to demote a point unscoped"
+            )
         try:
+            records = self.qdrant_client.retrieve(
+                collection_name=collection,
+                ids=[memory_id],
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not records:
+                logger.warning(
+                    "supersede_memory_by_id_not_found",
+                    extra={"memory_id": memory_id, "group_id": group_id},
+                )
+                return False
+            point_group_id = (records[0].payload or {}).get("group_id")
+            if point_group_id != group_id:
+                logger.warning(
+                    "supersede_memory_by_id_cross_project_blocked",
+                    extra={
+                        "memory_id": memory_id,
+                        "group_id": group_id,
+                        "point_group_id": point_group_id,
+                    },
+                )
+                return False
             self.qdrant_client.set_payload(
                 collection_name=collection,
                 payload={"is_current": False},
@@ -1975,7 +2032,11 @@ class MemoryStorage:
         except Exception as e:
             logger.warning(
                 "supersede_memory_by_id_failed",
-                extra={"error": str(e), "memory_id": memory_id},
+                extra={
+                    "error": str(e),
+                    "memory_id": memory_id,
+                    "group_id": group_id,
+                },
             )
             return False
 
