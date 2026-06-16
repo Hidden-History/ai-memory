@@ -14,12 +14,14 @@ bounds bloat). Two modes:
                      cap, remedy command) and exit non-zero so closeout cannot
                      declare complete while a governed file is over cap.
 
-  --apply <file>     The fix (BP-167 Part C rotation). Move the OLDEST
-                     CONTIGUOUS block of whole entries (never splitting an
-                     entry) into a dated archive shard, update the manifest
-                     (append-only-log) or the reconciliation banner (register),
-                     write a thin live pointer, and verify counts. Chronology
-                     is preserved by construction.
+  --apply <file>     The fix (BP-167 Part C rotation). Move whole entries (never
+                     splitting an entry) into a dated archive shard, update the
+                     manifest (append-only-log) or the reconciliation banner
+                     (register), write a thin live pointer, and verify counts.
+                     Append-only-logs/live-indexes rotate the OLDEST entries by
+                     recency; registers rotate by RESOLVED status (an open/active
+                     entry is never archived). Within a shard the append order is
+                     monotonic; across shards/rotations it is not guaranteed.
 
 Ownership boundary (vs aim-tracking-freshness / D5): rotate owns the
 append-only-log + register archival (decision-log shards + manifest,
@@ -37,6 +39,7 @@ import argparse
 import os
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +65,9 @@ class Contract:
     rotatable: bool
     archive_target: str | None = None
     index_file: str | None = None
+    # Entry-boundary regex for this file (overrides the global default). Table-
+    # row files (live-index) carry '^\\| '; H3-entry files inherit the default.
+    entry_pattern: str | None = None
 
 
 # Relative-path (POSIX) -> Contract. Keys are matched against the file's path
@@ -74,6 +80,7 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
         "live-index",
         True,
         archive_target="session-index/INDEX.md",
+        entry_pattern=r"^\| ",
     ),
     "tracking/task-tracker.md": Contract(40, 2.5, "register", False),
     "tracking/blockers-log.md": Contract(
@@ -104,8 +111,14 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
         "live-index",
         True,
         archive_target="session-index/archive/{YYYY-Q}.md",
+        entry_pattern=r"^\| ",
     ),
 }
+
+# Generated INDEX files owned by aim-tracking-freshness. Even if a future seed
+# made one of these look rotatable (cap + rotation_trigger:on-* + archive_target),
+# --apply must refuse it here — no double ownership.
+FRESHNESS_OWNED: frozenset[str] = frozenset({"bugs/INDEX.md", "tech-debt/INDEX.md"})
 
 # Latest SESSION_HANDOFF_*.md (detail-record, whole-file, 60/8). Discovered by
 # glob rather than fixed path; --apply on a handoff is not supported here
@@ -113,14 +126,28 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
 HANDOFF_CONTRACT = Contract(60, 8, "detail-record", False)
 HANDOFF_GLOB = "session-logs/SESSION_HANDOFF_*.md"
 
-# Default entry boundary: a markdown H3 heading. Override with --entry-pattern
-# for table-row formats (e.g. session-index: '^\\| ').
-DEFAULT_ENTRY_PATTERN = r"^### "
+# Default entry boundary: an id-prefixed markdown H3 heading (DEC-/BUG-/BLK-/
+# RISK-/TD-…). Requiring an id prefix (2-4 uppercase letters + '-') avoids
+# matching quoted/section headings such as '### Critical' or '### Notes' that
+# would otherwise split a real entry. Override with --entry-pattern (or the
+# per-file contract entry_pattern) for table-row formats (e.g. '^\\| ').
+DEFAULT_ENTRY_PATTERN = r"^### [A-Z]{2,4}-"
 
 # Idempotent live-pointer marker.
 POINTER_MARKER = "<!-- aim-tracking-rotate:pointer -->"
 
 DEC_ID_RE = re.compile(r"\b(DEC-[A-Za-z0-9][A-Za-z0-9-]*)\b")
+
+# Generic entry-id token (DEC-/BUG-/BLK-/RISK-/TD-…) used for dedup + the
+# post-write id-conservation check.
+ENTRY_ID_RE = re.compile(r"\b([A-Z]{2,4}-[A-Za-z0-9][A-Za-z0-9-]*)\b")
+
+# A register entry is "resolved" (eligible to archive) only with an explicit
+# resolved-class status; anything else is treated as OPEN and never archived.
+RESOLVED_STATUS_RE = re.compile(
+    r"(?im)^\s*[*_`]*\s*status\s*[*_`]*\s*:\s*[*_`]*\s*"
+    r"(resolved|closed|done|fixed|mitigated)\b"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +196,9 @@ def parse_contract_front_matter(front_matter: str) -> Contract | None:
     index_file = values.get("index_file") or None
     if index_file in {"N/A", "n/a", "none", "None"}:
         index_file = None
+    entry_pattern = values.get("entry_pattern") or None
+    if entry_pattern in {"N/A", "n/a", "none", "None"}:
+        entry_pattern = None
     return Contract(
         cap_lines=cap_lines,
         cap_kb=cap_kb,
@@ -176,6 +206,7 @@ def parse_contract_front_matter(front_matter: str) -> Contract | None:
         rotatable=trigger.startswith("on-close") and archive is not None,
         archive_target=archive,
         index_file=index_file,
+        entry_pattern=entry_pattern,
     )
 
 
@@ -186,6 +217,18 @@ def measure(text: str) -> tuple[int, int]:
 
 def over_cap(lines: int, nbytes: int, contract: Contract) -> bool:
     return lines > contract.cap_lines or nbytes > contract.cap_kb * 1024
+
+
+def atomic_write(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically (tempfile + ``os.replace``).
+
+    Guarantees a reader/interrupted re-run never observes a half-written file,
+    so the shard + live + manifest writes are crash-consistent.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".rotate-tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +288,11 @@ def discover_governed(oversight_root: Path) -> list[GovernedFile]:
     return governed
 
 
+def effective_entry_pattern(contract: Contract, explicit: str | None) -> str:
+    """Resolve the entry-boundary regex: explicit CLI > contract > default."""
+    return explicit or contract.entry_pattern or DEFAULT_ENTRY_PATTERN
+
+
 # ---------------------------------------------------------------------------
 # --check : the enforcement gate
 # ---------------------------------------------------------------------------
@@ -255,23 +303,58 @@ def script_invocation() -> str:
     return f"python {Path(__file__).resolve()}"
 
 
+def rotation_can_help(
+    path: Path, contract: Contract, entry_pattern: str, now: datetime
+) -> bool:
+    """Simulate --apply: would rotation bring this file at or under cap?
+
+    Returns False when there is nothing eligible to rotate (no entries, or a
+    register with only OPEN entries) or when even the maximal rotation leaves
+    the file over cap (preamble/open-set alone exceeds it) — i.e. the remedy is
+    a hand-trim, not --apply.
+    """
+    parsed = parse_entries(path.read_text(encoding="utf-8"), entry_pattern)
+    if not parsed.entries:
+        return False
+    pointer_line = _pointer_line(contract, render_period(contract.archive_target, now))
+    kept, moved = select_kept_moved(parsed, contract, pointer_line, None)
+    if not moved:
+        return False
+    new_text = _render_live(parsed.front_matter, parsed.preamble, pointer_line, kept)
+    return not over_cap(*measure(new_text), contract)
+
+
 def run_check(oversight_root: Path) -> int:
     governed = discover_governed(oversight_root)
+    now = datetime.now()
     breaches: list[str] = []
     for gf in governed:
         lines, nbytes = measure(gf.path.read_text(encoding="utf-8"))
         if not over_cap(lines, nbytes, gf.contract):
             continue
         kb = nbytes / 1024
-        remedy = (
-            f"{script_invocation()} --apply {gf.path} "
-            f"--oversight-root {oversight_root}"
-            if gf.contract.rotatable
-            else (
-                f"trim {gf.rel} by hand — class '{gf.contract.klass}' is "
-                "overwrite-in-place / thin (rotation_trigger: none)"
+        if gf.contract.rotatable and gf.contract.archive_target:
+            eff = effective_entry_pattern(gf.contract, None)
+            if rotation_can_help(gf.path, gf.contract, eff, now):
+                ep = (
+                    f" --entry-pattern '{gf.contract.entry_pattern}'"
+                    if gf.contract.entry_pattern
+                    else ""
+                )
+                remedy = (
+                    f"{script_invocation()} --apply {gf.path} "
+                    f"--oversight-root {oversight_root}{ep}"
+                )
+            else:
+                remedy = (
+                    f"trim {gf.rel} by hand — rotation is exhausted (no "
+                    "eligible entry to archive, or preamble alone exceeds cap)"
+                )
+        else:
+            remedy = (
+                f"trim {gf.rel} by hand — class '{gf.contract.klass}' is not "
+                "rotatable (rotation_trigger: none)"
             )
-        )
         breaches.append(
             "\n".join(
                 [
@@ -326,13 +409,35 @@ class ParsedFile:
 
 
 def parse_entries(text: str, entry_pattern: str) -> ParsedFile:
-    """Split a file into front-matter, preamble, and an ordered entry list."""
+    """Split a file into front-matter, preamble, and an ordered entry list.
+
+    Entry boundaries inside fenced code blocks (```` ``` ```` / ``~~~``) are
+    ignored so a heading quoted in an entry body never starts a phantom entry
+    or splits a real one mid-body.
+    """
     front_matter, body = split_front_matter(text)
     body_no_pointer = strip_pointer(body)
     lines = body_no_pointer.splitlines(keepends=True)
     entry_re = re.compile(entry_pattern)
+    fence_re = re.compile(r"^\s*(`{3,}|~{3,})")
 
-    boundaries = [i for i, ln in enumerate(lines) if entry_re.match(ln)]
+    boundaries: list[int] = []
+    in_fence = False
+    fence_char = ""
+    for i, ln in enumerate(lines):
+        fm = fence_re.match(ln)
+        if fm:
+            char = fm.group(1)[0]  # '`' or '~'
+            if not in_fence:
+                in_fence = True
+                fence_char = char
+            elif char == fence_char:
+                in_fence = False
+                fence_char = ""
+            continue
+        if not in_fence and entry_re.match(ln):
+            boundaries.append(i)
+
     if not boundaries:
         return ParsedFile(front_matter, body_no_pointer, [])
 
@@ -351,31 +456,86 @@ def strip_pointer(body: str) -> str:
     return "".join(kept)
 
 
-def select_oldest_block(
+def entry_key(entry: Entry) -> str:
+    """A stable dedup/conservation key for an entry.
+
+    Prefers an id token (DEC-/BUG-/BLK-/RISK-/TD-…); else the first table cell
+    for a pipe-row; else the stripped header text.
+    """
+    m = ENTRY_ID_RE.search(entry.header)
+    if m:
+        return m.group(1)
+    h = entry.header.strip()
+    if h.startswith("|"):
+        cells = [c.strip() for c in h.strip("|").split("|")]
+        cells = [c for c in cells if c]
+        if cells:
+            return cells[0]
+    return h.lstrip("#").strip()
+
+
+def is_resolved(entry: Entry) -> bool:
+    """True only when the entry carries an explicit resolved-class status.
+
+    Default-OPEN: anything without a clear resolved marker is treated as active
+    and is never archived (H-5 — a still-open blocker must not be evicted).
+    """
+    return bool(RESOLVED_STATUS_RE.search(entry.block))
+
+
+def select_kept_moved(
     parsed: ParsedFile,
     contract: Contract,
     pointer_line: str,
     keep_override: int | None,
-) -> int:
-    """Return how many of the OLDEST entries to move.
+) -> tuple[list[Entry], list[Entry]]:
+    """Partition entries into (kept-live, moved-to-archive).
 
-    Entries are newest-first (newest at index 0, oldest last), so the oldest
-    contiguous block is the tail. We keep as many newest entries as fit under
-    both caps; the remainder (oldest) rotate out. With ``keep_override`` the
-    caller forces the kept-newest count.
+    - register: rotate by RESOLVED status. Archive the oldest RESOLVED entries
+      until under cap; OPEN/active entries are never moved. If only OPEN entries
+      remain and it is still over cap, that is the exhausted case (caller emits
+      a hand-trim remedy).
+    - append-only-log / live-index: rotate by recency — keep as many NEWEST
+      entries as fit under both caps; the oldest remainder rotate out.
+
+    Entries are newest-first (index 0 newest, last index oldest).
     """
-    n = len(parsed.entries)
-    if keep_override is not None:
-        return max(0, n - max(0, min(keep_override, n)))
-
+    entries = parsed.entries
+    n = len(entries)
     fixed = parsed.front_matter + parsed.preamble + pointer_line
-    for keep in range(n, -1, -1):
-        candidate = fixed + "".join(e.block for e in parsed.entries[:keep])
-        lines, nbytes = measure(candidate)
-        if not over_cap(lines, nbytes, contract):
-            return n - keep
-    # Even zero kept entries is over cap (preamble alone too big) -> move all.
-    return n
+
+    if contract.klass == "register":
+        moved_idx: set[int] = set()
+
+        def kept_size(midx: set[int]) -> tuple[int, int]:
+            live = fixed + "".join(
+                e.block for j, e in enumerate(entries) if j not in midx
+            )
+            return measure(live)
+
+        lines, nbytes = kept_size(moved_idx)
+        # Oldest first: newest-first list => walk highest (oldest) index down.
+        for i in range(n - 1, -1, -1):
+            if not over_cap(lines, nbytes, contract):
+                break
+            if is_resolved(entries[i]):
+                moved_idx.add(i)
+                lines, nbytes = kept_size(moved_idx)
+        kept = [e for j, e in enumerate(entries) if j not in moved_idx]
+        moved = [e for j, e in enumerate(entries) if j in moved_idx]
+        return kept, moved
+
+    # Recency path (append-only-log / live-index).
+    if keep_override is not None:
+        keep = max(0, min(keep_override, n))
+    else:
+        keep = 0
+        for k in range(n, -1, -1):
+            candidate = fixed + "".join(e.block for e in entries[:k])
+            if not over_cap(*measure(candidate), contract):
+                keep = k
+                break
+    return entries[:keep], entries[keep:]
 
 
 def render_period(archive_target: str, now: datetime) -> str:
@@ -386,20 +546,54 @@ def render_period(archive_target: str, now: datetime) -> str:
     return out
 
 
-def append_to_shard(shard: Path, moved: list[Entry], source_rel: str) -> None:
+def _pointer_line(contract: Contract, shard_rel: str) -> str:
+    return (
+        f"> Older entries archived → `{shard_rel}`"
+        + (f" (manifest: `{contract.index_file}`)" if contract.index_file else "")
+        + f". {POINTER_MARKER}\n"
+    )
+
+
+def _render_live(
+    front_matter: str, preamble: str, pointer_line: str, kept: list[Entry]
+) -> str:
+    pre = preamble
+    if pre and not pre.endswith("\n"):
+        pre += "\n"
+    return front_matter + pre + pointer_line + "".join(e.block for e in kept)
+
+
+def append_to_shard(
+    shard: Path, moved: list[Entry], source_rel: str, entry_pattern: str
+) -> int:
+    """Append moved entries to the shard idempotently. Returns rows appended.
+
+    Re-running --apply after an interruption must not double-append: entries
+    whose id is already present in the shard are skipped (mirrors the manifest
+    dedup). Writes atomically.
+    """
     shard.parent.mkdir(parents=True, exist_ok=True)
-    moved_text = "".join(e.block for e in moved)
+    moved_new = moved
     if shard.is_file():
-        existing = shard.read_text(encoding="utf-8")
-        sep = "" if existing.endswith("\n") else "\n"
-        shard.write_text(existing + sep + moved_text, encoding="utf-8")
-    else:
-        header = (
-            f"# Archive — rotated from `{source_rel}`\n\n"
-            "Contiguous, period-labelled archive shard. Append-ordered; never "
-            "re-sorted. Chronology is preserved by construction (BP-167 Part C).\n\n"
-        )
-        shard.write_text(header + moved_text, encoding="utf-8")
+        existing_text = shard.read_text(encoding="utf-8")
+        existing_keys = {
+            entry_key(e) for e in parse_entries(existing_text, entry_pattern).entries
+        }
+        moved_new = [e for e in moved if entry_key(e) not in existing_keys]
+        if not moved_new:
+            return 0
+        sep = "" if existing_text.endswith("\n") else "\n"
+        atomic_write(shard, existing_text + sep + "".join(e.block for e in moved_new))
+        return len(moved_new)
+
+    header = (
+        f"# Archive — rotated from `{source_rel}`\n\n"
+        "Period-labelled archive shard. Entries are appended in rotation order "
+        "and never re-sorted: order is monotonic *within* a shard, but across "
+        "shards/rotations it is not guaranteed (BP-167 Part C).\n\n"
+    )
+    atomic_write(shard, header + "".join(e.block for e in moved_new))
+    return len(moved_new)
 
 
 def update_manifest(manifest: Path, moved: list[Entry], shard_rel: str) -> int:
@@ -407,8 +601,10 @@ def update_manifest(manifest: Path, moved: list[Entry], shard_rel: str) -> int:
     manifest.parent.mkdir(parents=True, exist_ok=True)
     header = (
         "# Decision Log — Manifest\n\n"
-        "Single maintained index (BP-167 Part C): one row per entry id → "
-        "title → location → status. O(1) by-id lookup across all shards.\n\n"
+        "Single maintained index of **archived** decisions (BP-167 Part C): one "
+        "row per archived entry id → title → location → status. O(1) by-id "
+        "lookup across the archived shards (live entries remain in "
+        "`decision-log.md`).\n\n"
         "| ID | Title | Location | Status |\n"
         "|---|---|---|---|\n"
     )
@@ -434,25 +630,28 @@ def update_manifest(manifest: Path, moved: list[Entry], shard_rel: str) -> int:
         if not text.endswith("\n"):
             text += "\n"
         text += "\n".join(rows) + "\n"
-    manifest.write_text(text, encoding="utf-8")
+    atomic_write(manifest, text)
     return len(rows)
 
 
 def update_banner(parsed: ParsedFile, remaining: int) -> tuple[str, bool]:
     """Set the register reconciliation banner count to ``remaining``.
 
+    Rewrites ``N active [as of PM #X]`` to ``M active`` — the stale ``as of
+    PM #X`` qualifier is dropped rather than left pointing at an old session.
+
     Returns ``(new_preamble, updated)``.
     """
-    pattern = re.compile(r"(\d+)(\s+active as of)")
+    pattern = re.compile(r"\d+\s+active(?:\s+as of[^\n*]*)?")
     if pattern.search(parsed.preamble):
-        return pattern.sub(rf"{remaining}\2", parsed.preamble, count=1), True
+        return pattern.sub(f"{remaining} active", parsed.preamble, count=1), True
     return parsed.preamble, False
 
 
 def run_apply(
     file_path: Path,
     oversight_root: Path,
-    entry_pattern: str,
+    entry_pattern: str | None,
     keep_override: int | None,
     now: datetime,
 ) -> int:
@@ -465,6 +664,17 @@ def run_apply(
         if str(file_path.resolve()).startswith(str(oversight_root.resolve()))
         else file_path.name
     )
+
+    # Ownership guard: generated INDEX files belong to aim-tracking-freshness;
+    # never rotate them here even if a seed made them look rotatable.
+    if rel in FRESHNESS_OWNED:
+        print(
+            f"ERROR: {rel} is owned by aim-tracking-freshness (generated INDEX) "
+            "— not rotatable by aim-tracking-rotate.",
+            file=sys.stderr,
+        )
+        return 1
+
     resolved = resolve_contract(file_path, rel)
     if resolved is None:
         print(
@@ -483,39 +693,44 @@ def run_apply(
         )
         return 1
 
+    eff_pattern = effective_entry_pattern(contract, entry_pattern)
     text = file_path.read_text(encoding="utf-8")
     before_lines, before_bytes = measure(text)
-    parsed = parse_entries(text, entry_pattern)
+    parsed = parse_entries(text, eff_pattern)
     if not parsed.entries:
         print(
             f"ERROR: no entries detected in {rel} with pattern "
-            f"{entry_pattern!r}; nothing to rotate.",
+            f"{eff_pattern!r}; nothing to rotate.",
             file=sys.stderr,
         )
         return 1
 
-    shard_rel = render_period(contract.archive_target, now)
-    pointer_line = (
-        f"> Older entries archived → `{shard_rel}`"
-        + (f" (manifest: `{contract.index_file}`)" if contract.index_file else "")
-        + f". {POINTER_MARKER}\n"
-    )
+    pre_ids = Counter(entry_key(e) for e in parsed.entries)
 
-    move_count = select_oldest_block(parsed, contract, pointer_line, keep_override)
-    if move_count == 0:
+    shard_rel = render_period(contract.archive_target, now)
+    pointer_line = _pointer_line(contract, shard_rel)
+
+    kept, moved = select_kept_moved(parsed, contract, pointer_line, keep_override)
+
+    if not moved:
+        # Nothing eligible: either already within cap, or exhausted.
+        if over_cap(before_lines, before_bytes, contract):
+            print(
+                f"ERROR: {rel} is over cap but no entry is eligible to rotate "
+                "(register holds only OPEN entries, or the sole entry exceeds "
+                "the cap). Rotation exhausted — trim by hand.",
+                file=sys.stderr,
+            )
+            return 1
         print(
             f"{rel}: already within cap — no entries rotated "
             f"({before_lines} lines / {before_bytes / 1024:.1f} KB).",
         )
         return 0
 
-    total = len(parsed.entries)
-    kept = parsed.entries[: total - move_count]
-    moved = parsed.entries[total - move_count :]
-
-    # 1. Archive shard.
+    # 1. Archive shard (idempotent + atomic).
     shard = oversight_root / shard_rel
-    append_to_shard(shard, moved, rel)
+    appended = append_to_shard(shard, moved, rel, eff_pattern)
 
     # 2. Reconciliation: manifest (append-only-log) OR banner (register).
     manifest_rows = 0
@@ -526,27 +741,54 @@ def run_apply(
             oversight_root / contract.index_file, moved, shard_rel
         )
     if contract.klass == "register":
-        new_preamble, banner_updated = update_banner(parsed, len(kept))
+        # Banner counts OPEN entries still live — kept may include some newest
+        # RESOLVED entries that fit under cap, which are NOT "active".
+        open_kept = sum(1 for e in kept if not is_resolved(e))
+        new_preamble, banner_updated = update_banner(parsed, open_kept)
 
-    # 3. Rewrite live file = front-matter + preamble + pointer + kept entries.
-    pre = new_preamble
-    if pre and not pre.endswith("\n"):
-        pre += "\n"
-    new_text = parsed.front_matter + pre + pointer_line + "".join(e.block for e in kept)
-    file_path.write_text(new_text, encoding="utf-8")
-
-    # 4. Verify counts.
+    # 3. Rewrite live file atomically = front-matter + preamble + pointer + kept.
+    new_text = _render_live(parsed.front_matter, new_preamble, pointer_line, kept)
+    atomic_write(file_path, new_text)
     after_lines, after_bytes = measure(new_text)
-    assert len(kept) + len(moved) == total, "entry count mismatch after rotation"
-    for e in moved:
-        assert e.block.startswith(e.header), "entry split detected"
+
+    # 4. REAL post-write check: re-read live + shard and assert per-id count
+    #    conservation for every pre-write id (no entry lost, none duplicated /
+    #    double-appended). Replaces the old tautological slice/startswith asserts.
+    live_ids = [
+        entry_key(e)
+        for e in parse_entries(
+            file_path.read_text(encoding="utf-8"), eff_pattern
+        ).entries
+    ]
+    shard_ids = [
+        entry_key(e)
+        for e in parse_entries(shard.read_text(encoding="utf-8"), eff_pattern).entries
+    ]
+    after_counter = Counter(live_ids) + Counter(shard_ids)
+    violations = [
+        (eid, cnt, after_counter.get(eid, 0))
+        for eid, cnt in pre_ids.items()
+        if after_counter.get(eid, 0) != cnt
+    ]
+    if violations:
+        print(
+            "ERROR: id-conservation check FAILED after rotation "
+            f"({rel}) — an entry was lost or duplicated:",
+            file=sys.stderr,
+        )
+        for eid, was, now_count in violations[:10]:
+            print(
+                f"    {eid}: was {was} pre-write, now {now_count} live+shard",
+                file=sys.stderr,
+            )
+        return 1
 
     print(
         "\n".join(
             [
                 f"aim-tracking-rotate --apply: {rel}",
-                f"  entries:  {total} total → {len(kept)} kept / "
-                f"{len(moved)} archived",
+                f"  entries:  {len(parsed.entries)} total → {len(kept)} kept / "
+                f"{len(moved)} archived ({appended} appended to shard)",
                 f"  shard:    {shard_rel}",
                 (
                     f"  manifest: {manifest_rows} row(s) → {contract.index_file}"
@@ -560,12 +802,23 @@ def run_apply(
             ]
         )
     )
-    if over_cap(after_lines, after_bytes, contract):
+
+    if not kept:
         print(
-            "  WARNING: live file still over cap after moving all entries — "
-            "preamble alone exceeds the cap; trim it by hand.",
+            "  WARNING: every entry was archived (including the newest) — the "
+            "live file now holds no entries; keep ≥1 newest by hand if needed.",
             file=sys.stderr,
         )
+
+    if over_cap(after_lines, after_bytes, contract):
+        # H-4: do NOT exit 0 — the gate must not loop back to --apply forever.
+        print(
+            "ERROR: live file still over cap after rotating every eligible "
+            "entry (preamble / open-set alone exceeds the cap). Rotation "
+            "exhausted — trim by hand.",
+            file=sys.stderr,
+        )
+        return 1
     return 0
 
 
@@ -634,10 +887,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--entry-pattern",
-        default=DEFAULT_ENTRY_PATTERN,
+        default=None,
         help=(
-            "Regex matching an entry-boundary line (default: H3 heading "
-            f"{DEFAULT_ENTRY_PATTERN!r}). Use '^\\| ' for table-row registers."
+            "Regex matching an entry-boundary line. Default resolution: this "
+            "flag > the file's contract entry_pattern > the built-in id-prefixed "
+            f"H3 default ({DEFAULT_ENTRY_PATTERN!r}). Use '^\\| ' for table-row "
+            "registers."
         ),
     )
     parser.add_argument(

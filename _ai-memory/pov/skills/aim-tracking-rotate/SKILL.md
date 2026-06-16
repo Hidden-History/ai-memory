@@ -38,8 +38,11 @@ AI_MEMORY_OVERSIGHT_ROOT=/path/to/oversight \
   python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py --check
 ```
 
-Optional flags: `--entry-pattern '<regex>'` (entry-boundary line; default is an
-H3 heading `^### ` — use `'^\| '` for table-row registers), `--keep <N>`
+Optional flags: `--entry-pattern '<regex>'` (entry-boundary line; resolution
+order is this flag → the file's contract `entry_pattern` → the built-in
+id-prefixed H3 default `^### [A-Z]{2,4}-`. Table-row live-indexes
+(`SESSION_WORK_INDEX.md`, `session-index/INDEX.md`) carry `^\| ` in their
+contract, so `--apply` finds their rows without passing the flag), `--keep <N>`
 (force the number of newest entries kept live), `--period YYYY-MM` (archive
 period override for deterministic runs).
 
