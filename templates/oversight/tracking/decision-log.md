@@ -1,3 +1,14 @@
+---
+class: append-only-log
+read_path: qdrant-or-cold
+owns: "decision records (DEC-*)"
+cap_lines: 150
+cap_kb: 50
+rotation_trigger: on-close-over-cap
+archive_target: tracking/archive/decision-log-ARCHIVE-{YYYY-MM}.md
+index_file: tracking/decision-log-INDEX.md
+reconciliation: "ONE manifest (DEC-id→title→shard→status) updated in the SAME close that appends/rotates; header = ONE datestamp line, never a narrative diary"
+---
 # Decision Log
 
 **Last Updated**: [YYYY-MM-DD]
@@ -14,6 +25,7 @@
 
 ## Entry Format
 
+```md
 ### DEC-[ID]: [Decision Topic]
 - **Date**: [YYYY-MM-DD]
 - **Context**: [Why this decision was needed — 1 sentence]
@@ -23,6 +35,7 @@
 - **Confidence**: [Verified/Informed/Inferred]
 - **Reversibility**: [Easy/Moderate/Difficult/Irreversible]
 - **Status**: [Active/Superseded]
+```
 
 ---
 

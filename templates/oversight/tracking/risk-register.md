@@ -1,3 +1,14 @@
+---
+class: register
+read_path: section-anchored
+owns: "risk records (RSK-*)"
+cap_lines: 120
+cap_kb: 12
+rotation_trigger: on-close-over-cap  # auto-rotation deferred to TD-655; rotate manually until then
+archive_target: tracking/risk-archive-{YYYY}.md
+index_file: N/A
+reconciliation: "live = OPEN only + '{N} active as of PM #{X}' banner; on resolve MOVE to archive"
+---
 # Risk Register
 
 **Last Updated**: [DATE]
@@ -10,25 +21,25 @@
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-001 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-001 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ### High
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-002 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-002 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ### Medium
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-003 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-003 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ### Low
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-004 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-004 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ---
 
@@ -36,7 +47,7 @@
 
 | ID | Risk | Resolution | Date |
 |----|------|------------|------|
-| RISK-000 | [Description] | [How it was resolved] | [Date] |
+| RSK-000 | [Description] | [How it was resolved] | [Date] |
 
 ---
 
