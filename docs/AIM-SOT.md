@@ -10,7 +10,7 @@ The registry lives in **your own repository** as a committed `.sot/registry.yaml
 |------|----------|----------|
 | **Registry of record** | `.sot/registry.yaml` | Your repo (committed, diff-reviewable) |
 | **Skill** | `aim-sot` (consult · detect-propose · verify) | `_ai-memory/skills/aim-sot/` |
-| **Triggers (opt-in)** | Claude `Stop` hook; Codex, Cursor, Gemini adapters | Shipped unregistered — see [Opt-In](#enabling-automatic-drift-detection) |
+| **Triggers (default-on)** | Claude session-start digest + `Stop` hook; Codex, Cursor, Gemini adapters | Auto-registered on install; opt out with `AI_MEMORY_SOT_HOOKS=off` — see [Automatic Drift Detection](#automatic-drift-detection) |
 | **Per-install drift cache (5a)** | `~/.ai-memory/drift-state/sot_drift_{project_id}.json` | Runtime; never committed |
 | **Derived memory cache (5b)** | `conventions` collection, `memory_type=sot_entry` | Qdrant; rebuildable |
 
@@ -77,7 +77,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 
 ### consult — Orient before acting
 
-Read-only query over your committed registry, served from the derived memory cache (5b) with a fallback to the committed file. Useful for agents that need to locate a component's owner or canonical location before editing it.
+Read-only query over your committed registry. Results are served from the derived memory cache (5b) only when every cached row's stamped `registry_sha` matches the committed registry's SHA **and** the row count matches the committed entry count — otherwise the engine falls back to the committed file directly. This ensures consult never returns stale, partial, or cross-state entries. Useful for agents that need to locate a component's owner or canonical location before editing it.
 
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
@@ -190,11 +190,11 @@ This is an unconditional structural guarantee: the engine, the Stop hook, and al
 
 All trigger paths are **fail-open**: any error is logged to stderr and the adapter exits 0, so a transient failure never blocks a Claude Code (or Codex/Cursor/Gemini) session.
 
-## Enabling Automatic Drift Detection
+## Automatic Drift Detection
 
-The Stop hook and all CLI adapter hooks ship **unregistered**. The installer does not modify your `settings.json`, `.cursor/hooks.json`, `.codex/hooks.json`, or `.gemini/settings.json`. Opt in manually per CLI.
+The per-session-start SOT digest hook and the end-of-session drift hook are **registered automatically on install** for every configured IDE (Claude Code, Codex, Cursor, Gemini). To opt out, set `AI_MEMORY_SOT_HOOKS=off` (case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before running `install.sh`. Note: `AI_MEMORY_SOT_HOOKS=off` prevents registration on install but does not remove hooks already written by a prior install; to disable an existing install, remove the SOT hook entries from the relevant config file manually.
 
-The engine also runs standalone with no hook required — use this as the default no-hook path, or schedule it as a cron job:
+The engine also runs standalone with no hook required — use this as an alternative, or schedule it as a cron job:
 
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
@@ -202,9 +202,13 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
   run
 ```
 
-### Claude Code — Stop hook
+### Claude Code
 
-Add the following entry to your project's `.claude/settings.json` under `hooks.Stop`:
+The installer registers two SOT hooks in your project's `.claude/settings.json`:
+
+**Session-start digest** (under `hooks.SessionStart`, matcher `resume|compact`): invokes `sot_digest_session_start.py` and injects a compact SOT registry digest as ambient context on session resume or compact.
+
+**Stop drift hook** (under `hooks.Stop`): invokes `sot_drift_stop.py` at every session end and prints a one-line drift summary to stderr when drift or new candidates are detected. The installed entry:
 
 ```json
 {
@@ -225,11 +229,9 @@ Add the following entry to your project's `.claude/settings.json` under `hooks.S
 }
 ```
 
-Once registered, the hook fires at every Claude Code session end and prints a one-line drift summary to stderr when drift or new candidates are detected.
-
 ### Codex — Stop hook
 
-Add under `hooks.Stop` in `.codex/hooks.json`:
+The installer registers a session-start digest hook and a Stop drift hook in `.codex/hooks.json`. The Stop entry:
 
 ```json
 {
@@ -251,7 +253,7 @@ Add under `hooks.Stop` in `.codex/hooks.json`:
 
 ### Cursor — stop hook
 
-Add under `hooks.stop` in `.cursor/hooks.json`:
+The installer registers a session-start digest hook and a stop drift hook in `.cursor/hooks.json`. The stop entry:
 
 ```json
 {
@@ -269,7 +271,7 @@ Add under `hooks.stop` in `.cursor/hooks.json`:
 
 ### Gemini CLI — AfterAgent hook
 
-Add under `hooks.AfterAgent` in `.gemini/settings.json`:
+The installer registers a session-start digest hook and an AfterAgent drift hook in `.gemini/settings.json`. The AfterAgent entry:
 
 ```json
 {
@@ -308,7 +310,9 @@ The cache is keyed by `project_id` (resolved from the `AI_MEMORY_PROJECT_ID` env
 
 After each approved apply, the engine reindexes the committed registry into this cache so `aim-sot consult` (and any agent using `aim-search`) can retrieve SOT entries via semantic search.
 
-**Indexed fields**: `id`, `description`, `sot_location`, `owner`, `provenance_note`, `status`.
+**Indexed fields**: `id`, `description`, `sot_location`, `owner`, `added_by`, `provenance_note`, `status`.
+
+**Owner fidelity**: `owner` and `added_by` handles are stored exactly as authored in the registry. The shared security scanner's HANDLE-pattern filter is exempted for SOT entries so that ownership handles (e.g. `@platform-team`) are preserved faithfully — only PII and secrets screening applies.
 
 **Not indexed here**: machine drift state (`last_verified_at`, `last_verified_sha`, `drift_status`) — that lives in 5a.
 
