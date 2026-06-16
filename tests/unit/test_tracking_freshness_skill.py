@@ -51,6 +51,7 @@ render_bugs_index = _mod.render_bugs_index
 render_td_index = _mod.render_td_index
 render_closed_shard = _mod.render_closed_shard
 _status_summary = _mod._status_summary
+_warn_if_over_cap = _mod._warn_if_over_cap
 find_records = _mod.find_records
 parse_index_ids = _mod.parse_index_ids
 parse_closed_shard_ids = _mod.parse_closed_shard_ids
@@ -789,6 +790,22 @@ class TestStatusSummary:
         assert long_closed not in rendered
         assert record.is_closed is True
 
+    def test_eight_word_prefix_exactly_64_chars_stays_within_budget(self) -> None:
+        """Word-truncated 8-word prefix landing exactly on 64 chars stays ≤64.
+
+        Regression for the off-by-one in the char guard: with a strict ``>`` the
+        64-char word-prefix skipped char-truncation, then the appended ellipsis
+        pushed the cell to 65 chars. The ``>=`` guard trims to 63 first.
+        """
+        # 8 tokens summing to exactly 64 chars (incl. the 7 interior spaces):
+        # one 8-char word + seven 7-char words = 57 chars + 7 spaces = 64.
+        prefix = " ".join(["a" * 8] + ["b" * 7] * 7)
+        assert len(prefix) == 64, "precondition: 8-word prefix is exactly 64 chars"
+        # A 9th word forces word-level truncation so the ellipsis path is taken.
+        summary = _status_summary(prefix + " ninth")
+        assert summary.endswith("…")
+        assert len(summary) <= 64, f"summary exceeded 64 chars: {summary!r}"
+
 
 # ---------------------------------------------------------------------------
 # TestRenderTdIndex
@@ -881,9 +898,11 @@ class TestClosedShardAndFrontMatter:
         rendered = render_bugs_index([self._closed_bug(1)], [], "2026-06-16")
         assert rendered.startswith("---\nclass: register\n")
         assert "read_path: section-anchored" in rendered
+        assert 'owns: "generated bug-or-TD index + closed-history shard"' in rendered
         assert "cap_lines: 100" in rendered
         assert "cap_kb: 12" in rendered
-        assert "archive_target: CLOSED.md" in rendered
+        assert "rotation_trigger: none" in rendered
+        assert "archive_target: ./CLOSED.md" in rendered
 
     def test_td_index_has_d2_front_matter(self) -> None:
         """Generated TD INDEX opens with the D2 register contract front-matter (150/18)."""
@@ -898,9 +917,11 @@ class TestClosedShardAndFrontMatter:
         )
         rendered = render_td_index([td_rec], [], "2026-06-16")
         assert rendered.startswith("---\nclass: register\n")
+        assert 'owns: "generated bug-or-TD index + closed-history shard"' in rendered
         assert "cap_lines: 150" in rendered
         assert "cap_kb: 18" in rendered
-        assert "archive_target: CLOSED.md" in rendered
+        assert "rotation_trigger: none" in rendered
+        assert "archive_target: ./CLOSED.md" in rendered
 
     def test_closed_section_caps_at_last_10_with_pointer(self) -> None:
         """INDEX ## Closed lists only the most recent 10 + a count pointer."""
@@ -1254,6 +1275,55 @@ class TestDivergenceDetection:
         assert "BUG-002-new-bug.md" in staleness["missing_bug"]
         assert "BUG-001-open-bug.md" not in staleness["missing_bug"]
 
+    def test_closed_shard_only_match_not_misattributed_to_index(
+        self, tmp_path: Path
+    ) -> None:
+        """Fix (LOW): an open record correctly in the INDEX Open section whose ID
+        also appears (stale) in CLOSED.md must NOT be reported as a divergence
+        attributed to the INDEX Closed section.
+
+        The divergence-detail message attributes a placement to the INDEX, so it
+        reads the INDEX-only closed list; the CLOSED.md shard union feeds only the
+        missing_*/orphan computation. Before the fix the union leaked into the
+        divergence check and produced a false "in Closed section of bugs/INDEX.md".
+        """
+        bugs_dir = tmp_path / "bugs"
+        td_dir = tmp_path / "tech-debt"
+        bugs_dir.mkdir()
+        td_dir.mkdir()
+
+        (bugs_dir / "BUG-001-open-bug.md").write_text(
+            "# BUG-001: Open Bug\n\n**Status**: OPEN\n", encoding="utf-8"
+        )
+        bugs_index = bugs_dir / "INDEX.md"
+        bugs_index.write_text(
+            "# Bug Tracker Index\n\n"
+            "## Open\n\n"
+            "| BUG-001 | OPEN |\n\n"  # correctly placed in Open
+            "## Closed Bugs\n\n",
+            encoding="utf-8",
+        )
+        # Stale shard still lists BUG-001 as closed (the shard is regenerated
+        # wholesale on --write, so a stale entry is plausible mid-cycle).
+        (bugs_dir / "CLOSED.md").write_text(
+            "# Closed Bug Records\n\n"
+            "| ID | Title | Status | Link |\n"
+            "|----|-------|--------|------|\n"
+            "| BUG-001 | Open Bug | FIXED | [file](./BUG-001-open-bug.md) |\n",
+            encoding="utf-8",
+        )
+        td_index = self._make_minimal_td_index(td_dir)
+
+        bugs_records = [parse_record_file(bugs_dir / "BUG-001-open-bug.md", "bug")]
+        staleness = compute_staleness(bugs_records, [], [], bugs_index, td_index)
+
+        assert staleness["divergences"] == [], (
+            "a CLOSED.md-only closed match must not be misattributed to the "
+            "INDEX Closed section"
+        )
+        # Union still suppresses a false missing_* for the sharded ID.
+        assert staleness["missing_bug"] == []
+
 
 # ---------------------------------------------------------------------------
 # TestCheckWriteContract
@@ -1532,3 +1602,40 @@ class TestCheckWriteContract:
         assert (
             "fully in sync" not in result.stdout
         ), "--check must NOT print 'fully in sync ✓' — that is a false-clean."
+
+
+# ---------------------------------------------------------------------------
+# TestWarnIfOverCap
+# ---------------------------------------------------------------------------
+
+
+class TestWarnIfOverCap:
+    """Fix 4: _warn_if_over_cap is a sensor — stderr WARNING when over cap, and
+    silent + no-op (no raise, no exit) when under cap."""
+
+    def test_over_line_cap_emits_warning(self, capsys, tmp_path: Path) -> None:
+        path = tmp_path / "INDEX.md"
+        content = "\n".join(["line"] * 50)  # 50 lines, over a 10-line cap
+        ret = _warn_if_over_cap(path, content, cap_lines=10, cap_kb=1000)
+        captured = capsys.readouterr()
+        assert ret is None  # return unchanged — sensor, not a crash
+        assert "WARNING" in captured.err
+        assert "over cap" in captured.err
+        assert captured.out == ""  # nothing on stdout
+
+    def test_over_kb_cap_emits_warning(self, capsys, tmp_path: Path) -> None:
+        path = tmp_path / "INDEX.md"
+        content = "x" * 4096  # 4 KB, single line, over a 1-KB cap
+        _warn_if_over_cap(path, content, cap_lines=1000, cap_kb=1)
+        captured = capsys.readouterr()
+        assert "WARNING" in captured.err
+        assert "over cap" in captured.err
+
+    def test_under_cap_no_warning(self, capsys, tmp_path: Path) -> None:
+        path = tmp_path / "INDEX.md"
+        content = "\n".join(["line"] * 5)  # tiny, well under both caps
+        ret = _warn_if_over_cap(path, content, cap_lines=100, cap_kb=12)
+        captured = capsys.readouterr()
+        assert ret is None
+        assert captured.err == ""
+        assert captured.out == ""

@@ -28,41 +28,30 @@ python "$SCRIPT" --check --oversight-root /path/to/oversight \
   --verify-code-state --source-repo /path/to/source-git-repo
 ```
 
-Oversight root may also be set via `AI_MEMORY_OVERSIGHT_ROOT`. If both that and
-`--oversight-root` are absent, the script defaults to `./oversight` relative to
-the CWD — run from the workspace root (the directory containing `oversight/`).
+Oversight root also reads `AI_MEMORY_OVERSIGHT_ROOT`; with neither it nor
+`--oversight-root` set, it defaults to `./oversight` under the CWD (run from the
+workspace root containing `oversight/`).
 
 ## Modes
 
-### `--check` (read-only)
+**`--check`** (read-only) — reads every record file and the current INDEX files
+and compares. Reports companions excluded, no-status warnings, divergences (file
+Status vs INDEX section — the BUG-301 class), orphan INDEX rows, and missing
+records. Id-parsing spans `INDEX.md` **and** `CLOSED.md`, so sharded closed
+records are not falsely flagged as missing. Exits non-zero on any divergence,
+orphan, missing, or no-status record; exits 0 only when fully in sync.
 
-Reads all record files and the current INDEX files, then compares. Reports:
-companions excluded, no-status warnings, divergences (file Status vs INDEX
-section — the BUG-301 class), orphan INDEX rows, and records missing from the
-INDEX. The id-parse spans `INDEX.md` **and** `CLOSED.md`, so sharded closed
-records are not falsely reported as missing.
-
-Exits non-zero if any divergence, orphan, missing record, or no-status record
-is found. Exits 0 only when INDEX files are fully in sync with all record files.
-
-### `--write`
-
-Runs the same analysis as `--check`, then regenerates both INDEX files. **Exit
-code 0** means a successful write. Use `--check` as the CI gate. Each INDEX:
-
-- Opens with the D2 contract front-matter (`class: register`,
-  `read_path: section-anchored`, `cap_lines`/`cap_kb`, `archive_target: CLOSED.md`).
-- `## Open` cells **summarize** the status (≤ 8 words / 64 chars); the linked
-  file holds the full text. Classification uses the full raw status, so display
-  truncation never changes open/closed placement.
-- `## Closed` lists only the most recent 10 plus a
-  `[Full closed history → ./CLOSED.md] (N)` pointer; the complete history is
-  written to `bugs/CLOSED.md` / `tech-debt/CLOSED.md` (idempotent overwrite).
-- The written INDEX size is asserted against its cap (bugs ≤ 100 lines / 12 KB,
-  TD ≤ 150 lines / 18 KB); over-cap emits a loud stderr `WARNING` (a sensor, not
-  a crash — open records cannot be shed).
-
-Touches nothing outside the two INDEX files and their `CLOSED.md` shards.
+**`--write`** — same analysis, then regenerates both INDEX files (**exit 0** is a
+successful write; gate CI on `--check`). Each INDEX opens with the D2 register
+front-matter (`class`, `read_path`, `owns`, `cap_lines`/`cap_kb`,
+`rotation_trigger: none`, `archive_target: ./CLOSED.md`); `## Open` cells
+summarize the status (≤ 8 words / 64 chars) while classification uses the full
+raw status; `## Closed` lists the most recent 10 plus a
+`[Full closed history → ./CLOSED.md] (N)` pointer, with the full history in
+`bugs/CLOSED.md` / `tech-debt/CLOSED.md` (idempotent overwrite). Written size is
+asserted against the cap (bugs ≤ 100 lines / 12 KB, TD ≤ 150 / 18); over-cap
+emits a loud stderr `WARNING` (a sensor — open records cannot be shed). Nothing
+outside the two INDEX files and their `CLOSED.md` shards is touched.
 
 ## Extended checks
 
