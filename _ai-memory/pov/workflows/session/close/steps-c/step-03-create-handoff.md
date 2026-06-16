@@ -1,13 +1,13 @@
 ---
 name: 'step-03-create-handoff'
 description: 'Create the session handoff document and update the SESSION_WORK_INDEX'
-nextStepFile: './step-04-save-and-confirm.md'
+nextStepFile: './step-04-enforce-caps.md'
 handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.template.md'
 ---
 
 # Step 3: Create Handoff Document
 
-**Progress: Step 3 of 4** — Next: Save and Confirm
+**Progress: Step 3 of 5** — Next: Enforce Caps
 
 ## STEP GOAL:
 
@@ -88,6 +88,12 @@ Create file: `{oversight_path}/session-logs/SESSION_HANDOFF_{date}.md`
 
 Where `{date}` is today's date in YYYY-MM-DD format.
 
+**Cap: 60 lines / 8 KB** (detail-record; checked by the Step 4 gate). Keep the
+handoff thin: **omit** any section that has nothing to say (do not pad it), and
+where something is unchanged from the prior handoff write a **one-line pointer**
+to it rather than re-essaying it. The full narrative lives in Qdrant + the
+SESSION_WORK_INDEX, never re-stated at length here.
+
 ```markdown
 # Session Handoff: [Primary Topic]
 
@@ -147,10 +153,12 @@ Write as if the reader has never seen this project.]
 ### 3. Verify Handoff
 
 Read the written file back and verify:
-- No sections are empty
+- Non-applicable sections are **omitted**, not padded — a section with nothing to say is dropped, never filled with filler
+- Where a section is unchanged from the prior handoff it is a **one-line pointer**, not a re-essay
 - Executive summary is accurate
 - Next steps are specific and actionable
 - "Context for Future Parzival" contains substantive information
+- The handoff is within its cap (≤60 lines / ≤8 KB) — the Step 4 gate blocks save otherwise
 
 ---
 
@@ -166,6 +174,24 @@ Add entry to `{oversight_path}/SESSION_WORK_INDEX.md`:
 - **Progress**: [One sentence on what was accomplished]
 - **Handoff**: `session-logs/SESSION_HANDOFF_{date}.md`
 ```
+
+---
+
+### 5. Archive Prior Handoffs (Anti-Bloat)
+
+`session-logs/` accumulates one handoff per session and was never pruned. On
+close, prune so the live directory stays scannable and only the latest handoff
+remains as the whole-file fallback the next session reads:
+
+- Move every prior `SESSION_HANDOFF_*.md` (all but the one just written) into
+  `{oversight_path}/session-logs/archive/{YYYY-MM}/`, bucketed by the handoff's
+  own date.
+- Append a one-line entry per archived handoff to
+  `{oversight_path}/session-logs/archive/INDEX.md` (date → topic → path), so the
+  history stays greppable in O(1).
+
+The latest handoff stays live; its 60-line / 8-KB cap is enforced by the Step 4
+gate.
 
 ## CRITICAL STEP COMPLETION NOTE
 

@@ -1,9 +1,9 @@
 ---
-name: 'step-04-save-and-confirm'
+name: 'step-05-save-and-confirm'
 description: 'Attempt Qdrant save with graceful degradation, then present final closeout confirmation'
 ---
 
-# Step 4: Save to Qdrant and Confirm Closeout
+# Step 5: Save to Qdrant and Confirm Closeout
 
 **Final Step — Session Close Complete**
 

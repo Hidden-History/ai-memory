@@ -259,38 +259,45 @@ def test_T4_decision_stored_whole_no_chunking(storage_with_inmemory):
     )
 
 
-# ─── T5: Closeout step-04 references the new skill ──────────────────────────
+# ─── T5: Closeout save-and-confirm step references the new skill ─────────────
+#
+# The save-and-confirm step was renumbered (step-04 → step-05) when the
+# enforce-caps gate (step-04) was inserted ahead of it. Resolve it by glob so a
+# future renumber doesn't re-break this test.
 
 
-_STEP_04_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "_ai-memory"
-    / "pov"
-    / "workflows"
-    / "session"
-    / "close"
-    / "steps-c"
-    / "step-04-save-and-confirm.md"
-)
+def _save_and_confirm_step() -> Path:
+    steps_dir = (
+        Path(__file__).resolve().parent.parent
+        / "_ai-memory"
+        / "pov"
+        / "workflows"
+        / "session"
+        / "close"
+        / "steps-c"
+    )
+    matches = sorted(steps_dir.glob("step-*-save-and-confirm.md"))
+    assert matches, f"No step-*-save-and-confirm.md under {steps_dir}"
+    return matches[-1]
 
 
-def test_T5_closeout_step_04_invokes_save_decision_skill():
-    """Static-analysis: closeout step-04 must reference
+def test_T5_closeout_save_confirm_invokes_save_decision_skill():
+    """Static-analysis: the closeout save-and-confirm step must reference
     ``/parzival-save-decision`` so per-DEC emit fires at session close.
     """
-    assert _STEP_04_PATH.exists(), f"Missing step-04 file: {_STEP_04_PATH}"
-    text = _STEP_04_PATH.read_text(encoding="utf-8")
+    step = _save_and_confirm_step()
+    text = step.read_text(encoding="utf-8")
     assert (
         "/parzival-save-decision" in text
-    ), "step-04-save-and-confirm.md must invoke /parzival-save-decision per TD-519"
-    assert "TD-519" in text, "step-04 must cite TD-519 for traceability"
+    ), f"{step.name} must invoke /parzival-save-decision per TD-519"
+    assert "TD-519" in text, f"{step.name} must cite TD-519 for traceability"
     # Ensure the closeout-continues semantics survive in prose
     assert (
         "decision-log.md" in text
-    ), "step-04 must name decision-log.md as primary record"
+    ), f"{step.name} must name decision-log.md as primary record"
     assert (
         "WHOLE" in text or "whole" in text
-    ), "step-04 must cite the whole-store contract"
+    ), f"{step.name} must cite the whole-store contract"
 
 
 # ─── T6/T7: Mocked unit tests for the script — argparse + graceful failure ──

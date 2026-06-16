@@ -25,16 +25,26 @@ description: 'Quality gate rubric for session-close'
 ### Step 2: Update Tracking (step-02-update-tracking)
 - [ ] Task status changes are confirmed by the user before executing
 - [ ] All unlogged decisions and blockers are added
+- [ ] Decision log rotated if over cap; manifest updated in the same close
+- [ ] Blockers log holds open items only + an accurate reconciliation banner
+- [ ] project-status.md heartbeat overwritten in place (one datum, one home)
 - [ ] User is asked about documentation updates
 - [ ] Tracking files accurately reflect the session outcome
 
 ### Step 3: Create Handoff (step-03-create-handoff)
-- [ ] Handoff document is created with all sections populated
-- [ ] No empty or placeholder sections remain
+- [ ] Handoff document is created; non-applicable sections omitted (not padded)
+- [ ] Unchanged sections are one-line pointers, not re-essays
+- [ ] Handoff is within cap (≤60 lines / ≤8 KB)
 - [ ] SESSION_WORK_INDEX is updated with a reference to the handoff
+- [ ] Prior handoffs archived to `session-logs/archive/{YYYY-MM}/` + INDEX
 - [ ] Handoff is verified after writing
 
-### Step 4: Save and Confirm (step-04-save-and-confirm)
+### Step 4: Enforce Caps (step-04-enforce-caps)
+- [ ] `aim-tracking-rotate --check` run against the oversight root
+- [ ] Any over-cap file rotated (`--apply`) until `--check` reports PASS
+- [ ] Closeout not advanced to save while any governed file is over cap
+
+### Step 5: Save and Confirm (step-05-save-and-confirm)
 - [ ] Qdrant save was attempted (does not block closeout if unavailable)
 - [ ] Final confirmation includes accurate checklist
 - [ ] User had opportunity to add final items
@@ -53,9 +63,11 @@ description: 'Quality gate rubric for session-close'
 - [ ] Did NOT skip tracking file updates
 - [ ] Did NOT block closeout because Qdrant is unavailable
 - [ ] Did NOT retry Qdrant save in a loop
-- [ ] Did NOT create a handoff with empty sections
+- [ ] Did NOT leave empty/placeholder handoff sections (omit non-applicable ones)
 - [ ] Did NOT update task status without user confirmation
 - [ ] Did NOT skip verifying the written handoff
+- [ ] Did NOT pad non-applicable handoff sections with filler (omit them instead)
+- [ ] Did NOT advance to save while a governed file was over cap
 - [ ] Did NOT close without asking about pending decisions and documentation
 - [ ] Did NOT miss completed work items in the summary
 - [ ] Did NOT forget decisions or blockers that occurred during the session
