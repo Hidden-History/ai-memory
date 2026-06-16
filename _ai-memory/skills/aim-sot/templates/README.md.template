@@ -1,0 +1,79 @@
+# .sot — Source-of-Truth Registry
+
+This directory holds your project's **source-of-truth registry**: a single committed file (`registry.yaml`) that declares where the canonical truth lives for each meaningful boundary of this project.
+
+## What it is
+
+`registry.yaml` is a human-maintained pointer map. Each entry says:
+
+- **what** the boundary is (`kind`, `boundary_type`, `description`)
+- **where** the truth lives (`sot_location` — a path or URL, never copied content)
+- **who** owns it (`owner`)
+- **when** it was last confirmed accurate (`last_verified` — human re-confirmation date)
+
+## The no-copy rule
+
+Every field in every entry is a **pointer or provenance annotation** — not a copy of any source content. Keeping the registry as a pointer map means:
+
+- It stays small and diffs cleanly.
+- It cannot become stale in a way that silently corrupts real data.
+- The machine drift cache (separate, never committed) holds computed state.
+
+## How entries get in
+
+Entries are added through the **propose → verify → approve gate**:
+
+1. `aim-sot detect-propose` scans for candidate components and emits a proposed patch.
+2. You review the proposal. The engine never writes the registry directly.
+3. `aim-sot verify` runs the 16-check gate before any apply.
+4. You approve; the patch is applied.
+
+You can also add entries by hand — just follow the schema in `registry.yaml`.
+
+## Field reference
+
+**Core (required on every entry)**
+
+| Field | What it holds |
+|---|---|
+| `id` | Stable kebab-case slug, unique within the registry |
+| `kind` | Boundary taxonomy: `service \| library \| application \| api \| data \| infrastructure \| decision \| documentation` |
+| `boundary_type` | Model: `path` (dir glob) · `component` (manifest unit) · `concern` (cross-cutting scope) |
+| `sot_location` | Pointer to the canonical truth — a relative path, URL, or structured ref |
+| `owner` | Owner handle (e.g. `@team-name`) |
+| `description` | One-line human summary of the boundary |
+
+**Provenance (optional but recommended)**
+
+| Field | What it holds |
+|---|---|
+| `last_verified` | ISO-8601 date (`YYYY-MM-DD`) of the last human re-confirmation. Changed only by a person, never auto-bumped. |
+| `added_by` | Handle of who added the entry |
+| `provenance_note` | Free-text note on how/why the entry was added |
+
+**Lifecycle**
+
+| Field | Values |
+|---|---|
+| `status` | `proposed` → `active` → `superseded`. A superseded entry should carry a forward pointer. |
+
+**Pointer links (optional)**
+
+`source_repo` · `docs_url` · `api_spec` · `ci_url` · `runbook_url` · `dashboard_url` · `adr_dir` · `links`
+
+**Operational**
+
+`drift_check` — optional shell command or script to verify the boundary is still accurate.
+
+## What does NOT go here
+
+- **Content hashes, drift status, machine timestamps** — these belong in the per-install drift cache (`~/.ai-memory/drift-state/`), not in this committed file.
+- **Copied source content** — always point to it, never paste it.
+- **CI or pre-commit hooks** — the engine never auto-installs those. They are opt-in only.
+
+## Validation
+
+```sh
+# Validate this registry against the schema
+aim-sot verify
+```

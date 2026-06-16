@@ -521,6 +521,64 @@ class TestGitHubHandleFalsePositives:
         assert "[HANDLE_REDACTED]" not in result.content
 
 
+class TestSotHandleExemption:
+    """F1: exempt_handle_pii drops ONLY the HANDLE mask for SOT_ENTRY writes,
+    keeping secret-blocking + EMAIL/IP/CC/SSN masking active and leaving all other
+    writes (default exempt=False) unchanged."""
+
+    def test_default_still_masks_handle(self):
+        """(a) Regression guard: with exempt_handle_pii=False (the default), a
+        handle is still redacted — the non-SOT path is unchanged."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("owner @hidden-history")  # exempt defaults False
+
+        assert result.action == ScanAction.MASKED
+        assert "[HANDLE_REDACTED]" in result.content
+        assert "@hidden-history" not in result.content
+
+    def test_exempt_preserves_handle(self):
+        """(b) With exempt_handle_pii=True the ownership handle survives byte-faithful
+        and the scan passes (no mask applied)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("owner @hidden-history", exempt_handle_pii=True)
+
+        assert "[HANDLE_REDACTED]" not in result.content
+        assert "@hidden-history" in result.content
+        assert result.action == ScanAction.PASSED
+
+    def test_exempt_still_blocks_secret(self):
+        """(c) The exemption does NOT weaken secret-blocking: a real token in SOT
+        content is still BLOCKED (registries cannot smuggle secrets into Qdrant)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        token = "ghp_" + "a" * 36  # GitHub PAT pattern
+        result = scanner.scan(
+            f"owner @hidden-history token {token}", exempt_handle_pii=True
+        )
+
+        assert result.action == ScanAction.BLOCKED
+
+    def test_exempt_still_masks_email(self):
+        """(d) The exemption is HANDLE-only: EMAIL PII is still masked under SOT."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan(
+            "owner @hidden-history contact dev@example.com", exempt_handle_pii=True
+        )
+
+        assert result.action == ScanAction.MASKED
+        assert "[EMAIL_REDACTED]" in result.content
+        assert "dev@example.com" not in result.content
+        # handle still preserved alongside the masked email
+        assert "@hidden-history" in result.content
+
+
 class TestScanBatchNER:
     """Test TD-163/TD-165: scan_batch() with NER batching and force_ner."""
 

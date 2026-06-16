@@ -1,0 +1,158 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ai-memory.dev/schemas/sot/registry/v1",
+  "title": "SOT Registry",
+  "description": "Schema for .sot/registry.yaml — the user-committed source-of-truth registry. Every field is a pointer or provenance annotation; no field stores copied source content (no-copy invariant). Machine-generated fields — content hashes, drift status, machine timestamps — belong in the per-install drift cache, never in this committed file.",
+  "type": "object",
+  "required": ["schema_version", "entries"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Registry format version string (e.g. '1.0'). Human-set on init; increment when the schema itself changes. Never auto-bumped by the engine.",
+      "minLength": 1
+    },
+    "entries": {
+      "type": "array",
+      "description": "Ordered list of SOT pointer-records. Each entry describes one boundary within the user's project. May be empty on a fresh registry.",
+      "items": {
+        "$ref": "#/definitions/entry"
+      }
+    }
+  },
+  "definitions": {
+    "entry": {
+      "type": "object",
+      "description": "A single SOT pointer-record. All fields are pointers or human-authored provenance metadata. No machine-generated values (hashes, timestamps, drift state) are defined here — those live in the per-install drift cache.",
+      "required": ["id", "kind", "boundary_type", "sot_location", "owner", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable, unique slug for this entry within the registry. Kebab-case recommended.",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "description": "Taxonomy of the boundary — what type of artifact this entry describes.",
+          "enum": [
+            "service",
+            "library",
+            "application",
+            "api",
+            "data",
+            "infrastructure",
+            "decision",
+            "documentation"
+          ]
+        },
+        "boundary_type": {
+          "type": "string",
+          "description": "How the boundary is modelled: 'path' (directory glob, CODEOWNERS-style), 'component' (named unit with a co-located manifest, Backstage-style), or 'concern' (cross-cutting scope — an ADR, API contract, or shared platform concern).",
+          "enum": ["path", "component", "concern"]
+        },
+        "sot_location": {
+          "type": "string",
+          "description": "Pointer to the canonical truth location — a relative path, URL, or structured ref. This is a pointer, never a copy of the content itself.",
+          "minLength": 1
+        },
+        "owner": {
+          "type": "string",
+          "description": "Human-readable owner handle (e.g. '@team-name' or a person handle). Human-authored; never auto-updated by the engine.",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string",
+          "description": "One-line human summary of what this boundary is and why it matters. Human-authored; must be re-confirmed by a human when a content-hash change (K1 trigger) is detected.",
+          "minLength": 1
+        },
+        "last_verified": {
+          "type": "string",
+          "format": "date",
+          "description": "ISO-8601 date (YYYY-MM-DD) of the last human re-confirmation that this entry is still accurate. Low-churn: changes only when a person re-confirms the entry, never auto-bumped by the engine. Machine drift timestamps live in the per-install cache only."
+        },
+        "added_by": {
+          "type": "string",
+          "description": "Handle of the person or process (e.g. '@username' or 'aim-sot bootstrap') that originally added this entry.",
+          "minLength": 1
+        },
+        "provenance_note": {
+          "type": "string",
+          "description": "Free-text human note explaining how or why this entry was added. Especially useful for entries added via detect-propose.",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "description": "Lifecycle state. A 'superseded' entry should carry a forward pointer in docs_url or provenance_note indicating what replaced it.",
+          "enum": ["proposed", "active", "superseded"]
+        },
+        "source_repo": {
+          "type": "string",
+          "description": "URL of the source repository for this boundary (pointer only).",
+          "minLength": 1
+        },
+        "docs_url": {
+          "type": "string",
+          "description": "URL of the primary documentation for this boundary (pointer only).",
+          "minLength": 1
+        },
+        "api_spec": {
+          "type": "string",
+          "description": "Path or URL to the API specification (e.g. OpenAPI file) for this boundary (pointer only).",
+          "minLength": 1
+        },
+        "ci_url": {
+          "type": "string",
+          "description": "URL of the CI pipeline for this boundary (pointer only).",
+          "minLength": 1
+        },
+        "runbook_url": {
+          "type": "string",
+          "description": "URL of the operational runbook for this boundary (pointer only).",
+          "minLength": 1
+        },
+        "dashboard_url": {
+          "type": "string",
+          "description": "URL of the observability or metrics dashboard for this boundary (pointer only).",
+          "minLength": 1
+        },
+        "adr_dir": {
+          "type": "string",
+          "description": "Path to the directory containing Architecture Decision Records for this boundary (pointer only).",
+          "minLength": 1
+        },
+        "links": {
+          "type": "array",
+          "description": "Additional named pointer links for this boundary (BP-028 Part 3).",
+          "items": {
+            "type": "object",
+            "required": ["name", "url"],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Human-readable name for this link.",
+                "minLength": 1
+              },
+              "url": {
+                "type": "string",
+                "description": "URL or path for this link (pointer only).",
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "description": "Optional classifier for the link kind (e.g. 'runbook', 'dashboard', 'ticket').",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "drift_check": {
+          "type": "string",
+          "description": "Optional shell command or script path to verify this boundary is still accurate. Human-configured; the engine runs it but does not auto-generate or overwrite it.",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

@@ -22,7 +22,7 @@ __all__ = [
 class MemoryType(str, Enum):
     """Types of memories that can be stored (Memory System v2.0).
 
-    Total: 31 types (4 code-patterns + 5 conventions + 7 discussions + 2 jira-data + 9 github + 4 agent)
+    Total: 32 types (4 code-patterns + 6 conventions + 7 discussions + 2 jira-data + 9 github + 4 agent)
     Spec: oversight/specs/MEMORY-SYSTEM-REDESIGN-v2.md Section 5
 
     Note: Uses (str, Enum) pattern for Python 3.10 compatibility (AMD ROCm images).
@@ -31,7 +31,7 @@ class MemoryType(str, Enum):
 
     Collections (v2.0):
         code-patterns: IMPLEMENTATION, ERROR_PATTERN, REFACTOR, FILE_PATTERN
-        conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE
+        conventions: RULE, GUIDELINE, PORT, NAMING, STRUCTURE, SOT_ENTRY
         discussions: DECISION, DISCUSSION, SESSION, BLOCKER, PREFERENCE, USER_MESSAGE, AGENT_RESPONSE
         discussions (agent namespace): AGENT_HANDOFF, AGENT_MEMORY, AGENT_TASK, AGENT_INSIGHT
         jira-data: JIRA_ISSUE, JIRA_COMMENT
@@ -52,6 +52,7 @@ class MemoryType(str, Enum):
     PORT = "port"  # Port configuration rules
     NAMING = "naming"  # Naming conventions for files, functions, etc.
     STRUCTURE = "structure"  # File and folder structure conventions
+    SOT_ENTRY = "sot_entry"  # Derived SOT registry entry (aim-sot 5b cache)
 
     # === discussions collection (WHY things were decided) ===
     DECISION = "decision"  # Architectural/design decisions (DEC-xxx)

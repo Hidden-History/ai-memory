@@ -345,6 +345,23 @@ class MemorySearch:
                 )
             )
 
+        # H1: Default-exclude sot_entry from untyped conventions queries.
+        # intent.get_target_types(UNKNOWN) returns [] → falsy → effective_types=None
+        # → no type filter → sot_entry blobs surface in general conventions recall
+        # and per-turn injection after a project runs reindex.
+        # Explicit memory_type bypasses this guard (aim-sot consult passes
+        # memory_type=["sot_entry"] explicitly and is unaffected).
+        # `not memory_types` covers both None and [] (defense-in-depth for direct
+        # callers that pass an empty list; upstream coerces []→None via effective_types).
+        # sot_entry is appended unconditionally (union) so a caller passing an
+        # unrelated must_not_types cannot resurface sot_entry rows.
+        if collection == COLLECTION_CONVENTIONS and not memory_types:
+            if must_not_types:
+                if "sot_entry" not in must_not_types:
+                    must_not_types = [*must_not_types, "sot_entry"]
+            else:
+                must_not_types = ["sot_entry"]
+
         # F13/TD-243: Build must_not conditions for Qdrant-level type exclusion
         must_not_conditions = []
         if must_not_types:

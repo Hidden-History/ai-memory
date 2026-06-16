@@ -3770,6 +3770,7 @@ if 'AI-MEMORY.md' not in names:
 import json, os, sys
 install_dir, project_id, py, ad = sys.argv[1:5]
 config_path = sys.argv[5]
+_sot_on = os.environ.get('AI_MEMORY_SOT_HOOKS', 'on').lower() != 'off'
 config = {
     'env': {
         'AI_MEMORY_INSTALL_DIR': install_dir,
@@ -3795,6 +3796,9 @@ config = {
         'PreCompress': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/pre_compress.py\"', 'timeout': 60000}]}]
     }
 }
+if _sot_on:
+    config['hooks']['SessionStart'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_digest_session_start.py\"', 'timeout': 30000}]})
+    config['hooks']['PreCompress'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_drift.py\"', 'timeout': 30000}]})
 # TD-600: register the AI-Memory-owned guidance file in context.fileName so it
 # auto-loads with every prompt, WITHOUT dropping GEMINI.md or any user entries.
 # Setting context.fileName disables Gemini's implicit GEMINI.md default, so when
@@ -3859,8 +3863,9 @@ write_cursor_config() {
     local env_prefix="AI_MEMORY_INSTALL_DIR=\"$install_dir\" AI_MEMORY_PROJECT_ID=\"$project_id\" QDRANT_HOST=\"localhost\" QDRANT_PORT=\"26350\" QDRANT_GRPC_PORT=\"26351\" EMBEDDING_HOST=\"127.0.0.1\" EMBEDDING_PORT=\"28080\" SIMILARITY_THRESHOLD=\"0.4\" LOG_LEVEL=\"INFO\""
 
     python3 -c "
-import json, sys
+import json, os, sys
 env_prefix, py, ad = sys.argv[1:4]
+_sot_on = os.environ.get('AI_MEMORY_SOT_HOOKS', 'on').lower() != 'off'
 config = {
     'version': 1,
     'hooks': {
@@ -3874,6 +3879,9 @@ config = {
         'preCompact': [{'command': f'{env_prefix} \"{py}\" \"{ad}/cursor/pre_compact.py\"', 'timeout': 30}]
     }
 }
+if _sot_on:
+    config['hooks']['sessionStart'].append({'command': f'{env_prefix} \"{py}\" \"{ad}/cursor/sot_digest_session_start.py\"', 'timeout': 30})
+    config['hooks']['preCompact'].append({'command': f'{env_prefix} \"{py}\" \"{ad}/cursor/sot_drift.py\"', 'timeout': 30})
 with open(sys.argv[4], 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
@@ -3933,8 +3941,9 @@ write_codex_config() {
     local env_prefix="AI_MEMORY_INSTALL_DIR=\"$install_dir\" AI_MEMORY_PROJECT_ID=\"$project_id\" QDRANT_HOST=\"localhost\" QDRANT_PORT=\"26350\" QDRANT_GRPC_PORT=\"26351\" EMBEDDING_HOST=\"127.0.0.1\" EMBEDDING_PORT=\"28080\" SIMILARITY_THRESHOLD=\"0.4\" LOG_LEVEL=\"INFO\""
 
     python3 -c "
-import json, sys
+import json, os, sys
 env_prefix, py, ad = sys.argv[1:4]
+_sot_on = os.environ.get('AI_MEMORY_SOT_HOOKS', 'on').lower() != 'off'
 config = {
     'hooks': {
         'SessionStart': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/session_start.py\"', 'timeout': 30}]}],
@@ -3946,6 +3955,9 @@ config = {
         'Stop': [{'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/stop.py\"', 'timeout': 30}]}]
     }
 }
+if _sot_on:
+    config['hooks']['SessionStart'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/sot_digest_session_start.py\"', 'timeout': 30}]})
+    config['hooks']['Stop'].append({'hooks': [{'type': 'command', 'command': f'{env_prefix} \"{py}\" \"{ad}/codex/sot_drift.py\"', 'timeout': 30}]})
 with open(sys.argv[4], 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
@@ -4910,6 +4922,50 @@ setup_model_dispatch() {
     fi
 }
 
+# Write a thin discovery shim SKILL.md for a skill whose content lives outside
+# .claude/skills/. The shim carries frontmatter (so Claude Code can index it) plus
+# a LOAD pointer to the canonical SKILL.md. Mirrors the inline shim format used by
+# generate_parzival_skill_shims, factored out so deploy_ai_memory_skills can reuse it.
+# Args: <real_skill_dir> <skill_name> <claude_skills_dir> <load_path_prefix>
+write_ai_memory_skill_shim() {
+    local real_skill_dir="$1"
+    local skill_name="$2"
+    local claude_skills_dir="$3"
+    local load_path_prefix="$4"
+    local real_skill="$real_skill_dir/SKILL.md"
+    local shim_dir="$claude_skills_dir/$skill_name"
+
+    local name_line description_line tools_line context_line trigger_line title_line
+    name_line=$(grep -m1 "^name:" "$real_skill" 2>/dev/null || echo "name: $skill_name")
+    description_line=$(grep -m1 "^description:" "$real_skill" 2>/dev/null || echo "description: AI Memory skill")
+    tools_line=$(grep -m1 "^allowed-tools:" "$real_skill" 2>/dev/null || echo "")
+    context_line=$(grep -m1 "^context:" "$real_skill" 2>/dev/null || echo "")
+    trigger_line=$(grep -m1 "^trigger:" "$real_skill" 2>/dev/null || echo "")
+    title_line=$(grep -m1 "^# " "$real_skill" 2>/dev/null || echo "# $skill_name")
+
+    mkdir -p "$shim_dir"
+
+    {
+        echo "---"
+        echo "$name_line"
+        echo "$description_line"
+        if [[ -n "$tools_line" ]]; then
+            echo "$tools_line"
+        fi
+        if [[ -n "$context_line" ]]; then
+            echo "$context_line"
+        fi
+        if [[ -n "$trigger_line" ]]; then
+            echo "$trigger_line"
+        fi
+        echo "---"
+        echo ""
+        echo "$title_line"
+        echo ""
+        echo "**LOAD**: Read and follow \`$load_path_prefix/$skill_name/SKILL.md\`"
+    } > "$shim_dir/SKILL.md"
+}
+
 # Deploy skill shims from INSTALL_DIR/.claude/skills/ to project
 # Replaces the skill deployment loop formerly in create_project_symlinks()
 # Stale cleanup scoped to ai-memory prefixes only (R2-NF4: never delete user custom skills)
@@ -4987,6 +5043,43 @@ deploy_ai_memory_skills() {
         mkdir -p "$PROJECT_PATH/_ai-memory/skills"
         cp -r "$ai_mem_skills/"* "$PROJECT_PATH/_ai-memory/skills/" 2>/dev/null || true
         log_debug "Deployed _ai-memory/skills/ canonical files to project"
+    fi
+
+    # Surface user-facing aim-* skills whose engine lives under _ai-memory/skills/
+    # but that ship without a full .claude/skills/ copy (currently aim-sot). Generate
+    # a thin discovery shim so Claude Code indexes them, mirroring the thin-shim model
+    # used for _ai-memory/pov/skills/. This runs on every install (not gated on
+    # Parzival), matching aim-sot's always-on SOT hooks — so the skill is discoverable
+    # wherever its hooks fire. Only skills NOT already deployed as a full copy above
+    # are shimmed (no clobber OF FULL COPIES — the skip-guard below protects a
+    # full-copy skill; the shim itself is an installer-managed artifact, rebuilt from
+    # scratch every run via write_ai_memory_skill_shim's truncating redirect). The
+    # aim-* prefix deliberately EXCLUDES parzival-save-*: those are oversight-internal
+    # Parzival skills, correctly absent from an end-user project's .claude/skills/
+    # (the project has no Parzival).
+    #
+    # ORDERING DEPENDENCY: this loop reads each skill's canonical SKILL.md from
+    # $PROJECT_PATH/_ai-memory/skills/, which the canonical-files deploy above
+    # (re)copies from INSTALL_DIR every run. It MUST run AFTER that copy so the
+    # regenerated shim reflects the current SKILL.md on re-install; reordering this
+    # loop before that deploy would silently shim stale (or missing) frontmatter.
+    if [[ -d "$PROJECT_PATH/_ai-memory/skills" ]]; then
+        local aim_shim_count=0
+        for skill_dir in "$PROJECT_PATH/_ai-memory/skills"/aim-*/; do
+            [[ -d "$skill_dir" ]] || continue
+            [[ -f "$skill_dir/SKILL.md" ]] || continue
+            local aim_skill_name
+            aim_skill_name=$(basename "$skill_dir")
+            if [[ -d "$PROJECT_PATH/.claude/skills/$aim_skill_name" ]]; then
+                continue
+            fi
+            write_ai_memory_skill_shim "${skill_dir%/}" "$aim_skill_name" \
+                "$PROJECT_PATH/.claude/skills" "_ai-memory/skills"
+            aim_shim_count=$((aim_shim_count + 1))
+        done
+        if [[ $aim_shim_count -gt 0 ]]; then
+            log_success "Generated $aim_shim_count aim-* skill shim(s) in .claude/skills/"
+        fi
     fi
 }
 

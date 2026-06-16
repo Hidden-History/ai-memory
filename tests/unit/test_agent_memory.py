@@ -46,10 +46,10 @@ class TestMemoryTypeEnum:
         assert MemoryType.GITHUB_PR.value == "github_pr"
 
     def test_total_enum_count(self):
-        """31 total types (26 original + 4 agent + 1 discussion)."""
+        """32 total types (26 original + 4 agent + 1 discussion + 1 sot_entry)."""
         from memory.models import MemoryType
 
-        assert len(MemoryType) == 31
+        assert len(MemoryType) == 32
 
 
 class TestParzivalConfig:

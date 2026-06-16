@@ -252,7 +252,14 @@ class MemoryStorage:
             from .security_scanner import ScanAction
 
             scan_result = self._scanner.scan(
-                content, source_type=source_type or "user_session"
+                content,
+                source_type=source_type or "user_session",
+                # F1: SOT registry owner/added_by are intentional ownership handles
+                # (e.g. @hidden-history). Exempt ONLY the HANDLE pattern for SOT_ENTRY
+                # so the derived 5b cache stays byte-faithful; secret-blocking +
+                # EMAIL/IP/CC/SSN masking remain active. All other memory types
+                # unchanged.
+                exempt_handle_pii=(memory_type == MemoryType.SOT_ENTRY),
             )
             if scan_result.action == ScanAction.BLOCKED:
                 logger.warning(
@@ -853,6 +860,7 @@ class MemoryStorage:
             masked_count = 0
 
             for memory in memories:
+                # Intentionally omits exempt_handle_pii: SOT uses per-row store_memory; batching SOT rows would silently re-redact owner handles.
                 scan_result = self._scanner.scan(
                     memory["content"],
                     force_ner=True,

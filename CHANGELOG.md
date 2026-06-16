@@ -9,11 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`aim-sot consult` no longer returns stale registry entries** — consult read the
+  derived memory cache (5b) first and returned it whenever non-empty, with no binding
+  to the committed `.sot/registry.yaml`, so after any registry edit (or when another
+  project's rows shared the `group_id`) it shadowed the file with stale or cross-state
+  data. Consult now uses the cache only when the drift cache's `registry_sha` matches
+  the committed file's SHA, otherwise it falls back to the committed file; it remains
+  strictly read-only. Also: `verify --proposal` now flags a proposal that lacks an
+  `entries` key instead of silently verifying it as empty; `detect-propose run` prunes
+  drift-cache records for components no longer in the registry (parity with reindex);
+  and the SKILL.md 5b-cache field name is corrected to `type=sot_entry` to match the
+  engine. (`aim_sot_consult.py`, `aim_sot_verify.py`, `aim_sot_detect_propose.py`, `SKILL.md`)
+
 - **BUG-302: tier-2 fallback marker now shows `remaining=` alongside `tokens=` and `budget=`**
   — the marker previously printed `tokens=<N> budget=<total>`, which read as a false
   contradiction when `tokens < budget` but `tokens > budget − tokens_used`. Adding
   `remaining=budget−tokens_used` makes the correct reject self-evident.
   (`context_injection_tier2.py` marker block)
+
+- **`aim-sot` is now discoverable as a skill in installed projects** — the skill's
+  engine lives under `_ai-memory/skills/aim-sot/`, which the installer copied as
+  canonical files but never surfaced to `.claude/skills/`, so Claude Code could not
+  index it even though its session/drift hooks were registered. `deploy_ai_memory_skills`
+  now generates a thin discovery shim in `.claude/skills/` for `aim-*` skills that live
+  under `_ai-memory/skills/` without a full copy. It runs on every install (matching
+  aim-sot's always-on SOT hooks), never clobbers a skill that already has a full copy,
+  and is idempotent on re-install; the `aim-*` prefix deliberately excludes the
+  oversight-internal `parzival-save-*` skills. The `AI_MEMORY_SOT_HOOKS` opt-out is now
+  documented as a commented line in `docker/.env.example`.
+  (`scripts/install.sh`, `docker/.env.example`)
 
 ### Added
 
@@ -107,6 +131,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `INSTALL-GUIDE-POV.md` gains an `add-project` / shared-stack section documenting
     the `INSTALL_MODE=add-project` flow: when it triggers, what the installer skips
     vs. runs, prerequisites, per-project configuration, and verification steps.
+- **`aim-sot` Source-of-Truth subsystem** — new `aim-sot` skill that tracks where the
+  canonical truth lives for each boundary of the user's own project. A committed
+  `.sot/registry.yaml` (in the user's own repo) is the registry of record; the skill
+  ships the schema, templates, and a three-mode engine:
+  - **consult** — read-only query over the registry (served from the derived memory
+    cache, falling back to the committed file); answers "where does X live / who owns it"
+    for any component.
+  - **detect-propose** — hybrid auto-discover → propose: scans for candidate components,
+    computes actual state (SHA-256 of each `sot_location` file), and emits a **proposed
+    patch** on drift or new candidates. **Never writes the registry** — the propose-only
+    guarantee is unconditional; every registry change goes through the human-review +
+    verify gate. The baseline SHA is held (not advanced) when drift is detected, so the
+    proposal re-fires until a human confirms the change. Cold-start `drift_status` is
+    `unverified`, not `clean`.
+  - **verify** — 16-check gate (Schema · Referential · Completeness · Content) returning
+    PASS / CONDITIONAL / FAIL. K1 (content-hash check) reports CONDITIONAL — not a
+    silent pass — when no baseline exists. Verdicts distinguish checks that ran and
+    produced a result from no-op/inert checks and skipped-no-baseline checks.
+
+  Two runtime caches support the feature: a per-install drift cache
+  (`~/.ai-memory/drift-state/sot_drift_{project_id}.json`, machine-local, never
+  committed) and a derived memory cache (Qdrant `conventions` collection,
+  `memory_type=sot_entry`, rebuildable from the committed registry at any time via
+  `detect-propose reindex`). The Claude `Stop` hook and multi-CLI adapters (Codex,
+  Cursor, Gemini) ship with the install but are **not auto-registered** — opt-in only
+  (see `docs/AIM-SOT.md`). The engine also runs standalone (`detect-propose run`)
+  as the default no-hook path. All trigger paths are fail-open (exit 0 on any error).
 
 ### Changed
 
@@ -152,6 +203,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pull the prebuilt GHCR image. (Fresh installs pull it automatically.)
 
 ### Fixed
+
+- **aim-sot verify** — `verify run --registry <path>` no longer crashes on a
+  non-conforming (flat) registry path. A registry outside `<root>/.sot/` makes the
+  project root resolve to `None`, which previously reached the path checks
+  (R1/R4/C3/discovery/K1) unguarded and raised `TypeError`. Declared locations now
+  resolve relative to the registry's own directory so the gate emits a structured
+  verdict, and auto-discovery is skipped for a flat root (matching `detect-propose`)
+  so no spurious "discovered component(s) not registered" findings are reported.
+
+- **aim-sot 5b reindex** — `detect-propose reindex` now persists `sot_entry` rows.
+  The core payload allow-list rejected the reindex's `source_hook`, so every derived-
+  memory write silently failed and the cache stayed empty. The allow-list now accepts
+  it. When writes are rejected by validation the command reports the rejection
+  accurately and exits non-zero, instead of misreporting a connectivity problem; a
+  genuinely unreachable store still exits zero and leaves the existing cache intact.
+
+- **aim-sot cold start** — `detect-propose run` now runs the discovery scan and emits
+  candidate proposals when no `.sot/registry.yaml` exists yet, instead of bailing with
+  a circular message. Discovery from zero stays propose-only — the registry is never
+  created or written — and the empty-state output points to the bootstrap steps
+  (discover → copy → verify → approve).
+
+- **aim-sot consult flag ordering** — `consult` now accepts `--json` and `--registry`
+  after the subcommand (e.g. `consult list --json`, `consult get <id> --registry PATH`),
+  matching `detect-propose`/`verify` and the documented invocation. Previously these
+  flags were only accepted before the subcommand, so the documented form failed with
+  `unrecognized arguments`.
 
 - **BUG-318** — `aim-github-search` now defaults to the `github` Qdrant collection where
   GitHub content lives. The as-documented invocation (no `--collection` flag) returns

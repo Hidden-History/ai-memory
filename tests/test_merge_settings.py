@@ -192,8 +192,9 @@ def test_merge_settings_creates_backup(tmp_path):
     assert len(backups) == 1, "Exactly one backup must be created"
 
 
-def test_merge_settings_deduplicates_hooks(tmp_path):
+def test_merge_settings_deduplicates_hooks(tmp_path, monkeypatch):
     """Test that duplicate hooks are not added when using BMAD path format."""
+    monkeypatch.setenv("AI_MEMORY_SOT_HOOKS", "off")  # isolate from SOT registration
     from merge_settings import merge_settings
 
     settings_path = tmp_path / "settings.json"

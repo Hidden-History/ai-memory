@@ -116,9 +116,10 @@ def test_idempotency_no_duplicates(tmp_path):
 
     # Should not have duplicate hook wrappers
     # Note: PostToolUse has 2 matchers (Bash for errors, Edit/Write for capture)
-    assert len(config["hooks"]["SessionStart"]) == 1
+    # SessionStart and Stop each have 2 groups: core hook + SOT hook (AI_MEMORY_SOT_HOOKS default on)
+    assert len(config["hooks"]["SessionStart"]) == 2
     assert len(config["hooks"]["PostToolUse"]) == 2  # Bash + Edit|Write|NotebookEdit
-    assert len(config["hooks"]["Stop"]) == 1
+    assert len(config["hooks"]["Stop"]) == 2
     # Each wrapper should have the expected number of hooks
     assert len(config["hooks"]["SessionStart"][0]["hooks"]) == 1
     # PostToolUse[0] is Bash matcher with 2 hooks (error_detection + error_pattern_capture)

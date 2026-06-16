@@ -1,0 +1,60 @@
+# .sot/registry.yaml — Source-of-Truth Registry
+#
+# This file declares where the canonical truth lives for each boundary of
+# YOUR project. Commit it alongside your code so it is team-shareable and
+# diff-reviewable.
+#
+# IMPORTANT — no-copy rule: every field is a pointer or provenance annotation.
+# Never paste or copy source content into this file. Point to it instead.
+#
+# Entries are human-authored through the propose → verify → approve gate:
+# `aim-sot detect-propose` surfaces candidates + drift (it never writes this
+# file — proposals only, including the first-run discovery scan when no registry
+# exists yet); you copy the entries you want in by hand; `aim-sot verify` gates
+# them; you approve. Machine-generated values (content hashes, drift status,
+# machine timestamps) are never stored here; they live in the per-install drift
+# cache (~/.ai-memory/drift-state/).
+#
+# Validate this file: aim-sot verify
+
+schema_version: "1.0"
+
+entries:
+  # ── Example 1: path boundary (directory glob, CODEOWNERS-style) ─────────────
+  # Remove or replace these examples with your real entries.
+  - id: example-service
+    kind: service
+    boundary_type: path
+    # sot_location: relative path, URL, or structured ref — never copied content
+    sot_location: "src/services/example"
+    owner: "@example-team"
+    description: "The example service handles X. Replace with a real one-line summary."
+    # Provenance — human-authored; last_verified is the date a *person* re-confirmed
+    # this entry is still accurate. Never auto-bumped by the engine.
+    # Must be a quoted string, e.g. "2024-01-15" — unquoted YAML dates parse as
+    # date objects and fail schema string validation.
+    last_verified: "2024-01-15"
+    added_by: "@your-handle"
+    provenance_note: "Bootstrapped via aim-sot detect-propose on project init."
+    status: active
+    # Optional pointer links — add whichever are relevant for your project
+    # source_repo: "https://github.com/org/repo"
+    # docs_url: "https://docs.example.com/service"
+    # ci_url: "https://ci.example.com/pipelines/service"
+    # runbook_url: "https://runbooks.example.com/service"
+    # dashboard_url: "https://grafana.example.com/d/service"
+    # drift_check: "python tools/check_service_location.py"
+
+  # ── Example 2: component boundary (named unit with co-located manifest) ─────
+  - id: example-component
+    kind: library
+    boundary_type: component
+    sot_location: "libs/example-component/package.json"
+    owner: "@platform-team"
+    description: "Shared UI component library. Replace with a real one-line summary."
+    last_verified: "2024-02-01"
+    added_by: "@your-handle"
+    provenance_note: "Added manually — component has a co-located package.json manifest."
+    status: proposed
+    # adr_dir: "docs/decisions/example-component"
+    # api_spec: "libs/example-component/openapi.yaml"

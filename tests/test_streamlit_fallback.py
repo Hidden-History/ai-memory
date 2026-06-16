@@ -118,6 +118,7 @@ def test_collection_names_match():
         MemoryType.PORT,
         MemoryType.NAMING,
         MemoryType.STRUCTURE,
+        MemoryType.SOT_ENTRY,
     }
     discussion_types = {
         MemoryType.DECISION,

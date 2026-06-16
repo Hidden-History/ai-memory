@@ -30,6 +30,7 @@ def test_generate_hook_config_session_start(monkeypatch):
     from generate_settings import generate_hook_config
 
     monkeypatch.delenv("PARZIVAL_ENABLED", raising=False)
+    monkeypatch.setenv("AI_MEMORY_SOT_HOOKS", "off")  # isolate from SOT registration
 
     hooks_dir = "/test/path/hooks"
     config = generate_hook_config(hooks_dir, "test-project")
@@ -133,6 +134,7 @@ def test_session_start_default_matcher_with_parzival_env(monkeypatch):
 def test_generate_hook_config_stop(monkeypatch):
     """Test Stop hook generation with correct Claude Code structure."""
     monkeypatch.delenv("LANGFUSE_ENABLED", raising=False)
+    monkeypatch.setenv("AI_MEMORY_SOT_HOOKS", "off")  # isolate from SOT registration
 
     from generate_settings import generate_hook_config
 
@@ -159,6 +161,7 @@ def test_generate_hook_config_stop(monkeypatch):
 def test_generate_hook_config_stop_with_langfuse(monkeypatch):
     """Test Stop hook generation includes langfuse_stop_hook when LANGFUSE_ENABLED=true."""
     monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.setenv("AI_MEMORY_SOT_HOOKS", "off")  # isolate from SOT registration
 
     from generate_settings import generate_hook_config
 
@@ -178,6 +181,30 @@ def test_generate_hook_config_stop_with_langfuse(monkeypatch):
     assert len(second_hooks) == 1
     assert "langfuse_stop_hook.py" in second_hooks[0]["command"]
     assert second_hooks[0]["timeout"] == 10000
+
+
+def test_generate_hook_config_stop_with_langfuse_and_sot(monkeypatch):
+    """Stop has 3 entries when LANGFUSE_ENABLED=true and AI_MEMORY_SOT_HOOKS unset (on).
+
+    Guards the chained `+ (langfuse) + (sot)` concat in generate_hook_config():
+    entry 0 = agent_response_capture.py, entry 1 = langfuse_stop_hook.py, entry 2 = sot_drift_stop.py.
+    """
+    monkeypatch.setenv("LANGFUSE_ENABLED", "true")
+    monkeypatch.delenv("AI_MEMORY_SOT_HOOKS", raising=False)
+
+    from generate_settings import generate_hook_config
+
+    config = generate_hook_config("/test/hooks", "test-project")
+    stop = config["hooks"]["Stop"]
+
+    assert (
+        len(stop) == 3
+    ), f"Expected 3 Stop entries (base+langfuse+sot), got {len(stop)}"
+
+    all_cmds = [h["command"] for w in stop for h in w.get("hooks", [])]
+    assert any("agent_response_capture.py" in cmd for cmd in all_cmds)
+    assert any("langfuse_stop_hook.py" in cmd for cmd in all_cmds)
+    assert any("sot_drift_stop.py" in cmd for cmd in all_cmds)
 
 
 def test_generate_hook_config_absolute_paths():
