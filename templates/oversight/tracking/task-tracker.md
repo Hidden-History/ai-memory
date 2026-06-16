@@ -3,7 +3,7 @@ class: register
 read_path: section-anchored
 owns: "pointer to live sprint/task state"
 cap_lines: 40
-cap_kb: 2.5
+cap_kb: 3
 rotation_trigger: none
 archive_target: N/A
 index_file: N/A
@@ -33,5 +33,5 @@ reconciliation: "thin pointer, never re-grow"
 
 - Tasks: `TASK-###` (sequential)
 - Blockers: `BLK-###` (sequential)
-- Risks: `RISK-###` (sequential)
+- Risks: `RSK-###` (sequential)
 - Decisions: `DEC-###` (sequential)

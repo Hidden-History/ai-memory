@@ -21,25 +21,25 @@ reconciliation: "live = OPEN only + '{N} active as of PM #{X}' banner; on resolv
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-001 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-001 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ### High
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-002 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-002 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ### Medium
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-003 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-003 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ### Low
 
 | ID | Risk | Impact | Likelihood | Mitigation | Owner | Status |
 |----|------|--------|------------|------------|-------|--------|
-| RISK-004 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
+| RSK-004 | [Description] | [Impact if occurs] | High/Med/Low | [Mitigation plan] | [Who] | [Status] |
 
 ---
 
@@ -47,7 +47,7 @@ reconciliation: "live = OPEN only + '{N} active as of PM #{X}' banner; on resolv
 
 | ID | Risk | Resolution | Date |
 |----|------|------------|------|
-| RISK-000 | [Description] | [How it was resolved] | [Date] |
+| RSK-000 | [Description] | [How it was resolved] | [Date] |
 
 ---
 
