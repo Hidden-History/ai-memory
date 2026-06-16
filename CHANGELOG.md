@@ -13,6 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [2.7.0] - 2026-06-16
+
+### Upgrade Instructions
+
+- **Existing installs**: re-run `./scripts/install.sh <project-dir>` to pick up the new `aim-tracking-rotate` skill, the cap-contract seed templates, and the updated session-close workflow. Existing oversight files are never overwritten (no-clobber); they adopt the cap contracts on the next install into a fresh project, or can be brought into line manually.
+- No database migration is required. The new injection-freshness read filter is backward-compatible — points written before this release (which lack the `is_current` field) continue to be returned; only points explicitly marked superseded are excluded.
+
+### Added
+
+- **Oversight-file cap enforcement (`aim-tracking-rotate`)** — governed oversight files now carry a machine-readable cap contract in their front-matter (`class`, `read_path`, `owns`, `cap_lines`, `cap_kb`, `rotation_trigger`, `archive_target`, `index_file`, `reconciliation`). A new `aim-tracking-rotate` skill provides:
+  - **`--check`** — a session-close gate that fails (and blocks closeout) when any governed file exceeds its line or byte cap, printing the offending file and a remedy. Enforced for every governed file.
+  - **`--apply`** — archives the oldest entries of the append-only decision log into a dated shard with a maintained manifest index, atomically and with per-entry count conservation (never splits, loses, or duplicates an entry). Table-format registers (blockers/risk) and multi-table indexes are check-only for now; they are rotated by hand until format-aware support lands.
+- **Per-class oversight seed templates** carrying the cap contract, plus a new `project-status.md` heartbeat seed scaffolded and populated in place during project init.
+
+### Changed
+
+- **Session-close workflow** now enforces caps before completing, writes the `project-status.md` routing heartbeat in place (one datum, one home), and archives the session handoff. Decision-log entries are prepended newest-first so archival always sheds the oldest.
+- **Tracking-freshness (`aim-tracking-freshness`)** — bug/tech-debt INDEX status cells are now length-bounded (previously rendered verbatim and unbounded); closed records beyond the ten most recent are sharded to a `CLOSED.md` file with an index pointer; generated INDEX files carry the cap contract; an over-cap WARNING is emitted on regenerate. Open/closed classification is unchanged.
+- **Memory save (handoff/insight)** — saved content is now bounded to a single embedding vector with a pointer to the full file on disk, instead of fanning a large handoff into many injectable chunks. The full file is preserved on disk unchanged. This structurally resolves the recurring bootstrap `[FALLBACK-NEEDED]` condition (a compliant handoff fits the bootstrap budget).
+- **Injection freshness** — superseded `discussions` memories are now excluded at read time via an `is_current` soft-delete filter (exclude-only-superseded; legacy points are retained). Saving a new handoff/insight auto-supersedes the prior one for the same agent within the same project scope; the opt-in `--supersedes` flag is project-scoped and refuses cross-project ids. Bootstrap Layer-3 insights are retrieved by recency (deterministic) rather than by semantic similarity, and the `agent_insight` decay half-life is shortened from 180 to 90 days.
+
 ## [2.6.0] - 2026-06-16
 
 ### Upgrade Instructions
