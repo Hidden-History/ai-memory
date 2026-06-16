@@ -7,39 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **`aim-sot consult` no longer returns stale registry entries** — consult read the
-  derived memory cache (5b) first and returned it whenever non-empty, with no binding
-  to the committed `.sot/registry.yaml`, so after any registry edit (or when another
-  project's rows shared the `group_id`) it shadowed the file with stale or cross-state
-  data. Consult now uses the cache only when the drift cache's `registry_sha` matches
-  the committed file's SHA, otherwise it falls back to the committed file; it remains
-  strictly read-only. Also: `verify --proposal` now flags a proposal that lacks an
-  `entries` key instead of silently verifying it as empty; `detect-propose run` prunes
-  drift-cache records for components no longer in the registry (parity with reindex);
-  and the SKILL.md 5b-cache field name is corrected to `type=sot_entry` to match the
-  engine. (`aim_sot_consult.py`, `aim_sot_verify.py`, `aim_sot_detect_propose.py`, `SKILL.md`)
-
-- **BUG-302: tier-2 fallback marker now shows `remaining=` alongside `tokens=` and `budget=`**
-  — the marker previously printed `tokens=<N> budget=<total>`, which read as a false
-  contradiction when `tokens < budget` but `tokens > budget − tokens_used`. Adding
-  `remaining=budget−tokens_used` makes the correct reject self-evident.
-  (`context_injection_tier2.py` marker block)
-
-- **`aim-sot` is now discoverable as a skill in installed projects** — the skill's
-  engine lives under `_ai-memory/skills/aim-sot/`, which the installer copied as
-  canonical files but never surfaced to `.claude/skills/`, so Claude Code could not
-  index it even though its session/drift hooks were registered. `deploy_ai_memory_skills`
-  now generates a thin discovery shim in `.claude/skills/` for `aim-*` skills that live
-  under `_ai-memory/skills/` without a full copy. It runs on every install (matching
-  aim-sot's always-on SOT hooks), never clobbers a skill that already has a full copy,
-  and is idempotent on re-install; the `aim-*` prefix deliberately excludes the
-  oversight-internal `parzival-save-*` skills. The `AI_MEMORY_SOT_HOOKS` opt-out is now
-  documented as a commented line in `docker/.env.example`.
-  (`scripts/install.sh`, `docker/.env.example`)
-
 ### Added
+
+- **`aim-sot` Source-of-Truth subsystem** — new `aim-sot` skill that tracks where the
+  canonical truth lives for each boundary of the user's own project. A committed
+  `.sot/registry.yaml` (in the user's own repo) is the registry of record; the skill
+  ships the schema, templates, and a three-mode engine:
+  - **consult** — read-only query over the registry (served from the derived memory
+    cache, falling back to the committed file); answers "where does X live / who owns it"
+    for any component.
+  - **detect-propose** — hybrid auto-discover → propose: scans for candidate components,
+    computes actual state (SHA-256 of each `sot_location` file), and emits a **proposed
+    patch** on drift or new candidates. **Never writes the registry** — the propose-only
+    guarantee is unconditional; every registry change goes through the human-review +
+    verify gate. The baseline SHA is held (not advanced) when drift is detected, so the
+    proposal re-fires until a human confirms the change. Cold-start `drift_status` is
+    `unverified`, not `clean`.
+  - **verify** — 16-check gate (Schema · Referential · Completeness · Content) returning
+    PASS / CONDITIONAL / FAIL. K1 (content-hash check) reports CONDITIONAL — not a
+    silent pass — when no baseline exists. Verdicts distinguish checks that ran and
+    produced a result from no-op/inert checks and skipped-no-baseline checks.
+
+  Two runtime caches support the feature: a per-install drift cache
+  (`~/.ai-memory/drift-state/sot_drift_{project_id}.json`, machine-local, never
+  committed) and a derived memory cache (Qdrant `conventions` collection,
+  `memory_type=sot_entry`, rebuildable from the committed registry at any time via
+  `detect-propose reindex`). The session-start digest hook and drift Stop hook are
+  **auto-registered on install for all supported CLIs** (Claude Code, Codex, Cursor,
+  Gemini) — default on; set `AI_MEMORY_SOT_HOOKS=off` in `docker/.env` to skip
+  registration. The engine also runs standalone (`detect-propose run`) as the default
+  no-hook path. All trigger paths are fail-open (exit 0 on any error).
+
+  **Data safety**: SOT `owner` and `added_by` fields carry GitHub handles that must
+  survive the shared PII scanner intact. For `sot_entry` writes only, the scanner's
+  `HANDLE` (GitHub @-handle) redaction is exempted so ownership attribution is
+  preserved faithfully in the derived cache; all other masking — secrets, email
+  addresses, IP addresses, SSNs — is unchanged for SOT entries and for every other
+  memory type.
 
 - **Per-source budget ledger in `select_results_greedy`** — `meta["per_source"]` now
   carries a per-collection breakdown of `requested_tokens`, `loaded_tokens`, and
@@ -50,16 +54,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collection. The ledger is written to each `injection-log.jsonl` event under
   `per_source`. Observe-only: selection output is unchanged. (`injection.py`,
   `context_injection_tier2.py`)
-
-### Changed
-
-- **Agent-guidance files now refresh on every install** — existing installations
-  pick up updated guidance automatically by re-running
-  `./scripts/install.sh <project-dir>`. No special flag is needed; the guidance
-  file for each configured CLI is deployed on every install, not only on the
-  initial setup.
-
-### Added
 
 - **Sanctum content-drift detection (`aim-content-drift`)** — a new skill that
   compares an operator's scaffolded sanctum files (BOND, CAPABILITIES, CREED, INDEX,
@@ -131,35 +125,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `INSTALL-GUIDE-POV.md` gains an `add-project` / shared-stack section documenting
     the `INSTALL_MODE=add-project` flow: when it triggers, what the installer skips
     vs. runs, prerequisites, per-project configuration, and verification steps.
-- **`aim-sot` Source-of-Truth subsystem** — new `aim-sot` skill that tracks where the
-  canonical truth lives for each boundary of the user's own project. A committed
-  `.sot/registry.yaml` (in the user's own repo) is the registry of record; the skill
-  ships the schema, templates, and a three-mode engine:
-  - **consult** — read-only query over the registry (served from the derived memory
-    cache, falling back to the committed file); answers "where does X live / who owns it"
-    for any component.
-  - **detect-propose** — hybrid auto-discover → propose: scans for candidate components,
-    computes actual state (SHA-256 of each `sot_location` file), and emits a **proposed
-    patch** on drift or new candidates. **Never writes the registry** — the propose-only
-    guarantee is unconditional; every registry change goes through the human-review +
-    verify gate. The baseline SHA is held (not advanced) when drift is detected, so the
-    proposal re-fires until a human confirms the change. Cold-start `drift_status` is
-    `unverified`, not `clean`.
-  - **verify** — 16-check gate (Schema · Referential · Completeness · Content) returning
-    PASS / CONDITIONAL / FAIL. K1 (content-hash check) reports CONDITIONAL — not a
-    silent pass — when no baseline exists. Verdicts distinguish checks that ran and
-    produced a result from no-op/inert checks and skipped-no-baseline checks.
-
-  Two runtime caches support the feature: a per-install drift cache
-  (`~/.ai-memory/drift-state/sot_drift_{project_id}.json`, machine-local, never
-  committed) and a derived memory cache (Qdrant `conventions` collection,
-  `memory_type=sot_entry`, rebuildable from the committed registry at any time via
-  `detect-propose reindex`). The Claude `Stop` hook and multi-CLI adapters (Codex,
-  Cursor, Gemini) ship with the install but are **not auto-registered** — opt-in only
-  (see `docs/AIM-SOT.md`). The engine also runs standalone (`detect-propose run`)
-  as the default no-hook path. All trigger paths are fail-open (exit 0 on any error).
 
 ### Changed
+
+- **Agent-guidance files now refresh on every install** — existing installations
+  pick up updated guidance automatically by re-running
+  `./scripts/install.sh <project-dir>`. No special flag is needed; the guidance
+  file for each configured CLI is deployed on every install, not only on the
+  initial setup.
 
 - **Sanctum templates** — aligned the eight scaffolded sanctum files (`CREED`,
   `PERSONA`, `BOND`, `LORE`, `MEMORY`, `CAPABILITIES`, `INDEX`, `PULSE`) to a
@@ -203,6 +176,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pull the prebuilt GHCR image. (Fresh installs pull it automatically.)
 
 ### Fixed
+
+- **`aim-sot consult` no longer returns stale registry entries** — consult read the
+  derived memory cache (5b) first and returned it whenever non-empty, with no binding
+  to the committed `.sot/registry.yaml`, so after any registry edit (or when another
+  project's rows shared the `group_id`) it shadowed the file with stale or cross-state
+  data. Consult now uses the cache only when every row's stamped `registry_sha` matches
+  the committed file's SHA **and** the row count matches the committed entry count; a
+  SHA mismatch or count shortfall falls back to the committed file. Consult remains
+  strictly read-only. Also: `verify --proposal` now flags a proposal that lacks an
+  `entries` key instead of silently verifying it as empty; `detect-propose run` prunes
+  drift-cache records for components no longer in the registry (parity with reindex);
+  and the SKILL.md 5b-cache field name is corrected to `type=sot_entry` to match the
+  engine. (`aim_sot_consult.py`, `aim_sot_verify.py`, `aim_sot_detect_propose.py`, `SKILL.md`)
+
+- **BUG-302: tier-2 fallback marker now shows `remaining=` alongside `tokens=` and `budget=`**
+  — the marker previously printed `tokens=<N> budget=<total>`, which read as a false
+  contradiction when `tokens < budget` but `tokens > budget − tokens_used`. Adding
+  `remaining=budget−tokens_used` makes the correct reject self-evident.
+  (`context_injection_tier2.py` marker block)
+
+- **`aim-sot` is now discoverable as a skill in installed projects** — the skill's
+  engine lives under `_ai-memory/skills/aim-sot/`, which the installer copied as
+  canonical files but never surfaced to `.claude/skills/`, so Claude Code could not
+  index it even though its session/drift hooks were registered. `deploy_ai_memory_skills`
+  now generates a thin discovery shim in `.claude/skills/` for `aim-*` skills that live
+  under `_ai-memory/skills/` without a full copy. It runs on every install (matching
+  aim-sot's always-on SOT hooks), never clobbers a skill that already has a full copy,
+  and is idempotent on re-install; the `aim-*` prefix deliberately excludes the
+  oversight-internal `parzival-save-*` skills. The `AI_MEMORY_SOT_HOOKS` opt-out is now
+  documented as a commented line in `docker/.env.example`.
+  (`scripts/install.sh`, `docker/.env.example`)
 
 - **aim-sot verify** — `verify run --registry <path>` no longer crashes on a
   non-conforming (flat) registry path. A registry outside `<root>/.sot/` makes the
