@@ -108,9 +108,15 @@ def test_fresh_cache_used_preserves_drift_status(monkeypatch, tmp_path):
     monkeypatch.setattr(
         consult, "_resolve_project_id_for_cache", lambda p: project_id, raising=False
     )
+    # Enriched cache: all 12 rows (cardinality must match the committed file),
+    # with COMP-00 carrying a drift_status the file doesn't have.
     enriched = [
-        {"id": "COMP-00", "drift_status": "drifted", "sot_location": "a.py"},
-        {"id": "COMP-01", "drift_status": "clean", "sot_location": "b.py"},
+        {
+            "id": f"COMP-{i:02d}",
+            "drift_status": "drifted" if i == 0 else "clean",
+            "sot_location": f"src/pkg{i:02d}/__init__.py",
+        }
+        for i in range(12)
     ]
     monkeypatch.setattr(
         consult,
@@ -120,7 +126,7 @@ def test_fresh_cache_used_preserves_drift_status(monkeypatch, tmp_path):
     )
 
     entries = consult._load_entries(registry)
-    assert entries == enriched, "fresh cache should be used (enriched rows)"
+    assert len(entries) == 12, "fresh cache (all rows) should be used"
     assert any(e.get("drift_status") == "drifted" for e in entries)
 
 

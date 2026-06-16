@@ -214,8 +214,11 @@ def _parse_cached_entries(payloads: list[dict]) -> list[dict]:
     return entries
 
 
-def _cache_is_fresh(registry_path: Path, payloads: list[dict]) -> bool:
-    """True iff every 5b row was stamped with the committed registry's SHA.
+def _cache_is_fresh(
+    registry_path: Path, payloads: list[dict], expected_count: int
+) -> bool:
+    """True iff every 5b row was stamped with the committed registry's SHA
+    AND the row count equals the committed registry's entry count.
 
     The reindex stamps each 5b row with ``registry_sha`` = the engine's
     ``_registry_sha`` of the registry it rebuilt from. consult recomputes that SHA
@@ -227,6 +230,12 @@ def _cache_is_fresh(registry_path: Path, payloads: list[dict]) -> bool:
     force the committed-file fallback (A1 invariant: consult never returns entries
     that don't match the committed registry).
 
+    The cardinality guard (``len(payloads) == expected_count``) catches partial
+    reindexes: ``_reindex_sot_entries`` returns success whenever ``stored > 0``,
+    so a validation-rejected entry leaves the rest stamped with the committed SHA
+    but the row count short. Without this guard consult would silently serve the
+    incomplete subset forever.
+
     When the detect_propose sibling ``_registry_sha`` helper is unavailable
     (import failed), the committed SHA cannot be computed → return False so the
     caller serves the file.
@@ -237,44 +246,34 @@ def _cache_is_fresh(registry_path: Path, payloads: list[dict]) -> bool:
     if not committed_sha or not payloads:
         return False
     stamped = {p.get("registry_sha") for p in payloads}
-    return stamped == {committed_sha}
-
-
-def _try_memory_cache(registry_path: Path, project_id: str) -> list[dict] | None:
-    """Try to load registry entries from the 5b derived memory cache.
-
-    Returns a list of entry dicts on success, or None if the store is
-    unreachable or the cache is empty. The caller falls back to the committed
-    registry file silently. ``project_id`` is resolved by the caller (and the
-    freshness gate applied) before this is invoked.
-    """
-    payloads = _scroll_sot_payloads(project_id)
-    if not payloads:
-        return None
-    entries = _parse_cached_entries(payloads)
-    return entries if entries else None
+    return stamped == {committed_sha} and len(payloads) == expected_count
 
 
 def _load_entries(registry_path: Path) -> list[dict]:
     """Load registry entries for query.
 
     Use the 5b derived memory cache (fast, agent-searchable) ONLY when it provably
-    reflects the committed registry — i.e. every 5b row carries a stamped
-    ``registry_sha`` equal to the committed file's SHA (A1 freshness gate).
-    Otherwise fall back to the committed registry file so consult never returns
-    stale or cross-state entries (the cache-first read previously shadowed the file
-    after any registry edit). The rows are scrolled once and reused for both the
-    freshness check and the entry parse.
+    reflects the committed registry — every 5b row carries a stamped ``registry_sha``
+    equal to the committed file's SHA AND the row count matches the committed entry
+    count (A1 freshness + cardinality gate). Otherwise fall back to the committed
+    registry file so consult never returns stale, partial, or cross-state entries.
+
+    The committed file is parsed once when payloads exist (needed for the cardinality
+    guard) and reused as the fallback return value, avoiding a second YAML parse.
     Signature must not change (spec §4, Item 3 seam).
     """
     project_id = _resolve_project_id_for_cache(registry_path)
     if project_id:
         payloads = _scroll_sot_payloads(project_id)
-        if payloads and _cache_is_fresh(registry_path, payloads):
-            entries = _parse_cached_entries(payloads)
-            if entries:
-                return entries
-    # --- fallback: committed registry (cache stale, empty, or unavailable) ---
+        if payloads:
+            # Parse once: supplies the cardinality count and is the fallback return.
+            file_entries = _load_from_file(registry_path)
+            if _cache_is_fresh(registry_path, payloads, len(file_entries)):
+                entries = _parse_cached_entries(payloads)
+                if entries:
+                    return entries
+            return file_entries
+    # --- fallback: committed registry (no project_id, cache unavailable) ---
     return _load_from_file(registry_path)
 
 

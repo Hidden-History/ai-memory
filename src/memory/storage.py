@@ -860,6 +860,7 @@ class MemoryStorage:
             masked_count = 0
 
             for memory in memories:
+                # Intentionally omits exempt_handle_pii: SOT uses per-row store_memory; batching SOT rows would silently re-redact owner handles.
                 scan_result = self._scanner.scan(
                     memory["content"],
                     force_ner=True,
