@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+## [2.6.0] - 2026-06-16
+
+### Upgrade Instructions
+
+- **Existing installs**: re-run `./scripts/install.sh <project-dir>` to pick up the `aim-sot` skill surface + agent-guidance files (both deploy on every install).
+- **Embedding image (TD-626)**: run `~/.ai-memory/scripts/stack.sh restart` to recreate services and pull the prebuilt GHCR embedding image (`ghcr.io/hidden-history/ai-memory-embedding`). `scripts/install.sh` brings services up with `--no-recreate`, so a running `embedding` container keeps its previous locally-built image until a restart. Fresh installs pull the image automatically.
+- **aim-sot hooks**: the SOT digest/drift hooks auto-register on install for all supported CLIs (default-on); set `AI_MEMORY_SOT_HOOKS=off` in `docker/.env` before install to opt out.
+- **Maintainer (one-time)**: set the `ai-memory-embedding` GHCR package to **Public** (repo → Packages → Package settings → Change visibility) so anonymous `scripts/install.sh` pulls succeed without authentication; until then those pulls fall back to a local source build.
+
+### Added
+
 - **`aim-sot` Source-of-Truth subsystem** — new `aim-sot` skill that tracks where the
   canonical truth lives for each boundary of the user's own project. A committed
   `.sot/registry.yaml` (in the user's own repo) is the registry of record; the skill
