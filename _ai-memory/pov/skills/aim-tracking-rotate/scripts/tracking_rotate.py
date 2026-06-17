@@ -621,6 +621,17 @@ class ShardCollisionError(Exception):
         )
 
 
+def _normalize_eol(text: str) -> str:
+    """Normalize line endings only (CRLF/CR -> LF) for body-equality compares.
+
+    EOL-ONLY: maps ``\\r\\n`` then bare ``\\r`` to ``\\n`` so a true replay that
+    differs from its archived twin solely in line endings compares equal across
+    mixed-EOL hosts. It touches NO other whitespace — two bodies differing in any
+    non-EOL way still compare unequal, so a real id clash still raises a collision.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def append_to_shard(
     shard: Path, moved: list[Entry], source_rel: str, entry_pattern: str
 ) -> int:
@@ -641,7 +652,9 @@ def append_to_shard(
         existing_text = shard.read_text(encoding="utf-8")
         existing_bodies: dict[str, set[str]] = {}
         for e in parse_entries(existing_text, entry_pattern).entries:
-            existing_bodies.setdefault(entry_key(e), set()).add(e.block.strip())
+            existing_bodies.setdefault(entry_key(e), set()).add(
+                _normalize_eol(e.block).strip()
+            )
         moved_new = []
         collisions: list[str] = []
         for e in moved:
@@ -649,12 +662,14 @@ def append_to_shard(
             bodies = existing_bodies.get(key)
             if bodies is None:
                 moved_new.append(e)
-            elif e.block.strip() in bodies:
+            elif _normalize_eol(e.block).strip() in bodies:
                 continue  # idempotent replay — same id AND body already archived
             else:
                 collisions.append(key)  # same id, different body — never drop
         if collisions:
-            raise ShardCollisionError(shard, collisions)
+            # Order-preserving dedup: one id can collide multiple times in a batch;
+            # exc.ids / the printed [:10] / the message must list it once.
+            raise ShardCollisionError(shard, list(dict.fromkeys(collisions)))
         if not moved_new:
             return 0
         sep = "" if existing_text.endswith("\n") else "\n"

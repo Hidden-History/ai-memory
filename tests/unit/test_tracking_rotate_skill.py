@@ -550,6 +550,84 @@ def test_apply_collision_does_not_drop_live_entry(tmp_path: Path) -> None:
     assert log.read_text(encoding="utf-8") == live
 
 
+def test_append_to_shard_replay_crlf_vs_lf_skips(tmp_path: Path) -> None:
+    """LOW-A: a moved entry differing from its same-id shard twin ONLY by
+    CRLF<->LF line endings is an idempotent replay — skipped (returns 0), not a
+    spurious collision on a mixed-EOL host."""
+    shard = tmp_path / "tracking" / "archive" / "shard.md"
+    lf_entry = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nOriginal body line one.\nLine two.\n\n",
+    )
+    first = append_to_shard(shard, [lf_entry], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    crlf_entry = Entry(
+        header="### DEC-PM001-D1 — original",
+        block=(
+            "### DEC-PM001-D1 — original\r\n\r\n"
+            "Original body line one.\r\nLine two.\r\n\r\n"
+        ),
+    )
+    again = append_to_shard(
+        shard, [crlf_entry], "decision-log.md", DEFAULT_ENTRY_PATTERN
+    )
+    assert first == 1
+    assert again == 0  # EOL-only difference => idempotent replay, no raise
+    assert shard.read_text(encoding="utf-8").count("### DEC-PM001-D1") == 1
+
+
+def test_append_to_shard_crlf_non_eol_difference_still_collides(
+    tmp_path: Path,
+) -> None:
+    """LOW-A false-negative GUARD: EOL normalization must NOT collapse a real
+    body difference. A CRLF moved entry whose body differs in a NON-EOL way
+    (changed word) from its same-id shard twin STILL raises ShardCollisionError —
+    proving the fix did not re-introduce the MED-1 silent-loss class."""
+    shard = tmp_path / "tracking" / "archive" / "shard.md"
+    original = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nOriginal body.\n\n",
+    )
+    append_to_shard(shard, [original], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+
+    crlf_changed = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\r\n\r\nDIFFERENT body.\r\n\r\n",
+    )
+    with pytest.raises(ShardCollisionError) as exc:
+        append_to_shard(shard, [crlf_changed], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    assert "DEC-PM001-D1" in exc.value.ids
+    # Non-destructive: the shard still holds only the original body.
+    text = shard.read_text(encoding="utf-8")
+    assert "Original body." in text
+    assert "DIFFERENT body." not in text
+
+
+def test_append_to_shard_dedups_repeated_collision_ids(tmp_path: Path) -> None:
+    """LOW-B: when one id collides multiple times in a single batch, the
+    ShardCollisionError ids list is de-duplicated — the id appears exactly once."""
+    shard = tmp_path / "tracking" / "archive" / "shard.md"
+    original = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nOriginal body.\n\n",
+    )
+    append_to_shard(shard, [original], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+
+    collider_a = Entry(
+        header="### DEC-PM001-D1 — variant A",
+        block="### DEC-PM001-D1 — variant A\n\nBody A.\n\n",
+    )
+    collider_b = Entry(
+        header="### DEC-PM001-D1 — variant B",
+        block="### DEC-PM001-D1 — variant B\n\nBody B.\n\n",
+    )
+    with pytest.raises(ShardCollisionError) as exc:
+        append_to_shard(
+            shard, [collider_a, collider_b], "decision-log.md", DEFAULT_ENTRY_PATTERN
+        )
+    assert exc.value.ids == ["DEC-PM001-D1"]
+    assert exc.value.ids.count("DEC-PM001-D1") == 1
+
+
 # ---------------------------------------------------------------------------
 # --apply : table-row / mixed-format registers REFUSE (DEC-PM339-D7, TD-655)
 # ---------------------------------------------------------------------------
