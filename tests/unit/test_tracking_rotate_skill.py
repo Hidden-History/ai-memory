@@ -22,6 +22,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Load the skill script via importlib (lives outside any installable package)
 # ---------------------------------------------------------------------------
@@ -52,6 +54,9 @@ FALLBACK_REGISTRY = _mod.FALLBACK_REGISTRY
 DEFAULT_ENTRY_PATTERN = _mod.DEFAULT_ENTRY_PATTERN
 POINTER_MARKER = _mod.POINTER_MARKER
 MANUAL_ROTATION_FILES = _mod.MANUAL_ROTATION_FILES
+append_to_shard = _mod.append_to_shard
+Entry = _mod.Entry
+ShardCollisionError = _mod.ShardCollisionError
 
 
 # ---------------------------------------------------------------------------
@@ -475,6 +480,74 @@ def test_apply_reapply_no_double_append(tmp_path: Path) -> None:
     ), f"shard double-appended: {first_count} -> {second.count('### DEC-')}"
     ids = re.findall(r"### (DEC-\S+)", second)
     assert len(ids) == len(set(ids)), "duplicate ids in shard after re-apply"
+
+
+def test_append_to_shard_replay_same_id_and_body_skips(tmp_path: Path) -> None:
+    """MED-1: same id AND identical body is a safe replay — skipped, not
+    double-appended, no error."""
+    shard = tmp_path / "tracking" / "archive" / "shard.md"
+    entry = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nOriginal body.\n\n",
+    )
+    first = append_to_shard(shard, [entry], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    again = append_to_shard(shard, [entry], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    assert first == 1
+    assert again == 0
+    assert shard.read_text(encoding="utf-8").count("### DEC-PM001-D1") == 1
+
+
+def test_append_to_shard_same_id_different_body_refuses(tmp_path: Path) -> None:
+    """MED-1: same id with a DIFFERENT body is a collision, not a replay. It
+    must raise rather than silently drop, and leave the shard untouched."""
+    shard = tmp_path / "tracking" / "archive" / "shard.md"
+    original = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nOriginal body.\n\n",
+    )
+    append_to_shard(shard, [original], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+
+    collider = Entry(
+        header="### DEC-PM001-D1 — changed",
+        block="### DEC-PM001-D1 — changed\n\nDIFFERENT body.\n\n",
+    )
+    with pytest.raises(ShardCollisionError) as exc:
+        append_to_shard(shard, [collider], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    assert "DEC-PM001-D1" in exc.value.ids
+    # Non-destructive: the shard still holds only the original body.
+    text = shard.read_text(encoding="utf-8")
+    assert "Original body." in text
+    assert "DIFFERENT body." not in text
+
+
+def test_apply_collision_does_not_drop_live_entry(tmp_path: Path) -> None:
+    """MED-1 end-to-end: when an entry being rotated out collides with a
+    different-bodied shard entry of the same id, --apply must refuse (exit 1)
+    and leave the live file completely untouched — no silent data loss."""
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    shard = root / "tracking" / "archive" / "decision-log-ARCHIVE-2026-06.md"
+
+    # Pre-seed the shard with DEC-PM001-D1 carrying a DIFFERENT body than the
+    # one the live log will try to rotate out (DEC-PM001-D1 is the oldest, so it
+    # is in the moved set).
+    shard.parent.mkdir(parents=True, exist_ok=True)
+    shard.write_text(
+        "# Archive\n\n### DEC-PM001-D1 — decision number 1\n\n"
+        "Decision: SOMETHING ELSE entirely.\nRationale: divergent.\n\n",
+        encoding="utf-8",
+    )
+
+    live = _decision_log(80)
+    log.write_text(live, encoding="utf-8")
+    result = _run(
+        "--apply", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 1
+    assert "collision" in result.stderr.lower()
+    assert "DEC-PM001-D1" in result.stderr
+    # Live file is byte-for-byte unchanged (entry was NOT dropped).
+    assert log.read_text(encoding="utf-8") == live
 
 
 # ---------------------------------------------------------------------------

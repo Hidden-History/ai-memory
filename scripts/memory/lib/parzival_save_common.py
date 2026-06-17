@@ -65,7 +65,7 @@ def bound_handoff_content(content: str, *, source_path: str | None = None) -> st
     pointer = (
         f"\n\n[truncated — full handoff: {source_path}]"
         if source_path
-        else "\n\n[truncated — full handoff retained on disk]"
+        else "\n\n[truncated — inline handoff; full body not retained]"
     )
     # Reserve room for the pointer so the stored vector stays within the cap.
     budget = HANDOFF_MAX_BYTES - len(pointer.encode("utf-8"))

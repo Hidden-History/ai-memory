@@ -164,7 +164,10 @@ def test_overcap_handoff_bounded_with_pointer_and_under_cap():
 
 def test_overcap_handoff_inline_pointer_without_path():
     bounded = bound_handoff_content(_overcap_handoff_body())
-    assert "[truncated — full handoff retained on disk]" in bounded
+    # LOW-1: inline content has no on-disk source — the pointer must not falsely
+    # claim it is retained on disk.
+    assert "[truncated — inline handoff; full body not retained]" in bounded
+    assert "retained on disk" not in bounded
 
 
 def test_compliant_insight_returned_unchanged():

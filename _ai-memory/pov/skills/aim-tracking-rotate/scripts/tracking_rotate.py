@@ -86,7 +86,7 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
         archive_target="session-index/INDEX.md",
         entry_pattern=r"^\| ",
     ),
-    "tracking/task-tracker.md": Contract(40, 2.5, "register", False),
+    "tracking/task-tracker.md": Contract(40, 3, "register", False),
     "tracking/blockers-log.md": Contract(
         100,
         15,
@@ -604,23 +604,57 @@ def _render_live(
     return front_matter + pre + pointer_line + "".join(e.block for e in kept)
 
 
+class ShardCollisionError(Exception):
+    """A moved entry shares an id with an existing shard entry of DIFFERENT body.
+
+    This is NOT an idempotent replay (which would be id AND body identical) — it
+    is a real id clash whose content would be lost if the move were silently
+    skipped. Raised so the caller aborts before the live file is rewritten,
+    leaving both shard and live untouched.
+    """
+
+    def __init__(self, shard: Path, ids: list[str]) -> None:
+        self.shard = shard
+        self.ids = ids
+        super().__init__(
+            f"{', '.join(ids)} already archived in {shard.name} with different body"
+        )
+
+
 def append_to_shard(
     shard: Path, moved: list[Entry], source_rel: str, entry_pattern: str
 ) -> int:
     """Append moved entries to the shard idempotently. Returns rows appended.
 
-    Re-running --apply after an interruption must not double-append: entries
-    whose id is already present in the shard are skipped (mirrors the manifest
-    dedup). Writes atomically.
+    Re-running --apply after an interruption must not double-append: an entry
+    whose id AND body already match an archived entry is a safe replay and is
+    skipped (mirrors the manifest dedup). But an entry whose id matches an
+    existing shard entry with a DIFFERENT body is a collision, not a replay —
+    silently skipping it would drop the live entry's content (the post-write
+    id-count check cannot catch this: the id stays conserved while its body is
+    lost). Such collisions raise ShardCollisionError so the caller aborts before
+    the live file is rewritten. Writes atomically.
     """
     shard.parent.mkdir(parents=True, exist_ok=True)
     moved_new = moved
     if shard.is_file():
         existing_text = shard.read_text(encoding="utf-8")
-        existing_keys = {
-            entry_key(e) for e in parse_entries(existing_text, entry_pattern).entries
-        }
-        moved_new = [e for e in moved if entry_key(e) not in existing_keys]
+        existing_bodies: dict[str, set[str]] = {}
+        for e in parse_entries(existing_text, entry_pattern).entries:
+            existing_bodies.setdefault(entry_key(e), set()).add(e.block.strip())
+        moved_new = []
+        collisions: list[str] = []
+        for e in moved:
+            key = entry_key(e)
+            bodies = existing_bodies.get(key)
+            if bodies is None:
+                moved_new.append(e)
+            elif e.block.strip() in bodies:
+                continue  # idempotent replay — same id AND body already archived
+            else:
+                collisions.append(key)  # same id, different body — never drop
+        if collisions:
+            raise ShardCollisionError(shard, collisions)
         if not moved_new:
             return 0
         sep = "" if existing_text.endswith("\n") else "\n"
@@ -785,9 +819,22 @@ def run_apply(
         )
         return 0
 
-    # 1. Archive shard (idempotent + atomic).
+    # 1. Archive shard (idempotent + atomic). A same-id/different-body clash is
+    #    refused here, BEFORE the live rewrite, so nothing is dropped.
     shard = oversight_root / shard_rel
-    appended = append_to_shard(shard, moved, rel, eff_pattern)
+    try:
+        appended = append_to_shard(shard, moved, rel, eff_pattern)
+    except ShardCollisionError as exc:
+        print(
+            f"ERROR: shard collision in {shard_rel} — an entry being archived "
+            "shares an id with an already-archived entry but has different "
+            "content. Refusing to silently drop it; the live file was NOT "
+            "modified. Resolve the id clash by hand:",
+            file=sys.stderr,
+        )
+        for eid in exc.ids[:10]:
+            print(f"    {eid}", file=sys.stderr)
+        return 1
 
     # 2. Reconciliation: manifest (append-only-log) OR banner (register).
     manifest_rows = 0
