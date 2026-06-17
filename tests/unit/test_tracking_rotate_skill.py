@@ -602,6 +602,59 @@ def test_append_to_shard_crlf_non_eol_difference_still_collides(
     assert "DIFFERENT body." not in text
 
 
+def test_append_to_shard_internal_whitespace_difference_still_collides(
+    tmp_path: Path,
+) -> None:
+    """LOW-A false-negative GUARD (internal whitespace): ``_normalize_eol`` must
+    normalize line endings ONLY — never collapse internal whitespace. Two
+    same-id entries whose bodies differ ONLY by an internal single vs double
+    space are a real id clash, so the second STILL raises ShardCollisionError.
+    Makes the EOL-only guarantee load-bearing against a future stray
+    ``.replace(" ", "")`` that would silently re-introduce the MED-1 loss class."""
+    shard = tmp_path / "tracking" / "archive" / "shard.md"
+    original = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nfoo  bar\n\n",
+    )
+    append_to_shard(shard, [original], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+
+    collider = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nfoo bar\n\n",
+    )
+    with pytest.raises(ShardCollisionError) as exc:
+        append_to_shard(shard, [collider], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    assert "DEC-PM001-D1" in exc.value.ids
+    # Non-destructive: the shard still holds the original double-space body, not
+    # the new single-space one.
+    text = shard.read_text(encoding="utf-8")
+    assert "foo  bar" in text
+    assert "foo bar" not in text
+
+
+def test_append_to_shard_replay_bare_cr_vs_lf_skips(tmp_path: Path) -> None:
+    """LOW-A (bare CR): a moved entry differing from its same-id shard twin ONLY
+    by classic-Mac bare-CR (``\\r``) vs LF line endings is an idempotent replay —
+    skipped (returns 0), not a spurious collision. Exercises the second
+    ``.replace("\\r", "\\n")`` in ``_normalize_eol``."""
+    shard = tmp_path / "tracking" / "archive" / "shard.md"
+    lf_entry = Entry(
+        header="### DEC-PM001-D1 — original",
+        block="### DEC-PM001-D1 — original\n\nOriginal body line one.\nLine two.\n\n",
+    )
+    first = append_to_shard(shard, [lf_entry], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    cr_entry = Entry(
+        header="### DEC-PM001-D1 — original",
+        block=(
+            "### DEC-PM001-D1 — original\r\r" "Original body line one.\rLine two.\r\r"
+        ),
+    )
+    again = append_to_shard(shard, [cr_entry], "decision-log.md", DEFAULT_ENTRY_PATTERN)
+    assert first == 1
+    assert again == 0  # bare-CR-only difference => idempotent replay, no raise
+    assert shard.read_text(encoding="utf-8").count("### DEC-PM001-D1") == 1
+
+
 def test_append_to_shard_dedups_repeated_collision_ids(tmp_path: Path) -> None:
     """LOW-B: when one id collides multiple times in a single batch, the
     ShardCollisionError ids list is de-duplicated — the id appears exactly once."""
