@@ -75,7 +75,7 @@ deterministic runs).
 - **`--apply <file>`** — move the **oldest contiguous block of whole entries**
   (never splitting an entry) into a dated shard, then update the manifest
   (`decision-log-INDEX.md`, append-only-log), write a thin live pointer, and
-  verify counts. Heartbeat / thin-register files (`rotation_trigger: none`) are
+  verify counts. An archived entry whose id already exists in the shard with **identical** content is treated as a safe replay and skipped (so an interrupted `--apply` can be re-run idempotently); if the id matches with **different** content, `--apply` refuses — exiting non-zero with the colliding id(s), leaving the live file and shard untouched — so a body is never silently overwritten or dropped. Heartbeat / thin-register files (`rotation_trigger: none`) are
   check-only, and the table-under-severity registers / multi-table live-indexes
   are deferred to TD-655 (see the support table above) — `--apply` refuses both
   non-destructively.
