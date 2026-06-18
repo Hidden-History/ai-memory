@@ -1128,3 +1128,196 @@ class TestSecurityScannerInitLog:
         # requires the missing-model path not raise.
         result = scanner.scan("Plain text without PII.")
         assert result.action in (ScanAction.PASSED, ScanAction.MASKED)
+
+
+# ============================================================================
+# BUG-320 / BP-174 Q5: low-precision NAME/HANDLE redaction precision
+# ============================================================================
+# The SpaCy PERSON recognizer mis-tags technical proper nouns ("Docker"), diff
+# hunk headers, and filenames as PERSON and masked them DESTRUCTIVELY at storage
+# time, permanently corrupting stored content. The precision gate leaves
+# allow-listed tokens, structural/technical patterns, and context-free names
+# UNMASKED while keeping genuine PII (a name with PII context) and all secrets
+# strictly masked.
+
+
+def _name_finding(content, span):
+    """Build a PII_NAME ScanFinding for `span` within `content` (deterministic,
+    no SpaCy needed) so the precision gate can be unit-tested directly."""
+    from memory.security_scanner import FindingType, ScanFinding
+
+    start = content.index(span)
+    return ScanFinding(
+        finding_type=FindingType.PII_NAME,
+        layer=3,
+        original_text=span,
+        replacement="[NAME_REDACTED]",
+        confidence=0.80,
+        start=start,
+        end=start + len(span),
+    )
+
+
+class TestNameHandlePrecisionGate:
+    """BUG-320: precision gate predicate for NAME/HANDLE candidates."""
+
+    def test_allowlisted_technical_proper_nouns_not_masked(self):
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "Phase 2 (Docker daemon restart) uses Qdrant and Claude Code"
+        for token in ("Docker", "Qdrant", "Claude Code"):
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, token))
+                is False
+            ), f"{token!r} should be allow-listed (never masked)"
+
+    def test_filename_tokens_not_masked(self):
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "See CLAUDE.md and AGENTS.md plus config.py for details"
+        for token in ("CLAUDE.md", "AGENTS.md", "config.py"):
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, token))
+                is False
+            ), f"{token!r} (filename) should not be masked"
+
+    def test_diff_hunk_header_not_masked(self):
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "@@ -205,7 +205,9 @@ Jordan Lee edited the function"
+        # Even a real-looking name on a diff hunk header line is structural.
+        assert (
+            _should_mask_low_precision_pii(
+                content, _name_finding(content, "Jordan Lee")
+            )
+            is False
+        )
+
+    def test_markdown_heading_not_masked(self):
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "### 10. Release notes by Jordan Lee"
+        assert (
+            _should_mask_low_precision_pii(
+                content, _name_finding(content, "Jordan Lee")
+            )
+            is False
+        )
+
+    def test_name_without_pii_context_not_masked(self):
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "Parzival dispatched the agent and Jordan Lee shipped it"
+        assert (
+            _should_mask_low_precision_pii(
+                content, _name_finding(content, "Jordan Lee")
+            )
+            is False
+        )
+
+    def test_name_with_pii_context_is_masked(self):
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        for content in (
+            "Please contact Jordan Lee about the account",
+            "Jordan Lee wrote a long letter",
+            "Dear Jordan Lee, regards",
+        ):
+            assert (
+                _should_mask_low_precision_pii(
+                    content, _name_finding(content, "Jordan Lee")
+                )
+                is True
+            ), f"name with PII context should mask: {content!r}"
+
+
+class TestNamePrecisionEndToEnd:
+    """BUG-320: NAME masking through the full scan() pipeline (Layer 3 NER)."""
+
+    @pytest.fixture(autouse=True)
+    def _require_spacy(self):
+        from memory.security_scanner import _load_spacy_model
+
+        if _load_spacy_model() is None:
+            pytest.skip("SpaCy model not available")
+
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+    def test_sampled_false_positives_pass_unmasked(self):
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=True)
+        for content in (
+            "Phase 2 (Docker daemon restart)",
+            "@@ -205,7 +205,9 @@ def handler():",
+            "### 10. Release steps for Docker",
+            "Read CLAUDE.md and AGENTS.md before starting",
+        ):
+            result = scanner.scan(content)
+            assert "[NAME_REDACTED]" not in result.content, content
+            assert result.content == content
+            assert result.action == ScanAction.PASSED
+
+    def test_real_person_name_with_context_still_masked(self):
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=True)
+        result = scanner.scan("Please contact John Smith at the office.")
+
+        assert result.action == ScanAction.MASKED
+        assert "[NAME_REDACTED]" in result.content
+        assert "John Smith" not in result.content
+        # The candidate is still recorded for observability even when masked.
+        assert any(f.finding_type.value == "pii_name" for f in result.findings)
+
+    def test_false_positive_name_recorded_but_not_masked(self):
+        """A mis-tagged technical token is still surfaced as a finding (for
+        observability) but its replacement is cleared so content is preserved."""
+        from memory.security_scanner import SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=True)
+        result = scanner.scan("Phase 2 (Docker daemon restart)")
+
+        name_findings = [
+            f for f in result.findings if f.finding_type.value == "pii_name"
+        ]
+        if name_findings:  # SpaCy tags "Docker" as PERSON
+            assert all(f.replacement is None for f in name_findings)
+
+    def test_secrets_still_blocked_with_ner(self):
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=True)
+        result = scanner.scan("Token ghp_" + "a" * 36 + " from John Smith")
+
+        assert result.action == ScanAction.BLOCKED
+        assert result.content == ""
+
+
+class TestHandleStructuralExclusion:
+    """BUG-320: handles on diff/heading/comment lines are not PII, while ordinary
+    @mention masking (intentional behavior) is preserved."""
+
+    @pytest.fixture(autouse=True)
+    def _disable_detect_secrets(self, monkeypatch):
+        monkeypatch.setattr("memory.security_scanner._detect_secrets_available", False)
+
+    def test_handle_on_markdown_heading_not_masked(self):
+        from memory.security_scanner import SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("# Thanks to @octocat for the heading")
+
+        assert "[HANDLE_REDACTED]" not in result.content
+        assert "@octocat" in result.content
+
+    def test_handle_in_prose_still_masked(self):
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Thanks to @octocat for the review")
+
+        assert result.action == ScanAction.MASKED
+        assert "[HANDLE_REDACTED]" in result.content
