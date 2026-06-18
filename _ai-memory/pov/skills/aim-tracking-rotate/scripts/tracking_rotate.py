@@ -40,6 +40,7 @@ per-seed values) and BP-167 Part C (rotation lifecycle).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import re
 import sys
@@ -47,6 +48,19 @@ from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+
+
+def _load_conservation():
+    """Return the sibling conservation module (cached after first load)."""
+    cached = getattr(_load_conservation, "_cache", None)
+    if cached is None:
+        p = Path(__file__).with_name("conservation.py")
+        spec = importlib.util.spec_from_file_location("_aim_conservation", p)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _load_conservation._cache = mod
+    return _load_conservation._cache
+
 
 # ---------------------------------------------------------------------------
 # Governed-file contract registry (fallback when front-matter is absent)
@@ -86,7 +100,7 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
         archive_target="session-index/INDEX.md",
         entry_pattern=r"^\| ",
     ),
-    "tracking/task-tracker.md": Contract(40, 3, "register", False),
+    "tracking/task-tracker.md": Contract(60, 4.5, "register", False),
     "tracking/blockers-log.md": Contract(
         100,
         15,
@@ -160,6 +174,13 @@ MANUAL_ROTATION_FILES: frozenset[str] = frozenset(
 # (handoff archival is owned by close step-03).
 HANDOFF_CONTRACT = Contract(60, 8, "detail-record", False)
 HANDOFF_GLOB = "session-logs/SESSION_HANDOFF_*.md"
+
+# auto-memory-index class: Claude Code auto-memory MEMORY.md.
+# Cap = whichever-comes-first (line OR byte). Soft target ~ 180 lines so the
+# agent has a visible runway before hitting the 200-line load window.
+AUTO_MEMORY_CONTRACT = Contract(200, 25.0, "auto-memory-index", False)
+_MEMORY_LOG_SHAPE_MAX_LINES = 2  # non-blank lines per entry in an index
+_MEMORY_LOG_SHAPE_MAX_CHARS = 200  # total chars per entry in an index
 
 # Default entry boundary: an id-prefixed markdown H3 heading (DEC-/BUG-/BLK-/
 # RISK-/TD-…). Requiring an id prefix (2-4 uppercase letters + '-') avoids
@@ -411,6 +432,15 @@ def run_check(oversight_root: Path) -> int:
             )
         )
 
+    # auto-memory-index: WARN only — never blocks the gate; surface even when
+    # oversight files are over cap so both issues land in one check run.
+    memory_md = resolve_memory_md()
+    memory_warns: list[str] = []
+    if memory_md:
+        memory_warns = list(_check_memory_md(memory_md))
+    for warn in memory_warns:
+        print(f"  WARN: {warn}", file=sys.stderr)
+
     if breaches:
         print(
             "aim-tracking-rotate --check: FAIL — "
@@ -543,6 +573,8 @@ def select_kept_moved(
     """
     entries = parsed.entries
     n = len(entries)
+    # pointer_line is included in fixed so each candidate/live size probe matches
+    # what _render_live produces: front_matter + preamble + pointer + entries.
     fixed = parsed.front_matter + parsed.preamble + pointer_line
 
     if contract.klass == "register":
@@ -632,21 +664,18 @@ def _normalize_eol(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def append_to_shard(
-    shard: Path, moved: list[Entry], source_rel: str, entry_pattern: str
-) -> int:
-    """Append moved entries to the shard idempotently. Returns rows appended.
+def _compute_shard_append(
+    shard: Path,
+    moved: list[Entry],
+    source_rel: str,
+    entry_pattern: str,
+) -> tuple[str, int]:
+    """Compute the new shard text and count WITHOUT writing to disk.
 
-    Re-running --apply after an interruption must not double-append: an entry
-    whose id AND body already match an archived entry is a safe replay and is
-    skipped (mirrors the manifest dedup). But an entry whose id matches an
-    existing shard entry with a DIFFERENT body is a collision, not a replay —
-    silently skipping it would drop the live entry's content (the post-write
-    id-count check cannot catch this: the id stays conserved while its body is
-    lost). Such collisions raise ShardCollisionError so the caller aborts before
-    the live file is rewritten. Writes atomically.
+    Idempotent: same-id/same-body entries in the existing shard are skipped.
+    Raises ShardCollisionError on same-id/different-body.
+    Returns ``(new_shard_text, appended_count)``.
     """
-    shard.parent.mkdir(parents=True, exist_ok=True)
     moved_new = moved
     if shard.is_file():
         existing_text = shard.read_text(encoding="utf-8")
@@ -671,10 +700,9 @@ def append_to_shard(
             # exc.ids / the printed [:10] / the message must list it once.
             raise ShardCollisionError(shard, list(dict.fromkeys(collisions)))
         if not moved_new:
-            return 0
+            return existing_text, 0
         sep = "" if existing_text.endswith("\n") else "\n"
-        atomic_write(shard, existing_text + sep + "".join(e.block for e in moved_new))
-        return len(moved_new)
+        return existing_text + sep + "".join(e.block for e in moved_new), len(moved_new)
 
     header = (
         f"# Archive — rotated from `{source_rel}`\n\n"
@@ -682,8 +710,28 @@ def append_to_shard(
         "and never re-sorted: order is monotonic *within* a shard, but across "
         "shards/rotations it is not guaranteed (BP-167 Part C).\n\n"
     )
-    atomic_write(shard, header + "".join(e.block for e in moved_new))
-    return len(moved_new)
+    return header + "".join(e.block for e in moved_new), len(moved_new)
+
+
+def append_to_shard(
+    shard: Path, moved: list[Entry], source_rel: str, entry_pattern: str
+) -> int:
+    """Append moved entries to the shard idempotently. Returns rows appended.
+
+    Re-running --apply after an interruption must not double-append: an entry
+    whose id AND body already match an archived entry is a safe replay and is
+    skipped (mirrors the manifest dedup). But an entry whose id matches an
+    existing shard entry with a DIFFERENT body is a collision, not a replay —
+    silently skipping it would drop the live entry's content (the post-write
+    id-count check cannot catch this: the id stays conserved while its body is
+    lost). Such collisions raise ShardCollisionError so the caller aborts before
+    the live file is rewritten. Writes atomically.
+    """
+    new_text, appended = _compute_shard_append(shard, moved, source_rel, entry_pattern)
+    if appended > 0 or not shard.is_file():
+        shard.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(shard, new_text)
+    return appended
 
 
 def update_manifest(manifest: Path, moved: list[Entry], shard_rel: str) -> int:
@@ -801,6 +849,9 @@ def run_apply(
 
     eff_pattern = effective_entry_pattern(contract, entry_pattern)
     text = file_path.read_text(encoding="utf-8")
+    # Fence an unfenced entry-format example BEFORE parsing to prevent scaffold
+    # strip: an unfenced ### DEC-[ID] example would be mis-parsed as Entry 0.
+    text, _apply_fenced = _fence_for_apply(text, rel)
     before_lines, before_bytes = measure(text)
     parsed = parse_entries(text, eff_pattern)
     if not parsed.entries:
@@ -834,11 +885,13 @@ def run_apply(
         )
         return 0
 
-    # 1. Archive shard (idempotent + atomic). A same-id/different-body clash is
-    #    refused here, BEFORE the live rewrite, so nothing is dropped.
+    # 0. Backup before any mutation.
+    _backup_file(file_path, now)
+
+    # 1. Compute shard text in memory (prove-before-write: shard not written yet).
     shard = oversight_root / shard_rel
     try:
-        appended = append_to_shard(shard, moved, rel, eff_pattern)
+        new_shard_text, appended = _compute_shard_append(shard, moved, rel, eff_pattern)
     except ShardCollisionError as exc:
         print(
             f"ERROR: shard collision in {shard_rel} — an entry being archived "
@@ -865,25 +918,18 @@ def run_apply(
         open_kept = sum(1 for e in kept if not is_resolved(e))
         new_preamble, banner_updated = update_banner(parsed, open_kept)
 
-    # 3. Rewrite live file atomically = front-matter + preamble + pointer + kept.
+    # 3. Compute new live text and prove conservation using in-memory shard text
+    #    (shard not yet written — abort leaves live file and shard both intact).
     new_text = _render_live(parsed.front_matter, new_preamble, pointer_line, kept)
-    atomic_write(file_path, new_text)
     after_lines, after_bytes = measure(new_text)
 
-    # 4. REAL post-write check: re-read live + shard and assert per-id count
-    #    conservation for every pre-write id (no entry lost, none duplicated /
-    #    double-appended). Replaces the old tautological slice/startswith asserts.
-    live_ids = [
-        entry_key(e)
-        for e in parse_entries(
-            file_path.read_text(encoding="utf-8"), eff_pattern
-        ).entries
+    computed_live_ids = Counter(
+        entry_key(e) for e in parse_entries(new_text, eff_pattern).entries
+    )
+    shard_parse_ids = [
+        entry_key(e) for e in parse_entries(new_shard_text, eff_pattern).entries
     ]
-    shard_ids = [
-        entry_key(e)
-        for e in parse_entries(shard.read_text(encoding="utf-8"), eff_pattern).entries
-    ]
-    after_counter = Counter(live_ids) + Counter(shard_ids)
+    after_counter = computed_live_ids + Counter(shard_parse_ids)
     violations = [
         (eid, cnt, after_counter.get(eid, 0))
         for eid, cnt in pre_ids.items()
@@ -891,7 +937,7 @@ def run_apply(
     ]
     if violations:
         print(
-            "ERROR: id-conservation check FAILED after rotation "
+            "ERROR: id-conservation check FAILED — aborting before live rewrite "
             f"({rel}) — an entry was lost or duplicated:",
             file=sys.stderr,
         )
@@ -900,7 +946,17 @@ def run_apply(
                 f"    {eid}: was {was} pre-write, now {now_count} live+shard",
                 file=sys.stderr,
             )
+        print(
+            "  Live file and shard are both unchanged.",
+            file=sys.stderr,
+        )
         return 1
+
+    # 4. Conservation proved — commit shard then live atomically.
+    if appended > 0:
+        shard.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(shard, new_shard_text)
+    atomic_write(file_path, new_text)
 
     print(
         "\n".join(
@@ -912,7 +968,8 @@ def run_apply(
                 (
                     f"  manifest: {manifest_rows} row(s) → {contract.index_file}"
                     if contract.index_file
-                    else f"  banner:   {'updated' if banner_updated else 'none present'}"
+                    else "  banner:   "
+                    + ("updated" if banner_updated else "none present")
                 ),
                 "  pointer:  written",
                 f"  live now: {after_lines} lines / {after_bytes / 1024:.1f} KB "
@@ -942,6 +999,666 @@ def run_apply(
 
 
 # ---------------------------------------------------------------------------
+# --fix : conformance-first cap-fix with conservation proof
+# ---------------------------------------------------------------------------
+
+
+class SiblingCollisionError(Exception):
+    """A MEMORY.md entry's target sibling slug already holds a different body.
+
+    Raised when the sibling file exists but does not contain this exact block.
+    This mirrors ShardCollisionError: same identity, conflicting content —
+    BP-038 "do not silently merge." The caller must abort without mutation.
+    Normal cases: block absent (sibling does not exist) → create; block already
+    present (identical) → skip (idempotent); sibling exists + different body → raise.
+    """
+
+    def __init__(self, sibling: Path, preview: str) -> None:
+        self.sibling = sibling
+        super().__init__(
+            f"Sibling {sibling.name} already exists with different content "
+            f"for entry: {preview!r}"
+        )
+
+
+def _backup_file(path: Path, now: datetime) -> None:
+    """Write a timestamped .bak copy of path before any mutation."""
+    bak = path.with_name(f"{path.name}.{now.strftime('%Y%m%d%H%M%S')}.bak")
+    bak.write_bytes(path.read_bytes())
+
+
+def _resolve_template_dir() -> Path:
+    """Resolve the oversight template directory.
+
+    Prefers AI_MEMORY_INSTALL_DIR env var when its templates/ subtree exists;
+    otherwise derives from this script's location (six directory levels up
+    lands at the install root).  The existence check lets test environments
+    that set AI_MEMORY_INSTALL_DIR to a dummy path fall back safely.
+    """
+    install_dir = os.environ.get("AI_MEMORY_INSTALL_DIR")
+    if install_dir:
+        p = Path(install_dir).expanduser() / "templates" / "oversight"
+        if p.is_dir():
+            return p
+    # Fallback: script-relative (also covers test envs with a dummy install dir).
+    # scripts/ -> aim-tracking-rotate/ -> skills/ -> pov/ -> _ai-memory/ -> root/
+    return Path(__file__).resolve().parents[5] / "templates" / "oversight"
+
+
+def _read_template_fm(rel: str) -> str:
+    """Read the front-matter block from the template for rel, or empty string."""
+    tpl = _resolve_template_dir() / rel
+    if not tpl.is_file():
+        return ""
+    fm, _ = split_front_matter(tpl.read_text(encoding="utf-8"))
+    return fm
+
+
+def _contract_for_text(text: str, rel: str) -> Contract | None:
+    """Resolve contract from in-memory text without reading the file from disk."""
+    fm, _ = split_front_matter(text)
+    c = parse_contract_front_matter(fm)
+    if c is not None:
+        return c
+    return FALLBACK_REGISTRY.get(rel)
+
+
+def _fence_entry_format_section(text: str, tpl_body: str) -> tuple[str, bool]:
+    """Replace an unfenced ## Entry Format example with the template's fenced one."""
+    ef_pat = re.compile(
+        r"^(## Entry Format\n)(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL
+    )
+    ef_m = ef_pat.search(text)
+    if not ef_m:
+        return text, False
+    ef_body = ef_m.group(2)
+    # Already fenced → nothing to do.
+    if re.search(r"^```", ef_body, re.MULTILINE):
+        return text, False
+    # Only repair if there's an unfenced ### DEC-style example.
+    if not re.search(r"^### [A-Z]{2,4}-", ef_body, re.MULTILINE):
+        return text, False
+    tpl_ef_m = ef_pat.search(tpl_body)
+    if not tpl_ef_m:
+        return text, False
+    new_text = text[: ef_m.start()] + tpl_ef_m.group(0) + text[ef_m.end() :]
+    return new_text, True
+
+
+def _repair_sections(text: str, tpl_body: str) -> tuple[str, list[str]]:
+    """Ensure all template ## sections present; fence entry-format example."""
+    repairs: list[str] = []
+
+    tpl_headers = re.findall(r"^## .+$", tpl_body, re.MULTILINE)
+    for hdr in tpl_headers:
+        if re.search(re.escape(hdr), text, re.MULTILINE):
+            continue
+        sec_pat = re.compile(
+            re.escape(hdr) + r"\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL
+        )
+        m = sec_pat.search(tpl_body)
+        if m:
+            if not text.endswith("\n"):
+                text += "\n"
+            text += "\n" + m.group(0)
+            repairs.append(f"added missing section '{hdr}'")
+
+    text, fenced = _fence_entry_format_section(text, tpl_body)
+    if fenced:
+        repairs.append("fenced entry-format example in '## Entry Format'")
+
+    return text, repairs
+
+
+def _ensure_conformance(
+    file_path: Path,
+    rel: str,
+    text: str,
+) -> tuple[str, str]:
+    """Ensure D2 front-matter, required ## sections, and fenced entry-format example.
+
+    Returns ``(new_text, message_or_empty)``.
+    """
+    repairs: list[str] = []
+
+    # Step 1: Add D2 front-matter if absent.
+    fm, _ = split_front_matter(text)
+    if not fm:
+        tpl_fm = _read_template_fm(rel)
+        if tpl_fm:
+            text = tpl_fm + text
+            repairs.append("added D2 front-matter")
+
+    # Step 2: For append-only-log class, ensure required sections + fenced example.
+    # Resolve from in-memory text (front-matter may have just been added above).
+    contract = _contract_for_text(text, rel)
+    if contract is not None and contract.klass == "append-only-log":
+        tpl_path = _resolve_template_dir() / rel
+        if tpl_path.is_file():
+            _, tpl_body = split_front_matter(tpl_path.read_text(encoding="utf-8"))
+            text, sec_msgs = _repair_sections(text, tpl_body)
+            repairs.extend(sec_msgs)
+
+    return text, "; ".join(repairs) if repairs else ""
+
+
+def _fence_for_apply(text: str, rel: str) -> tuple[str, bool]:
+    """Fence an unfenced entry-format example before parsing in run_apply.
+
+    Only applied to append-only-log class files with a matching template.
+    The fence replaces the unfenced example with the template's fenced version
+    so the entry-boundary pattern ignores it during parsing.
+    Returns ``(possibly_modified_text, was_fenced)``.
+    """
+    contract = _contract_for_text(text, rel)
+    if contract is None or contract.klass != "append-only-log":
+        return text, False
+    tpl_path = _resolve_template_dir() / rel
+    if not tpl_path.is_file():
+        return text, False
+    _, tpl_body = split_front_matter(tpl_path.read_text(encoding="utf-8"))
+    return _fence_entry_format_section(text, tpl_body)
+
+
+def _archive_whole_and_rewrite_lean(
+    file_path: Path,
+    rel: str,
+    oversight_root: Path,
+    now: datetime,
+) -> tuple[Path, str]:
+    """Archive the whole file verbatim to a timestamped shard.
+
+    Rewrites the live file as a minimal index + pointer. Returns
+    ``(shard_path, shard_rel)``.
+    """
+    stem = Path(rel).stem
+    parent_rel = str(Path(rel).parent.as_posix())
+    shard_rel = (
+        f"{parent_rel}/archive/{stem}-ARCHIVE-{now.strftime('%Y-%m-%d_%H%M%S')}.md"
+    )
+    shard = oversight_root / shard_rel
+
+    text = file_path.read_text(encoding="utf-8")
+    atomic_write(shard, text)
+
+    # Lean live: template front-matter + extracted title + pointer
+    tpl_fm = _read_template_fm(rel)
+    title_match = re.search(r"^#+ (.+)$", text, re.MULTILINE)
+    title = (
+        title_match.group(1).strip() if title_match else stem.replace("-", " ").title()
+    )
+    pointer_ln = f"\n> All prior records archived → `{shard_rel}`. {POINTER_MARKER}\n"
+    atomic_write(file_path, tpl_fm + f"# {title}\n" + pointer_ln)
+
+    return shard, shard_rel
+
+
+def run_fix(
+    file_path: Path,
+    oversight_root: Path,
+    now: datetime,
+) -> int:
+    """Fix one oversight file: conformance → cap-fix by class → conservation proof."""
+    if not file_path.is_file():
+        print(f"ERROR: file not found: {file_path}", file=sys.stderr)
+        return 1
+
+    rel = (
+        file_path.resolve().relative_to(oversight_root.resolve()).as_posix()
+        if file_path.resolve().is_relative_to(oversight_root.resolve())
+        else file_path.name
+    )
+
+    if rel in FRESHNESS_OWNED:
+        print(f"SKIPPED: {rel} is owned by aim-tracking-freshness.", file=sys.stderr)
+        return 0
+
+    resolved = resolve_contract(file_path, rel)
+    if resolved is None:
+        print(
+            f"ERROR: {rel} is not a governed file (no contract).",
+            file=sys.stderr,
+        )
+        return 1
+    contract, _ = resolved
+
+    if contract.klass == "detail-record":
+        print(
+            f"SKIPPED: {rel} is class 'detail-record' — rotation owned by "
+            "session-close step-03.",
+            file=sys.stderr,
+        )
+        return 0
+
+    text = file_path.read_text(encoding="utf-8")
+    lines, nbytes = measure(text)
+    print(
+        f"aim-tracking-rotate --fix: {rel}\n"
+        f"  before: {lines} lines / {nbytes / 1024:.1f} KB "
+        f"(cap {contract.cap_lines} / {contract.cap_kb})"
+    )
+
+    if not over_cap(lines, nbytes, contract):
+        print("  already within cap — no action needed.")
+        return 0
+
+    # Pre-check: refuse early for append-only-log with rotation_trigger: none
+    # to avoid mutating (conformance fence) before a guaranteed error in run_apply.
+    if contract.klass == "append-only-log" and not contract.rotatable:
+        print(
+            f"  ERROR: {rel} is an append-only-log with rotation_trigger: none — "
+            "cannot auto-fix. Trim by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Conservation baseline — captured before any write; fail loudly if unreadable.
+    conservation = _load_conservation()
+    before_ids = conservation.build_id_manifest(
+        [file_path], conservation.ENTRY_ID_RE, raise_on_error=True
+    )
+
+    _backup_file(file_path, now)
+
+    # Step 2a: add D2 front-matter if missing.
+    text, conf_msg = _ensure_conformance(file_path, rel, text)
+    if conf_msg:
+        atomic_write(file_path, text)
+        print(f"  conformance: {conf_msg}")
+        resolved = resolve_contract(file_path, rel)
+        if resolved is not None:
+            contract, _ = resolved
+
+    # Step 2b: cap-fix by class.
+    archive_path: Path | None = None
+    if contract.klass == "append-only-log" or (
+        contract.klass == "register"
+        and rel not in MANUAL_ROTATION_FILES
+        and contract.rotatable
+    ):
+        rc = run_apply(file_path, oversight_root, None, None, now)
+        if rc != 0:
+            return rc
+        if contract.archive_target:
+            archive_path = oversight_root / render_period(contract.archive_target, now)
+    elif (
+        rel in MANUAL_ROTATION_FILES
+        or contract.klass == "live-index"
+        or (contract.klass == "register" and not contract.rotatable)
+    ):
+        _, shard_rel = _archive_whole_and_rewrite_lean(
+            file_path, rel, oversight_root, now
+        )
+        archive_path = oversight_root / shard_rel
+        print(f"  archived whole → {shard_rel}")
+    elif contract.klass == "heartbeat":
+        tpl_fm = _read_template_fm(rel)
+        if tpl_fm:
+            _, body = split_front_matter(text)
+            new_hb_text = tpl_fm + body
+            atomic_write(file_path, new_hb_text)
+            print("  heartbeat: refreshed front-matter from template")
+            hl, hb = measure(new_hb_text)
+            if over_cap(hl, hb, contract):
+                print(
+                    f"  ERROR: heartbeat body still over cap "
+                    f"({hl}L / {hb / 1024:.1f}KB, cap "
+                    f"{contract.cap_lines} / {contract.cap_kb}KB). "
+                    "Trim the body by hand.",
+                    file=sys.stderr,
+                )
+                return 1
+        else:
+            print(
+                f"  heartbeat: no template for {rel} — trim by hand.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        print(
+            f"  class '{contract.klass}': no automatic fix — trim by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Step 2c: conservation proof.
+    check_paths = [file_path]
+    if archive_path and archive_path.is_file():
+        check_paths.append(archive_path)
+    after_ids = conservation.build_id_manifest(check_paths, conservation.ENTRY_ID_RE)
+    try:
+        conservation.assert_no_id_loss(before_ids, after_ids)
+    except AssertionError as exc:
+        print(f"ERROR: conservation FAILED: {exc}", file=sys.stderr)
+        return 1
+
+    new_text = file_path.read_text(encoding="utf-8")
+    new_lines, new_bytes = measure(new_text)
+    n_before = sum(before_ids.values())
+    n_after = sum(after_ids.values())
+    print(
+        f"  after:        {new_lines} lines / {new_bytes / 1024:.1f} KB\n"
+        f"  conservation: {n_before} ID tokens before → {n_after} after, 0 lost ✓"
+    )
+    if over_cap(new_lines, new_bytes, contract):
+        print(
+            "  WARNING: still over cap — run again or trim by hand.",
+            file=sys.stderr,
+        )
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# auto-memory-index class: MEMORY.md lossless relocation
+# ---------------------------------------------------------------------------
+
+# One-line pointer format recognised by MEMORY.md index: - [Title](file.md) — hook
+_POINTER_LINE_RE = re.compile(
+    r"^\s*[-*]\s+\[[^\]]+\]\([^)]+\)\s*[—–-]\s*.+$"  # noqa: RUF001
+)
+
+
+def _is_memory_pointer(line: str) -> bool:
+    return bool(_POINTER_LINE_RE.match(line.strip()))
+
+
+def _has_log_shape_violation(text: str) -> bool:
+    """True if ``text`` contains at least one block that needs relocation."""
+    for block in _split_into_blocks(text):
+        if _entry_needs_relocation(block):
+            return True
+    return False
+
+
+def _entry_needs_relocation(block: str) -> bool:
+    """True if a content block should be relocated to a sibling file.
+
+    A list of pointer-format lines (``- [Title](file.md) — hook``) is the
+    conformant index format and is never marked for relocation, regardless
+    of how many pointer lines appear in one block.
+    """
+    stripped = block.strip()
+    if not stripped:
+        return False
+    non_blank = [ln for ln in stripped.splitlines() if ln.strip()]
+    # All lines are already pointers → conformant; no relocation.
+    if all(_is_memory_pointer(ln) for ln in non_blank):
+        return False
+    return (
+        len(stripped) > _MEMORY_LOG_SHAPE_MAX_CHARS
+        or len(non_blank) > _MEMORY_LOG_SHAPE_MAX_LINES
+    )
+
+
+def _slugify(text: str) -> str:
+    """Derive a lowercase filesystem-safe slug from text."""
+    clean = re.sub(r"[*_`\[\]()#>~|]", " ", text)
+    clean = re.sub(r"\s+", "_", clean.strip().lower())
+    clean = re.sub(r"[^a-z0-9_]", "", clean)
+    return clean[:40].strip("_") or "entry"
+
+
+def _sibling_name_for(section_header: str, entry_text: str) -> str:
+    """Derive a deterministic sibling filename from section context + entry text."""
+    section = section_header.lstrip("#").strip().lower()
+    first_line = next((ln.strip() for ln in entry_text.splitlines() if ln.strip()), "")
+    slug = _slugify(first_line[:80])
+
+    if "feedback" in section:
+        return f"feedback_{slug}.md"
+    if any(w in section for w in ("project", "active", "task", "sprint", "build")):
+        return f"project_{slug}.md"
+    if "next" in section or "step" in section:
+        return "next_steps.md"
+    section_slug = _slugify(section[:25])
+    return f"{section_slug}_{slug}.md"
+
+
+def _make_pointer(entry_text: str, sibling_name: str) -> str:
+    """Build a one-line ``- [Title](sibling.md) — hook`` pointer."""
+    lines = [ln.strip() for ln in entry_text.splitlines() if ln.strip()]
+    first_line = lines[0] if lines else "Detail"
+    title = re.sub(r"[*_`]", "", first_line)[:60].strip()
+    hook_src = lines[1] if len(lines) > 1 else first_line
+    hook = re.sub(r"[*_`]", "", hook_src)[:80].strip()
+    return f"- [{title}]({sibling_name}) — {hook}\n"
+
+
+def _parse_memory_sections(text: str) -> list[tuple[str, str]]:
+    """Split MEMORY.md into ``(section_header, section_body)`` pairs.
+
+    Content before the first ``##`` header uses ``""`` as the header key.
+    """
+    sections: list[tuple[str, str]] = []
+    current_header = ""
+    current_lines: list[str] = []
+
+    for line in text.splitlines(keepends=True):
+        if line.startswith("## "):
+            sections.append((current_header, "".join(current_lines)))
+            current_header = line.rstrip("\n")
+            current_lines = []
+        else:
+            current_lines.append(line)
+
+    sections.append((current_header, "".join(current_lines)))
+    return sections
+
+
+def _split_into_blocks(content: str) -> list[str]:
+    """Split section content into paragraph blocks, preserving blank-line tokens."""
+    result: list[str] = []
+    current: list[str] = []
+    for line in content.splitlines(keepends=True):
+        if line.strip():
+            current.append(line)
+        else:
+            if current:
+                result.append("".join(current))
+                current = []
+            result.append(line)
+    if current:
+        result.append("".join(current))
+    return result
+
+
+def _block_in_file(block_norm: str, file_text: str) -> bool:
+    """True iff block_norm exactly matches one of the paragraph blocks in file_text."""
+    for existing in _split_into_blocks(file_text):
+        if _normalize_eol(existing).strip() == block_norm:
+            return True
+    return False
+
+
+def _fix_section(
+    section_content: str,
+    section_header: str,
+    memory_dir: Path,
+    pending_writes: dict[Path, str],
+) -> tuple[str, bool]:
+    """Relocate over-long entries in one section to sibling files.
+
+    Appends to an existing sibling if the block is not already there
+    (idempotent on re-run: already-present blocks are not duplicated).
+    Writes are staged in ``pending_writes``; the caller commits them once
+    the full pass succeeds.
+    Returns ``(new_content, was_changed)``.
+    """
+    blocks = _split_into_blocks(section_content)
+    new_blocks: list[str] = []
+    changed = False
+
+    for block in blocks:
+        if not block.strip():
+            new_blocks.append(block)
+            continue
+        if not _entry_needs_relocation(block):
+            new_blocks.append(block)
+            continue
+
+        sibling_name = _sibling_name_for(section_header, block)
+        sibling_path = memory_dir / sibling_name
+        block_norm = _normalize_eol(block).strip()
+
+        # Resolve current sibling content: prefer staged (not-yet-written) over disk.
+        if sibling_path in pending_writes:
+            current = pending_writes[sibling_path]
+        elif sibling_path.is_file():
+            current = sibling_path.read_text(encoding="utf-8")
+        else:
+            current = ""
+
+        if current and _block_in_file(block_norm, current):
+            # Already present — idempotent replay, just write the pointer.
+            pass
+        elif current:
+            # Sibling exists but holds a different body — refuse (BP-038).
+            raise SiblingCollisionError(sibling_path, block[:60])
+        else:
+            # New sibling.
+            pending_writes[sibling_path] = block
+
+        new_blocks.append(_make_pointer(block, sibling_name))
+        changed = True
+
+    return "".join(new_blocks), changed
+
+
+def _reassemble_memory(sections: list[tuple[str, str]]) -> str:
+    """Reassemble section pairs back into a MEMORY.md text."""
+    parts: list[str] = []
+    for header, body in sections:
+        if header:
+            parts.append(header + "\n")
+        parts.append(body)
+    return "".join(parts)
+
+
+def run_fix_memory_md(memory_md: Path, now: datetime) -> int:
+    """Fix MEMORY.md: relocate over-long entries to sibling files."""
+    memory_dir = memory_md.parent
+    conservation = _load_conservation()
+
+    # Conservation baseline — BEFORE reads; fail loudly if unreadable.
+    before_set = conservation.build_content_set(
+        list(memory_dir.glob("*.md")), raise_on_error=True
+    )
+
+    text = memory_md.read_text(encoding="utf-8")
+    lines, nbytes = measure(text)
+    print(
+        f"aim-tracking-rotate --fix-memory-md: {memory_md}\n"
+        f"  before: {lines} lines / {nbytes / 1024:.1f} KB "
+        f"(cap {AUTO_MEMORY_CONTRACT.cap_lines} / {AUTO_MEMORY_CONTRACT.cap_kb})"
+    )
+
+    log_shaped = _has_log_shape_violation(text)
+    if not over_cap(lines, nbytes, AUTO_MEMORY_CONTRACT) and not log_shaped:
+        print("  already within cap and no log-shape entries — no action needed.")
+        return 0
+
+    _backup_file(memory_md, now)
+
+    sections = _parse_memory_sections(text)
+    new_sections: list[tuple[str, str]] = []
+    changed = False
+    # Sibling writes are staged here; committed atomically after the full pass
+    # so a mid-run error never leaves orphaned siblings while MEMORY.md is intact.
+    pending_writes: dict[Path, str] = {}
+
+    try:
+        for header, content in sections:
+            new_content, sec_changed = _fix_section(
+                content, header, memory_dir, pending_writes
+            )
+            new_sections.append((header, new_content))
+            changed = changed or sec_changed
+    except SiblingCollisionError as exc:
+        print(
+            f"ERROR: sibling collision — {exc}. "
+            "MEMORY.md was NOT modified; relocate or rename the sibling by hand.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not changed:
+        print(
+            "  no relocatable entries found (all blocks ≤2 lines / ≤200 chars "
+            "or already pointer-format) — no action taken."
+        )
+        return 0
+
+    # Compute new MEMORY.md text and build virtual after-state (prove before write).
+    new_text = _reassemble_memory(new_sections)
+
+    all_md_after: dict[Path, str] = {}
+    for p in memory_dir.glob("*.md"):
+        all_md_after[p] = p.read_text(encoding="utf-8")
+    all_md_after[memory_md] = new_text
+    all_md_after.update(pending_writes)
+
+    after_set: Counter[str] = Counter()
+    for _text in all_md_after.values():
+        for _line in _text.splitlines():
+            _s = _line.strip()
+            if _s:
+                after_set[_s] += 1
+    try:
+        conservation.assert_no_content_loss(before_set, after_set)
+    except AssertionError as exc:
+        print(f"ERROR: conservation FAILED: {exc}", file=sys.stderr)
+        return 1
+
+    # Conservation proved — commit sibling writes then MEMORY.md atomically.
+    for sib_path, sib_content in pending_writes.items():
+        atomic_write(sib_path, sib_content)
+    atomic_write(memory_md, new_text)
+
+    new_lines, new_bytes = measure(new_text)
+    print(
+        f"  after:        {new_lines} lines / {new_bytes / 1024:.1f} KB\n"
+        f"  conservation: union before ⊆ union after, 0 lines lost ✓"
+    )
+    if over_cap(new_lines, new_bytes, AUTO_MEMORY_CONTRACT):
+        print(
+            "  WARNING: still over cap — run again or trim by hand.",
+            file=sys.stderr,
+        )
+    return 0
+
+
+def run_fix_all(
+    oversight_root: Path, now: datetime, include_memory_md: bool = False
+) -> int:
+    """Fix every governed oversight file, then MEMORY.md if opted in."""
+    governed = discover_governed(oversight_root)
+    results: list[int] = []
+    for gf in governed:
+        rc = run_fix(gf.path, oversight_root, now)
+        results.append(rc)
+
+    memory_md = resolve_memory_md()
+    if memory_md:
+        if include_memory_md:
+            results.append(run_fix_memory_md(memory_md, now))
+        else:
+            print(
+                f"NOTICE: --fix-all skipped auto-memory MEMORY.md at {memory_md}.\n"
+                "  Pass --include-memory-md to include it."
+            )
+
+    if not results:
+        print("aim-tracking-rotate --fix-all: no governed files found.")
+        return 0
+    errors = sum(1 for r in results if r != 0)
+    print(
+        f"\naim-tracking-rotate --fix-all: {len(results)} file(s) processed, "
+        f"{errors} error(s)."
+    )
+    return max(results)
+
+
+# ---------------------------------------------------------------------------
 # Oversight-root resolution + entry point
 # ---------------------------------------------------------------------------
 
@@ -964,6 +1681,72 @@ def resolve_oversight_root(args: argparse.Namespace) -> Path:
     return p
 
 
+def resolve_memory_md(project_cwd: Path | None = None) -> Path | None:
+    """Resolve the auto-memory MEMORY.md path for the current project.
+
+    Resolution order: ``$autoMemoryDirectory``  or
+    ``~/.claude/projects/<slug>/memory/``, where ``<slug>`` = project cwd
+    with every ``/`` replaced by ``-``.  Returns ``None`` when the file does
+    not exist (MEMORY.md is optional — not every project uses it).
+    """
+    cwd = project_cwd or Path.cwd()
+    auto_memory_dir = os.environ.get("autoMemoryDirectory")  # noqa: SIM112
+    if auto_memory_dir:
+        base = Path(auto_memory_dir).expanduser()
+    else:
+        slug = str(cwd).replace("/", "-")
+        base = Path.home() / ".claude" / "projects" / slug / "memory"
+    candidate = base / "MEMORY.md"
+    return candidate if candidate.is_file() else None
+
+
+def _check_memory_md(memory_md: Path) -> list[str]:
+    """Return WARN strings for cap or log-shape issues in MEMORY.md.
+
+    Issues are warnings (not gate failures): MEMORY.md is not an oversight
+    file and its cap is a load-window advisory, not a hard enforcement gate.
+    """
+    warnings: list[str] = []
+    text = memory_md.read_text(encoding="utf-8")
+    lines, nbytes = measure(text)
+
+    if over_cap(lines, nbytes, AUTO_MEMORY_CONTRACT):
+        warnings.append(
+            f"MEMORY.md over cap: {lines} lines / {nbytes / 1024:.1f} KB "
+            f"(cap {AUTO_MEMORY_CONTRACT.cap_lines}L"
+            f" / {AUTO_MEMORY_CONTRACT.cap_kb}KB) — run `--fix-memory-md`"
+        )
+
+    # Log-shape: any paragraph block > allowed per-entry limits.
+    # A block of pointer-format lines is the conformant index shape — skip it.
+    section_header_re = re.compile(r"^#{1,3} ")
+    for block in _split_into_blocks(text):
+        stripped = block.strip()
+        if not stripped:
+            continue
+        block_lines = [ln for ln in stripped.splitlines() if ln.strip()]
+        # A lone section header (no body) is structural, not a log entry.
+        if len(block_lines) == 1 and section_header_re.match(stripped):
+            continue
+        non_blank = [ln for ln in stripped.splitlines() if ln.strip()]
+        if all(_is_memory_pointer(ln) for ln in non_blank):
+            continue  # list of pointers is conformant, not a log-shape violation
+        if (
+            len(non_blank) > _MEMORY_LOG_SHAPE_MAX_LINES
+            or len(stripped) > _MEMORY_LOG_SHAPE_MAX_CHARS
+        ):
+            preview = stripped[:60].replace("\n", " ")
+            warnings.append(
+                f"MEMORY.md index-not-log violation: "
+                f"{len(non_blank)} lines / {len(stripped)} chars in entry "
+                f"(max {_MEMORY_LOG_SHAPE_MAX_LINES} lines / "
+                f"{_MEMORY_LOG_SHAPE_MAX_CHARS} chars): {preview!r}…"
+            )
+            break  # first violation only — avoid output spam
+
+    return warnings
+
+
 def resolve_now(period: str | None) -> datetime:
     """Deterministic period override for tests; else wall-clock."""
     if period:
@@ -984,9 +1767,10 @@ def resolve_now(period: str | None) -> datetime:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Enforce oversight-file caps at session-close (--check) and rotate "
+            "Enforce oversight-file caps at session-close (--check), rotate "
             "an over-cap file's oldest entries into a dated archive shard "
-            "(--apply)."
+            "(--apply), or fix an over-cap file non-interactively (--fix / "
+            "--fix-all / --fix-memory-md)."
         )
     )
     mode = parser.add_mutually_exclusive_group(required=True)
@@ -999,6 +1783,27 @@ def main(argv: list[str] | None = None) -> int:
         "--apply",
         metavar="FILE",
         help="Rotate the oldest entries of FILE into a dated archive shard.",
+    )
+    mode.add_argument(
+        "--fix",
+        metavar="FILE",
+        help=(
+            "Fix FILE non-interactively: add front-matter, cap-fix by class, "
+            "prove conservation. Archive-only; emits a plan + conservation report."
+        ),
+    )
+    mode.add_argument(
+        "--fix-all",
+        action="store_true",
+        help="Fix all governed oversight files, then MEMORY.md if resolvable.",
+    )
+    mode.add_argument(
+        "--fix-memory-md",
+        action="store_true",
+        help=(
+            "Fix MEMORY.md only: relocate over-long entries to sibling files "
+            "and prove conservation across the full union."
+        ),
     )
     parser.add_argument(
         "--oversight-root",
@@ -1025,19 +1830,47 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Archive period override (YYYY-MM or YYYY-MM-DD); default = today.",
     )
+    parser.add_argument(
+        "--include-memory-md",
+        action="store_true",
+        default=False,
+        help=(
+            "With --fix-all: also fix the real auto-memory MEMORY.md. "
+            "Skipped by default since --fix-all is usually scoped to "
+            "--oversight-root."
+        ),
+    )
     args = parser.parse_args(argv)
 
+    # --fix-memory-md does not need an oversight root.
+    if args.fix_memory_md:
+        memory_md = resolve_memory_md()
+        if memory_md is None:
+            print(
+                "ERROR: MEMORY.md not found. "
+                "Set $autoMemoryDirectory or run from the project root.",
+                file=sys.stderr,
+            )
+            return 1
+        return run_fix_memory_md(memory_md, resolve_now(args.period))
+
     oversight_root = resolve_oversight_root(args)
+    now = resolve_now(args.period)
 
     if args.check:
         return run_check(oversight_root)
-    return run_apply(
-        Path(args.apply).expanduser(),
-        oversight_root,
-        args.entry_pattern,
-        args.keep,
-        resolve_now(args.period),
-    )
+    if args.apply:
+        return run_apply(
+            Path(args.apply).expanduser(),
+            oversight_root,
+            args.entry_pattern,
+            args.keep,
+            now,
+        )
+    if args.fix:
+        return run_fix(Path(args.fix).expanduser(), oversight_root, now)
+    # --fix-all
+    return run_fix_all(oversight_root, now, getattr(args, "include_memory_md", False))
 
 
 if __name__ == "__main__":

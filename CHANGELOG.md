@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`aim-tracking-rotate` fix action** (`--fix <file>` / `--fix-all` / `--fix-memory-md` / `--include-memory-md`) — non-interactive cap remediation that brings an over-cap oversight tree to a `--check` PASS without losing any record. The algorithm is conformance-first (adds D2 front-matter from the template when absent), then cap-fixes by class (entry rotation for append-only logs and rotatable registers; archive-whole-verbatim for table-row registers (`blockers-log.md`, `risk-register.md`), non-rotatable registers (`task-tracker.md`), and multi-table live-indexes (`SESSION_WORK_INDEX.md`, `session-index/INDEX.md`); template front-matter refresh for heartbeats), then proves conservation (`lost == 0`) before returning. Every mutation path creates a timestamped backup first and writes atomically; no interactive confirmation is required.
+- **`auto-memory-index` file class** — fifth governed class for the Claude Code auto-memory `MEMORY.md`. Cap is 200 lines / 25 KB **whichever comes first** (load-window advisory). `--check` emits WARN (non-blocking) on cap or log-shape violations. `--fix-memory-md` triggers on **over-cap or log-shape** (log-shape: any entry > 2 non-blank lines or > 200 chars); a compliant MEMORY.md triggers no changes. When triggered, relocates over-long entries to hot sibling topic files (`feedback_*.md`, `project_*.md`, etc.) in the same `memory/` directory, leaving a one-line `- [Title](sibling.md) — hook` pointer; conservation is proved across the full union of `MEMORY.md` and all siblings. A `MEMORY.md` skeleton template (`templates/memory/MEMORY.md.template`) and detailed fix prose (`assets/memory_md_fix.md`, lazy-loaded) are shipped alongside.
+- **Conservation helper module** (`scripts/conservation.py`) — standalone, unit-testable module providing entry-ID manifest generation (`build_id_manifest`) and `assert_no_id_loss` for oversight classes, plus content-set generation (`build_content_set`) and `assert_no_content_loss` for the auto-memory-index class.
+
 ### Changed
+
+- **`aim-tracking-rotate` task-tracker cap** raised from 40 lines / 3 KB to **60 lines / 4.5 KB** (fits a full 10-line front-matter block plus a meaningful task body without false-positive cap failures).
+- **`aim-tracking-rotate` section-scaffold preservation** — both `--fix` and the session-close `--apply` now fence an unfenced `## Entry Format` example before rotating so the section scaffold (`## How to Use`, `## Entry Format`, `## Decisions`) survives and entries stay under `## Decisions`. `--fix` additionally adds any missing `## ` section headers from the template when the file lacks them.
 
 ### Fixed
 

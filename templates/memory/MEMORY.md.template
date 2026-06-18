@@ -1,0 +1,20 @@
+# [Project Name] — Session Memory
+
+> **Index, not log.** Each entry here is a one-line `- [Title](sibling.md) — hook`
+> pointer to a topic file in this `memory/` directory, or a ≤2-line summary for
+> very compact facts. Claude Code loads this file first (up to 200 lines / 25 KB);
+> sibling files are loaded on demand. Keep this index lean.
+
+---
+
+## Active Project
+
+- [Project status](project_status.md) — brief pointer to current initiative
+
+## Feedback
+
+- [Example feedback](feedback_example.md) — an example one-line pointer
+
+## Next Steps
+
+- First outstanding action
