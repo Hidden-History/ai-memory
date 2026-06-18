@@ -40,10 +40,16 @@ from memory.search import MemorySearch
 # ---------------------------------------------------------------------------
 
 
+# Calibrated production floor (DEC-PM343-D7, config.injection_absolute_floor).
+# The live read-only sweep put the off-topic raw-cosine ceiling at ~0.754 and the
+# on-topic cluster at >=0.760; 0.76 splits that gap.
+CALIBRATED_FLOOR = 0.76
+
+
 def _gate_config(
     *,
-    floor=0.78,
-    margin_min=0.05,
+    floor=CALIBRATED_FLOOR,
+    margin_min=0.0,
     max_age_days=0,
     enabled=True,
     drift_suppressor=0.5,
@@ -353,39 +359,72 @@ class TestProductionSizeDiscrimination:
             return [0.75]
         return [round(0.95 - (0.45 * i / (n - 1)), 4) for i in range(n)]
 
-    def test_off_topic_set_all_banded_high_but_gate_skips(self):
-        cfg = _gate_config(floor=0.78, margin_min=0.05)
+    def test_cross_domain_off_topic_banded_high_but_gate_skips(self):
+        """Calibrated floor on a production-size set. Cross-domain off-topic
+        ("NBA scores", "sourdough recipe") raw cosines from the live sweep cluster
+        ~0.667-0.747 — all below the 0.76 floor — while the banded top-1 is pinned
+        at 0.95. The absolute gate skips what the banded gate would inject."""
+        cfg = _gate_config()  # calibrated floor 0.76, margin off
         bands = self._banded_band(12)
-        # Single-domain off-topic neighborhood: raw cosines cluster ~0.72-0.75,
-        # all below the 0.78 store baseline floor.
+        # Live-swept cross-domain off-topic raw-cosine ceiling = 0.7467 (French).
         raws = [
-            0.75,
-            0.745,
-            0.74,
-            0.738,
-            0.735,
-            0.73,
-            0.728,
-            0.725,
-            0.72,
-            0.71,
-            0.70,
-            0.69,
+            0.7467,
+            0.7207,
+            0.7012,
+            0.6948,
+            0.6854,
+            0.6843,
+            0.6733,
+            0.6673,
+            0.665,
+            0.66,
+            0.655,
+            0.65,
         ]
         results = [_result(b, r) for b, r in zip(bands, raws, strict=False)]
-        # The banded gate would inject (top banded 0.95 clears any threshold)...
-        assert results[0]["score"] == 0.95
-        # ...but the absolute gate skips: no candidate clears the floor.
+        assert results[0]["score"] == 0.95  # banded gate would inject
         sig = compute_relevance_signals(results, cfg, now=_now())
+        assert sig["best_raw"] == 0.7467
+        assert sig["floor_pass"] is False
+        assert sig["would_inject"] is False
+
+    def test_same_domain_off_topic_banded_high_but_gate_skips(self):
+        """The F-1 case the gate exists for: software-adjacent-but-not-in-store
+        queries ("Kubernetes autoscaling", "Rust tokio") sit higher than cross-
+        domain noise but the live sweep still capped them at 0.7542 — below 0.76.
+        The banded top-1 is 0.95; the absolute gate still skips."""
+        cfg = _gate_config()
+        bands = self._banded_band(12)
+        # Live-swept same-domain off-topic raw-cosine ceiling = 0.7542 (Rust).
+        raws = [
+            0.7542,
+            0.7433,
+            0.7418,
+            0.7349,
+            0.7151,
+            0.7125,
+            0.71,
+            0.705,
+            0.70,
+            0.695,
+            0.69,
+            0.685,
+        ]
+        results = [_result(b, r) for b, r in zip(bands, raws, strict=False)]
+        assert results[0]["score"] == 0.95
+        sig = compute_relevance_signals(results, cfg, now=_now())
+        assert sig["best_raw"] == 0.7542
         assert sig["floor_pass"] is False
         assert sig["would_inject"] is False
 
     def test_on_topic_present_in_large_set_injects(self):
-        cfg = _gate_config(floor=0.78, margin_min=0.05)
+        """On-topic project content from the live sweep clusters at 0.76-0.84 over
+        a same-domain tail. The top-1 clears the calibrated 0.76 floor and injects."""
+        cfg = _gate_config()
         bands = self._banded_band(12)
-        # One genuinely on-topic item (0.87) above a same-domain tail (~0.72).
+        # Live-swept on-topic raw top-1 = 0.8419 (Langfuse) over a ~0.72 tail.
         raws = [
-            0.87,
+            0.8419,
             0.73,
             0.728,
             0.725,
@@ -400,9 +439,27 @@ class TestProductionSizeDiscrimination:
         ]
         results = [_result(b, r) for b, r in zip(bands, raws, strict=False)]
         sig = compute_relevance_signals(results, cfg, now=_now())
-        assert sig["best_raw"] == 0.87
+        assert sig["best_raw"] == 0.8419
         assert sig["floor_pass"] is True
-        assert sig["margin"] >= 0.05
+        assert sig["would_inject"] is True
+
+    def test_code_patterns_dense_miss_defers_to_banded(self):
+        """Calibration finding (DEC-PM343-D7): on the code-patterns route the
+        banded ranking is driven by sparse/colbert/decay, so no top result has a
+        dense neighbor and best_raw collapses to 0.0. The absolute floor cannot
+        judge relevance there, so the gate must DEFER (no skip) rather than
+        suppress every code-routed injection. A non-empty result set with all
+        raw_score == 0.0 must pass the floor."""
+        cfg = _gate_config()  # floor 0.76, gate enabled
+        bands = self._banded_band(10)
+        results = [
+            _result(b, 0.0, type_="implementation", collection="code-patterns")
+            for b in bands
+        ]
+        sig = compute_relevance_signals(results, cfg, now=_now())
+        assert sig["best_raw"] == 0.0
+        assert sig["has_dense_signal"] is False
+        assert sig["floor_pass"] is True  # deferred, not skipped
         assert sig["would_inject"] is True
 
 

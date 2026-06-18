@@ -755,7 +755,11 @@ def compute_relevance_signals(
       - ``second_raw``: second-highest raw_score (0.0 if < 2 results)
       - ``margin``: ``best_raw - second_raw`` (scale-free top-1/top-2 gap, Q2)
       - ``top_age_days``: age of the top-ranked (banded) result, or None
-      - ``floor_pass``: ``best_raw >= injection_absolute_floor`` (Q2 floor)
+      - ``has_dense_signal``: ``best_raw > 0.0`` — False when no top result has a
+        dense neighbor (the floor is then deferred; BUG-319 calibration)
+      - ``floor_pass``: ``best_raw >= injection_absolute_floor`` (Q2 floor); True
+        when there is no dense signal (defer to banded gate), False when there are
+        no results at all
       - ``margin_pass``: ``margin >= injection_margin_min``; True for a lone result
       - ``freshness_pass``: top item within ``injection_freshness_max_age_days``;
         True when the cap is disabled or the age is unknown (Q4)
@@ -775,7 +779,23 @@ def compute_relevance_signals(
     # Top item is results[0] — the caller sorts by (penalized) banded score desc.
     top_age_days = _result_age_days(results[0], now=now) if results else None
 
-    floor_pass = best_raw >= config.injection_absolute_floor
+    # BUG-319 calibration (DEC-PM343-D7): the absolute floor is only meaningful
+    # when the top results have a real dense-cosine neighbor. On routes whose
+    # banded ranking is driven entirely by sparse/colbert/decay — so no top result
+    # appears in the dense neighborhood and best_raw collapses to 0.0 (empirically
+    # the code-patterns route, whose post-filter dense space is near-orthogonal to
+    # natural-language queries in this single-domain store; also any
+    # _attach_raw_cosine failure) — the dense floor cannot judge relevance, so it
+    # must NOT add a skip. Defer to the banded 4-tier gate (the degrade-gracefully
+    # intent documented on search.py _attach_raw_cosine). A genuinely empty result
+    # set still fails the floor: there is nothing to inject.
+    has_dense_signal = best_raw > 0.0
+    if not raw_scores:
+        floor_pass = False
+    elif not has_dense_signal:
+        floor_pass = True
+    else:
+        floor_pass = best_raw >= config.injection_absolute_floor
     margin_pass = (len(raw_scores) < 2) or (margin >= config.injection_margin_min)
     if config.injection_freshness_max_age_days > 0 and top_age_days is not None:
         freshness_pass = top_age_days <= config.injection_freshness_max_age_days
@@ -787,6 +807,7 @@ def compute_relevance_signals(
         "second_raw": round(second_raw, 4),
         "margin": round(margin, 4),
         "top_age_days": (round(top_age_days, 2) if top_age_days is not None else None),
+        "has_dense_signal": has_dense_signal,
         "floor_pass": floor_pass,
         "margin_pass": margin_pass,
         "freshness_pass": freshness_pass,
