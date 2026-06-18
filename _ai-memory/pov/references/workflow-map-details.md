@@ -110,12 +110,24 @@ Parzival never advances to the next phase without completing the current phase e
 
 `project-status.md` is what Parzival reads at every session start. It must always be kept current. This is the project's heartbeat file.
 
+The heartbeat carries its own maintenance contract as front-matter (the cap the
+Step 4 gate reads), above the routing body. This schema is the single source of
+truth shared by the `project-status.md` template seed and session-close step-02:
+
 ```yaml
+---
+class: heartbeat
+read_path: whole-file
+owns: "routing-machine state + live_record pointer"
+cap_lines: 60
+cap_kb: 6
+rotation_trigger: none
+archive_target: N/A
+index_file: N/A
+reconciliation: "overwrite-in-place every close; narrative lives in SESSION_WORK_INDEX + handoff, NEVER here"
+---
 # project-status.md
 
-project_name: [name]
-created: [date]
-last_updated: [date]
 current_phase: [discovery|architecture|planning|execution|integration|release|maintenance]
 current_sprint: [sprint number or null]
 active_task: [story file path or null]
@@ -130,28 +142,20 @@ key_files:
   prd: [path or null]
   architecture: [path or null]
   project_context: [path or null]
-  sprint_status: [path or null]
 
-last_session_summary: |
-  [≤80 words. One paragraph summary of last session's outcomes — what shipped, what blocked, what is next. Long-form narrative goes in session-logs/SESSION_HANDOFF_<DATE>.md, NOT here.]
-
+live_record: oversight/SESSION_WORK_INDEX.md
+last_session_summary: "[≤200 chars — date + PM# + what shipped/blocked/next. Full narrative lives in session-logs + SESSION_WORK_INDEX, NOT here.]"
 open_issues: [count of known legitimate open issues]
-notes: |
-  [≤80 words. Important context Parzival needs at next session start — flags, risks, deferred items. Long prose belongs in session-logs.]
 ```
 
-**Field caps (enforced):**
-- `last_session_summary`: ≤80 words. One paragraph maximum.
-- `notes`: ≤80 words. Pointers and flags only, not narrative.
+**Field caps (enforced — the Step 4 gate reads `cap_lines`/`cap_kb`):**
+- Whole file: ≤60 lines / ≤6 KB.
+- `last_session_summary`: ≤200 chars, one line.
 
 ### DO ✓
 
 ```yaml
-last_session_summary: |
-  Shipped EDIT-G (CREED + PERSONA slim, -2,141 chars). Blocked on F due to step-file scaffold reference cycle. Next: re-plan EDIT-F sequencing with smaller atomic edits.
-
-notes: |
-  RISK-013 (docker .env drift) still open. Batch 3 dispatch waiting on Parzival approval. See SESSION_HANDOFF_2026-05-13.md for full context.
+last_session_summary: "2026-05-13 PM#268: shipped EDIT-G (CREED/PERSONA slim −2,141 chars); blocked on F (scaffold cycle); next: re-plan EDIT-F as smaller atomic edits."
 ```
 
 ### DO NOT ✗
@@ -165,7 +169,8 @@ last_session_summary: |
 
 Long-form session narrative belongs in `oversight/session-logs/SESSION_HANDOFF_<DATE>.md`, not in `project-status.md`. The status file is a pointer, not a journal.
 
-Parzival updates `project-status.md` at the end of every session before closing.
+The `project-status.md` heartbeat is overwritten in place by session-close
+step-02 (one datum, one home); see `session/close/steps-c/step-02-update-tracking.md`.
 
 ---
 
@@ -192,12 +197,9 @@ Exit condition: [specific, measurable condition that must be met]
 Before every session ends, Parzival must:
 
 ```
-1. Update project-status.md:
-   - current_phase (confirm or update)
-   - active_task (current story or null)
-   - last_session_summary (one paragraph of what happened)
-   - open_issues (current count of known legitimate open issues)
-   - notes (anything important for next session)
+1. project-status.md heartbeat — written by session-close step-02
+   (session/close/steps-c/step-02-update-tracking.md), which overwrites it in
+   place from the 60/6 schema. Do NOT write it from here: one datum, one home.
 
 2. Confirm with user:
    - What was completed this session

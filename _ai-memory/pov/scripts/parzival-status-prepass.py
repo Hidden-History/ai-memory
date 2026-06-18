@@ -76,6 +76,58 @@ def _extract_block_scalar(content, field_name):
     return '\n'.join(stripped).strip()
 
 
+def _extract_inline_scalar(content, field_name):
+    """Extract a single-line inline scalar (field: value, optionally quoted).
+
+    Handles double/single-quoted and bare inline values. Returns None if the
+    field is absent, is a block-scalar header (field: |), or its value is a
+    YAML null representation.
+    """
+    pattern = rf'^{re.escape(field_name)}:[ \t]*(.+?)[ \t]*$'
+    m = re.search(pattern, content, re.MULTILINE)
+    if not m:
+        return None
+    val = m.group(1).strip()
+    # Block-scalar indicator, not an inline value -- defer to _extract_block_scalar
+    if val in ('|', '>', '|-', '>-', '|+', '>+'):
+        return None
+    # Strip surrounding matching quotes
+    if len(val) >= 2 and val[0] == val[-1] and val[0] in ('"', "'"):
+        val = val[1:-1]
+    return _normalize_yaml_null(val)
+
+
+def _extract_scalar(content, field_name):
+    """Read a YAML scalar that may be inline-quoted or a block scalar.
+
+    The seed schema writes last_session_summary as an inline-quoted scalar,
+    but resilient consumers should also accept the block (field: |) form.
+    """
+    block = _extract_block_scalar(content, field_name)
+    if block is not None:
+        return block
+    return _extract_inline_scalar(content, field_name)
+
+
+def _discover_active_plan_file(content, root):
+    """Re-source active_plan_file from the heartbeat's live_record pointer.
+
+    Reads the live_record: pointer, resolves it relative to root, and scans
+    that file for the most-recent PLAN-*.md reference (last wins). Returns
+    None if the pointer is absent or the target is missing/unreadable.
+    """
+    live_record = _extract_inline_scalar(content, "live_record")
+    if not live_record:
+        return None
+    record_path = (root / live_record).resolve()
+    try:
+        record_text = record_path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return None
+    plan_refs = re.findall(r'PLAN-[\w\-]+\.md', record_text)
+    return plan_refs[-1] if plan_refs else None
+
+
 def parse_project_status(path):
     """Parse project-status.md and return a dict of extracted fields."""
     result = {
@@ -109,15 +161,12 @@ def parse_project_status(path):
     if m:
         result["baseline_complete"] = m.group(1).lower() in ("true", "yes", "on")
 
-    result["last_session_summary"] = _extract_block_scalar(content, "last_session_summary")
+    result["last_session_summary"] = _extract_scalar(content, "last_session_summary")
 
-    # active_plan_file: scan notes block for PLAN-*.md references; take last (most recent).
-    # Design choice: autodiscovery avoids requiring a dedicated YAML field, keeping
-    # project-status.md schema flexible across project phases.
-    notes_text = _extract_block_scalar(content, "notes") or ""
-    plan_refs = re.findall(r'PLAN-[\w\-]+\.md', notes_text)
-    if plan_refs:
-        result["active_plan_file"] = plan_refs[-1]
+    # active_plan_file: re-sourced from the heartbeat's live_record pointer.
+    # The keep-compat heartbeat has no notes field, so follow live_record to the
+    # live narrative (SESSION_WORK_INDEX.md) and scan it for the latest PLAN-*.md.
+    result["active_plan_file"] = _discover_active_plan_file(content, path.parent)
 
     return result
 

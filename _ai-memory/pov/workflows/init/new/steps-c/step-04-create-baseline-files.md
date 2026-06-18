@@ -28,39 +28,29 @@ Create the project's foundational files using confirmed user information from St
 
 ## Sequence of Instructions (Do not deviate, skip, or optimize)
 
-### 1. Create project-status.md (Required -- first file created)
+### 1. Populate project-status.md (Required -- first file populated)
 
-Create at the project data location with all required fields:
+`project-status.md` is **deployed from the canonical seed** `templates/oversight/project-status.md` (the source-of-truth heartbeat contract) by the installer, which copies it to the project's oversight/ data location with the seed's placeholder field values intact.
 
-```yaml
-project_name: [confirmed name]
-created: [current date]
-last_updated: [current date]
-current_phase: discovery
-current_sprint: null
-active_task: null
-baseline_complete: false
-track: [quick-flow | standard-method | enterprise]
+At WF-INIT, **POPULATE-IN-PLACE**: OVERWRITE the placeholder field VALUES with the initialized values below, preserving the `---` front-matter contract block intact. Do NOT rewrite, re-declare, or duplicate the schema here -- the seed is the single schema source; this step only sets values.
 
-phases_complete:
-  discovery: false
-  architecture: false
-  planning_initialized: false
+Population mapping (from confirmed Step-2 input):
 
-key_files:
-  prd: null
-  architecture: null
-  project_context: null
-  sprint_status: null
+- `current_phase` → `discovery`
+- `current_sprint` → `null`
+- `active_task` → `null`
+- `baseline_complete` → `false`
+- `phases_complete.discovery` → `false`
+- `phases_complete.architecture` → `false`
+- `phases_complete.planning_initialized` → `false`
+- `key_files.prd` → `null`
+- `key_files.architecture` → `null`
+- `key_files.project_context` → `null`
+- `live_record` → `oversight/SESSION_WORK_INDEX.md`
+- `last_session_summary` → `"[today's date] — project initialized; baseline files created; ready for Discovery"`
+- `open_issues` → `0`
 
-last_session_summary: |
-  Project initialized. Baseline files being created.
-  Ready to begin Discovery phase.
-
-open_issues: 0
-notes: |
-  [Any constraints or open items noted during initialization]
-```
+This file is the bounded heartbeat (cap 60 lines / 6 KB, per its front-matter). Do NOT add narrative, per-phase breakdowns, or key-file maps here -- that detail lives in goals.md and SESSION_WORK_INDEX.md.
 
 ---
 

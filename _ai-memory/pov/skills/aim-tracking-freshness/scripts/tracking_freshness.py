@@ -125,6 +125,15 @@ _BOLD_RE = re.compile(r"\*+")
 _OPEN_SECTION_RE = re.compile(r"^##\s+Open", re.MULTILINE | re.IGNORECASE)
 _CLOSED_SECTION_RE = re.compile(r"^##\s+Closed", re.MULTILINE | re.IGNORECASE)
 
+# Generated-INDEX cap thresholds (D2 contract / D5 Fix C). The Closed section
+# is sharded to CLOSED.md so these bound only the live navigation INDEX.
+BUGS_INDEX_CAP_LINES = 100
+BUGS_INDEX_CAP_KB = 12
+TD_INDEX_CAP_LINES = 150
+TD_INDEX_CAP_KB = 18
+# Closed records kept inline in INDEX; the remainder live in CLOSED.md.
+CLOSED_INLINE_LIMIT = 10
+
 # Evidence token patterns for --verify-code-state (F-1)
 _SHA_EVIDENCE_RE = re.compile(r"\b([0-9a-f]{7,40})\b")
 _PR_REF_EVIDENCE_RE = re.compile(r"#(\d{1,4})\b")
@@ -519,6 +528,25 @@ def parse_index_ids(
     return open_ids, closed_ids
 
 
+def parse_closed_shard_ids(shard_path: Path, id_prefix: str) -> list[str]:
+    """Parse a ``CLOSED.md`` shard and return the numeric IDs it lists.
+
+    The shard holds only closed records (the full history beyond the INDEX
+    last-10 window), so every matching table row is a closed ID. Used to
+    extend INDEX id-parsing to ``INDEX + CLOSED.md (union)`` (GAP-2) — without it,
+    every closed record beyond the inline window would falsely report as a
+    ``missing_*`` record on ``--check``.
+    """
+    if not shard_path.exists():
+        return []
+    text = shard_path.read_text(encoding="utf-8", errors="replace")
+    row_re = re.compile(
+        rf"\|\s*{re.escape(id_prefix)}-(\d+)\s*\|",
+        re.IGNORECASE,
+    )
+    return [m.group(1) for m in row_re.finditer(text)]
+
+
 # ---------------------------------------------------------------------------
 # Staleness analysis
 # ---------------------------------------------------------------------------
@@ -545,11 +573,25 @@ def compute_staleness(
     - ``skipped``         — record-shaped filenames that failed the full regex
     - ``missing_indexes`` — INDEX paths absent when their record dirs have files
     """
-    bugs_open_idx, bugs_closed_idx = parse_index_ids(bugs_index, "BUG")
-    td_open_idx, td_closed_idx = parse_index_ids(td_index, "TECH-DEBT")
+    bugs_open_idx, bugs_closed_idx_index = parse_index_ids(bugs_index, "BUG")
+    td_open_idx, td_closed_idx_index = parse_index_ids(td_index, "TECH-DEBT")
 
-    all_bugs_idx_ids = set(bugs_open_idx) | set(bugs_closed_idx)
-    all_td_idx_ids = set(td_open_idx) | set(td_closed_idx)
+    # GAP-2: closed records beyond the INDEX last-10 window live in CLOSED.md.
+    # The shard IDs join the closed set for the missing_*/orphan computation
+    # (INDEX + CLOSED.md union), otherwise every sharded closed record is a false
+    # missing_*. But the divergence-detail message attributes a placement to the
+    # *INDEX* specifically, so it must read the INDEX-only closed list — never the
+    # union — or a CLOSED.md-only match would misreport as "in Closed section of
+    # INDEX.md".
+    bugs_closed_idx_union = bugs_closed_idx_index + parse_closed_shard_ids(
+        bugs_index.parent / "CLOSED.md", "BUG"
+    )
+    td_closed_idx_union = td_closed_idx_index + parse_closed_shard_ids(
+        td_index.parent / "CLOSED.md", "TECH-DEBT"
+    )
+
+    all_bugs_idx_ids = set(bugs_open_idx) | set(bugs_closed_idx_union)
+    all_td_idx_ids = set(td_open_idx) | set(td_closed_idx_union)
     all_bug_file_ids = {r.numeric_id for r in bugs_records}
     all_td_file_ids = {r.numeric_id for r in td_records}
 
@@ -564,7 +606,7 @@ def compute_staleness(
                     "detail": "Classified CLOSED by script but in Open section of bugs/INDEX.md",
                 }
             )
-        elif r.numeric_id in bugs_closed_idx and not r.is_closed:
+        elif r.numeric_id in bugs_closed_idx_index and not r.is_closed:
             divergences.append(
                 {
                     "file": r.filename,
@@ -582,7 +624,7 @@ def compute_staleness(
                     "detail": "Classified CLOSED by script but in Open section of tech-debt/INDEX.md",
                 }
             )
-        elif r.numeric_id in td_closed_idx and not r.is_closed:
+        elif r.numeric_id in td_closed_idx_index and not r.is_closed:
             divergences.append(
                 {
                     "file": r.filename,
@@ -644,6 +686,28 @@ def _table_cell(s: str) -> str:
     return s.replace("|", "\\|")
 
 
+def _status_summary(raw: str, words: int = 8, chars: int = 64) -> str:
+    """Bound a status string to a compact INDEX-cell summary.
+
+    Returns at most *words* whitespace-delimited tokens and at most *chars*
+    characters, appending an ellipsis when truncation occurs. Display-only:
+    ``classify_status`` reads the full raw status at parse time, so this never
+    affects open/closed classification.
+    """
+    collapsed = " ".join(raw.split())
+    summary = collapsed
+    tokens = collapsed.split(" ")
+    if len(tokens) > words:
+        summary = " ".join(tokens[:words])
+    # >= (not >): a word-truncated result landing exactly on `chars` still needs
+    # trimming, because the trailing ellipsis below would push it to chars+1.
+    if len(summary) >= chars:
+        summary = summary[: chars - 1].rstrip()
+    if summary != collapsed:
+        summary += "…"
+    return summary
+
+
 def render_bugs_index(
     records: list[Record],
     companions: list[tuple[str, str]],
@@ -684,6 +748,20 @@ def render_bugs_index(
         companion_note = f"; companion file(s) excluded: {names_str}"
 
     lines = [
+        "---",
+        "class: register",
+        "read_path: section-anchored",
+        'owns: "generated bug-or-TD index + closed-history shard"',
+        f"cap_lines: {BUGS_INDEX_CAP_LINES}",
+        f"cap_kb: {BUGS_INDEX_CAP_KB}",
+        # rotation_trigger: none — `on-write-over-cap` is outside the BP-167 enum;
+        # the rotate gate does not rotate these files, freshness regenerates+shards them itself.
+        "rotation_trigger: none",
+        "archive_target: ./CLOSED.md",
+        "index_file: N/A",
+        'reconciliation: "regenerated wholesale by aim-tracking-freshness; '
+        'closed records beyond last-10 shard to CLOSED.md"',
+        "---",
         "# Bug Tracker Index",
         "",
         f"**Last Updated**: {now_str} (aim-tracking-freshness rebuild — per-file `**Status**` scan of all {n_total} BUG records{companion_note}.)",
@@ -702,25 +780,31 @@ def render_bugs_index(
         "",
         f"Open breakdown: {sev_summary}.",
         "",
-        "> **GC-18 note**: an index of this size is inherently large; this file IS the navigation layer, kept whole and grouped by status rather than sharded.",
+        "> **GC-18 exception**: generated navigation index; closed records beyond the last "
+        f"{CLOSED_INLINE_LIMIT} are sharded to `CLOSED.md`, open records are kept inline.",
         "",
         "---",
         "",
         "## Open / Actionable Bugs",
         "",
-        "Grouped by severity. Status text is quoted verbatim from each file.",
+        "Grouped by severity. Status is summarized for scanning; read the linked file for the full status.",
         "",
-        "| ID | Sev | Title | Status (verbatim) | Link |",
-        "|----|-----|-------|-------------------|------|",
+        "| ID | Sev | Title | Status | Link |",
+        "|----|-----|-------|--------|------|",
     ]
 
     for r in open_records:
         bid = f"BUG-{r.numeric_id}"
         sev = r.sev or "—"
         title = _table_cell(_truncate(r.title, 60))
-        status = _table_cell(r.raw_status)
+        status = _table_cell(_status_summary(r.raw_status))
         link = f"[file](./{r.filename})"
         lines.append(f"| {bid} | {sev} | {title} | {status} | {link} |")
+
+    # highest numeric_id is a proxy for close-recency (Record has no close-date).
+    closed_recent = sorted(
+        closed_records, key=lambda r: int(r.numeric_id), reverse=True
+    )[:CLOSED_INLINE_LIMIT]
 
     lines += [
         "",
@@ -728,18 +812,22 @@ def render_bugs_index(
         "",
         "## Closed Bugs",
         "",
-        "| ID | Title | Status (verbatim) | Link |",
-        "|----|-------|-------------------|------|",
+        f"Most recent {CLOSED_INLINE_LIMIT} closed records; full closed history in `CLOSED.md`.",
+        "",
+        "| ID | Title | Status | Link |",
+        "|----|-------|--------|------|",
     ]
 
-    for r in closed_records:
+    for r in closed_recent:
         bid = f"BUG-{r.numeric_id}"
         title = _table_cell(_truncate(r.title, 70))
-        status = _table_cell(r.raw_status)
+        status = _table_cell(_status_summary(r.raw_status))
         link = f"[file](./{r.filename})"
         lines.append(f"| {bid} | {title} | {status} | {link} |")
 
     lines += [
+        "",
+        f"[Full closed history → ./CLOSED.md] ({n_closed})",
         "",
         "---",
         "",
@@ -786,6 +874,20 @@ def render_td_index(
         companion_note = f"; companion file(s) excluded: {names_str}"
 
     lines = [
+        "---",
+        "class: register",
+        "read_path: section-anchored",
+        'owns: "generated bug-or-TD index + closed-history shard"',
+        f"cap_lines: {TD_INDEX_CAP_LINES}",
+        f"cap_kb: {TD_INDEX_CAP_KB}",
+        # rotation_trigger: none — `on-write-over-cap` is outside the BP-167 enum;
+        # the rotate gate does not rotate these files, freshness regenerates+shards them itself.
+        "rotation_trigger: none",
+        "archive_target: ./CLOSED.md",
+        "index_file: N/A",
+        'reconciliation: "regenerated wholesale by aim-tracking-freshness; '
+        'closed records beyond last-10 shard to CLOSED.md"',
+        "---",
         "# Technical Debt Index",
         "",
         f"**Last Updated**: {now_str} (aim-tracking-freshness rebuild — per-file `**Status**` scan of all {n_total} standalone TD files{companion_note}.)",
@@ -804,25 +906,31 @@ def render_td_index(
         "",
         f"Open severity: {sev_summary}.",
         "",
-        "> **GC-18 note**: this file IS the navigation layer for all standalone TD records; kept whole, grouped by status.",
+        "> **GC-18 exception**: generated navigation index; closed records beyond the last "
+        f"{CLOSED_INLINE_LIMIT} are sharded to `CLOSED.md`, open records are kept inline.",
         "",
         "---",
         "",
         "## Open Technical Debt",
         "",
-        "Grouped by severity. Status text quoted verbatim from each file.",
+        "Grouped by severity. Status is summarized for scanning; read the linked file for the full status.",
         "",
-        "| ID | Sev | Title | Status (verbatim) | Link |",
-        "|----|-----|-------|-------------------|------|",
+        "| ID | Sev | Title | Status | Link |",
+        "|----|-----|-------|--------|------|",
     ]
 
     for r in open_records:
         tid = f"TECH-DEBT-{r.numeric_id}"
         sev = r.sev or "—"
         title = _table_cell(_truncate(r.title, 60))
-        status = _table_cell(r.raw_status)
+        status = _table_cell(_status_summary(r.raw_status))
         link = f"[file](./{r.filename})"
         lines.append(f"| {tid} | {sev} | {title} | {status} | {link} |")
+
+    # highest numeric_id is a proxy for close-recency (Record has no close-date).
+    closed_recent = sorted(
+        closed_records, key=lambda r: int(r.numeric_id), reverse=True
+    )[:CLOSED_INLINE_LIMIT]
 
     lines += [
         "",
@@ -830,16 +938,69 @@ def render_td_index(
         "",
         "## Closed Technical Debt",
         "",
-        "| ID | Title | Status (verbatim) | Link |",
-        "|----|-------|-------------------|------|",
+        f"Most recent {CLOSED_INLINE_LIMIT} closed records; full closed history in `CLOSED.md`.",
+        "",
+        "| ID | Title | Status | Link |",
+        "|----|-------|--------|------|",
     ]
 
-    for r in closed_records:
+    for r in closed_recent:
         tid = f"TECH-DEBT-{r.numeric_id}"
         title = _table_cell(_truncate(r.title, 70))
-        status = _table_cell(r.raw_status)
+        status = _table_cell(_status_summary(r.raw_status))
         link = f"[file](./{r.filename})"
         lines.append(f"| {tid} | {title} | {status} | {link} |")
+
+    lines += [
+        "",
+        f"[Full closed history → ./CLOSED.md] ({n_closed})",
+        "",
+        "---",
+        "",
+        f"*Regenerated by aim-tracking-freshness, {now_str}. Authority: per-file `**Status**` header scan.*",
+        "",
+    ]
+
+    return "\n".join(lines)
+
+
+def render_closed_shard(records: list[Record], kind: str, now_str: str) -> str:
+    """Render the full closed-record history shard (``bugs/CLOSED.md`` or
+    ``tech-debt/CLOSED.md``).
+
+    Holds every closed record (the INDEX keeps only the most recent
+    ``CLOSED_INLINE_LIMIT``). Sorted by numeric ID descending so re-runs on the
+    same date are byte-identical (overwrite-in-place, idempotent).
+    """
+    label = "Bug" if kind == "bug" else "Technical Debt"
+    prefix = "BUG" if kind == "bug" else "TECH-DEBT"
+    closed = sorted(
+        [r for r in records if r.is_closed],
+        key=lambda r: int(r.numeric_id),
+        reverse=True,
+    )
+
+    lines = [
+        f"# Closed {label} Records — Full History",
+        "",
+        f"**Last Updated**: {now_str} (aim-tracking-freshness rebuild).",
+        f"**Scope**: all {len(closed)} closed {label} records. The live `INDEX.md` "
+        f"lists only the most recent {CLOSED_INLINE_LIMIT}; this shard is the complete "
+        "closed history.",
+        "**Authority for status**: the individual record file, read directly.",
+        "",
+        "---",
+        "",
+        "| ID | Title | Status | Link |",
+        "|----|-------|--------|------|",
+    ]
+
+    for r in closed:
+        rid = f"{prefix}-{r.numeric_id}"
+        title = _table_cell(_truncate(r.title, 70))
+        status = _table_cell(_status_summary(r.raw_status))
+        link = f"[file](./{r.filename})"
+        lines.append(f"| {rid} | {title} | {status} | {link} |")
 
     lines += [
         "",
@@ -1809,6 +1970,24 @@ def resolve_oversight_root(args: argparse.Namespace) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def _warn_if_over_cap(path: Path, content: str, cap_lines: int, cap_kb: int) -> None:
+    """Emit a loud stderr WARNING when a generated INDEX exceeds its cap.
+
+    A sensor, not a crash: open records cannot be shed, so the script still
+    writes the file and exits normally — the WARNING flags that the index needs
+    human attention (stale open records / archival follow-up).
+    """
+    n_lines = len(content.splitlines())
+    n_kb = len(content.encode("utf-8")) / 1024
+    if n_lines > cap_lines or n_kb > cap_kb:
+        print(
+            f"WARNING: {path.name} over cap after shard "
+            f"({n_lines} lines / {n_kb:.1f} KB; cap {cap_lines} lines / {cap_kb} KB) "
+            f"— {path}. Open items cannot be shed; review for stale open records.",
+            file=sys.stderr,
+        )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -1919,6 +2098,14 @@ def main() -> None:
             bugs_content = render_bugs_index(bugs_records, bug_companions, now_str)
             bugs_idx.write_text(bugs_content, encoding="utf-8")
             print(f"Wrote: {bugs_idx}")
+            bugs_closed_md = bugs_dir / "CLOSED.md"
+            bugs_closed_md.write_text(
+                render_closed_shard(bugs_records, "bug", now_str), encoding="utf-8"
+            )
+            print(f"Wrote: {bugs_closed_md}")
+            _warn_if_over_cap(
+                bugs_idx, bugs_content, BUGS_INDEX_CAP_LINES, BUGS_INDEX_CAP_KB
+            )
         else:
             print(
                 f"NOTE: bugs directory absent — not scaffolded: {bugs_dir}",
@@ -1929,6 +2116,12 @@ def main() -> None:
             td_content = render_td_index(td_records, td_companions, now_str)
             td_idx.write_text(td_content, encoding="utf-8")
             print(f"Wrote: {td_idx}")
+            td_closed_md = td_dir / "CLOSED.md"
+            td_closed_md.write_text(
+                render_closed_shard(td_records, "td", now_str), encoding="utf-8"
+            )
+            print(f"Wrote: {td_closed_md}")
+            _warn_if_over_cap(td_idx, td_content, TD_INDEX_CAP_LINES, TD_INDEX_CAP_KB)
         else:
             print(
                 f"NOTE: tech-debt directory absent — not scaffolded: {td_dir}",

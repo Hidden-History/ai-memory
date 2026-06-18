@@ -558,20 +558,22 @@ def retrieve_bootstrap_context(
             extra={"error": str(e)},
         )
 
-    # Layer 3: Recent insights (SEMANTIC — relevance matters)
+    # Layer 3: Recent insights (DETERMINISTIC — newest, agent-scoped)
+    # D6 P1 (DEC-PM338-D6.2): deterministic recency via get_recent() instead of
+    # generic-string semantic search() — matches Layers 1-2 and removes the
+    # noise of an arbitrary query string. Superseded points are excluded by the
+    # discussions-scoped must_not(is_current==False) filter inside get_recent().
     try:
-        insights = search_client.search(
-            query="key insight learning pattern important",
+        insights = search_client.get_recent(
             collection=COLLECTION_DISCUSSIONS,
             group_id=project_name,
-            limit=3,
             memory_type=["agent_insight"],
             agent_id="parzival",
-            fast_mode=True,
+            limit=3,
         )
         results.extend(insights)
         _agent_count = len(last_handoff) + len(insights)
-    except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+    except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
         logger.warning(
             "bootstrap_insights_unavailable",
             extra={"error": str(e)},

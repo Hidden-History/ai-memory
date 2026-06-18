@@ -199,7 +199,10 @@ def test_write_a_not_visible_to_b(mem_env, save_module, monkeypatch, tmp_path):
     nongit = tmp_path / "ws_a"
     nongit.mkdir()
     marker = "isolationmarkeralpha"
-    content = _REALISTIC_HANDOFF + f"\n\nMARKER-{marker}\n"
+    # D4 F-1: an over-cap handoff is bounded to a front-loaded lead at save time,
+    # so the probe marker is placed at the FRONT (within the retained lead) to
+    # keep it a reliable positive control. Tenant isolation is unchanged.
+    content = f"# MARKER-{marker}\n\n" + _REALISTIC_HANDOFF
 
     rc = _save(
         save_module,
@@ -214,9 +217,10 @@ def test_write_a_not_visible_to_b(mem_env, save_module, monkeypatch, tmp_path):
     a_points = _scroll_group(mem_env.client, "proj-a")
     assert a_points, "save did not store under project A"
     assert all(p.payload["group_id"] == "proj-a" for p in a_points)
-    # Realistic doc is chunked into multiple vectors; the marker lands in one
-    # chunk. Scroll returns ALL of A's points, so this is a reliable positive
-    # control (semantic top-k ranking over identical stub vectors is arbitrary).
+    # D4 F-1 bounds the over-cap handoff to one front-loaded vector; the marker
+    # leads the content so it is retained. Scroll returns ALL of A's points, so
+    # this is a reliable positive control (semantic top-k over identical stub
+    # vectors is arbitrary).
     assert any(
         marker in p.payload.get("content", "") for p in a_points
     ), "A's own write is not retrievable under project A"

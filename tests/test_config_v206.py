@@ -50,7 +50,7 @@ class TestDecayFieldDefaults:
         assert overrides["guideline"] == 60
         assert overrides["rule"] == 60
         assert overrides["agent_handoff"] == 180
-        assert overrides["agent_insight"] == 180
+        assert overrides["agent_insight"] == 90
         # CE-007: Verify phantom types were removed
         assert "conversation" not in overrides
         assert "session_summary" not in overrides

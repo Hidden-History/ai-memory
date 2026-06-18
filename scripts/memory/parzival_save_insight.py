@@ -26,7 +26,11 @@ from memory.config import get_config
 from memory.metrics_push import push_skill_metrics_async
 from memory.storage import MemoryStorage
 
-from parzival_save_common import emit_trace, store_with_metrics
+from parzival_save_common import (
+    bound_insight_content,
+    emit_trace,
+    store_with_metrics,
+)
 
 TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other value)
 
@@ -34,6 +38,13 @@ TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other v
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Save Parzival insight to Qdrant")
     parser.add_argument("insight", nargs="+", help="Insight text to store")
+    parser.add_argument(
+        "--supersedes",
+        dest="supersedes",
+        default=None,
+        help="Optional memory id of a prior insight to mark superseded "
+        "(is_current=False) after this one is stored.",
+    )
     return parser.parse_args()
 
 
@@ -46,7 +57,8 @@ def main() -> int:
         return 1
 
     args = parse_args()
-    insight = " ".join(args.insight).strip()
+    # D4 F-1: bound the insight to a single vector.
+    insight = bound_insight_content(" ".join(args.insight).strip())
 
     # PLAN-028 P1B / W-09 (DEC-PM302-D1): store_agent_memory requires explicit
     # group_id. BUG-314: resolve through the one shared resolver (env-first ->
@@ -81,6 +93,11 @@ def main() -> int:
 
     status = result.get("status", "unknown")
     if status == "stored":
+        # D4 F-2: opt-in supersession — demote a named prior insight, scoped to
+        # the active project so a mistyped id cannot demote another tenant's
+        # point on the shared Qdrant (RSK-021 / W-02).
+        if args.supersedes:
+            storage.supersede_memory_by_id(args.supersedes, group_id=group_id)
         print(
             f"Insight saved to Qdrant (id: {result.get('memory_id', 'unknown')[:8]}...)"
         )

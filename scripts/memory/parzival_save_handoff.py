@@ -27,7 +27,11 @@ from memory.config import get_config
 from memory.metrics_push import push_skill_metrics_async
 from memory.storage import MemoryStorage
 
-from parzival_save_common import emit_trace, store_with_metrics
+from parzival_save_common import (
+    bound_handoff_content,
+    emit_trace,
+    store_with_metrics,
+)
 
 TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other value)
 
@@ -47,13 +51,16 @@ def load_content(args: argparse.Namespace) -> str:
         if not file_path.exists():
             print(f"Error: File not found: {file_path}")
             raise SystemExit(1)
-        return file_path.read_text(encoding="utf-8")
+        # D4 F-1: bound the injectable vector; the full file stays on disk.
+        return bound_handoff_content(
+            file_path.read_text(encoding="utf-8"), source_path=str(file_path)
+        )
 
     content = " ".join(args.content).strip()
     if not content:
         print("Error: No content provided. Pass text or --file <path>.")
         raise SystemExit(1)
-    return content
+    return bound_handoff_content(content)
 
 
 def main() -> int:
@@ -101,6 +108,14 @@ def main() -> int:
 
     status = result.get("status", "unknown")
     if status == "stored":
+        # D4 F-2: auto-supersede the prior handoff for this agent + project so
+        # bootstrap injects only the newest one (read filter excludes the rest).
+        storage.supersede_prior_agent_memories(
+            group_id=group_id,
+            agent_id="parzival",
+            memory_type="agent_handoff",
+            exclude_memory_id=result.get("memory_id"),
+        )
         print(
             f"Handoff saved to Qdrant (id: {result.get('memory_id', 'unknown')[:8]}...)"
         )
