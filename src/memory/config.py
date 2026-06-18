@@ -557,6 +557,88 @@ class MemoryConfig(BaseSettings):
     )
 
     # =========================================================================
+    # BUG-319 / BP-174 — Absolute-relevance injection gate (PM #343, PLAN-028 P2-2)
+    # -------------------------------------------------------------------------
+    # The per-collection thresholds above gate on the BANDED score, which on the
+    # hybrid_rrf_decay path is min-max-normalized to [0.5, 0.95] per result-set
+    # (search.py PLAN-013/DEC-062 block) — so top-1 is always ~0.95 and the gate
+    # can never skip same-domain-off-topic content (F-1). These fields drive a
+    # SEPARATE absolute-relevance gate that consumes the raw cosine signal
+    # (memory["raw_score"]) instead of the banded score, per BP-174 Q1/Q2/Q4.
+    #
+    # SHADOW-FIRST: when injection_absolute_gate_enabled is False (default), the
+    # tier-2 hook still COMPUTES and EMITS the raw-cosine / margin / freshness
+    # signals (observe-only) but does NOT change selection or skip behavior. The
+    # absolute floor must be CALIBRATED against the shadow histogram (the
+    # single-domain same-domain baseline is ~0.76 per the PM #343 findings) before
+    # flipping this to True. The margin gate (Q2) is scale-free and needs no
+    # calibration. The absolute gate can only ADD skips, never force an injection.
+    # =========================================================================
+
+    injection_absolute_gate_enabled: bool = Field(
+        default=False,
+        description=(
+            "Enable the BP-174 absolute-relevance injection gate (raw cosine "
+            "floor + scale-free top-1/top-2 margin + freshness cap). When False, "
+            "the signals are computed and emitted shadow-only (observe-only) and "
+            "do not change behavior. Flip to True only after calibrating "
+            "injection_absolute_floor against the shadow histogram (BUG-319 / "
+            "PLAN-028 P2-2)."
+        ),
+    )
+
+    injection_absolute_floor: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Absolute raw-cosine floor for the BP-174 relevance gate. A candidate "
+            "whose raw_score is below this is treated as off-topic. CALIBRATE from "
+            "the shadow histogram: the single-domain same-domain baseline is ~0.76, "
+            "so on-topic items sit above it and same-domain-off-topic below. "
+            "Conservative default 0.5 (BUG-319 Q2)."
+        ),
+    )
+
+    injection_margin_min: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum scale-free top-1/top-2 raw-cosine margin for the BP-174 "
+            "relevance gate (Q2). A high top-1 with a tiny gap to top-2 is an "
+            "ambiguous/distractor retrieval regardless of the absolute number; "
+            "invariant to the baseline so it fires whether the neighborhood sits "
+            "at 0.5 or 0.95. Single-result sets bypass the margin check."
+        ),
+    )
+
+    injection_freshness_max_age_days: int = Field(
+        default=0,
+        ge=0,
+        le=3650,
+        description=(
+            "Absolute freshness cap (days) for the BP-174 relevance gate (Q4). "
+            "When > 0, a top-1 candidate older than this is gated out so stale "
+            "items cannot survive to top-1 (distinct from DECAY_* ranking, which "
+            "only reorders). 0 disables the cap. Age is read from the point's "
+            "stored_at payload field (BUG-319 F-2)."
+        ),
+    )
+
+    injection_drift_suppressor_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Topic-drift level above which drift acts as a SUPPRESSOR rather than "
+            "a budget amplifier when no above-floor candidate exists (BP-174 Q3 / "
+            "BUG-319 F-3). Only consulted when injection_absolute_gate_enabled is "
+            "True."
+        ),
+    )
+
+    # =========================================================================
     # v2.0.6 — Audit Trail (SPEC-002 Section 5.2)
     # =========================================================================
 

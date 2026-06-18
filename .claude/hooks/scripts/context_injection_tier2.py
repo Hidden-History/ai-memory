@@ -50,6 +50,7 @@ except ImportError:
 from memory.injection import (
     InjectionSessionState,
     compute_adaptive_budget,
+    compute_relevance_signals,
     compute_topic_drift,
     format_injection_output,
     log_injection_event,
@@ -340,6 +341,44 @@ def main() -> int:
             _best_collection, config.injection_confidence_threshold
         )
 
+        # BUG-319 / BP-174 — absolute-relevance gate signals (shadow-first).
+        # Computed from the raw_score channel (search.py _attach_raw_cosine), NOT
+        # the banded best_score above. Emitted on EVERY turn (including the
+        # existing-gate skip turns below) as the calibration substrate. The gate
+        # only changes behavior when config.injection_absolute_gate_enabled is True
+        # (the flip), and even then can only ADD a skip — never force injection.
+        _relevance_signals = compute_relevance_signals(all_results, config)
+        logger.info(
+            "tier2_relevance_shadow",
+            extra={
+                "session_id": session_id,
+                "turn": state.turn_count,
+                "banded_best_score": round(best_score, 4),
+                "gate_enabled": config.injection_absolute_gate_enabled,
+                **_relevance_signals,
+            },
+        )
+        if emit_trace_event:
+            with contextlib.suppress(Exception):
+                emit_trace_event(
+                    event_type="relevance_gate_shadow",
+                    data={
+                        "input": f"banded_best={round(best_score, 4)} collection={_best_collection}"[
+                            :TRACE_CONTENT_MAX
+                        ],
+                        "output": json.dumps(_relevance_signals)[:TRACE_CONTENT_MAX],
+                        "metadata": {
+                            "gate_enabled": config.injection_absolute_gate_enabled,
+                            "banded_best_score": round(best_score, 4),
+                            **_relevance_signals,
+                        },
+                    },
+                    trace_id=_tier2_trace_id,
+                    session_id=session_id,
+                    project_id=project_name,
+                    tags=["injection", "tier2", "relevance_gate"],
+                )
+
         if best_score < config.injection_hard_floor:
             gating_mode = "hard_skip"
         elif best_score < _conf_threshold - 0.05:
@@ -380,6 +419,55 @@ def main() -> int:
                 skipped_confidence=True,
                 gating_mode=gating_mode,
                 collections_searched=collection_names,
+                relevance_signals=_relevance_signals,
+            )
+            state.save()
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "hookEventName": "UserPromptSubmit",
+                            "additionalContext": "",
+                        }
+                    }
+                )
+            )
+            return 0
+
+        # BUG-319 / BP-174 — absolute-relevance gate (the flip). Runs AFTER the
+        # banded 4-tier gate, so it can only ADD a skip: when no candidate clears
+        # the absolute floor + margin (Q1/Q2) or the top item is over the
+        # freshness cap (Q4), suppress same-domain-off-topic / stale injection
+        # that the banded gate (top-1 pinned ~0.95) would have let through.
+        # Shadow-only until config.injection_absolute_gate_enabled is True.
+        if (
+            config.injection_absolute_gate_enabled
+            and not _relevance_signals["would_inject"]
+        ):
+            logger.info(
+                "tier2_relevance_skip",
+                extra={
+                    "session_id": session_id,
+                    "turn": state.turn_count,
+                    "banded_best_score": round(best_score, 4),
+                    **_relevance_signals,
+                },
+            )
+            log_injection_event(
+                tier=2,
+                trigger="UserPromptSubmit",
+                project=project_name,
+                session_id=session_id,
+                results_considered=len(all_results),
+                results_selected=0,
+                tokens_used=0,
+                budget=0,
+                audit_dir=config.audit_dir,
+                best_score=best_score,
+                skipped_confidence=True,
+                gating_mode="relevance_skip",
+                collections_searched=collection_names,
+                relevance_signals=_relevance_signals,
             )
             state.save()
             print(
@@ -402,6 +490,7 @@ def main() -> int:
             results=all_results,
             session_state={"topic_drift": drift},
             config=config,
+            best_raw_score=_relevance_signals["best_raw"],
         )
 
         # Soft gating: halve budget for marginal confidence (threshold-0.05 to threshold)
@@ -486,8 +575,16 @@ def main() -> int:
         if _tier2_fallback_reject is not None:
             _r = _tier2_fallback_reject
             _meta_budget = _greedy_meta.get("budget", 0)
-            _meta_tokens_used = _greedy_meta.get("tokens_used", 0)
-            _remaining = _meta_budget - _meta_tokens_used
+            # BUG-302 field semantics: prefer the reject-time `remaining` snapshot
+            # captured in the reject record (budget free when THIS candidate was
+            # evaluated, which is what triggered reason=budget_exceeded). Fall back
+            # to the post-loop budget - tokens_used only for legacy records that
+            # predate the snapshot. budget = total tier budget; tokens = size of
+            # the rejected candidate; remaining = free budget at reject time, so
+            # tokens > remaining makes the reject self-evident.
+            _remaining = _r.get("remaining")
+            if _remaining is None:
+                _remaining = _meta_budget - _greedy_meta.get("tokens_used", 0)
             _marker = (
                 f"# [tier-2 fallback: handoff-class result rejected "
                 f"reason={_r.get('reason')} tokens={_r.get('tokens')} "
@@ -522,6 +619,7 @@ def main() -> int:
             rejects=_greedy_meta.get("rejects"),
             fallback_signaled=_greedy_meta.get("fallback_signaled", False),
             per_source=_greedy_meta.get("per_source"),
+            relevance_signals=_relevance_signals,
         )
 
         # SPEC-021: context_retrieval span — retrieval pipeline complete
