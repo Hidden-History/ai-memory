@@ -614,6 +614,37 @@ class TestScanBatchNER:
         # Layer 3 should have been executed
         assert all(3 in r.layers_executed for r in results)
 
+    def test_batch_precision_gate_applied(self):
+        """M-E: the precision gate runs on the scan_batch() NER path — a
+        technical false positive is preserved while genuine PII is masked.
+        Guards the production bulk path (different offset computation)."""
+        from memory.security_scanner import (
+            ScanAction,
+            SecurityScanner,
+            _load_spacy_model,
+        )
+
+        if _load_spacy_model() is None:
+            pytest.skip("SpaCy not available")
+
+        scanner = SecurityScanner(enable_ner=False)
+        results = scanner.scan_batch(
+            [
+                "Refactored the Kafka client wrapper",  # technical FP
+                "Please contact John Smith urgently",  # genuine PII
+            ],
+            force_ner=True,
+        )
+
+        assert len(results) == 2
+        # FP path: preserved, never masked.
+        assert "[NAME_REDACTED]" not in results[0].content
+        assert results[0].content == "Refactored the Kafka client wrapper"
+        # PII path: masked.
+        assert results[1].action == ScanAction.MASKED
+        assert "[NAME_REDACTED]" in results[1].content
+        assert "John Smith" not in results[1].content
+
     def test_batch_blocked_texts_excluded_from_ner(self):
         """Test that BLOCKED texts skip NER processing."""
         from memory.security_scanner import (
@@ -1146,6 +1177,9 @@ def _name_finding(content, span):
     no SpaCy needed) so the precision gate can be unit-tested directly."""
     from memory.security_scanner import FindingType, ScanFinding
 
+    # L-B: guard against content.index() first-occurrence ambiguity — the span
+    # must appear exactly once so start/end unambiguously locate the candidate.
+    assert content.count(span) == 1, f"span {span!r} must occur exactly once"
     start = content.index(span)
     return ScanFinding(
         finding_type=FindingType.PII_NAME,
@@ -1230,6 +1264,152 @@ class TestNameHandlePrecisionGate:
                 is True
             ), f"name with PII context should mask: {content!r}"
 
+    def test_h_a_code_ubiquitous_cues_do_not_mask(self):
+        """H-A: dropped code-ubiquitous cues (client/manager/person/…) no longer
+        trigger masking of an adjacent technical proper noun."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        # spaCy can mis-tag "Kafka"/"Datadog" as PERSON; "client"/"manager" used
+        # to flip them to masked. They must now pass through.
+        for content, span in (
+            ("Refactored the Kafka client wrapper", "Kafka"),
+            ("Datadog manager dashboard config", "Datadog"),
+            ("The Splunk customer integration", "Splunk"),
+        ):
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, span))
+                is False
+            ), f"{span!r} must not mask via dropped cue: {content!r}"
+
+    def test_m_c_inflected_cues_mask(self):
+        """M-C: gerund/inflected forms of retained verb families mask a name."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        for content in (
+            "contacting John Smith tomorrow",
+            "meeting Jordan Lee at noon",
+            "reaching Jordan Lee by phone",
+        ):
+            span = "John Smith" if "John Smith" in content else "Jordan Lee"
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, span))
+                is True
+            ), f"inflected cue should mask: {content!r}"
+
+    def test_m_a_allcaps_name_with_context_is_masked(self):
+        """M-A: an ALLCAPS name no longer vetoes masking when PII context present."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "Please contact JOHN SMITH urgently"
+        assert (
+            _should_mask_low_precision_pii(
+                content, _name_finding(content, "JOHN SMITH")
+            )
+            is True
+        )
+
+    def test_m_a_allcaps_token_without_context_not_masked(self):
+        """M-A: ALLCAPS doc-name tokens without PII context still pass through."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "See AGENTS and README for setup"
+        assert (
+            _should_mask_low_precision_pii(content, _name_finding(content, "AGENTS"))
+            is False
+        )
+
+    def test_h_b_reply_header_dashes_not_structural(self):
+        """H-B: an email/Jira reply header ('--- John Smith wrote:') is NOT a git
+        diff header, so the name is decided by PII context (and masks here)."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "--- John Smith wrote:"
+        assert (
+            _should_mask_low_precision_pii(
+                content, _name_finding(content, "John Smith")
+            )
+            is True
+        )
+
+    def test_h_b_git_diff_file_header_still_structural(self):
+        """H-B: a genuine git unified-diff file header stays structural (exempt)."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "--- a/John Smith.py"
+        assert (
+            _should_mask_low_precision_pii(
+                content, _name_finding(content, "John Smith")
+            )
+            is False
+        )
+
+    def test_m_b_name_on_heading_with_context_is_masked(self):
+        """M-B: bare-'#' heading no longer exempts a NAME; PII context decides."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "# Contact: Jane Doe, customer"
+        assert (
+            _should_mask_low_precision_pii(content, _name_finding(content, "Jane Doe"))
+            is True
+        )
+
+
+class TestPrecisionGateMaskApplication:
+    """BUG-320: deterministic, model-less coverage of the precision gate's
+    mask-application step (`_apply_masks_and_determine_action`) using hand-built
+    findings — no SpaCy required, so it runs on CI without the NER model."""
+
+    def _scanner(self):
+        from memory.security_scanner import SecurityScanner
+
+        return SecurityScanner(enable_ner=False)
+
+    def test_false_positive_name_recorded_but_not_masked(self):
+        """L-B: a mis-tagged technical token is surfaced as a finding (for
+        observability) but its replacement is cleared so content is preserved."""
+        content = "Phase 2 (Docker daemon restart)"
+        finding = _name_finding(content, "Docker")
+        masked, action = self._scanner()._apply_masks_and_determine_action(
+            content, [finding]
+        )
+
+        from memory.security_scanner import ScanAction
+
+        assert masked == content
+        assert action == ScanAction.PASSED
+        # Recorded for observability, but replacement cleared (not masked).
+        assert finding.replacement is None
+
+    def test_multi_segment_findings_realistic_offsets(self):
+        """L-A: feed multiple hand-built findings at realistic cumulative offsets
+        across a long multi-line body — the gate masks only the genuine-PII name
+        and preserves the technical false positive, applying right-to-left so the
+        offsets of earlier spans stay valid."""
+        from memory.security_scanner import ScanAction
+
+        # Two PERSON candidates far apart: a technical FP first, real PII later.
+        body = (
+            "Refactored the Kafka client wrapper for throughput.\n\n"
+            "Notes from the standup and the migration plan.\n\n"
+            "Please contact John Smith about the rollout."
+        )
+        fp = _name_finding(body, "Kafka")
+        pii = _name_finding(body, "John Smith")
+        # Realistic cumulative offsets (Kafka well before John Smith).
+        assert fp.start < pii.start
+
+        masked, action = self._scanner()._apply_masks_and_determine_action(
+            body, [fp, pii]
+        )
+
+        assert action == ScanAction.MASKED
+        assert "Kafka client wrapper" in masked  # FP preserved
+        assert fp.replacement is None
+        assert "[NAME_REDACTED]" in masked  # real PII masked
+        assert "John Smith" not in masked
+        # The earlier text is otherwise byte-identical up to the masked span.
+        assert masked.startswith("Refactored the Kafka client wrapper")
+
 
 class TestNamePrecisionEndToEnd:
     """BUG-320: NAME masking through the full scan() pipeline (Layer 3 NER)."""
@@ -1272,19 +1452,33 @@ class TestNamePrecisionEndToEnd:
         # The candidate is still recorded for observability even when masked.
         assert any(f.finding_type.value == "pii_name" for f in result.findings)
 
-    def test_false_positive_name_recorded_but_not_masked(self):
-        """A mis-tagged technical token is still surfaced as a finding (for
-        observability) but its replacement is cleared so content is preserved."""
+    def test_no_context_name_passes_unmasked(self):
+        """M-D: a PERSON name with no adjacent PII cue passes through scan()
+        UN-masked (precision-first); content is byte-identical."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=True)
+        content = "Jordan Lee shipped the release on Friday."
+        result = scanner.scan(content)
+
+        assert "[NAME_REDACTED]" not in result.content
+        assert result.content == content
+        assert result.action == ScanAction.PASSED
+
+    def test_over_masking_eliminated_for_technical_content(self):
+        """Must-verify (over-masking): technical proper nouns / tool names with
+        only code-ubiquitous neighbors are never masked through scan()."""
         from memory.security_scanner import SecurityScanner
 
         scanner = SecurityScanner(enable_ner=True)
-        result = scanner.scan("Phase 2 (Docker daemon restart)")
-
-        name_findings = [
-            f for f in result.findings if f.finding_type.value == "pii_name"
-        ]
-        if name_findings:  # SpaCy tags "Docker" as PERSON
-            assert all(f.replacement is None for f in name_findings)
+        for content in (
+            "Refactored the Kafka client wrapper",
+            "The Grafana manager dashboard",
+            "Docker daemon restart configuration",
+        ):
+            result = scanner.scan(content)
+            assert "[NAME_REDACTED]" not in result.content, content
+            assert result.content == content, content
 
     def test_secrets_still_blocked_with_ner(self):
         from memory.security_scanner import ScanAction, SecurityScanner
@@ -1321,3 +1515,15 @@ class TestHandleStructuralExclusion:
 
         assert result.action == ScanAction.MASKED
         assert "[HANDLE_REDACTED]" in result.content
+
+    def test_handle_with_incidental_at_at_in_prose_still_masked(self):
+        """M-B: '@@' anchored to start-of-line — an incidental '@@' mid-prose no
+        longer exempts a real @handle on that line (was under-masking)."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=False)
+        result = scanner.scan("Build failed @@ stage; ping @octocat to retry")
+
+        assert result.action == ScanAction.MASKED
+        assert "[HANDLE_REDACTED]" in result.content
+        assert "@octocat" not in result.content
