@@ -17,8 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade Instructions
 
-- **Existing installs**: re-run `./scripts/install.sh <project-dir>` to pick up the new `aim-tracking-rotate` skill, the cap-contract seed templates, and the updated session-close workflow. Existing oversight files are never overwritten (no-clobber); they adopt the cap contracts on the next install into a fresh project, or can be brought into line manually.
-- No database migration is required. The new injection-freshness read filter is backward-compatible — points written before this release (which lack the `is_current` field) continue to be returned; only points explicitly marked superseded are excluded.
+- **After updating, run two steps:**
+  1. `./scripts/install.sh <project-dir>` — syncs the new `src/memory/` modules, the `aim-tracking-rotate` skill, the updated session-close workflow, and the cap-contract seed templates into your installation. No data is touched; existing oversight files are not overwritten.
+  2. `~/.ai-memory/scripts/stack.sh restart` — recreates the running services so they pick up the updated code. (The installer brings services up with `--no-recreate`, so a running container keeps its previous code until a restart.)
+- **No database migration is required.** The new injection-freshness read filter is backward-compatible — points written before this release (which lack the `is_current` field) continue to be returned; only points explicitly marked superseded are excluded.
+- **Your existing oversight files are never overwritten** (no-clobber). They keep their current shape; the cap-contract front-matter applies to files scaffolded into a fresh project, and existing files can be brought into line manually or via `aim-tracking-freshness` / `aim-tracking-rotate`.
 
 ### Added
 
