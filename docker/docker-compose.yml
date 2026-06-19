@@ -113,6 +113,13 @@ services:
       - LOG_LEVEL=${AI_MEMORY_LOG_LEVEL:-INFO}
       # PLAN-013: ColBERT late interaction model (opt-in, ~400MB download)
       - COLBERT_ENABLED=${COLBERT_ENABLED:-false}
+      # TD-670: embedding-service resilience controls (concurrency cap, slot-acquire
+      # timeout, and oversized-payload limits). Defaults are provisional pending live
+      # load-test tuning.
+      - EMBEDDING_MAX_CONCURRENCY=${EMBEDDING_MAX_CONCURRENCY:-4}
+      - EMBEDDING_ACQUIRE_TIMEOUT=${EMBEDDING_ACQUIRE_TIMEOUT:-30}
+      - EMBEDDING_MAX_BATCH_TEXTS=${EMBEDDING_MAX_BATCH_TEXTS:-256}
+      - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-1000000}
       # Set fastembed cache to persistent volume location
       - FASTEMBED_CACHE_PATH=/home/embedding/.cache/fastembed
     restart: unless-stopped

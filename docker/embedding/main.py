@@ -59,10 +59,21 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 # drive the shared ONNX models in parallel and each materializes a full batch of
 # vectors at once — peak memory spikes toward the container limit (suspected clean-exit
 # trigger) and the shared fastembed model objects are exercised concurrently. A
-# process-wide semaphore caps simultaneous inference; requests beyond the cap wait for
-# a slot rather than failing or crashing the worker.
-EMBED_MAX_CONCURRENCY = int(os.getenv("EMBEDDING_MAX_CONCURRENCY", "4"))
-_inference_semaphore = threading.Semaphore(EMBED_MAX_CONCURRENCY)
+# process-wide semaphore caps simultaneous inference; requests beyond the cap wait up
+# to EMBEDDING_ACQUIRE_TIMEOUT seconds for a slot, then receive a 503 rather than
+# blocking forever or crashing the worker.
+EMBEDDING_MAX_CONCURRENCY = int(os.getenv("EMBEDDING_MAX_CONCURRENCY", "4"))
+EMBEDDING_ACQUIRE_TIMEOUT = float(os.getenv("EMBEDDING_ACQUIRE_TIMEOUT", "30"))
+_inference_semaphore = threading.Semaphore(EMBEDDING_MAX_CONCURRENCY)
+
+# TD-670: Reject oversized payloads up front so a single huge request cannot drive the
+# worker into an OS-level OOM SIGKILL (which the 503 fault-isolation in run_inference
+# cannot catch). Bound both the batch size (number of texts -> number of vectors
+# materialized) and the total input size (chars -> model working memory). Defaults are
+# provisional and meant to be tuned against real saturation behaviour during live load
+# testing.
+EMBEDDING_MAX_BATCH_TEXTS = int(os.getenv("EMBEDDING_MAX_BATCH_TEXTS", "256"))
+EMBEDDING_MAX_INPUT_CHARS = int(os.getenv("EMBEDDING_MAX_INPUT_CHARS", "1000000"))
 
 # Configure logging
 logging.basicConfig(
@@ -76,10 +87,17 @@ def run_inference(operation):
     """Execute a model inference call with TD-670 resilience guarantees.
 
     Bounds concurrency via the process-wide semaphore (peak-memory + shared-model
-    access guard) and isolates faults: any inference failure becomes an HTTP 503 so a
-    single bad or oversized request can never crash the worker — the service keeps
-    serving other requests. An ``HTTPException`` raised inside ``operation`` (e.g. a
-    validation error) passes through unchanged.
+    access guard): a caller waits at most ``EMBEDDING_ACQUIRE_TIMEOUT`` seconds for a
+    slot and otherwise receives an HTTP 503 instead of blocking forever. Faults are
+    isolated — any Python-level exception raised inside ``operation`` becomes an HTTP
+    503 so a request that fails inside the model call cannot crash the worker; the
+    service keeps serving other requests. An ``HTTPException`` raised inside
+    ``operation`` (e.g. a validation error) passes through unchanged.
+
+    This isolation is Python-level only: it does NOT protect against an OS-level OOM
+    SIGKILL, which is uncatchable. Oversized payloads are rejected up front with HTTP
+    413 by ``_enforce_payload_limits`` to keep a single request from reaching that
+    point.
 
     Args:
         operation: Zero-arg callable performing the model inference.
@@ -88,21 +106,51 @@ def run_inference(operation):
         Whatever ``operation`` returns.
 
     Raises:
-        HTTPException: 503 if the inference call raises any non-HTTPException error.
+        HTTPException: 503 if no inference slot becomes available within the timeout,
+            or if the inference call raises any non-HTTPException error.
     """
-    with _inference_semaphore:
-        try:
-            return operation()
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(
-                "embedding_inference_failed",
-                extra={"error": str(e), "error_type": type(e).__name__},
-            )
-            raise HTTPException(
-                status_code=503, detail="embedding_inference_failed"
-            ) from e
+    if not _inference_semaphore.acquire(timeout=EMBEDDING_ACQUIRE_TIMEOUT):
+        logger.warning("embedding_inference_busy")
+        raise HTTPException(status_code=503, detail="embedding_inference_busy")
+    try:
+        return operation()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "embedding_inference_failed",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=503, detail="embedding_inference_failed") from e
+    finally:
+        _inference_semaphore.release()
+
+
+def _enforce_payload_limits(texts: list[str]) -> None:
+    """Reject oversized embed payloads with HTTP 413 before any model work (TD-670).
+
+    Bounds both the number of texts in the batch and the total input size in
+    characters, closing the single-request OOM vector by refusing a huge batch before
+    it is materialized into vectors. Limits are configured via
+    ``EMBEDDING_MAX_BATCH_TEXTS`` and ``EMBEDDING_MAX_INPUT_CHARS``.
+
+    Raises:
+        HTTPException: 413 if the batch has too many texts or too many total chars.
+    """
+    if len(texts) > EMBEDDING_MAX_BATCH_TEXTS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many texts: {len(texts)} > max {EMBEDDING_MAX_BATCH_TEXTS}",
+        )
+    total_chars = sum(len(t) for t in texts)
+    if total_chars > EMBEDDING_MAX_INPUT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Input too large: {total_chars} chars > "
+                f"max {EMBEDDING_MAX_INPUT_CHARS}"
+            ),
+        )
 
 
 app = FastAPI(
@@ -286,13 +334,19 @@ class HealthResponse(BaseModel):
 
 
 @app.get("/health", response_model=HealthResponse)
-def health():
+async def health():
     """Health check endpoint with backward-compatible model field + new models list.
 
     BUG-289: Returns HTTP 503 when models are not yet loaded so that Docker
     Compose ``depends_on: condition: service_healthy`` (``curl -f``) correctly
     gates dependent services on actual model readiness rather than mere process
     liveness.
+
+    TD-670: Declared ``async`` so it runs on the event loop rather than the anyio
+    threadpool; under saturation the sync embed handlers can occupy every threadpool
+    token while blocked on the inference semaphore, which would otherwise starve the
+    healthcheck. This handler does only trivial in-memory work, so running it on the
+    loop is safe.
     """
     model_loaded = all(m is not None for m in MODEL_REGISTRY.values())
     response = HealthResponse(
@@ -325,6 +379,7 @@ def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
             status_code=400,
             detail=f"Unknown model: {request.model}. Available: {list(MODEL_REGISTRY.keys())}",
         )
+    _enforce_payload_limits(request.texts)
 
     model = MODEL_REGISTRY[request.model]
     embeddings = run_inference(lambda: list(model.embed(request.texts)))
@@ -364,6 +419,7 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
     """
     if not request.texts:
         raise HTTPException(status_code=400, detail="No texts provided")
+    _enforce_payload_limits(request.texts)
 
     document = request.texts[0]
     model = MODEL_REGISTRY["en"]
@@ -384,6 +440,7 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
         start = offset_pair[0]
         end = offset_pair[1] if len(offset_pair) > 1 else len(document)
         chunk_texts.append(document[start:end])
+    _enforce_payload_limits(chunk_texts)
 
     embeddings = run_inference(lambda: list(model.embed(chunk_texts)))
     return EmbedResponse(
@@ -400,6 +457,7 @@ def embed_sparse(request: EmbedSparseRequest):
         raise HTTPException(status_code=400, detail="No texts provided")
     if "bm25" not in SPARSE_REGISTRY:
         raise HTTPException(status_code=503, detail="BM25 model not loaded")
+    _enforce_payload_limits(request.texts)
     model = SPARSE_REGISTRY["bm25"]
     results = run_inference(lambda: list(model.embed(request.texts)))
     return EmbedSparseResponse(
@@ -421,6 +479,7 @@ def embed_late(request: EmbedLateRequest):
             status_code=503,
             detail="ColBERT model not loaded (set COLBERT_ENABLED=true)",
         )
+    _enforce_payload_limits(request.texts)
     model = LATE_REGISTRY["colbert"]
     results = run_inference(lambda: list(model.embed(request.texts)))
     return EmbedLateResponse(

@@ -23,6 +23,7 @@ from pathlib import Path
 from types import ModuleType
 
 import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
 _MAIN_PATH = Path(__file__).resolve().parents[1] / "docker" / "embedding" / "main.py"
@@ -86,6 +87,22 @@ class _StubSparseModel:
         return results
 
 
+class _StubLateModel:
+    """Stand-in for fastembed.LateInteractionTextEmbedding.
+
+    Late interaction (ColBERT) yields one *2D* array per text — (n_tokens, dim) token
+    vectors — not a single flat vector, so the stub must mirror that shape to match
+    ``EmbedLateResponse``.
+    """
+
+    def __init__(self, name="stub-colbert", n_tokens=4):
+        self.name = name
+        self.n_tokens = n_tokens
+
+    def embed(self, texts):
+        return [np.full((self.n_tokens, 768), 0.1, dtype=np.float32) for _ in texts]
+
+
 class _RaisingModel:
     """Model whose inference always fails — simulates a bad/oversized request."""
 
@@ -98,14 +115,47 @@ def _install_fake_fastembed():
     module = ModuleType("fastembed")
     module.TextEmbedding = _StubDenseModel
     module.SparseTextEmbedding = _StubSparseModel
-    module.LateInteractionTextEmbedding = _StubDenseModel
+    module.LateInteractionTextEmbedding = _StubLateModel
     sys.modules["fastembed"] = module
 
 
-def _load_service(max_concurrency):
+@pytest.fixture(autouse=True)
+def _restore_global_state():
+    """Keep the injected ``fastembed`` stub and EMBEDDING_* env from leaking.
+
+    Each test installs a stub module and sets EMBEDDING_* env vars; without cleanup
+    those would persist past this module and pollute unrelated tests.
+    """
+    module_keys = ("fastembed", "embedding_main_under_test")
+    env_keys = (
+        "EMBEDDING_MAX_CONCURRENCY",
+        "EMBEDDING_ACQUIRE_TIMEOUT",
+        "EMBEDDING_MAX_BATCH_TEXTS",
+        "EMBEDDING_MAX_INPUT_CHARS",
+    )
+    saved_modules = {k: sys.modules.get(k) for k in module_keys}
+    saved_env = {k: os.environ.get(k) for k in env_keys}
+    try:
+        yield
+    finally:
+        for k, v in saved_modules.items():
+            if v is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = v
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def _load_service(max_concurrency, acquire_timeout=None):
     """Import a fresh copy of the embedding service with the given concurrency cap."""
     _install_fake_fastembed()
     os.environ["EMBEDDING_MAX_CONCURRENCY"] = str(max_concurrency)
+    if acquire_timeout is not None:
+        os.environ["EMBEDDING_ACQUIRE_TIMEOUT"] = str(acquire_timeout)
     sys.modules.pop("embedding_main_under_test", None)
     spec = importlib.util.spec_from_file_location(
         "embedding_main_under_test", _MAIN_PATH
@@ -182,3 +232,50 @@ def test_service_stable_under_concurrent_large_load():
         codes = [f.result() for f in [executor.submit(call) for _ in range(32)]]
 
     assert all(code == 200 for code in codes)
+
+
+def test_oversized_batch_returns_413():
+    """Too many texts in one request is rejected up front with HTTP 413."""
+    service = _load_service(4)
+    service.EMBEDDING_MAX_BATCH_TEXTS = 2
+    client = TestClient(service.app)
+
+    resp = client.post("/embed/dense", json={"texts": ["a", "b", "c"], "model": "en"})
+    assert resp.status_code == 413
+
+
+def test_oversized_input_chars_returns_413():
+    """A single huge text exceeding the total-char budget is rejected with HTTP 413."""
+    service = _load_service(4)
+    service.EMBEDDING_MAX_INPUT_CHARS = 10
+    client = TestClient(service.app)
+
+    resp = client.post("/embed/dense", json={"texts": ["x" * 50], "model": "en"})
+    assert resp.status_code == 413
+
+
+def test_acquire_timeout_returns_503_when_no_slot():
+    """When no inference slot frees within the timeout, the request gets a 503."""
+    service = _load_service(1, acquire_timeout=0.2)
+    # Occupy the only slot so the incoming request cannot acquire one.
+    service._inference_semaphore.acquire()
+    try:
+        client = TestClient(service.app)
+        resp = client.post("/embed", json={"texts": ["blocked"]})
+        assert resp.status_code == 503
+    finally:
+        service._inference_semaphore.release()
+
+
+def test_late_embeddings_return_2d_shape():
+    """ColBERT late interaction returns one 2D (n_tokens, dim) array per text."""
+    service = _load_service(4)
+    service.LATE_REGISTRY["colbert"] = _StubLateModel()
+    client = TestClient(service.app)
+
+    resp = client.post("/embed/late", json={"texts": ["token rich text"]})
+    assert resp.status_code == 200
+    token_vectors = resp.json()["embeddings"][0]["embeddings"]
+    # 2D: a list of per-token vectors, each a 768-dim list.
+    assert isinstance(token_vectors, list) and isinstance(token_vectors[0], list)
+    assert len(token_vectors[0]) == 768
