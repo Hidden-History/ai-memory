@@ -11,7 +11,6 @@ read + write path uses, so read and write can never disagree (BUG-314).
 
 PRESERVED from the inline original:
 - the post-BUG-301 tuple unpack of ``retrieve_bootstrap_context`` -> (results, meta)
-- the sanctum Tier B sibling import + ``sys.path`` wiring (Option P)
 - all FALLBACK-NEEDED / BP-158 P2 budget-rejection signalling
 """
 
@@ -30,17 +29,6 @@ _install_dir = os.environ.get(
 )
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
-# Option P: load Tier B helper from sibling module (enables unit testing)
-_bootstrap_skill_dir = os.path.join(
-    _install_dir, "_ai-memory", "pov", "skills", "aim-parzival-bootstrap"
-)
-if _bootstrap_skill_dir not in sys.path:
-    sys.path.insert(0, _bootstrap_skill_dir)
-try:
-    from sanctum_tier_b import load_sanctum_tier_b
-except ImportError:
-    load_sanctum_tier_b = None
-
 TRACE_CONTENT_MAX = 10000
 
 
@@ -52,7 +40,6 @@ class _LayerStatusCapture(logging.Handler):
             "bootstrap_handoff_unavailable",
             "bootstrap_decisions_unavailable",
             "bootstrap_insights_unavailable",
-            "bootstrap_github_unavailable",
         }
     )
 
@@ -140,11 +127,11 @@ def main() -> int:
         # Compute accurate Qdrant status from per-layer capture
         if not _capture.failed_layers:
             _qdrant_status = "available"
-        elif len(_capture.failed_layers) == 4:
+        elif len(_capture.failed_layers) == 3:
             _qdrant_status = "unreachable (all retrieval calls failed)"
         else:
             _n_fail = len(_capture.failed_layers)
-            _qdrant_status = f"degraded ({_n_fail} of 4 layers unreachable)"
+            _qdrant_status = f"degraded ({_n_fail} of 3 layers unreachable)"
 
         # Greedy-fill within token budget.
         # BUG-297 / BP-158 P2: pass return_meta=True so handoff-class budget
@@ -203,16 +190,6 @@ def main() -> int:
             fallback_signaled=_fallback_signaled,
         )
 
-        # Tier B — sanctum LORE + BOND prepend (filesystem-only per DEC-253-14)
-        if load_sanctum_tier_b is not None:
-            try:
-                sanctum_path = Path(os.getcwd()) / "_ai-memory" / "sanctum"
-                tier_b_output = load_sanctum_tier_b(sanctum_path)
-                if tier_b_output:
-                    print(tier_b_output)
-            except Exception:
-                pass
-
         # Build output
         print("## Cross-Session Memory (Parzival Bootstrap)\n")
 
@@ -245,10 +222,7 @@ def main() -> int:
                 r for r in selected if r.get("type") in ("decision", "agent_memory")
             ]
             insights = [r for r in selected if r.get("type") == "agent_insight"]
-            github = [r for r in selected if r.get("type", "").startswith("github_")]
-            other = [
-                r for r in selected if r not in handoffs + decisions + insights + github
-            ]
+            other = [r for r in selected if r not in handoffs + decisions + insights]
 
             if handoffs:
                 print("### Last Handoff\n")
@@ -268,16 +242,6 @@ def main() -> int:
                 for i in insights:
                     score_pct = int(i.get("score", 0) * 100)
                     print(f"- **[{score_pct}%]** {i.get('content', '').strip()[:200]}")
-                print()
-
-            if github:
-                print("### GitHub Activity (since last session)\n")
-                for g in github:
-                    score_pct = int(g.get("score", 0) * 100)
-                    print(
-                        f"- **[{g.get('type', 'github')}|{score_pct}%]** "
-                        f"{g.get('content', '').strip()[:200]}"
-                    )
                 print()
 
             if other:

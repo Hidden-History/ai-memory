@@ -37,9 +37,19 @@ Usage:
 import argparse
 import re
 import sys
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
+
+# Shared governance core (single canonical source, no copy-paste). The install
+# copies _ai-memory/pov/ verbatim, so resolving from __file__ is install-robust:
+# this script lives at pov/skills/aim-lore-hygiene/scripts/, so parents[3] is pov/
+# and pov/lib/governance/ holds the shared Contract + conservation modules — the
+# SAME modules aim-tracking-rotate imports.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib" / "governance"))
+import conservation  # pov/lib/governance is on sys.path (above)
+from contract import Contract
 
 # --- Constants (no voodoo: every value carries its BP-159/BP-165 rationale) ---
 
@@ -53,11 +63,10 @@ CAP_LINES = 200
 # 0.80 sits safely inside that band. At CAP_LINES=200 the trigger is 160 lines.
 COMPACT_AT = 0.80
 
-# Sanctum hot files this skill curates by default and their caps. LORE/MEMORY use
-# the 200-line family cap. CLAUDE.md (BP-165 DELTA-2, 300-line companion cap) lives
-# at project root, not the sanctum, so it is not scanned by default — pass it
-# explicitly with --cap 300 if desired.
-HOT_FILE_CAPS = {"LORE.md": CAP_LINES, "MEMORY.md": CAP_LINES}
+# The sanctum hot files this skill curates by default, their caps, and their fix
+# strategy now live in SANCTUM_CONTRACTS (below). CLAUDE.md (BP-165 DELTA-2, 300-line
+# companion cap) lives at project root, not the sanctum, so it is not scanned by
+# default — pass it explicitly with --cap 300 if desired.
 
 # BP-159 §6 prune-vs-archive decision rule, expressed as explicit inline markers.
 # Marker-driven classification is the deterministic, safe subset: utility/LRU
@@ -77,6 +86,47 @@ ARCHIVE_SUBDIR = "references/lore-archive"
 
 # Truncation length for the one-line hot-file pointer left behind on archive.
 POINTER_SUMMARY_CHARS = 80
+
+# Per-class governance contracts (TASK-077 A2 caps + B3 per-class fix strategy).
+# The Contract is the SHARED frozen dataclass from pov/lib/governance/contract.py
+# (the same model aim-tracking-rotate uses) — declared per sanctum class here, no
+# local copy. Strategy is derived from the contract (see strategy_for):
+#   - compact     : marker-driven prune/archive/dedup (the existing LORE/MEMORY
+#                   behavior) + the shared conservation 0-lost proof on relocation.
+#   - section-cap : keep the last N entries under a symbolic section anchor and
+#                   relocate older ones losslessly (PERSONA ## Evolution Log → 10).
+#   - check-only  : cap-CHECK + report; an over-cap identity file HALTs (non-zero)
+#                   and is NEVER auto-relocated (CREED / BOND).
+# A2 gives explicit line/KB caps for CREED (120/8), BOND (100/12) and sanctum
+# MEMORY (80/4). For LORE the 200-line family cap (BP-159 §2) is reporting-only —
+# the lore-hygiene fix is tag-driven (A2 "Part B is separate and tag-driven"); the
+# 25 KB mirrors A2's LORE budget. PERSONA's active governance is the last-10
+# section cap, so its file line/KB are the family default (reporting-only).
+# NOTE: sanctum MEMORY is kept on the existing 200-line compact behavior (not the
+# A2 80/4 ceiling-only) to preserve current tested behavior; flagged for review.
+SANCTUM_CONTRACTS: dict[str, Contract] = {
+    "CREED.md": Contract(120, 8.0, "creed", rotatable=False),
+    "PERSONA.md": Contract(
+        CAP_LINES,
+        25.0,
+        "persona",
+        rotatable=True,
+        section_anchor="## Evolution Log",
+        section_keep_last=10,
+    ),
+    "LORE.md": Contract(CAP_LINES, 25.0, "lore", rotatable=True),
+    "BOND.md": Contract(100, 12.0, "bond", rotatable=False),
+    "MEMORY.md": Contract(CAP_LINES, 25.0, "sanctum-memory", rotatable=True),
+}
+
+
+def strategy_for(contract: Contract) -> str:
+    """Map a sanctum Contract to its fix strategy (B3)."""
+    if contract.klass in ("creed", "bond"):
+        return "check-only"
+    if contract.section_anchor is not None:
+        return "section-cap"
+    return "compact"
 
 
 @dataclass
@@ -650,16 +700,130 @@ def plan_file(text: str, filename: str, cap: int, today: date) -> FilePlan:
     )
 
 
-def resolve_targets(path: Path) -> list[tuple[Path, int]]:
-    """Resolve the CLI path to a list of (file, cap) targets."""
+def plan_section_cap(
+    text: str, filename: str, contract: Contract, today: date
+) -> FilePlan:
+    """Section-cap fix (B3 PERSONA): keep the last ``section_keep_last`` table
+    CONTENT rows under the symbolic ``section_anchor`` heading and relocate the
+    older ones losslessly to the cold archive, leaving one pointer below the table.
+
+    Symbolic section anchor only — NEVER line numbers. Does NOT whole-file rotate;
+    only the named section is capped. Pure — performs no I/O. The relocated rows go
+    to ``archived_blocks`` (apply_plan proves conservation over hot + archive).
+    """
+    anchor = contract.section_anchor
+    keep = contract.section_keep_last
+    original_lines = len(text.splitlines())
+    frontmatter, body_lines = split_frontmatter(text)
+    units = parse_entries(body_lines)
+    archive_relpath = f"{ARCHIVE_SUBDIR}/{Path(filename).stem}.archive.md"
+
+    # Genuine table CONTENT rows under the anchored section, oldest first (document
+    # order). Header/separator/pointer rows are structural and are never moved.
+    row_idxs = [
+        i
+        for i, (section, unit) in enumerate(units)
+        if section == anchor
+        and is_table_row(unit)
+        and not is_table_separator(unit)
+        and not is_pointer(unit)
+    ]
+
+    actions: list[EntryAction] = []
+    archived_blocks: list[str] = []
+    relocate: set[int] = set()
+    if keep is not None and len(row_idxs) > keep:
+        relocate = set(row_idxs[: len(row_idxs) - keep])
+        sec_label = anchor.lstrip("# ").strip()
+        moved_rows = [units[i][1] for i in sorted(relocate)]
+        archived_blocks.append(
+            f"## [{today.isoformat()}] archived from {filename} — {sec_label}\n\n"
+            + "\n".join(moved_rows)
+            + "\n"
+        )
+        for i in sorted(relocate):
+            actions.append(
+                EntryAction(
+                    units[i][1],
+                    anchor,
+                    "archive",
+                    f"section-cap: older than last {keep}",
+                )
+            )
+
+    # Reassemble: drop relocated rows in place; after the LAST kept row of the
+    # anchored section leave ONE one-line pointer to the cold archive (a table
+    # content row never gets an inline bullet pointer — H3 — so it follows the table).
+    last_kept = max((i for i in row_idxs if i not in relocate), default=-1)
+    out_body: list[str] = []
+    for i, (_section, unit) in enumerate(units):
+        if i in relocate:
+            continue
+        out_body.append(unit)
+        if relocate and i == last_kept:
+            sec_label = anchor.lstrip("# ").strip()
+            out_body.append(
+                f"- _[archived {today.isoformat()}]_ {len(relocate)} older "
+                f"{sec_label} entr(ies) → {archive_relpath}"
+            )
+
+    body = collapse_blanks(out_body)
+    new_text = "\n".join(frontmatter + body)
+    if new_text and not new_text.endswith("\n"):
+        new_text += "\n"
+    newline = detect_newline(text)
+    if newline != "\n":
+        new_text = new_text.replace("\n", newline)
+
+    return FilePlan(
+        filename=filename,
+        cap=contract.cap_lines,
+        original_lines=original_lines,
+        new_text=new_text,
+        archived_blocks=archived_blocks,
+        actions=actions,
+    )
+
+
+def report_check_only(filename: str, text: str, contract: Contract) -> bool:
+    """Cap-CHECK for identity classes (B3 CREED/BOND). Never mutates, never
+    relocates. Returns True if over cap (line OR KB) so the caller HALTs non-zero —
+    identity directives are relocated by hand, never auto-moved.
+    """
+    n_lines = len(text.splitlines())
+    n_kb = len(text.encode("utf-8")) / 1024
+    over = n_lines > contract.cap_lines or n_kb > contract.cap_kb
+    print(f"\n{filename}")
+    print(
+        f"  {n_lines}/{contract.cap_lines} lines · {n_kb:.1f}/{contract.cap_kb} KB "
+        f"({contract.klass}, check-only)"
+    )
+    if over:
+        print(
+            "  OVER CAP — identity file; HALT + report. Identity directives are NOT "
+            "auto-relocated — trim/relocate by hand (B3)."
+        )
+    else:
+        print("  within cap ✓")
+    return over
+
+
+def _default_contract() -> Contract:
+    """Contract for a file outside the sanctum registry: line-only compact (the
+    historical single-file behavior; --cap overrides cap_lines)."""
+    return Contract(CAP_LINES, 25.0, "lore", rotatable=True)
+
+
+def resolve_targets(path: Path) -> list[tuple[Path, Contract]]:
+    """Resolve the CLI path to a list of (file, Contract) targets."""
     if path.is_file():
-        return [(path, HOT_FILE_CAPS.get(path.name, CAP_LINES))]
+        return [(path, SANCTUM_CONTRACTS.get(path.name) or _default_contract())]
     if path.is_dir():
-        targets = []
-        for name, cap in HOT_FILE_CAPS.items():
+        targets: list[tuple[Path, Contract]] = []
+        for name, contract in SANCTUM_CONTRACTS.items():
             candidate = path / name
             if candidate.is_file():
-                targets.append((candidate, cap))
+                targets.append((candidate, contract))
         return targets
     return []
 
@@ -757,10 +921,76 @@ def push_to_qdrant(blocks: list[str], group_id: str, agent_id: str) -> bool:
         return False
 
 
+def _virtual_archive_text(archive_path: Path, blocks: list[str]) -> tuple[str, int]:
+    """Return (would-be cold-archive text, n_appended) WITHOUT writing.
+
+    Mirrors the same-string idempotent skip used at commit time so the proven
+    after-state is byte-for-byte what gets written. A block already present in the
+    existing archive (same-day crash-rerun) is skipped — never duplicated, never
+    lost (L3 / TGT-2: a cross-day rerun re-adds under a new dated header by design).
+    """
+    existing = archive_path.read_text(encoding="utf-8") if archive_path.exists() else ""
+    new_text = existing
+    appended = 0
+    for block in blocks:
+        if block in existing:
+            continue
+        new_text += block + "\n"
+        appended += 1
+    return new_text, appended
+
+
+def prove_conservation(
+    path: Path, plan: FilePlan, archive_path: Path, new_archive_text: str
+) -> None:
+    """Shared 0-lost proof over hot + cold-archive, BEFORE any write (B2).
+
+    Two invariants, both via the shared ``conservation`` module (no local copy),
+    computed on the VIRTUAL after-state so a failure leaves every original
+    byte-identical (prove-then-commit):
+
+    1. No HOT content lost — every content line in the hot file that is NOT
+       intentionally removed (prune deletes a superseded/contradicted/expired
+       entry; dedup drops an exact in-section duplicate) must survive in the
+       would-be hot file OR the would-be cold archive. A relocation that silently
+       drops an entry → its lines are in the baseline but in neither after-text →
+       ``assert_no_content_loss`` raises (multiset, so a dropped one-of-two
+       duplicate is caught).
+    2. Cold archive never shrinks — it is append-only; every pre-existing archive
+       line is still present after.
+
+    The before-baseline is split (hot vs archive) rather than unioned so a
+    legitimate crash-rerun — where an entry already archived is re-introduced into
+    the hot file and the fix collapses the hot+archive duplicate back to a single
+    archived copy — is NOT mis-flagged as a multiset count loss.
+    """
+    removed: Counter[str] = Counter()
+    for a in plan.actions:
+        if a.action in ("prune", "dedup"):
+            for line in a.text.splitlines():
+                s = line.strip()
+                if s:
+                    removed[s] += 1
+
+    before_hot = conservation.build_content_set([path], raise_on_error=True)
+    after_union = conservation.build_content_set_from_texts(
+        [plan.new_text, new_archive_text]
+    )
+    conservation.assert_no_content_loss(before_hot - removed, after_union)
+
+    before_archive = conservation.build_content_set([archive_path])
+    after_archive = conservation.build_content_set_from_texts([new_archive_text])
+    conservation.assert_no_content_loss(before_archive, after_archive)
+
+
 def apply_plan(
     path: Path, plan: FilePlan, today: date, qdrant: bool, group_id: str, agent_id: str
-) -> None:
-    """Mutate the file per its plan: backup, write hot file, append cold archive."""
+) -> bool:
+    """Mutate the file per its plan: prove conservation, then backup + write.
+
+    Returns True on success (or clean no-op), False if the conservation proof
+    failed (in which case NOTHING was written — every original is byte-identical).
+    """
     if not plan.has_changes:
         if plan.over_cap:
             print(
@@ -770,35 +1000,33 @@ def apply_plan(
             )
         else:
             print(f"  {plan.filename}: no changes — skipped")
-        return
+        return True
+
+    archive_path = path.parent / ARCHIVE_SUBDIR / f"{path.stem}.archive.md"
+    new_archive_text, appended = _virtual_archive_text(
+        archive_path, plan.archived_blocks
+    )
+
+    # Prove-then-commit: prove the 0-lost property on the VIRTUAL after-state before
+    # touching disk, so a failed proof leaves the hot file AND the archive untouched.
+    try:
+        prove_conservation(path, plan, archive_path, new_archive_text)
+    except AssertionError as exc:
+        print(
+            f"  {plan.filename}: ERROR conservation FAILED — {exc}; "
+            f"NOTHING written (original byte-identical).",
+            file=sys.stderr,
+        )
+        return False
+
     backup = write_backup(path, today)
     print(f"  {plan.filename}: backed up → {backup.name}")
 
     if plan.archived_blocks:
-        archive_path = path.parent / ARCHIVE_SUBDIR / f"{path.stem}.archive.md"
         archive_path.parent.mkdir(parents=True, exist_ok=True)
-        # Cold-append is idempotent (L3): a crash between this append and the hot-file
-        # write below leaves the hot file un-rewritten, so a rerun re-classifies the
-        # same entries to archive. Skipping blocks already present makes that rerun
-        # safe — no duplicate cold entries — while never losing archived content.
-        #
-        # TGT-2: this dedup is exact-string, and each archive block is headed with
-        # today's date (``## [YYYY-MM-DD] archived from …``). A SAME-DAY crash-rerun
-        # is therefore fully idempotent (identical block string → skipped). A
-        # CROSS-DAY crash-rerun (hot file still un-rewritten the next day) produces a
-        # second, differently-dated archive block for the same content. This is
-        # accepted behavior: it preserves an honest per-day archival audit trail and
-        # never loses content; the operator may collapse duplicate dated blocks by
-        # hand if desired.
-        existing = archive_path.read_text() if archive_path.exists() else ""
-        appended = 0
-        with archive_path.open("a") as fh:
-            for block in plan.archived_blocks:
-                if block in existing:
-                    continue
-                fh.write(block + "\n")
-                existing += block + "\n"
-                appended += 1
+        # Write the full proven archive text (existing + appended), so the on-disk
+        # archive is exactly the state the proof covered.
+        archive_path.write_text(new_archive_text, encoding="utf-8")
         print(f"  {plan.filename}: archived {appended} entr(ies) → {archive_path.name}")
         if qdrant:
             push_to_qdrant(plan.archived_blocks, group_id, agent_id)
@@ -809,11 +1037,113 @@ def apply_plan(
     print(
         f"  {plan.filename}: rewritten ({plan.original_lines} → {plan.projected_lines} lines)"
     )
+    print(f"  {plan.filename}: conservation — 0 lines lost (hot + archive) ✓")
     if plan.residual_over_cap:
         print(
             f"  {plan.filename}: WARNING — still {plan.residual_over_cap} over cap; "
             f"manual/LLM semantic summarization required (not auto-truncated)"
         )
+    return True
+
+
+def _invocation() -> str:
+    return f"python3 {Path(__file__).resolve()}"
+
+
+def _count_section_rows(text: str, anchor: str) -> int:
+    """Count genuine table CONTENT rows under the anchored section (B5/section-cap)."""
+    _fm, body_lines = split_frontmatter(text)
+    return sum(
+        1
+        for section, unit in parse_entries(body_lines)
+        if section == anchor
+        and is_table_row(unit)
+        and not is_table_separator(unit)
+        and not is_pointer(unit)
+    )
+
+
+def run_check(path: Path) -> int:
+    """Session-close cap gate for sanctum classes (B5). Read-only: report every
+    governed sanctum file over its cap with a remedy and exit non-zero on any
+    breach so closeout cannot complete over a breach. NEVER mutates.
+
+    Mirrors the aim-tracking-rotate --check contract (SYSTEM FAILURE block per
+    breach, non-zero exit) so the session-close gate covers BOTH the oversight
+    classes (aim-tracking-rotate) AND the sanctum classes (here).
+    """
+    targets = resolve_targets(path)
+    if not targets:
+        print(f"aim-lore-hygiene --check: no governed sanctum files at {path}.")
+        return 0
+    breaches: list[str] = []
+    for file_path, contract in targets:
+        text = read_preserving_newlines(file_path)
+        strategy = strategy_for(contract)
+        if strategy == "section-cap":
+            rows = _count_section_rows(text, contract.section_anchor)
+            if rows <= contract.section_keep_last:
+                continue
+            size = f"{rows} '{contract.section_anchor}' entries"
+            cap = f"last {contract.section_keep_last} ({contract.klass})"
+            remedy = (
+                f"{_invocation()} {file_path} --apply  "
+                "(section-cap relocates older entries, conservation-proven)"
+            )
+        else:
+            n_lines = len(text.splitlines())
+            n_kb = len(text.encode("utf-8")) / 1024
+            if not (n_lines > contract.cap_lines or n_kb > contract.cap_kb):
+                continue
+            size = f"{n_lines} lines / {n_kb:.1f} KB"
+            cap = (
+                f"{contract.cap_lines} lines / {contract.cap_kb} KB ({contract.klass})"
+            )
+            if strategy == "compact":
+                # A2: the compact-class file-SIZE cap is REPORTING-ONLY — the full
+                # file stays on disk at full size and lore-hygiene file rotation is
+                # tag-driven (Part B), NOT a session-close blocker. Print a WARNING
+                # so growth stays visible, but do NOT add a breach or exit non-zero
+                # (an untagged over-size LORE would otherwise block closeout with no
+                # remedy, since --apply is a no-op on it).
+                print(
+                    f"  WARNING — {file_path.name}: {size} over cap {cap}; "
+                    "reporting-only (tag-driven compaction is not a closeout "
+                    f"blocker — A2). Optional: {_invocation()} {file_path} --apply"
+                )
+                continue
+            # check-only (CREED/BOND): identity files HALT on over-cap (BLOCKING).
+            remedy = (
+                f"trim {file_path.name} by hand — identity class "
+                f"'{contract.klass}' is never auto-relocated (B3)"
+            )
+        breaches.append(
+            "\n".join(
+                [
+                    "  ┌─ SYSTEM FAILURE: sanctum file over cap",
+                    f"  │  file:   {file_path.name}",
+                    f"  │  size:   {size}",
+                    f"  │  cap:    {cap}",
+                    f"  │  remedy: {remedy}",
+                    "  └─",
+                ]
+            )
+        )
+    if breaches:
+        print(
+            f"aim-lore-hygiene --check: FAIL — {len(breaches)} sanctum file(s) over cap.\n",
+            file=sys.stderr,
+        )
+        print("\n\n".join(breaches), file=sys.stderr)
+        print(
+            "\nCloseout is BLOCKED until every governed sanctum file is at or under cap.",
+            file=sys.stderr,
+        )
+        return 1
+    print(
+        f"aim-lore-hygiene --check: PASS — {len(targets)} sanctum file(s) within cap."
+    )
+    return 0
 
 
 def main() -> int:
@@ -835,6 +1165,12 @@ def main() -> int:
         help=f"Override the line cap (default {CAP_LINES}; per-file caps apply when scanning a dir).",
     )
     parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Session-close cap gate: read-only, exit non-zero on any over-cap "
+        "governed sanctum file (CREED/PERSONA/LORE/BOND/MEMORY). Never mutates.",
+    )
+    parser.add_argument(
         "--qdrant",
         action="store_true",
         help="On --apply, also push archived entries to the Qdrant cold tier (best-effort, opt-in).",
@@ -851,6 +1187,8 @@ def main() -> int:
 
     if args.cap is not None and args.cap <= 0:
         parser.error(f"--cap must be a positive integer (got {args.cap}).")
+    if args.check and args.apply:
+        parser.error("--check is read-only and cannot be combined with --apply.")
     if args.qdrant and not args.apply:
         parser.error("--qdrant requires --apply (dry-run never writes anywhere).")
     if args.qdrant and not args.group_id:
@@ -859,6 +1197,11 @@ def main() -> int:
         )
 
     root = Path(args.path).resolve()
+
+    # B5 session-close gate: read-only breach check across all sanctum classes.
+    if args.check:
+        return run_check(root)
+
     targets = resolve_targets(root)
     if not targets:
         print(f"No lore files found at {root} (expected a sanctum dir or a file).")
@@ -869,28 +1212,38 @@ def main() -> int:
     print(f"aim-lore-hygiene · {mode}")
     print(f"target: {root}")
 
-    plans = []
-    for file_path, cap in targets:
-        cap = args.cap if args.cap is not None else cap
-        plan = plan_file(
-            read_preserving_newlines(file_path), file_path.name, cap, today
-        )
+    plans: list[tuple[Path, FilePlan]] = []
+    halt = False  # an over-cap check-only file or a failed conservation proof
+    for file_path, contract in targets:
+        text = read_preserving_newlines(file_path)
+        strategy = strategy_for(contract)
+        if strategy == "check-only":
+            if report_check_only(file_path.name, text, contract):
+                halt = True
+            continue
+        if strategy == "section-cap":
+            plan = plan_section_cap(text, file_path.name, contract, today)
+        else:  # compact
+            cap = args.cap if args.cap is not None else contract.cap_lines
+            plan = plan_file(text, file_path.name, cap, today)
         plans.append((file_path, plan))
         print_plan(plan)
 
     if args.apply:
         print("\napplying:")
         for file_path, plan in plans:
-            apply_plan(
+            ok = apply_plan(
                 file_path, plan, today, args.qdrant, args.group_id or "", args.agent_id
             )
+            if not ok:
+                halt = True
     else:
         actionable = sum(1 for _, p in plans if p.has_changes)
         print(
             f"\n{actionable} file(s) have proposed changes. Re-run with --apply to write."
         )
 
-    return 0
+    return 1 if halt else 0
 
 
 if __name__ == "__main__":

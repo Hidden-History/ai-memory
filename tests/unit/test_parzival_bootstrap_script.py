@@ -120,3 +120,60 @@ def test_main_respects_parzival_disabled(monkeypatch, capsys, tmp_path, enabled)
     assert rc == 0
     out = capsys.readouterr().out
     assert "Parzival is not enabled" in out
+
+
+def test_output_has_no_github_or_sanctum_sections(monkeypatch, capsys, tmp_path):
+    """A1 contract: bootstrap output never contains GitHub Activity or sanctum LORE/BOND.
+
+    Verifies the L4 GitHub layer and Tier-B sanctum prepend are removed.
+    Also confirms L1/L2/L3 sections ARE emitted when matching results are present.
+    """
+    monkeypatch.chdir(tmp_path)
+    resolve_spy = MagicMock(return_value="resolved-project")
+    _inject_fake_memory(monkeypatch, resolve_spy)
+
+    # Supply one result per kept layer (handoff=L1, decision=L2, insight=L3)
+    # plus one github_ result to confirm it does NOT emit a GitHub section.
+    fake_results = [
+        {
+            "id": "h1",
+            "type": "agent_handoff",
+            "content": "Last handoff content.",
+            "score": 0.9,
+        },
+        {"id": "d1", "type": "decision", "content": "A recent decision.", "score": 0.8},
+        {"id": "i1", "type": "agent_insight", "content": "An insight.", "score": 0.7},
+        {"id": "g1", "type": "github_pr", "content": "PR #99 merged.", "score": 0.6},
+    ]
+    sys.modules["memory.injection"].retrieve_bootstrap_context.return_value = (
+        fake_results,
+        {},
+    )
+    sys.modules["memory.injection"].select_results_greedy.return_value = (
+        fake_results,
+        50,
+        {},
+    )
+    sys.modules["memory.injection"].format_injection_output.return_value = ""
+
+    module = _load_bootstrap_module()
+    rc = module.main()
+
+    assert rc == 0
+    out = capsys.readouterr().out
+
+    # L1/L2/L3 sections must be present
+    assert "### Last Handoff" in out, "L1 handoff section must be present"
+    assert "### Recent Decisions" in out, "L2 decisions section must be present"
+    assert "### Insights" in out, "L3 insights section must be present"
+
+    # GitHub Activity section must NOT be present
+    assert "### GitHub Activity" not in out, "L4 GitHub section must have been removed"
+
+    # Sanctum LORE/BOND prepend must NOT be present
+    assert (
+        "## Sanctum — LORE" not in out
+    ), "sanctum LORE section must not appear in bootstrap output"
+    assert (
+        "## Sanctum — BOND" not in out
+    ), "sanctum BOND section must not appear in bootstrap output"

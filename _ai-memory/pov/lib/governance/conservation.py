@@ -96,6 +96,22 @@ def build_content_set(
     return counts
 
 
+def build_content_set_from_texts(texts: Iterable[str]) -> Counter[str]:
+    """Same multiset as ``build_content_set`` but over in-memory text strings.
+
+    Lets a caller build a VIRTUAL after-state (the would-be new hot file plus the
+    would-be new archive) and prove conservation BEFORE writing anything, so a
+    failed proof leaves every original file byte-identical (prove-then-commit).
+    """
+    counts: Counter[str] = Counter()
+    for text in texts:
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped:
+                counts[stripped] += 1
+    return counts
+
+
 def assert_no_content_loss(before: Counter[str], after: Counter[str]) -> None:
     """Assert that every content line occurrence present before is still present after.
 

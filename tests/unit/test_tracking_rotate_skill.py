@@ -1345,7 +1345,7 @@ def test_fix_memory_md_conservation(tmp_path: Path) -> None:
     md.write_text(original_text, encoding="utf-8")
 
     # Load conservation module directly to build before-set.
-    _cpath = _SCRIPT_PATH.parent / "conservation.py"
+    _cpath = _SCRIPT_PATH.parents[3] / "lib" / "governance" / "conservation.py"
     _cs = _ilu.spec_from_file_location("conservation_test", _cpath)
     _cm = _ilu.module_from_spec(_cs)
     _cs.loader.exec_module(_cm)
