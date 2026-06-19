@@ -208,11 +208,16 @@ def _run_hook(
     monkeypatch.setattr(mod, "emit_trace_event", None, raising=False)
     monkeypatch.setattr(mod, "push_hook_metrics_async", lambda **k: None, raising=False)
 
-    # Deterministic reruns: clear any persisted cross-turn injection state so the
-    # excluded_ids dedup never hides a candidate between parametrizations.
-    state_path = InjectionSessionState._state_path(session_id)
-    if state_path.exists():
-        state_path.unlink()
+    # Hermetic session state: production InjectionSessionState._state_path returns a
+    # shared /tmp/ai-memory-{id}-injection-state.json that a stale file from prior
+    # local runs or a parallel test could poison. Redirect it under the per-test
+    # tmp_path so the excluded_ids dedup state is isolated and this test never reads
+    # or writes the shared /tmp location.
+    monkeypatch.setattr(
+        InjectionSessionState,
+        "_state_path",
+        staticmethod(lambda sid: tmp_path / f"injection-state-{sid}.json"),
+    )
 
     stdin_payload = json.dumps(
         {
@@ -223,20 +228,15 @@ def _run_hook(
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(stdin_payload))
 
-    try:
-        rc = mod.main()
-        # main() returns 0 by graceful-degradation design even when nothing is
-        # injected, so rc is non-discriminating; the content/audit assertions in
-        # each test are the real guard. Kept only as a smoke check that main()
-        # completed without raising.
-        assert rc == 0
-        out = capsys.readouterr().out
-        payload = json.loads(out)
-        return payload["hookSpecificOutput"]["additionalContext"]
-    finally:
-        # Clean the persisted session-state file at END too (not just at start),
-        # so reruns and any later test sharing this session id start clean.
-        state_path.unlink(missing_ok=True)
+    rc = mod.main()
+    # main() returns 0 by graceful-degradation design even when nothing is
+    # injected, so rc is non-discriminating; the content/audit assertions in
+    # each test are the real guard. Kept only as a smoke check that main()
+    # completed without raising.
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    return payload["hookSpecificOutput"]["additionalContext"]
 
 
 def _audit_rejects(tmp_path):
