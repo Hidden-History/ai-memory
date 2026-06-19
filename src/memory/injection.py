@@ -70,6 +70,7 @@ __all__ = [
     "InjectionSessionState",
     "RouteTarget",
     "compute_adaptive_budget",
+    "compute_relevance_signals",
     "compute_topic_drift",
     "format_injection_output",
     "init_session_state",
@@ -711,11 +712,142 @@ def route_collections(
     return [RouteTarget(target)]
 
 
+def _result_age_days(result: dict, *, now: datetime | None = None) -> float | None:
+    """Age of a result in days from its ``stored_at`` payload field, or None.
+
+    BUG-319 F-2 / BP-174 Q4: the absolute staleness signal for the freshness
+    gate, distinct from DECAY_* ranking. ``stored_at`` is an ISO-8601 UTC
+    timestamp on the point payload. Returns None when absent or unparseable.
+    """
+    stored_at = result.get("stored_at")
+    if not stored_at:
+        return None
+    try:
+        if isinstance(stored_at, str):
+            dt = datetime.fromisoformat(stored_at.replace("Z", "+00:00"))
+        elif isinstance(stored_at, datetime):
+            dt = stored_at
+        else:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        _now = now or datetime.now(tz=timezone.utc)
+        return max((_now - dt).total_seconds() / 86400.0, 0.0)
+    except (ValueError, TypeError):
+        return None
+
+
+def compute_relevance_signals(
+    results: list[dict],
+    config: MemoryConfig,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Compute the BP-174 absolute-relevance gate signals (BUG-319 F-1/F-2).
+
+    Consumes the absolute ``raw_score`` channel (search.py ``_attach_raw_cosine``),
+    NOT the banded ordering score — so the gate can discriminate on-topic from
+    same-domain-off-topic in a single-domain store where the banded top-1 is
+    pinned near 0.95 regardless of true similarity.
+
+    Reference point (PM #344 F3): the floor, margin, AND freshness signals all key
+    off ONE reference item — the highest-raw candidate across the set. Previously
+    the floor/margin used max-raw while freshness used the banded ``results[0]``,
+    which could be a different item (an unrelated stale banded-top-1 could suppress
+    a fresh, on-topic, above-floor candidate). Max-raw is the calibration-faithful
+    reference (the live sweep keyed the floor on the top dense-cosine item) and
+    keeps union routes dominated by the discussions signal (calibration.md §5).
+
+    Returns a dict:
+      - ``best_raw``: highest raw_score across results (0.0 if none)
+      - ``second_raw``: second-highest raw_score (0.0 if < 2 results)
+      - ``margin``: ``best_raw - second_raw`` (scale-free top-1/top-2 gap, Q2)
+      - ``top_age_days``: age of the highest-raw reference item, or None
+      - ``has_dense_signal``: ``best_raw > 0.0`` — False when no result has a dense
+        neighbor (the gate then fully defers to the banded gate; BUG-319 calibration)
+      - ``floor_pass``: ``best_raw >= injection_absolute_floor`` (Q2 floor); True
+        when there is no dense signal (defer), False when there are no results
+      - ``margin_pass``: ``margin >= injection_margin_min``; True for a lone result
+        and True on the defer path
+      - ``freshness_pass``: reference item within ``injection_freshness_max_age_days``;
+        True when the cap is disabled, the age is unknown, or on the defer path (Q4)
+      - ``would_inject``: ``floor_pass and margin_pass and freshness_pass``. On the
+        defer path all three are forced True, so the banded gate alone decides.
+
+    Pure and side-effect-free: the signals are computed regardless of whether the
+    gate is enabled, so the tier-2 hook can emit them shadow-only before the flip.
+    """
+    # Rank by raw_score desc, preserving item identity so the floor, margin, AND
+    # freshness signals all key off ONE reference item — the highest-raw candidate
+    # (PM #344 F3 reference-point consistency).
+    ranked = sorted(
+        results,
+        key=lambda r: float(r.get("raw_score", 0.0) or 0.0),
+        reverse=True,
+    )
+    best_raw = float(ranked[0].get("raw_score", 0.0) or 0.0) if ranked else 0.0
+    second_raw = (
+        float(ranked[1].get("raw_score", 0.0) or 0.0) if len(ranked) > 1 else 0.0
+    )
+    margin = best_raw - second_raw
+
+    # Freshness keys off the SAME highest-raw reference item the floor/margin
+    # selected — not the banded results[0], which may be a different item.
+    reference_item = ranked[0] if ranked else None
+    top_age_days = _result_age_days(reference_item, now=now) if reference_item else None
+
+    # has_dense_signal conflates "no dense neighbor" with a genuine ~0.0 off-topic
+    # cosine (PM #344 F7); acceptable here because real off-topic clusters sit at
+    # ~0.65-0.75, not 0.0, so a true 0.0 means "absent from the dense top-K".
+    has_dense_signal = best_raw > 0.0
+    if not ranked:
+        # Empty result set: nothing to inject — fail the floor (and the gate).
+        floor_pass = False
+        margin_pass = True
+        freshness_pass = True
+    elif not has_dense_signal:
+        # BUG-319 calibration (DEC-PM343-D7) + PM #344 F1: on routes whose banded
+        # ranking is driven entirely by sparse/colbert/decay — so no result appears
+        # in the dense neighborhood and best_raw collapses to 0.0 (empirically the
+        # code-patterns route, whose post-filter dense space is near-orthogonal to
+        # natural-language queries in this single-domain store; also any
+        # _attach_raw_cosine failure) — the dense floor cannot judge relevance.
+        # FULLY defer to the banded 4-tier gate: short-circuit floor, margin AND
+        # freshness, not just the floor. Deferring only the floor would let a
+        # multi-domain injection_margin_min > 0 (margin is 0.0 on the all-zero-raw
+        # defer set) or a freshness cap silently suppress every deferred injection —
+        # the regression this guard exists to prevent.
+        floor_pass = True
+        margin_pass = True
+        freshness_pass = True
+    else:
+        floor_pass = best_raw >= config.injection_absolute_floor
+        margin_pass = (len(ranked) < 2) or (margin >= config.injection_margin_min)
+        if config.injection_freshness_max_age_days > 0 and top_age_days is not None:
+            freshness_pass = top_age_days <= config.injection_freshness_max_age_days
+        else:
+            freshness_pass = True
+
+    return {
+        "best_raw": round(best_raw, 4),
+        "second_raw": round(second_raw, 4),
+        "margin": round(margin, 4),
+        "top_age_days": (round(top_age_days, 2) if top_age_days is not None else None),
+        "has_dense_signal": has_dense_signal,
+        "floor_pass": floor_pass,
+        "margin_pass": margin_pass,
+        "freshness_pass": freshness_pass,
+        "would_inject": floor_pass and margin_pass and freshness_pass,
+    }
+
+
 def compute_adaptive_budget(
     best_score: float,
     results: list[dict],
     session_state: dict,
     config: MemoryConfig,
+    *,
+    best_raw_score: float | None = None,
 ) -> int:
     """Compute adaptive token budget for Tier 2 injection.
 
@@ -729,6 +861,11 @@ def compute_adaptive_budget(
         results: All search results (for density calculation)
         session_state: Session state dict with last_query_embedding
         config: Memory configuration with budget floor/ceiling
+        best_raw_score: Highest absolute raw-cosine score (BUG-319 F-3). When the
+            absolute gate is enabled and no candidate clears the absolute floor,
+            topic drift must NOT amplify the budget (BP-174 Q3). Legacy behavior
+            (drift always additive) is preserved when this is None or the gate is
+            disabled.
 
     Returns:
         Token budget as integer in [floor, ceiling] range.
@@ -759,6 +896,21 @@ def compute_adaptive_budget(
     # Signal 3: Session drift (20%) — topic drift from previous query
     # High drift = new topic = more context needed = higher budget
     drift_signal = session_state.get("topic_drift", 0.5)  # Default 0.5 (neutral)
+
+    # BUG-319 F-3 / BP-174 Q3: topic drift is a SUPPRESSOR, not an amplifier.
+    # When the absolute gate is enabled and no candidate clears the absolute floor
+    # (the off-topic-pivot case), high drift must not buy MORE budget to surface
+    # nearest-neighbor noise — zero the drift contribution so amplification only
+    # happens behind an above-floor candidate. Below-floor turns are normally
+    # skipped outright by the relevance gate upstream; this guards the marginal
+    # path. Legacy behavior is preserved when the gate is off or raw score absent.
+    if (
+        config.injection_absolute_gate_enabled
+        and best_raw_score is not None
+        and best_raw_score < config.injection_absolute_floor
+        and drift_signal > config.injection_drift_suppressor_threshold
+    ):
+        drift_signal = 0.0
 
     # Weighted combination
     combined = (
@@ -907,16 +1059,27 @@ def select_results_greedy(
         nonlocal fallback_signaled
         result_type = result.get("type", "unknown")
         collection_label = result.get("collection", "unknown") or "unknown"
-        rejects.append(
-            {
-                "type": result_type,
-                "tokens": result_tokens,
-                "score": result.get("score", 0),
-                "reason": reason,
-                "tier": tier_label,
-                "collection": collection_label,
-            }
-        )
+        # BUG-302 field semantics — budget=TOTAL, surface remaining (BP-158 §3.5 / DEC-PM334-D2):
+        #   budget    = total token budget for this tier's injection (constant)
+        #   tokens    = token size of THIS rejected candidate (result_tokens)
+        #   remaining = budget tokens still free at the instant this candidate was
+        #               evaluated (budget - tokens_used so far). A budget_exceeded
+        #               reject means tokens > remaining. Captured here at reject
+        #               time so the tier-2 marker renders the remaining that
+        #               actually triggered the reject, not the post-loop final
+        #               value (greedy skip-and-continue may load smaller items
+        #               afterwards, shrinking the final remaining).
+        _reject = {
+            "type": result_type,
+            "tokens": result_tokens,
+            "score": result.get("score", 0),
+            "reason": reason,
+            "tier": tier_label,
+            "collection": collection_label,
+        }
+        if reason in ("budget_exceeded", "ceiling_exceeded"):
+            _reject["remaining"] = budget - tokens_used
+        rejects.append(_reject)
         # Per-source ledger: accumulate dropped count (and tokens for budget drops).
         _ps = per_source.setdefault(
             collection_label,
@@ -1204,6 +1367,7 @@ def log_injection_event(
     rejects: list[dict] | None = None,
     fallback_signaled: bool = False,
     per_source: dict | None = None,
+    relevance_signals: dict | None = None,
 ) -> None:
     """Log injection event to .audit/logs/injection-log.jsonl.
 
@@ -1239,6 +1403,13 @@ def log_injection_event(
             ``{requested_tokens, loaded_tokens, dropped: {reason: {count, tokens?}}}``.
             Reconciliation: ``loaded_tokens + dropped["budget_exceeded"]["tokens"]
             == requested_tokens`` per collection. Defaults to empty dict.
+        relevance_signals: BP-174 absolute-relevance gate signals from
+            ``compute_relevance_signals`` (``{best_raw, second_raw, margin,
+            top_age_days, floor_pass, margin_pass, freshness_pass,
+            would_inject}``). Persisted as the shadow-calibration substrate for
+            BUG-319 — lets the absolute floor/margin be tuned against the
+            measured raw-cosine histogram before the gate is flipped on.
+            Defaults to empty dict.
     """
     log_path = Path(audit_dir) / "logs" / "injection-log.jsonl"
 
@@ -1262,6 +1433,7 @@ def log_injection_event(
         "rejects": rejects or [],
         "fallback_signaled": fallback_signaled,
         "per_source": per_source or {},
+        "relevance_signals": relevance_signals or {},
     }
 
     try:

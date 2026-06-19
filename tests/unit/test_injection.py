@@ -113,6 +113,11 @@ class TestComputeAdaptiveBudget:
         self.config.injection_quality_weight = 0.5
         self.config.injection_density_weight = 0.3
         self.config.injection_drift_weight = 0.2
+        # BUG-319 F-3: absolute gate disabled → drift-suppressor branch is inert,
+        # legacy additive-drift behavior preserved.
+        self.config.injection_absolute_gate_enabled = False
+        self.config.injection_absolute_floor = 0.5
+        self.config.injection_drift_suppressor_threshold = 0.5
 
     def test_floor_budget_when_signals_low(self):
         """Budget should be at floor when all signals are low."""

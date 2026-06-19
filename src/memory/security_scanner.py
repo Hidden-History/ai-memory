@@ -90,7 +90,10 @@ class ScanFinding:
     finding_type: FindingType
     layer: int  # 1=regex, 2=detect-secrets, 3=SpaCy
     original_text: str  # For logging only — NOT stored in Qdrant
-    replacement: str | None  # Masked replacement (None if BLOCK)
+    # Masked replacement, or None when the finding is recorded but not masked:
+    # None for BLOCKED secrets and for low-precision NAME/HANDLE candidates that
+    # the precision gate (BUG-320) clears so stored content is preserved.
+    replacement: str | None
     confidence: float  # 0.0-1.0
     start: int  # Character offset
     end: int  # Character offset
@@ -259,6 +262,285 @@ def _is_github_id_context(content: str, start: int, end: int) -> bool:
     ]
 
     return any(re.search(pattern + r"$", prefix_window) for pattern in safe_prefixes)
+
+
+# =============================================================================
+# BUG-320 / BP-174 Q5: precision controls for low-precision PII recognizers
+# =============================================================================
+# The NAME (SpaCy PERSON -> [NAME_REDACTED]) and HANDLE (@handle regex ->
+# [HANDLE_REDACTED]) recognizers have high false-positive rates on technical
+# proper nouns, filenames, code identifiers, and markup (SpaCy tags "Docker" and
+# diff hunk headers as PERSON). Because masking runs DESTRUCTIVELY on the
+# storage-write path, every false positive permanently corrupts the stored point
+# and is later injected as garbled text. These two classes are therefore made
+# precision-first: an allow-listed technical token, a structural/technical
+# pattern, or a NAME with no nearby PII context is left UNMASKED — the finding is
+# still recorded (observability) but its replacement is cleared so content is
+# preserved.
+#
+# Placement note (BP-174 Q5 #5): fully relocating this masking off the write path
+# (detect-at-read, or unredacted-canonical + redacted view) spans the storage and
+# read paths and is out of scope for this change (security_scanner.py only); it is
+# tracked separately. High-precision classes (EMAIL/IP/CC/SSN and all SECRET_*
+# blocking) are never routed through this gate and stay strict (CLAUDE.md §7 /
+# TD-548).
+
+# Known technical proper nouns / product / tool names SpaCy PERSON NER commonly
+# mis-tags. Compared case-insensitively against the candidate span text.
+_TECHNICAL_PROPER_NOUNS = frozenset(
+    {
+        "claude",
+        "claude code",
+        "anthropic",
+        "docker",
+        "qdrant",
+        "jina",
+        "langfuse",
+        "prometheus",
+        "grafana",
+        "github",
+        "gitlab",
+        "jira",
+        "confluence",
+        "presidio",
+        "spacy",
+        "python",
+        "markdown",
+        "kubernetes",
+        "redis",
+        "postgres",
+        "postgresql",
+        "nginx",
+        "ubuntu",
+        "linux",
+        "bash",
+        "slack",
+        "openai",
+        "ollama",
+        "pytest",
+        "ruff",
+        "black",
+        "isort",
+        "parzival",
+        "kafka",
+        "jenkins",
+        "cassandra",
+        "watson",
+        "maven",
+        "pinecone",
+        "splunk",
+        "datadog",
+        "webpack",
+        "ansible",
+        "pandas",
+        "numpy",
+        "terraform",
+        "tesla",
+        "apache",
+        "celery",
+        "django",
+        "flask",
+    }
+)
+
+# Personal-data context cues. A NAME candidate is treated as genuine PII only
+# when one of these is ADJACENT to it (the word immediately before or after the
+# candidate — see _has_pii_context). The set is curated to HIGH-PRECISION cues
+# only. Code-ubiquitous words (name, client, manager, person, customer,
+# employee, called, met, …) are deliberately EXCLUDED — they mis-fired on
+# technical content ("Kafka client", "Grafana manager") and re-admitted the
+# BUG-320 corruption.
+#
+# Strong cues mask regardless of candidate shape: honorifics, correspondence /
+# sign-off cues, and contact-info label nouns are rarely adjacent to a lone
+# capitalized technical token.
+_PII_CONTEXT_TRIGGERS = frozenset(
+    {
+        # honorifics
+        "mr",
+        "mrs",
+        "ms",
+        "miss",
+        "dr",
+        "prof",
+        "sir",
+        "madam",
+        # correspondence / sign-off
+        "dear",
+        "regards",
+        "sincerely",
+        "signed",
+        "wrote",
+        # contact-info nouns
+        "phone",
+        "tel",
+        "email",
+    }
+)
+
+# High-ambiguity communication-verb cues. These double as common verbs/nouns in
+# technical prose ("contacting the service", "calling the API", "reaching the
+# broker"), so on their own they over-mask adjacent single-token technical names
+# that SpaCy mis-tags PERSON (BUG-320). They mask ONLY when the candidate is a
+# multi-token name (e.g. "John Smith") — a lone capitalized technical token
+# ("Kafka", "Watson", "Cassandra") never matches. This is the BP-174 Q5 /
+# DEC-PM343-D5 precision-first tradeoff: under-masking a bare "call Bob" is the
+# accepted cost of never corrupting technical content (off-write-path recall
+# recovery is deferred to TD-661). The bare noun/verb forms that collide with
+# multi-token names too ("call"/"meet"/"meeting"/"reach"/"message") are dropped
+# entirely; only the unambiguous gerund/inflected forms are retained. "from"
+# covers "From:" reply headers (GitHub/Jira threads) without firing on Python
+# "from x import" (single-token, lowercase, not PERSON-tagged).
+_PII_CONTEXT_VERB_TRIGGERS = frozenset(
+    {
+        "contact",
+        "contacted",
+        "contacting",
+        "calling",
+        "messaging",
+        "reaching",
+        "phoned",
+        "phoning",
+        "emailed",
+        "from",
+    }
+)
+
+# Code-identifier / structural markers in a candidate token that mean it is not a
+# personal name (underscores, digits, brackets, path/format separators).
+_CODE_IDENTIFIER_CHARS = re.compile(r"[_/\\()\[\]{}<>:=@]|\d")
+_FILE_EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,8}$")
+
+
+def _line_containing(content: str, start: int, end: int) -> str:
+    """Return the full line of `content` that contains the [start:end] span."""
+    line_start = content.rfind("\n", 0, start) + 1
+    line_end = content.find("\n", end)
+    if line_end == -1:
+        line_end = len(content)
+    return content[line_start:line_end]
+
+
+# Git unified-diff file-header lines, e.g. "--- a/foo.py" / "+++ b/foo.py".
+# Anchored to the "[ab]/" form (H-B/M-B) so an email/Jira reply header such as
+# "--- John Smith wrote:" is NOT treated as structural.
+_GIT_DIFF_FILE_HEADER = re.compile(r"^[+-]{3} [ab]/")
+
+# Git unified-diff "index <old>..<new> <mode>" metadata line. Anchored to the
+# blob-sha "<hex>..<hex>" form with optional trailing octal mode bits, then
+# end-of-line, so a crafted line that shares a valid hex prefix but carries
+# trailing prose ("index deadbeef..feedface contact John Smith") is NOT treated
+# as structural and can be decided by PII context.
+_GIT_INDEX_LINE = re.compile(r"^index [0-9a-f]{4,}\.\.[0-9a-f]{4,}( [0-7]{6})?$")
+
+
+def _is_structural_line(
+    content: str, start: int, end: int, *, for_name: bool = False
+) -> bool:
+    """True if the candidate sits on a diff hunk header or diff-metadata line —
+    categorically not personal data.
+
+    for_name: when True (NAME candidates), a markdown heading / "#"-comment line
+    is NOT treated as structural — a heading can legitimately carry a real name
+    (e.g. "# Contact: Jane Doe"), so NAME masking is decided by PII context
+    instead (M-B). For HANDLE candidates (for_name=False) the "#"-heading
+    exemption is retained (intentional behavior, tested downstream).
+    """
+    line = _line_containing(content, start, end)
+    stripped = line.lstrip()
+    if stripped.startswith("@@"):  # diff hunk header, e.g. "@@ -205,7 +205,9 @@"
+        return True
+    if stripped.startswith("diff --git"):
+        return True
+    if _GIT_INDEX_LINE.match(stripped):
+        return True
+    if _GIT_DIFF_FILE_HEADER.match(stripped):
+        return True
+    # markdown heading / "#"-comment: structural for HANDLE only, not NAME (M-B)
+    return not for_name and stripped.startswith("#")
+
+
+def _is_technical_token(text: str) -> bool:
+    """True if the candidate text is a filename, path, or code identifier rather
+    than a personal name. These are HARD signals (a name never contains them).
+
+    The ALLCAPS rule is deliberately NOT here — ALLCAPS is a weak signal that
+    PII context must be able to override (M-A: "contact JOHN SMITH urgently"),
+    so it is handled separately in _should_mask_low_precision_pii."""
+    t = text.strip()
+    if not t:
+        return True
+    if _FILE_EXTENSION.search(t):  # CLAUDE.md, foo.py
+        return True
+    # underscores, digits, brackets, path/format separators
+    return bool(_CODE_IDENTIFIER_CHARS.search(t))
+
+
+def _is_allcaps_token(text: str) -> bool:
+    """True if the candidate is an ALLCAPS run (doc filename / acronym, e.g.
+    README, AGENTS). Weak signal — see M-A handling in the predicate."""
+    t = text.strip()
+    return t.isupper() and len(t) > 1
+
+
+def _has_pii_context(content: str, start: int, end: int, candidate: str) -> bool:
+    """True if a personal-data cue is ADJACENT to the candidate span — the word
+    immediately before it (honorific/verb) or immediately after it (e.g. a
+    "wrote"/sign-off cue). Adjacency is far higher precision than the previous
+    40-char window, which mis-fired on incidental nearby words (H-A).
+
+    A strong cue (_PII_CONTEXT_TRIGGERS) masks any candidate. A high-ambiguity
+    communication-verb cue (_PII_CONTEXT_VERB_TRIGGERS) masks only when the
+    candidate is a multi-token name ("John Smith"), so a lone technical token
+    next to "calling"/"contacting"/"reaching" is never corrupted (BUG-320)."""
+    before = re.findall(r"[A-Za-z]+", content[:start])
+    after = re.findall(r"[A-Za-z]+", content[end:])
+    preceding = before[-1].lower() if before else ""
+    following = after[0].lower() if after else ""
+    if preceding in _PII_CONTEXT_TRIGGERS or following in _PII_CONTEXT_TRIGGERS:
+        return True
+    if (
+        preceding in _PII_CONTEXT_VERB_TRIGGERS
+        or following in _PII_CONTEXT_VERB_TRIGGERS
+    ):
+        return len(candidate.split()) >= 2
+    return False
+
+
+def _should_mask_low_precision_pii(content: str, finding: "ScanFinding") -> bool:
+    """Precision gate for low-precision NAME/HANDLE findings (BUG-320 / BP-174 Q5).
+
+    Returns True only when the candidate should still be masked. High-precision
+    classes are never routed here (the caller pre-filters by finding_type).
+    """
+    text = finding.original_text
+
+    if finding.finding_type == FindingType.PII_NAME:
+        # L-C: the allow-list wins over PII context by design (BP-174 Q5) — a
+        # known technical proper noun ("Claude") is never masked even with an
+        # adjacent cue, since the false-positive cost outweighs the rare miss.
+        if text.strip().lower() in _TECHNICAL_PROPER_NOUNS:
+            return False
+        if _is_structural_line(content, finding.start, finding.end, for_name=True):
+            return False
+        # Hard technical signals (filename / code identifier) always veto.
+        if _is_technical_token(text):
+            return False
+        # M-A: ALLCAPS is a weak signal — it vetoes only when no PII context is
+        # present, so "contact JOHN SMITH urgently" still masks.
+        has_context = _has_pii_context(content, finding.start, finding.end, text)
+        if _is_allcaps_token(text) and not has_context:
+            return False
+        return has_context
+
+    if finding.finding_type == FindingType.PII_HANDLE:
+        # Structural exclusion only: a handle on a diff/heading/comment line is
+        # not PII. Ordinary @mention masking is intentional, tested behavior with
+        # downstream consumers (exempt_handle_pii), so handle context-gating is
+        # left unchanged here — see the placement note above.
+        return not _is_structural_line(content, finding.start, finding.end)
+
+    return True
 
 
 def _mask_for_audit_log(text: str) -> str:
@@ -604,6 +886,21 @@ class SecurityScanner:
         self, content: str, findings: list[ScanFinding]
     ) -> tuple[str, ScanAction]:
         """Apply PII masks and determine final action. Used by both scan() and scan_batch()."""
+        # BUG-320 / BP-174 Q5: clear the replacement for low-precision NAME/HANDLE
+        # false positives so they are recorded but not masked into the stored
+        # content. High-precision classes are untouched (replacement preserved).
+        for finding in findings:
+            if (
+                finding.replacement is not None
+                and finding.finding_type
+                in (FindingType.PII_NAME, FindingType.PII_HANDLE)
+                and not _should_mask_low_precision_pii(content, finding)
+            ):
+                # Mutates the finding in place: `findings` is the same list that
+                # is returned on ScanResult.findings, so the cleared replacement
+                # is intentionally visible to callers (observability — the
+                # candidate is still surfaced, just not masked into content).
+                finding.replacement = None
         pii_findings = [f for f in findings if f.replacement is not None]
         pii_findings.sort(key=lambda f: f.start, reverse=True)
         masked_content = content

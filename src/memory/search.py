@@ -212,6 +212,7 @@ class MemorySearch:
         _access_count_dedup: (
             list[str] | None
         ) = None,  # H-3: Cross-turn dedup list (mutated in-place)
+        attach_raw_cosine: bool = False,  # BUG-319: opt-in raw-cosine channel (tier-2 gate only)
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -241,6 +242,11 @@ class MemorySearch:
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
             source: Optional namespace filter (e.g., "github"). When set to "github",
                    also applies is_current=True filter to exclude superseded points (BP-074).
+            attach_raw_cosine: When True, attach an absolute raw-cosine ``raw_score``
+                   to each result (BUG-319). Only the Tier-2 injection relevance gate
+                   consumes raw_score; it defaults to False so every other caller
+                   (aim-search, Tier-1, programmatic) avoids the extra dense query
+                   the hybrid/decay path would otherwise fire per search.
 
         Returns:
             List of memory dicts with score, id, and all payload fields.
@@ -672,6 +678,22 @@ class MemorySearch:
                         m["collection"], m["type"], m["score"]
                     )
 
+        # BUG-319 / BP-174 Q1: attach an absolute raw-cosine signal alongside the
+        # (possibly banded) ordering score so the injection relevance gate can
+        # discriminate on-topic from same-domain-off-topic. raw_score never feeds
+        # ordering — only the gate. Opt-in (default off): only the Tier-2 hook sets
+        # attach_raw_cosine=True, so other callers don't pay the extra dense query
+        # the hybrid/decay path fires here.
+        if attach_raw_cosine:
+            self._attach_raw_cosine(
+                memories,
+                search_mode=_search_mode,
+                collection=collection,
+                query_embedding=query_embedding,
+                query_filter=query_filter,
+                search_params=search_params,
+            )
+
         # Tag results with search mode for downstream observability
         for m in memories:
             m["search_mode"] = _search_mode
@@ -884,6 +906,62 @@ class MemorySearch:
             pass  # Remembrance protection failure must never affect search results
 
         return memories
+
+    def _attach_raw_cosine(
+        self,
+        memories: list[dict],
+        *,
+        search_mode: str,
+        collection: str,
+        query_embedding: list[float],
+        query_filter: Filter | None,
+        search_params: SearchParams | None,
+    ) -> None:
+        """Attach an absolute raw-cosine relevance signal to each memory.
+
+        BUG-319 / BP-174 Q1: the banded score on the hybrid_rrf_decay path is a
+        per-result-set rank-normalization artifact (top-1 pinned near 0.95), NOT
+        an absolute relevance measure. The injection relevance gate must consume
+        an absolute cosine signal kept SEPARATE from the banded score (which is
+        retained for ordering/display only). This sets ``memory["raw_score"]`` to
+        the dense cosine similarity of the query against each result.
+
+        - Plain ``dense`` mode already returns cosine in ``score`` → copy it.
+        - ``hybrid_*`` / ``decay`` modes return RRF (rank-only) or decay-adjusted
+          scores → run one bounded dense query (reusing the query embedding, no
+          re-embed) and map cosine by point id. Results absent from the dense
+          neighborhood get ``raw_score`` 0.0 (correct gating semantics: a
+          top-by-RRF/sparse item with no dense neighbor is weakly relevant).
+
+        No score_threshold is applied to the raw query so below-threshold cosines
+        are still measured honestly for the floor/margin computation. Failures
+        degrade gracefully (raw_score 0.0) — the gate falls back to the banded
+        score path and never raises into the search hot path.
+        """
+        if not memories:
+            return
+        if search_mode == "dense":
+            for m in memories:
+                m["raw_score"] = m.get("score", 0.0)
+            return
+        raw_by_id: dict = {}
+        try:
+            resp = self.client.query_points(
+                collection_name=collection,
+                query=query_embedding,
+                query_filter=query_filter,
+                limit=max(len(memories), 50),
+                with_payload=False,
+                search_params=search_params,
+            )
+            raw_by_id = {p.id: p.score for p in resp.points}
+        except Exception as e:
+            logger.warning(
+                "raw_cosine_attach_failed",
+                extra={"collection": collection, "error": str(e)},
+            )
+        for m in memories:
+            m["raw_score"] = raw_by_id.get(m["id"], 0.0)
 
     def _build_hybrid_prefetch(
         self,
