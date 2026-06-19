@@ -83,4 +83,10 @@ USER embedding
 
 EXPOSE 8080
 
+# TD-670: deliberately a SINGLE uvicorn worker. Each worker process loads its own copy
+# of the dual ONNX models (~3GB), so N workers ≈ N×3GB against the container memory
+# limit (4G) — adding `--workers 2` would guarantee OOM and worsen the suspected
+# memory-pressure exit. Resilience is provided instead by in-app concurrency bounding
+# (EMBEDDING_MAX_CONCURRENCY) + per-request fault isolation in main.py, with Docker's
+# `restart: unless-stopped` as the process supervisor.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -15,10 +15,11 @@ SPEC-010: Dual Embedding Routing - Both models loaded at startup for immediate a
 import logging
 import os
 import sys
+import threading
 import time
 
 from fastapi import FastAPI, HTTPException
-from fastembed import TextEmbedding, SparseTextEmbedding, LateInteractionTextEmbedding
+from fastembed import LateInteractionTextEmbedding, SparseTextEmbedding, TextEmbedding
 from prometheus_client import make_asgi_app
 from pydantic import BaseModel
 
@@ -53,12 +54,56 @@ MODEL_NAMES = {
 VECTOR_DIMENSIONS = int(os.getenv("VECTOR_DIMENSIONS", "768"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
+# TD-670: Bound concurrent model inference. The sync request handlers run in the
+# anyio threadpool (~40 threads), so without a limit many concurrent embed requests
+# drive the shared ONNX models in parallel and each materializes a full batch of
+# vectors at once — peak memory spikes toward the container limit (suspected clean-exit
+# trigger) and the shared fastembed model objects are exercised concurrently. A
+# process-wide semaphore caps simultaneous inference; requests beyond the cap wait for
+# a slot rather than failing or crashing the worker.
+EMBED_MAX_CONCURRENCY = int(os.getenv("EMBEDDING_MAX_CONCURRENCY", "4"))
+_inference_semaphore = threading.Semaphore(EMBED_MAX_CONCURRENCY)
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger("ai_memory.embedding")
+
+
+def run_inference(operation):
+    """Execute a model inference call with TD-670 resilience guarantees.
+
+    Bounds concurrency via the process-wide semaphore (peak-memory + shared-model
+    access guard) and isolates faults: any inference failure becomes an HTTP 503 so a
+    single bad or oversized request can never crash the worker — the service keeps
+    serving other requests. An ``HTTPException`` raised inside ``operation`` (e.g. a
+    validation error) passes through unchanged.
+
+    Args:
+        operation: Zero-arg callable performing the model inference.
+
+    Returns:
+        Whatever ``operation`` returns.
+
+    Raises:
+        HTTPException: 503 if the inference call raises any non-HTTPException error.
+    """
+    with _inference_semaphore:
+        try:
+            return operation()
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(
+                "embedding_inference_failed",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+            raise HTTPException(
+                status_code=503, detail="embedding_inference_failed"
+            ) from e
+
 
 app = FastAPI(
     title="AI Memory Embedding Service",
@@ -282,7 +327,7 @@ def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
         )
 
     model = MODEL_REGISTRY[request.model]
-    embeddings = list(model.embed(request.texts))
+    embeddings = run_inference(lambda: list(model.embed(request.texts)))
     return EmbedDenseResponse(
         embeddings=[e.tolist() for e in embeddings],
         model=MODEL_NAMES[request.model],
@@ -325,7 +370,7 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
 
     if not request.chunk_offsets:
         # No offsets — embed whole document as single vector
-        embeddings = list(model.embed([document]))
+        embeddings = run_inference(lambda: list(model.embed([document])))
         return EmbedResponse(
             embeddings=[e.tolist() for e in embeddings],
             model=MODEL_NAMES["en"],
@@ -340,7 +385,7 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
         end = offset_pair[1] if len(offset_pair) > 1 else len(document)
         chunk_texts.append(document[start:end])
 
-    embeddings = list(model.embed(chunk_texts))
+    embeddings = run_inference(lambda: list(model.embed(chunk_texts)))
     return EmbedResponse(
         embeddings=[e.tolist() for e in embeddings],
         model=MODEL_NAMES["en"],
@@ -356,7 +401,7 @@ def embed_sparse(request: EmbedSparseRequest):
     if "bm25" not in SPARSE_REGISTRY:
         raise HTTPException(status_code=503, detail="BM25 model not loaded")
     model = SPARSE_REGISTRY["bm25"]
-    results = list(model.embed(request.texts))
+    results = run_inference(lambda: list(model.embed(request.texts)))
     return EmbedSparseResponse(
         embeddings=[
             SparseEmbeddingResult(indices=r.indices.tolist(), values=r.values.tolist())
@@ -377,7 +422,7 @@ def embed_late(request: EmbedLateRequest):
             detail="ColBERT model not loaded (set COLBERT_ENABLED=true)",
         )
     model = LATE_REGISTRY["colbert"]
-    results = list(model.embed(request.texts))
+    results = run_inference(lambda: list(model.embed(request.texts)))
     return EmbedLateResponse(
         embeddings=[LateEmbeddingResult(embeddings=r.tolist()) for r in results],
         model="colbert-ir/colbertv2.0",
