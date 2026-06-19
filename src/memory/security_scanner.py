@@ -336,6 +336,10 @@ _TECHNICAL_PROPER_NOUNS = frozenset(
         "numpy",
         "terraform",
         "tesla",
+        "apache",
+        "celery",
+        "django",
+        "flask",
     }
 )
 
@@ -423,10 +427,11 @@ def _line_containing(content: str, start: int, end: int) -> str:
 _GIT_DIFF_FILE_HEADER = re.compile(r"^[+-]{3} [ab]/")
 
 # Git unified-diff "index <old>..<new> <mode>" metadata line. Anchored to the
-# blob-sha "<hex>..<hex>" form so a prose line that merely starts with "index "
-# ("index 42: contact John Smith about this") is NOT treated as structural and
-# can still be decided by PII context.
-_GIT_INDEX_LINE = re.compile(r"^index [0-9a-f]{4,}\.\.[0-9a-f]{4,}")
+# blob-sha "<hex>..<hex>" form with optional trailing octal mode bits, then
+# end-of-line, so a crafted line that shares a valid hex prefix but carries
+# trailing prose ("index deadbeef..feedface contact John Smith") is NOT treated
+# as structural and can be decided by PII context.
+_GIT_INDEX_LINE = re.compile(r"^index [0-9a-f]{4,}\.\.[0-9a-f]{4,}( [0-7]{6})?$")
 
 
 def _is_structural_line(

@@ -1391,6 +1391,50 @@ class TestNameHandlePrecisionGate:
             is False
         )
 
+    def test_b1_crafted_git_index_prefix_masks_name(self):
+        """B1 (review2-l2-opus N-1): a line that shares a valid hex-sha git-index
+        prefix but carries trailing prose is NOT structural after the tail anchor
+        — PII context then governs, so 'contact John Smith' masks correctly.
+        A clean real git index line (no trailing prose) remains structural/exempt."""
+        from memory.security_scanner import (
+            _is_structural_line,
+            _should_mask_low_precision_pii,
+        )
+
+        # Crafted prefix with trailing prose: NOT structural → PII context masks.
+        crafted = "index deadbeef..feedface contact John Smith"
+        assert (
+            _should_mask_low_precision_pii(
+                crafted, _name_finding(crafted, "John Smith")
+            )
+            is True
+        ), "crafted index prefix + trailing PII prose must mask"
+
+        # Real git line "index <sha>..<sha> <mode>": still structural (exempt).
+        git_clean = "index abc1234..def5678 100644"
+        assert (
+            _is_structural_line(git_clean, 0, len(git_clean), for_name=True) is True
+        ), "real git index line with mode bits must remain structural"
+
+    def test_b2_new_framework_nouns_allowlisted(self):
+        """B2 (review2-l2-sonnet F-1 / review2-l2-opus F-2): newly-added framework
+        names (django, flask, celery, apache) are allow-listed so SpaCy PERSON
+        mis-tags next to a strong PII cue do not produce false positives."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        # "email" is a strong PII cue (_PII_CONTEXT_TRIGGERS); without the
+        # allow-list entry these single-token framework names would be masked.
+        for content, span in (
+            ("email Django about the config", "Django"),
+            ("email Flask about the config", "Flask"),
+            ("email Celery about the config", "Celery"),
+            ("email Apache about the config", "Apache"),
+        ):
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, span))
+                is False
+            ), f"allow-listed framework name must not be masked: {content!r}"
+
     def test_m_a_allcaps_name_with_context_is_masked(self):
         """M-A: an ALLCAPS name no longer vetoes masking when PII context present."""
         from memory.security_scanner import _should_mask_low_precision_pii
