@@ -204,6 +204,9 @@ def main() -> int:
                     "group_id": gid,
                     "limit": config.max_retrievals,
                     "fast_mode": True,
+                    # BUG-319: only the Tier-2 relevance gate consumes raw_score, so
+                    # the extra dense raw-cosine query is opt-in here (off elsewhere).
+                    "attach_raw_cosine": True,
                 }
                 if route.collection == COLLECTION_DISCUSSIONS:
                     search_kwargs["memory_type"] = [
@@ -485,12 +488,22 @@ def main() -> int:
         drift = compute_topic_drift(current_embedding, state.last_query_embedding)
 
         # Compute adaptive budget
+        # BUG-319 F-3 (PM #344): pass the raw-cosine best ONLY when a real dense
+        # signal exists. On the defer routes (code-patterns, best_raw == 0.0) the
+        # drift suppressor must not fire — 0.0 < floor would wrongly zero drift and
+        # shrink the budget (~181 fewer tokens on code-patterns + drift turns), a
+        # behavior change DEC-PM343-D8 forbids on that route. None preserves legacy
+        # (drift always additive) on deferred turns.
         budget = compute_adaptive_budget(
             best_score=best_score,
             results=all_results,
             session_state={"topic_drift": drift},
             config=config,
-            best_raw_score=_relevance_signals["best_raw"],
+            best_raw_score=(
+                _relevance_signals["best_raw"]
+                if _relevance_signals["has_dense_signal"]
+                else None
+            ),
         )
 
         # Soft gating: halve budget for marginal confidence (threshold-0.05 to threshold)
