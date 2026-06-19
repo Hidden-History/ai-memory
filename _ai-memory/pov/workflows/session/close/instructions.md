@@ -25,7 +25,7 @@ Unlike session-handoff (which is a mid-session snapshot), session-close formally
 | 1 | `step-01-summarize-session.md` | Compile a summary of all work completed, decisions made, and blockers encountered this session |
 | 2 | `step-02-update-tracking.md` | Update `SESSION_WORK_INDEX.md`, `sprint-status.yaml`, and `blockers-log.md` with session outcomes |
 | 3 | `step-03-create-handoff.md` | Write the session closeout handoff document using the handoff template |
-| 4 | `step-04-enforce-caps.md` | Run `aim-tracking-rotate --check`; block closeout and rotate while any governed oversight file is over cap |
+| 4 | `step-04-enforce-caps.md` | Run `aim-tracking-rotate --check`; block closeout and remediate (`--fix`/`--fix-all` or `--apply` for decision-log.md) while any governed oversight file is over cap |
 | 5 | `step-05-save-and-confirm.md` | Attempt Qdrant save via `/parzival-save-handoff`; confirm session closure with the user |
 
 ## Key Decisions

@@ -2,8 +2,8 @@
 class: register
 read_path: section-anchored
 owns: "pointer to live sprint/task state"
-cap_lines: 40
-cap_kb: 3
+cap_lines: 60
+cap_kb: 4.5
 rotation_trigger: none
 archive_target: N/A
 index_file: N/A

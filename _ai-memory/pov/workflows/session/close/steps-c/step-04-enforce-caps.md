@@ -64,12 +64,27 @@ pointer — chronology preserved.
 
 For a table-row / multi-table register or live-index (`blockers-log.md`,
 `risk-register.md`, `SESSION_WORK_INDEX.md`, `session-index/INDEX.md`) the gate
-**REFUSES** `--apply` — safe field-aware auto-rotation is deferred to TD-655.
-Hand-trim the oldest/resolved rows into the archive table by hand, then re-run.
+**REFUSES** `--apply` (field-aware safe rotation deferred to TD-655). Use `--fix`
+instead — it archives the whole file verbatim and rewrites a lean index + pointer:
 
-For a heartbeat / thin-register file (`rotation_trigger: none`, e.g.
-`project-status.md`, `task-tracker.md`) the gate likewise cannot rotate it: trim
-it by hand to the schema, then re-run.
+```bash
+python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
+  --fix {over_cap_file} \
+  --oversight-root {oversight_path}
+```
+
+For a heartbeat or non-rotatable register (`project-status.md`, `task-tracker.md`),
+use `--fix` — it archives-whole-verbatim for non-rotatable registers, and refreshes
+the template front-matter for heartbeats:
+
+```bash
+python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
+  --fix {over_cap_file} \
+  --oversight-root {oversight_path}
+```
+
+If `--fix` reports that a heartbeat body is still over cap after the front-matter
+refresh, trim the body by hand, then re-run.
 
 ### 3. Re-Run Until Clean
 

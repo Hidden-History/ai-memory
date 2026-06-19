@@ -41,7 +41,7 @@ description: 'Quality gate rubric for session-close'
 
 ### Step 4: Enforce Caps (step-04-enforce-caps)
 - [ ] `aim-tracking-rotate --check` run against the oversight root
-- [ ] Any over-cap file rotated (`--apply`) until `--check` reports PASS
+- [ ] Any over-cap file remediated (`--fix <file>`, `--fix-all`, or `--apply` for decision-log.md) until `--check` reports PASS
 - [ ] Closeout not advanced to save while any governed file is over cap
 
 ### Step 5: Save and Confirm (step-05-save-and-confirm)
