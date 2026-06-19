@@ -103,12 +103,12 @@ For blockers identified in Step 1:
 - When a blocker was resolved this session, **MOVE** it out of the live file to the dated archive — do not leave resolved entries inline
 - Update the reconciliation banner count to the number of blockers still open
 
-**Rotate at write**: if the live file is over cap after the update, rotate the
-oldest entries to the dated archive and refresh the banner:
+**Fix at write**: if the live file is over cap after the update, use `--fix` to
+archive the whole file verbatim and rewrite a lean index + pointer:
 
 ```bash
 python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
-  --apply {oversight_path}/tracking/blockers-log.md \
+  --fix {oversight_path}/tracking/blockers-log.md \
   --oversight-root {oversight_path}
 ```
 

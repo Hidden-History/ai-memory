@@ -57,6 +57,14 @@ MANUAL_ROTATION_FILES = _mod.MANUAL_ROTATION_FILES
 append_to_shard = _mod.append_to_shard
 Entry = _mod.Entry
 ShardCollisionError = _mod.ShardCollisionError
+AUTO_MEMORY_CONTRACT = _mod.AUTO_MEMORY_CONTRACT
+run_fix_memory_md = _mod.run_fix_memory_md
+run_fix = _mod.run_fix
+_check_memory_md = _mod._check_memory_md
+_entry_needs_relocation = _mod._entry_needs_relocation
+_has_log_shape_violation = _mod._has_log_shape_violation
+_sibling_name_for = _mod._sibling_name_for
+SiblingCollisionError = _mod.SiblingCollisionError
 
 
 # ---------------------------------------------------------------------------
@@ -1012,3 +1020,710 @@ def test_front_matter_parse_requires_caps() -> None:
     assert c is not None
     assert c.cap_lines == 10
     assert c.cap_kb == 2.0
+
+
+# ---------------------------------------------------------------------------
+# Friction #2: task-tracker cap raised to 60 lines / 4.5 KB
+# ---------------------------------------------------------------------------
+
+
+def test_friction2_task_tracker_cap() -> None:
+    """task-tracker fallback-registry cap must be 60 lines / 4.5 KB."""
+    contract = FALLBACK_REGISTRY["tracking/task-tracker.md"]
+    assert contract.cap_lines == 60
+    assert contract.cap_kb == 4.5
+
+
+def test_check_task_tracker_passes_at_new_cap(tmp_path: Path) -> None:
+    """A task-tracker file of 55 lines (old 40-line cap would have failed) passes."""
+    root = _make_oversight(tmp_path)
+    # 55 content lines: old cap=40 would have failed, new cap=60 should pass.
+    body = "\n".join(f"task-line {i}" for i in range(55)) + "\n"
+    (root / "tracking" / "task-tracker.md").write_text(body, encoding="utf-8")
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, result.stderr
+    assert "PASS" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Friction #3: section scaffold preserved after --apply (golden-reference shape)
+# ---------------------------------------------------------------------------
+
+_THREE_SECTION_HEAD = (
+    "# Decision Log\n\n"
+    "**Last Updated**: 2026-06-18\n\n"
+    "---\n\n"
+    "## How to Use\n\n"
+    "- Quick decisions go here.\n\n"
+    "## Entry Format\n\n"
+    "```md\n"
+    "### DEC-[ID]: [Decision Topic]\n"
+    "- **Status**: [Active/Superseded]\n"
+    "```\n\n"
+    "---\n\n"
+    "## Decisions\n\n"
+)
+
+
+def _three_section_log(n_entries: int) -> str:
+    """decision-log with the real three-section preamble (fenced entry example)."""
+    blocks = "".join(
+        f"### DEC-PM{i:03d}-D1: decision {i}\n"
+        f"- **Date**: 2026-06-{(i % 28) + 1:02d}\n"
+        f"- **Status**: Active\n\n"
+        for i in range(n_entries, 0, -1)
+    )
+    return _THREE_SECTION_HEAD + blocks
+
+
+def test_apply_preserves_section_scaffold(tmp_path: Path) -> None:
+    """Golden-reference shape: after --apply on a three-section decision-log,
+    all ## section headers survive and the pointer sits directly under
+    ## Decisions with kept entries beneath it.
+    """
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_three_section_log(60), encoding="utf-8")
+
+    result = _run(
+        "--apply", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = log.read_text(encoding="utf-8")
+
+    # All three ## section headers must survive.
+    assert "## How to Use" in new_text, "## How to Use header stripped"
+    assert "## Entry Format" in new_text, "## Entry Format header stripped"
+    assert "## Decisions" in new_text, "## Decisions header stripped"
+
+    # Pointer must be under ## Decisions (golden reference: pointer sits
+    # directly under ## Decisions with kept entries beneath it).
+    decisions_pos = new_text.index("## Decisions")
+    pointer_pos = new_text.index(POINTER_MARKER)
+    newest_pos = new_text.index("DEC-PM060-D1")
+
+    assert pointer_pos > decisions_pos, "pointer must come after ## Decisions"
+    assert newest_pos > pointer_pos, "kept entries must follow pointer"
+
+
+def test_apply_unfenced_log_scaffold_preserved(tmp_path: Path) -> None:
+    """Bare --apply on an over-cap decision-log with an unfenced entry-format
+    example must preserve all three ## section headers.
+
+    The scaffold-strip bug: an unfenced ### DEC-[ID]: example was mis-parsed as
+    Entry 0, causing ## Decisions to appear inside the kept block (mangled preamble,
+    pointer between ## Entry Format and ## Decisions). _fence_for_apply now fences
+    the example before parse_entries so the preamble is intact.
+
+    Non-vacuous assertions (item 2b): these fail WITHOUT the fence fix even on a
+    newest-first seed where ## Decisions stays 'visible' but in the wrong position.
+    """
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    # _decision_log_seed has an UNFENCED entry-format example (the S102 trigger).
+    log.write_text(_decision_log_seed(80), encoding="utf-8")
+
+    result = _run(
+        "--apply", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = log.read_text(encoding="utf-8")
+    assert "## How to Use" in new_text, "## How to Use stripped by --apply"
+    assert "## Entry Format" in new_text, "## Entry Format stripped by --apply"
+    assert "## Decisions" in new_text, "## Decisions stripped by --apply"
+
+    # Non-vacuous structural assertions (fail without _fence_for_apply):
+    # 1. Entry-format example must be fenced in the output.
+    ef_pos = new_text.index("## Entry Format")
+    decisions_pos = new_text.index("## Decisions")
+    ef_body = new_text[ef_pos:decisions_pos]
+    assert "```" in ef_body, "entry-format example must be fenced after --apply"
+    # 2. Pointer must NOT sit between ## Entry Format and ## Decisions.
+    pointer_pos = new_text.index(POINTER_MARKER)
+    assert not (
+        ef_pos < pointer_pos < decisions_pos
+    ), "pointer sits between ## Entry Format and ## Decisions — preamble mangled"
+
+    # ID conservation across live + shard.
+    before_ids = set(re.findall(r"DEC-PM\d+-D1", _decision_log_seed(80)))
+    shard_files = list((root / "tracking" / "archive").glob("decision-log-*.md"))
+    assert shard_files, "Expected a shard file after --apply"
+    after_text = new_text + shard_files[0].read_text(encoding="utf-8")
+    after_ids = set(re.findall(r"DEC-PM\d+-D1", after_text))
+    assert before_ids == after_ids, f"ID loss: {before_ids - after_ids}"
+
+
+# ---------------------------------------------------------------------------
+# auto-memory-index class: --check WARN semantics
+# ---------------------------------------------------------------------------
+
+
+def _production_memory_md(lines: int = 240) -> str:
+    """Return a production-size MEMORY.md exceeding the 200-line cap.
+
+    The first ~120 lines hold a dense session-notes section (log-shape violations),
+    the remaining lines simulate feedback pointer entries (already pointer format).
+    """
+    # Dense session notes section (log-shape violations).
+    dense_section = "## Active Project: Build Phase\n\n"
+    for i in range(1, 50):
+        # Each block is 3+ lines — clearly over _MEMORY_LOG_SHAPE_MAX_LINES.
+        dense_section += (
+            f"**Session {i:03d} notes**: completed tasks {i}-{i+2}.\n"
+            f"Key decisions: used option A for integration path {i}.\n"
+            f"Next: verify component {i} passes all acceptance tests.\n"
+            f"\n"
+        )
+
+    # Feedback section with pointer-format entries (conformant — no relocation).
+    feedback_section = "## Feedback\n\n"
+    for i in range(1, 40):
+        feedback_section += (
+            f"- [feedback-rule-{i:03d}](feedback_rule_{i:03d}.md) "
+            f"— always follow rule {i}\n"
+        )
+
+    # Next steps (short, conformant).
+    next_section = "\n## Next Steps\n\n- Reinstate after review\n"
+
+    full_text = (
+        "# AI Memory — Session Memory\n\n"
+        + dense_section
+        + feedback_section
+        + next_section
+    )
+    # Pad to exactly `lines` lines if under; return as-is if already long enough.
+    current = full_text.count("\n")
+    if current < lines:
+        full_text += "\n" * (lines - current)
+    return full_text
+
+
+def test_check_memory_md_over_cap_is_warn_not_fail(tmp_path: Path, monkeypatch) -> None:
+    """--check must exit 0 (PASS gate) even when MEMORY.md is over cap; the
+    over-cap condition is surfaced as a WARN line on stderr, not a gate failure.
+    """
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    md.write_text(_production_memory_md(240), encoding="utf-8")
+
+    root = _make_oversight(tmp_path)
+    monkeypatch.setenv("autoMemoryDirectory", str(memory_dir))
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, f"--check must exit 0; stderr: {result.stderr}"
+    assert "WARN" in result.stderr
+    assert "MEMORY.md" in result.stderr
+
+
+def test_check_memory_md_log_shape_warn(tmp_path: Path, monkeypatch) -> None:
+    """A MEMORY.md with multi-line log-style entries triggers a log-shape WARN
+    even when the file is under the line cap.
+    """
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    # Under 200 lines but has a multi-line paragraph block
+    dense_entry = (
+        "Dense session entry that is well over 200 characters total "
+        "and also spans multiple non-blank lines in the file.\n"
+        "Second line of the same block — this exceeds the 2-line index limit.\n"
+        "Third line — clearly violates the index-not-log constraint.\n"
+    )
+    md.write_text(f"# Index\n\n{dense_entry}\n", encoding="utf-8")
+
+    root = _make_oversight(tmp_path)
+    monkeypatch.setenv("autoMemoryDirectory", str(memory_dir))
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0
+    assert "WARN" in result.stderr
+    assert "index-not-log" in result.stderr
+
+
+def test_check_memory_md_hash3_dense_entry_warn(tmp_path: Path, monkeypatch) -> None:
+    """SHOULD #3: a ### Topic + dense-body block must trigger a log-shape WARN.
+
+    The dominant MEMORY.md shape has ### Topic headers with dense bodies; previously
+    the section_header_re skipped any ### -led block regardless of body size.
+    Only a lone ### header line (no body) should be treated as structural.
+    """
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    # Under cap (< 200 lines) but has a ### Topic + dense body (log-shape violation).
+    md.write_text(
+        "# Index\n\n"
+        "## Active Project\n\n"
+        "### Session notes\n"
+        "Completed Phase 1 tasks.\n"
+        "Key decision: use option A.\n"
+        "Next: verify integration passes.\n"
+        "\n",
+        encoding="utf-8",
+    )
+
+    root = _make_oversight(tmp_path)
+    monkeypatch.setenv("autoMemoryDirectory", str(memory_dir))
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, "--check must exit 0 (WARN not gate failure)"
+    assert "WARN" in result.stderr, "Expected WARN for ### -led dense entry"
+
+
+def test_check_memory_md_conformant_no_warn(tmp_path: Path, monkeypatch) -> None:
+    """A conformant MEMORY.md (under cap, all pointer lines) produces no WARN."""
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    # 10-line file, all one-line pointers
+    pointers = "".join(
+        f"- [Topic {i}](topic_{i}.md) — short hook for topic {i}\n" for i in range(10)
+    )
+    md.write_text(f"# Index\n\n## Feedback\n\n{pointers}", encoding="utf-8")
+
+    root = _make_oversight(tmp_path)
+    monkeypatch.setenv("autoMemoryDirectory", str(memory_dir))
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0
+    assert "WARN" not in result.stderr
+
+
+def test_entry_needs_relocation_pointer_skipped() -> None:
+    """A single-line pointer-format block must NOT be marked for relocation."""
+    pointer = "- [Title](feedback_something.md) — short hook\n"
+    assert _entry_needs_relocation(pointer) is False
+
+
+def test_entry_needs_relocation_dense_block() -> None:
+    """A multi-line dense block IS marked for relocation."""
+    dense = (
+        "Dense session note spanning many lines.\n"
+        "Second line here.\n"
+        "Third line makes it clearly over the limit.\n"
+    )
+    assert _entry_needs_relocation(dense) is True
+
+
+# ---------------------------------------------------------------------------
+# --fix-memory-md: lossless relocation with production-size fixture
+# ---------------------------------------------------------------------------
+
+
+def test_fix_memory_md_reduces_to_under_cap(tmp_path: Path) -> None:
+    """--fix-memory-md on a 240-line MEMORY.md must bring it under the 200-line cap."""
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    md.write_text(_production_memory_md(240), encoding="utf-8")
+    from datetime import datetime
+
+    now = datetime(2026, 6, 18)
+    rc = run_fix_memory_md(md, now)
+    assert rc == 0
+
+    new_lines, new_bytes = measure(md.read_text(encoding="utf-8"))
+    assert new_lines <= AUTO_MEMORY_CONTRACT.cap_lines or new_bytes <= int(
+        AUTO_MEMORY_CONTRACT.cap_kb * 1024
+    ), f"still over cap: {new_lines} lines / {new_bytes} bytes"
+
+
+def test_fix_memory_md_conservation(tmp_path: Path) -> None:
+    """Every content line present before --fix-memory-md is present in the
+    union of MEMORY.md + siblings after — zero lines lost.
+    """
+    import importlib.util as _ilu
+
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    original_text = _production_memory_md(240)
+    md.write_text(original_text, encoding="utf-8")
+
+    # Load conservation module directly to build before-set.
+    _cpath = _SCRIPT_PATH.parent / "conservation.py"
+    _cs = _ilu.spec_from_file_location("conservation_test", _cpath)
+    _cm = _ilu.module_from_spec(_cs)
+    _cs.loader.exec_module(_cm)
+
+    before_set = _cm.build_content_set(list(memory_dir.glob("*.md")))
+
+    from datetime import datetime
+
+    rc = run_fix_memory_md(md, datetime(2026, 6, 18))
+    assert rc == 0
+
+    after_set = _cm.build_content_set(list(memory_dir.glob("*.md")))
+    _cm.assert_no_content_loss(before_set, after_set)
+
+
+def test_fix_memory_md_idempotent(tmp_path: Path) -> None:
+    """Running --fix-memory-md a second time on an already-fixed MEMORY.md
+    must be a no-op: same file content, no extra siblings created.
+    """
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    md.write_text(_production_memory_md(240), encoding="utf-8")
+
+    from datetime import datetime
+
+    now1 = datetime(2026, 6, 18, 10, 0, 0)
+    now2 = datetime(2026, 6, 18, 10, 0, 1)
+
+    rc1 = run_fix_memory_md(md, now1)
+    assert rc1 == 0
+
+    text_after_first = md.read_text(encoding="utf-8")
+    siblings_after_first = set(memory_dir.glob("*.md")) - {md}
+
+    rc2 = run_fix_memory_md(md, now2)
+    assert rc2 == 0
+
+    text_after_second = md.read_text(encoding="utf-8")
+    siblings_after_second = set(memory_dir.glob("*.md")) - {md}
+
+    # No new siblings on second run (ignoring .bak files).
+    md_siblings_second = {p for p in siblings_after_second if p.suffix == ".md"}
+    md_siblings_first = {p for p in siblings_after_first if p.suffix == ".md"}
+    assert (
+        md_siblings_second == md_siblings_first
+    ), "Second run created unexpected new sibling files"
+    # MEMORY.md content unchanged.
+    assert text_after_second == text_after_first
+
+
+def test_fix_memory_md_sibling_collision_refused(tmp_path: Path) -> None:
+    """When a target sibling already exists with different content,
+    --fix-memory-md must refuse and leave MEMORY.md unmodified (MUST #2 / BP-038).
+    """
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    # Must be over the 200-line cap to trigger relocation.
+    md.write_text(_production_memory_md(240), encoding="utf-8")
+
+    # Pick the first dense block from _production_memory_md to pre-create the sibling.
+    entry_001 = (
+        "**Session 001 notes**: completed tasks 1-3.\n"
+        "Key decisions: used option A for integration path 1.\n"
+        "Next: verify component 1 passes all acceptance tests.\n"
+    )
+    sibling_name = _sibling_name_for("## Active Project: Build Phase", entry_001)
+    sibling = memory_dir / sibling_name
+    prior_content = "Totally different content that conflicts.\n"
+    sibling.write_text(prior_content, encoding="utf-8")
+
+    original_md = md.read_text(encoding="utf-8")
+
+    from datetime import datetime
+
+    rc = run_fix_memory_md(md, datetime(2026, 6, 18))
+    assert rc != 0, "Expected non-zero rc on sibling collision"
+    assert (
+        md.read_text(encoding="utf-8") == original_md
+    ), "MEMORY.md must be unchanged on collision"
+    assert (
+        sibling.read_text(encoding="utf-8") == prior_content
+    ), "Sibling must be unchanged"
+
+
+# ---------------------------------------------------------------------------
+# --fix: oversight files (decision log via --apply delegation)
+# ---------------------------------------------------------------------------
+
+
+def test_fix_decision_log_over_cap(tmp_path: Path) -> None:
+    """--fix on an over-cap decision log must bring it within cap and pass
+    a subsequent --check.
+    """
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    # 80 entries → well over the 150-line cap for decision-log.
+    log.write_text(_decision_log_seed(80), encoding="utf-8")
+
+    result = _run(
+        "--fix", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, f"--fix failed: {result.stderr}"
+    assert "conservation" in result.stdout
+
+    # After fix, --check must pass.
+    check = _run("--check", "--oversight-root", str(root))
+    assert check.returncode == 0, f"--check failed after --fix: {check.stderr}"
+
+
+def test_fix_already_within_cap_is_noop(tmp_path: Path) -> None:
+    """--fix on a within-cap file must exit 0 without touching the file."""
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    small = _decision_log_seed(5)
+    log.write_text(small, encoding="utf-8")
+
+    result = _run(
+        "--fix", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+    assert "already within cap" in result.stdout
+    # File unchanged
+    assert log.read_text(encoding="utf-8") == small
+
+
+def test_fix_creates_backup(tmp_path: Path) -> None:
+    """--fix must create a timestamped .bak backup before writing."""
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_decision_log_seed(80), encoding="utf-8")
+
+    result = _run(
+        "--fix", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    bak_files = list((root / "tracking").glob("decision-log.md.*.bak"))
+    assert len(bak_files) >= 1, "No backup file created by --fix"
+
+
+def test_apply_creates_backup(tmp_path: Path) -> None:
+    """--apply must create a timestamped .bak backup before rewriting (Fix #5)."""
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_decision_log_seed(80), encoding="utf-8")
+
+    result = _run(
+        "--apply", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    bak_files = list((root / "tracking").glob("decision-log.md.*.bak"))
+    assert len(bak_files) >= 1, "No backup file created by --apply"
+
+
+def test_fix_task_tracker_over_cap_routes_to_archive(tmp_path: Path) -> None:
+    """--fix on an over-cap non-rotatable register (task-tracker.md, rotatable=False)
+    must route to archive-whole-verbatim rather than refusing (Fix #7).
+    """
+    root = _make_oversight(tmp_path)
+    tracker = root / "tracking" / "task-tracker.md"
+    # 80 lines > 60-line cap; plain text (no front-matter — relies on FALLBACK_REGISTRY)
+    lines = "\n".join(
+        f"TASK-{i:03d}: task description number {i}" for i in range(1, 81)
+    )
+    tracker.write_text(lines + "\n", encoding="utf-8")
+
+    result = _run(
+        "--fix", str(tracker), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = tracker.read_text(encoding="utf-8")
+    assert (
+        POINTER_MARKER in new_text
+    ), "--fix on task-tracker must write the pointer marker"
+
+    archive_files = list(
+        (root / "tracking" / "archive").glob("task-tracker-ARCHIVE-*.md")
+    )
+    assert (
+        len(archive_files) == 1
+    ), "Expected exactly one archive shard for task-tracker"
+
+
+def test_fix_decision_log_unfenced_scaffold_preserved(tmp_path: Path) -> None:
+    """--fix on a decision-log with an unfenced entry-format example must preserve
+    all three ## section headers in the live file after rotation.
+
+    The scaffold-strip bug: the unfenced ``### DEC-[ID]:`` in ``## Entry Format``
+    was treated as an entry boundary so ``## Decisions`` rode inside Entry 0's
+    block and was stripped when that block was archived.  _ensure_conformance now
+    fences the example first so parse_entries ignores it.
+
+    Genuine regression guard (item 2b): a simple substring check is vacuous on
+    newest-first seeds because ``## Decisions`` rides inside the kept Entry 0 block
+    regardless of the fix. The extra assertions below fail WITHOUT the fence fix.
+    """
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_decision_log_seed(80), encoding="utf-8")
+
+    result = _run(
+        "--fix", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = log.read_text(encoding="utf-8")
+    assert "## How to Use" in new_text, "## How to Use stripped by --fix"
+    assert "## Entry Format" in new_text, "## Entry Format stripped by --fix"
+    assert "## Decisions" in new_text, "## Decisions stripped by --fix"
+
+    # Non-vacuous structural assertions (fail without the fence fix):
+    # 1. The entry-format example must be fenced after --fix.
+    ef_pos = new_text.index("## Entry Format")
+    decisions_pos = new_text.index("## Decisions")
+    ef_body = new_text[ef_pos:decisions_pos]
+    assert "```" in ef_body, "entry-format example must be fenced by --fix"
+    # 2. Pointer must NOT sit between ## Entry Format and ## Decisions — without
+    #    the fix the pointer lands between them (example rendered as Entry 0).
+    pointer_pos = new_text.index(POINTER_MARKER)
+    assert not (
+        ef_pos < pointer_pos < decisions_pos
+    ), "pointer sits between ## Entry Format and ## Decisions — preamble not rebuilt"
+
+
+def test_fix_section_cx1_refuse_on_existing_sibling(tmp_path: Path) -> None:
+    """CX-1 regression: a block whose target sibling exists with different content
+    must REFUSE (not silently treat the block as already relocated via substring match).
+
+    With the old substring check: block embedded as substring of sibling was silently
+    treated as 'already relocated' — block dropped from MEMORY.md without appearing
+    as a standalone entry in the sibling. The fix: exact paragraph equality check +
+    refuse on collision (MUST #2 / BP-038).
+    """
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+
+    cx1_entry = (
+        "**Session 001 notes**: completed tasks 1-3.\n"
+        "Key decisions: used option A for integration path 1.\n"
+        "Next: verify component 1 passes all acceptance tests.\n"
+    )
+    # Must be over the 200-line cap to trigger run_fix_memory_md's relocation pass.
+    md.write_text(_production_memory_md(240), encoding="utf-8")
+
+    sibling_name = _sibling_name_for("## Active Project: Build Phase", cx1_entry)
+    sibling = memory_dir / sibling_name
+    sibling.write_text(
+        "Embedded substring: **Session 001 notes**: completed tasks 1-3. more text.\n"
+        "Different paragraph with unrelated content.\n",
+        encoding="utf-8",
+    )
+
+    original_md = md.read_text(encoding="utf-8")
+    original_sib = sibling.read_text(encoding="utf-8")
+
+    from datetime import datetime
+
+    rc = run_fix_memory_md(md, datetime(2026, 6, 18))
+    assert rc != 0, "Expected non-zero rc on sibling collision (CX-1)"
+    assert md.read_text(encoding="utf-8") == original_md, "MEMORY.md must be unchanged"
+    assert (
+        sibling.read_text(encoding="utf-8") == original_sib
+    ), "Sibling must be unchanged"
+
+
+# ---------------------------------------------------------------------------
+# --fix-memory-md: log-shape trigger (under cap but log-shaped)
+# ---------------------------------------------------------------------------
+
+
+def test_fix_memory_md_log_shape_under_cap(tmp_path: Path) -> None:
+    """--fix-memory-md on an under-cap but log-shaped MEMORY.md must relocate
+    the log-shaped entries and produce a conformant index (BP-038 MAJOR-2).
+    """
+    from datetime import datetime
+
+    memory_dir = tmp_path / "memory"
+    memory_dir.mkdir()
+    md = memory_dir / "MEMORY.md"
+    # Under 200 lines but has a multi-line log-shape block.
+    log_block = (
+        "**Session 001 notes**: completed tasks 1-3.\n"
+        "Key decisions: used option A for integration path 1.\n"
+        "Next: verify component 1 passes all acceptance tests.\n"
+    )
+    text = (
+        "# AI Memory\n\n"
+        "## Active Project\n\n" + log_block + "\n"
+        "## Feedback\n\n"
+        "- [rule-001](feedback_rule_001.md) — short pointer hook\n"
+    )
+    md.write_text(text, encoding="utf-8")
+    # Confirm fixture is under cap but has a log-shape violation.
+    assert measure(text)[0] < AUTO_MEMORY_CONTRACT.cap_lines
+    assert _has_log_shape_violation(text)
+
+    rc = run_fix_memory_md(md, datetime(2026, 6, 18))
+    assert rc == 0
+
+    new_text = md.read_text(encoding="utf-8")
+    # Log-shape block must have been relocated out of MEMORY.md.
+    assert log_block.strip() not in new_text
+    # A sibling must contain the relocated block.
+    siblings = [p for p in memory_dir.glob("*.md") if p != md and p.suffix == ".md"]
+    assert any(
+        log_block.strip() in p.read_text(encoding="utf-8") for p in siblings
+    ), "log-shape block must appear in a sibling file after relocation"
+
+    # Idempotent: second run is a no-op (conformant → no change).
+    rc2 = run_fix_memory_md(md, datetime(2026, 6, 18, 10, 0, 1))
+    assert rc2 == 0
+    assert md.read_text(encoding="utf-8") == new_text
+
+
+# ---------------------------------------------------------------------------
+# --fix: heartbeat and live-index branches
+# ---------------------------------------------------------------------------
+
+
+def test_fix_heartbeat_refreshes_front_matter(tmp_path: Path) -> None:
+    """--fix on an over-cap heartbeat (project-status.md) refreshes the
+    template front-matter and brings the file under cap when the body fits
+    within the template FM budget.
+    """
+    root = _make_oversight(tmp_path)
+    ps = root / "project-status.md"
+    # Bloated front-matter (~25 lines) + 40-line body → over the 60-line cap.
+    # Template FM is ~12 lines; 12 + 40 = 52 lines, under cap after refresh.
+    bloated_fm = (
+        "---\n"
+        + "".join(f"# verbose-padding-{i}: filler\n" for i in range(20))
+        + "cap_lines: 60\ncap_kb: 6\nclass: heartbeat\nrotation_trigger: none\n---\n"
+    )
+    body = "# project-status.md\n\n" + "".join(f"field_{i}: value\n" for i in range(40))
+    ps.write_text(bloated_fm + body, encoding="utf-8")
+
+    before_lines, _ = measure(ps.read_text(encoding="utf-8"))
+    assert before_lines > 60  # confirm over cap
+
+    result = _run(
+        "--fix", str(ps), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    after_lines, _ = measure(ps.read_text(encoding="utf-8"))
+    assert after_lines <= 60, f"heartbeat still over cap after fix: {after_lines} lines"
+    # Body content preserved.
+    assert "field_0: value" in ps.read_text(encoding="utf-8")
+
+
+def test_fix_live_index_archives_whole(tmp_path: Path) -> None:
+    """--fix on an over-cap live-index (SESSION_WORK_INDEX.md) archives the whole
+    file verbatim and rewrites a lean index with a pointer.
+    """
+    root = _make_oversight(tmp_path)
+    swi = root / "SESSION_WORK_INDEX.md"
+    # 120 lines > 80-line cap for SESSION_WORK_INDEX.md.
+    body = "".join(
+        f"| session-{i:03d} | task-{i:03d} | did thing {i} | done |\n"
+        for i in range(120)
+    )
+    swi.write_text(body, encoding="utf-8")
+
+    result = _run(
+        "--fix", str(swi), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = swi.read_text(encoding="utf-8")
+    assert POINTER_MARKER in new_text, "--fix must write the pointer marker"
+
+    archive_files = list((root / "archive").glob("SESSION_WORK_INDEX-ARCHIVE-*.md"))
+    assert (
+        len(archive_files) == 1
+    ), f"Expected 1 archive shard, found {len(archive_files)}"
+    assert "session-001" in archive_files[0].read_text(encoding="utf-8")

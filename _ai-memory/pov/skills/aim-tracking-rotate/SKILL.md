@@ -1,6 +1,6 @@
 ---
 name: aim-tracking-rotate
-description: Enforce oversight-file caps at session-close and rotate over-cap append-only-logs and registers into dated archive shards while preserving chronology and an O(1) by-id manifest. The rotate companion to aim-tracking-freshness.
+description: Enforce oversight-file caps at session-close, rotate over-cap append-only-logs and registers into dated archive shards, and fix over-cap files non-interactively (including MEMORY.md lossless relocation).
 allowed-tools: Bash
 ---
 
@@ -29,37 +29,54 @@ id-H3 append-only log it was verified against:
 | `session-index/INDEX.md` | ⛔ refused → TD-655 | `### [Month YYYY]` H3 sections + Current-Year and Archive tables (mixed) |
 
 For a ⛔ file, `--apply` makes **no changes** and exits non-zero with a manual
-remedy; rotate it by hand (move resolved/oldest rows into its archive
-table/shard). Field-aware safe auto-rotation for table-under-severity registers
-and multi-table live-indexes is deferred to **TD-655**. The refusal is enforced
-by rel-path (`MANUAL_ROTATION_FILES`), so a future cap-contract seed cannot
-re-enable an unsafe `--apply`.
+remedy; run `python $SCRIPT --fix {file} --oversight-root {oversight_path}`
+(archive-whole-verbatim + lean index rewrite) or trim by hand. Field-aware safe
+auto-rotation for table-under-severity registers and multi-table live-indexes is
+deferred to **TD-655**. The refusal is enforced by relative path (the fixed set:
+`blockers-log.md`, `risk-register.md`, `SESSION_WORK_INDEX.md`,
+`session-index/INDEX.md`), so a future cap-contract seed cannot re-enable an
+unsafe `--apply`.
 
 ---
 
 ## Usage
 
 ```bash
+SCRIPT=~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py
+
 # Enforcement gate (session-close): exit non-zero if any governed file is over cap.
-python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
-  --check \
-  --oversight-root /path/to/oversight
+python $SCRIPT --check --oversight-root /path/to/oversight
 
 # Rotate an over-cap file's oldest entries into a dated archive shard:
-python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py \
-  --apply /path/to/oversight/tracking/decision-log.md \
-  --oversight-root /path/to/oversight
+python $SCRIPT --apply /path/to/oversight/tracking/decision-log.md \
+               --oversight-root /path/to/oversight
 
-# Oversight root can also come from the environment:
-AI_MEMORY_OVERSIGHT_ROOT=/path/to/oversight \
-  python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py --check
+# Fix a single over-cap file (conformance + cap-fix + conservation proof):
+python $SCRIPT --fix /path/to/oversight/tracking/decision-log.md \
+               --oversight-root /path/to/oversight
+
+# Fix all governed oversight files (MEMORY.md excluded by default):
+python $SCRIPT --fix-all --oversight-root /path/to/oversight
+
+# Fix all governed files AND MEMORY.md:
+python $SCRIPT --fix-all --include-memory-md --oversight-root /path/to/oversight
+
+# Fix MEMORY.md only (lossless relocation to sibling topic files):
+python $SCRIPT --fix-memory-md
 ```
 
-Optional flags: `--entry-pattern '<regex>'` (entry-boundary line; resolution
-order is this flag → the file's contract `entry_pattern` → the built-in
-id-prefixed H3 default `^### [A-Z]{2,4}-`), `--keep <N>` (force the number of
-newest entries kept live), `--period YYYY-MM` (archive period override for
-deterministic runs).
+Optional flags (all modes): `--period YYYY-MM` (archive period override for
+deterministic runs). `--apply` additionally accepts `--entry-pattern '<regex>'`
+and `--keep <N>`. `--include-memory-md` (with `--fix-all` only): also fix the
+auto-memory `MEMORY.md`; skipped by default with a NOTICE. Oversight root can
+also come from `$AI_MEMORY_OVERSIGHT_ROOT`.
+
+**MEMORY.md fix details**: when you need the full step-by-step procedure for
+MEMORY.md relocation or collision resolution, read:
+
+```bash
+cat "$(dirname "$SCRIPT")/../assets/memory_md_fix.md"
+```
 
 ---
 
@@ -78,10 +95,37 @@ deterministic runs).
   verify counts. An archived entry whose id already exists in the shard with **identical** content is treated as a safe replay and skipped (so an interrupted `--apply` can be re-run idempotently); if the id matches with **different** content, `--apply` refuses — exiting non-zero with the colliding id(s), leaving the live file and shard untouched — so a body is never silently overwritten or dropped. Heartbeat / thin-register files (`rotation_trigger: none`) are
   check-only, and the table-under-severity registers / multi-table live-indexes
   are deferred to TD-655 (see the support table above) — `--apply` refuses both
-  non-destructively.
+  non-destructively. For `append-only-log` files, `--apply` also fences any
+  unfenced `## Entry Format` example before parsing, preventing scaffold-strip
+  (additive-only; no change to archived content).
+
+- **`--fix <file>` / `--fix-all`** — non-interactive fix: (1) add D2 front-matter
+  if missing (template-sourced), (2) cap-fix by class (`--apply` for
+  append-only-log / rotatable registers; archive-whole-verbatim + lean index
+  rewrite for table-row registers and multi-table live-indexes (`blockers-log.md`,
+  `risk-register.md`, `SESSION_WORK_INDEX.md`, `session-index/INDEX.md`); template
+  front-matter refresh for heartbeats), (3) prove conservation (`lost == 0`).
+  Always backup-first; emits a plan + conservation report. `--fix-all` iterates
+  over all governed oversight files; pass `--include-memory-md` to also fix
+  MEMORY.md (default: NOTICE + skip).
+
+- **`--fix-memory-md`** — lossless relocation for the Claude Code auto-memory
+  `MEMORY.md` (class `auto-memory-index`, cap 200 lines / 25 KB
+  whichever-comes-first). Triggers when MEMORY.md is over cap OR contains
+  log-shape violations (any entry > 2 non-blank lines or > 200 chars); a
+  compliant MEMORY.md triggers no changes. Moves over-long entries to sibling
+  topic files in the same `memory/` directory, leaves one-line
+  `- [Title](sibling.md) — hook` pointers. Proves conservation across the full union (`MEMORY.md ∪ memory/*.md`).
+  Does **not** use cold dated shards — sibling files stay hot and on-demand.
+  For the full procedure and collision resolution steps, read `assets/memory_md_fix.md`.
+
+- **`--check` MEMORY.md** — the cap check for `auto-memory-index` is a **WARN,
+  not a gate failure**. If MEMORY.md is over cap or has log-shape violations, the
+  check emits `WARN:` lines to stderr but still exits 0.
 
 Contract source of truth: `PARZIVAL-OVERSIGHT-SOT.md` §14 (caps) and BP-167
-Part C (rotation lifecycle). Caps are byte **and** line — either breach fails.
+Part C (rotation lifecycle). **Caps are byte and line — either breach triggers a
+violation** (the oversight classes; for `auto-memory-index` whichever-comes-first).
 
 ---
 
