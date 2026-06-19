@@ -22,13 +22,20 @@ the signals are computed shadow-only otherwise. Tests target the pure decision
 surfaces the tier-2 hook consumes, on production-size fixtures.
 """
 
+import importlib.util
+import io
+import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from memory.chunking.truncation import count_tokens
+from memory.config import COLLECTION_DISCUSSIONS
 from memory.injection import (
+    InjectionSessionState,
+    RouteTarget,
     compute_adaptive_budget,
     compute_relevance_signals,
     select_results_greedy,
@@ -73,7 +80,7 @@ def _budget_config(**overrides):
         injection_density_weight=0.3,
         injection_drift_weight=0.2,
         injection_absolute_gate_enabled=True,
-        injection_absolute_floor=0.78,
+        injection_absolute_floor=CALIBRATED_FLOOR,
         injection_drift_suppressor_threshold=0.5,
     )
     for k, v in overrides.items():
@@ -276,6 +283,26 @@ class TestFreshnessGate:
         assert sig["top_age_days"] is None
         assert sig["freshness_pass"] is True
 
+    def test_freshness_keys_off_max_raw_not_banded_top1(self):
+        """PM #344 F3 reference-point consistency: freshness must gate the SAME
+        item the floor/margin selected (highest-raw), not the banded results[0].
+        Here the banded top-1 is stale but low-raw, while the fresh above-floor
+        item is the real injection candidate — it must NOT be suppressed by the
+        unrelated stale banded top-1's age."""
+        cfg = _gate_config(floor=0.78, max_age_days=45)
+        # Banded order (caller-sorted): top-1 stale+low-raw, top-2 fresh+high-raw.
+        results = [
+            _result(0.95, 0.50, age_days=400),  # banded top-1: stale, below floor
+            _result(0.90, 0.88, age_days=5),  # highest raw: fresh, above floor
+        ]
+        sig = compute_relevance_signals(results, cfg, now=_now())
+        assert sig["best_raw"] == 0.88
+        # Age comes from the highest-raw reference item (5d), not banded top-1 (400d).
+        assert sig["top_age_days"] == pytest.approx(5.0, abs=0.01)
+        assert sig["floor_pass"] is True
+        assert sig["freshness_pass"] is True
+        assert sig["would_inject"] is True
+
 
 # ---------------------------------------------------------------------------
 # F-3 (Q3): drift is a suppressor, not a budget amplifier
@@ -345,6 +372,57 @@ class TestDriftSuppressor:
             config=cfg_off,
         )
         assert gated == legacy
+
+    def test_defer_turn_passes_none_and_does_not_suppress_drift(self):
+        """PM #344 fix 1(b): on the code-patterns defer route every raw_score is
+        0.0, so has_dense_signal is False and the hook passes best_raw_score=None.
+        With None the drift suppressor never fires — the budget matches the legacy
+        (gate-off) budget, NOT the suppressed budget the old best_raw=0.0 wiring
+        produced (which zeroed drift → ~181 fewer tokens, violating DEC-PM343-D8's
+        'code-patterns route = no behavior change')."""
+        gate_cfg = _gate_config()  # calibrated floor 0.76
+        code_results = [
+            _result(b, 0.0, type_="implementation", collection="code-patterns")
+            for b in (0.95, 0.90)
+        ]
+        sig = compute_relevance_signals(code_results, gate_cfg, now=_now())
+        assert sig["has_dense_signal"] is False
+
+        # Replicate the hook wiring: best_raw_score is None on the defer route.
+        best_raw_arg = sig["best_raw"] if sig["has_dense_signal"] else None
+        assert best_raw_arg is None
+
+        bcfg = _budget_config(
+            injection_absolute_gate_enabled=True, injection_absolute_floor=0.76
+        )
+        drift = {"topic_drift": 1.0}
+        budget_results = [{"score": 0.95}]
+        deferred = compute_adaptive_budget(
+            best_score=0.95,
+            results=budget_results,
+            session_state=drift,
+            config=bcfg,
+            best_raw_score=best_raw_arg,
+        )
+        legacy = compute_adaptive_budget(
+            best_score=0.95,
+            results=budget_results,
+            session_state=drift,
+            config=_budget_config(injection_absolute_gate_enabled=False),
+            best_raw_score=None,
+        )
+        assert deferred == legacy
+
+        # Counterfactual: the OLD wiring (best_raw=0.0 < floor) would have zeroed
+        # drift and shrunk the budget. Prove the fix avoids that regression.
+        old_wiring = compute_adaptive_budget(
+            best_score=0.95,
+            results=budget_results,
+            session_state=drift,
+            config=bcfg,
+            best_raw_score=0.0,
+        )
+        assert old_wiring < deferred
 
 
 # ---------------------------------------------------------------------------
@@ -559,3 +637,230 @@ class TestBug302RejectTimeRemaining:
         dedup = [r for r in meta["rejects"] if r["reason"] == "dedup"]
         assert dedup
         assert "remaining" not in dedup[0]
+
+
+# ---------------------------------------------------------------------------
+# Hook-level gate ordering — additive-only invariant + BUG-302 marker render
+# ---------------------------------------------------------------------------
+# These tests drive the real tier-2 hook main() over mocked I/O boundaries
+# (config / qdrant / search results / routing) so the genuine gate-ordering and
+# marker-render code paths are exercised end-to-end, not just the pure decision
+# surfaces. F-5 (additive-only) and F-4 (BUG-302 marker) are about hook behavior,
+# so they are asserted at the hook, not only at the data layer.
+
+_HOOK_PATH = (
+    Path(__file__).resolve().parents[1]
+    / ".claude"
+    / "hooks"
+    / "scripts"
+    / "context_injection_tier2.py"
+)
+
+
+@pytest.fixture(scope="module")
+def hook_module():
+    spec = importlib.util.spec_from_file_location("ci_tier2_under_test", _HOOK_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _FakeSearch:
+    """Stand-in for MemorySearch: returns a fixed result set, no live store."""
+
+    def __init__(self, results):
+        self._results = results
+        self.embedding_client = SimpleNamespace(embed=lambda prompts: [[0.1] * 768])
+
+    def search(self, **kwargs):
+        return [dict(r) for r in self._results]
+
+    def close(self):
+        pass
+
+
+def _run_hook(
+    mod,
+    monkeypatch,
+    capsys,
+    tmp_path,
+    *,
+    results,
+    gate_enabled,
+    session_id,
+    budget_floor=500,
+    budget_ceiling=1500,
+    prompt="tell me about the tier-2 relevance gate decision",
+):
+    """Invoke the hook main() with mocked boundaries; return additionalContext."""
+    cfg = SimpleNamespace(
+        injection_enabled=True,
+        injection_absolute_gate_enabled=gate_enabled,
+        injection_absolute_floor=0.76,
+        injection_margin_min=0.0,
+        injection_freshness_max_age_days=0,
+        injection_drift_suppressor_threshold=0.5,
+        injection_hard_floor=0.30,
+        injection_threshold_conventions=0.6,
+        injection_threshold_code_patterns=0.6,
+        injection_threshold_discussions=0.6,
+        injection_confidence_threshold=0.6,
+        max_retrievals=10,
+        injection_score_gap_threshold=0.7,
+        injection_budget_floor=budget_floor,
+        injection_budget_ceiling=budget_ceiling,
+        injection_quality_weight=0.5,
+        injection_density_weight=0.3,
+        injection_drift_weight=0.2,
+        audit_dir=tmp_path,
+        get_freshness_penalty=lambda fs: 1.0,
+    )
+    monkeypatch.setattr(mod, "get_config", lambda: cfg)
+    monkeypatch.setattr(mod, "get_qdrant_client", lambda c: object())
+    monkeypatch.setattr(mod, "check_qdrant_health", lambda c: True)
+    monkeypatch.setattr(mod, "resolve_project_id", lambda cwd: "proj")
+    monkeypatch.setattr(mod, "MemorySearch", lambda c: _FakeSearch(results))
+    monkeypatch.setattr(
+        mod, "route_collections", lambda p: [RouteTarget(COLLECTION_DISCUSSIONS)]
+    )
+    monkeypatch.setattr(mod, "emit_trace_event", None, raising=False)
+    monkeypatch.setattr(mod, "push_hook_metrics_async", lambda **k: None, raising=False)
+
+    # Deterministic reruns: clear any persisted cross-turn injection state.
+    state_path = InjectionSessionState._state_path(session_id)
+    if state_path.exists():
+        state_path.unlink()
+
+    stdin_payload = json.dumps(
+        {"prompt": prompt, "session_id": session_id, "cwd": str(tmp_path)}
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin_payload))
+
+    rc = mod.main()
+    assert rc == 0
+    out = capsys.readouterr().out
+    payload = json.loads(out)
+    return payload["hookSpecificOutput"]["additionalContext"]
+
+
+class TestAdditiveOnlyInvariant:
+    """F-5: the absolute gate can only ADD a skip — never force an injection the
+    banded gate would have skipped, and never apply when shadow-only (disabled)."""
+
+    def test_banded_skip_suppresses_regardless_of_would_inject(
+        self, hook_module, monkeypatch, capsys, tmp_path
+    ):
+        # Banded best 0.20 < hard_floor 0.30 → hard_skip BEFORE the absolute gate.
+        # raw 0.86 would make would_inject True, but the banded gate already skips.
+        results = [_result(0.20, 0.86)]
+        ctx = _run_hook(
+            hook_module,
+            monkeypatch,
+            capsys,
+            tmp_path,
+            results=results,
+            gate_enabled=True,
+            session_id="pm344-additive-bandedskip",
+        )
+        assert ctx == ""
+
+    def test_gate_enabled_would_inject_false_suppresses(
+        self, hook_module, monkeypatch, capsys, tmp_path
+    ):
+        # Banded best 0.95 → full gate (banded would inject), but raw 0.50 < floor
+        # 0.76 → would_inject False → the absolute gate ADDS a skip.
+        results = [_result(0.95, 0.50)]
+        ctx = _run_hook(
+            hook_module,
+            monkeypatch,
+            capsys,
+            tmp_path,
+            results=results,
+            gate_enabled=True,
+            session_id="pm344-additive-relskip",
+        )
+        assert ctx == ""
+
+    def test_shadow_mode_would_inject_false_still_injects(
+        self, hook_module, monkeypatch, capsys, tmp_path
+    ):
+        # Same below-floor signal, but gate DISABLED (shadow) → injection proceeds.
+        results = [_result(0.95, 0.50)]
+        ctx = _run_hook(
+            hook_module,
+            monkeypatch,
+            capsys,
+            tmp_path,
+            results=results,
+            gate_enabled=False,
+            session_id="pm344-additive-shadow",
+        )
+        assert "<retrieved_context>" in ctx
+
+
+class TestBug302MarkerRender:
+    """F-4: assert the operator-visible tier-2 fallback marker f-string itself —
+    carrying the BUG-302 reject-time `remaining` — not just the reject record."""
+
+    def test_marker_renders_reject_time_remaining(
+        self, hook_module, monkeypatch, capsys, tmp_path
+    ):
+        big_content = "word " * 60  # loads first
+        handoff_content = "word " * 40  # rejected (doesn't fit)
+        small_content = "word " * 6  # loads AFTER the reject
+
+        t_big = count_tokens(big_content)
+        t_handoff = count_tokens(handoff_content)
+        t_small = count_tokens(small_content)
+        # Budget fits big + small but NOT big + handoff (handoff is the larger one).
+        budget = t_big + t_small + 1
+        assert t_handoff > t_small + 1  # precondition: handoff truly rejected
+
+        # raw 0.86 (> floor 0.76) so the absolute gate passes; banded scores stay
+        # within the score-gap window (0.85/0.95 = 0.89 > 0.7).
+        results = [
+            {
+                "id": "big",
+                "content": big_content,
+                "score": 0.95,
+                "raw_score": 0.86,
+                "type": "session",
+                "collection": "discussions",
+            },
+            {
+                "id": "h",
+                "content": handoff_content,
+                "score": 0.90,
+                "raw_score": 0.86,
+                "type": "agent_handoff",
+                "collection": "discussions",
+            },
+            {
+                "id": "small",
+                "content": small_content,
+                "score": 0.85,
+                "raw_score": 0.86,
+                "type": "decision",
+                "collection": "discussions",
+            },
+        ]
+        ctx = _run_hook(
+            hook_module,
+            monkeypatch,
+            capsys,
+            tmp_path,
+            results=results,
+            gate_enabled=True,
+            session_id="pm344-bug302-marker",
+            budget_floor=budget,
+            budget_ceiling=budget,
+        )
+
+        reject_time_remaining = budget - t_big  # free budget when handoff evaluated
+        assert "tier-2 fallback" in ctx
+        assert f"tokens={t_handoff}" in ctx
+        assert f"remaining={reject_time_remaining}" in ctx
+        assert f"budget={budget}" in ctx
+        # Marker precedes the injected context and is self-evident (tokens > remaining).
+        assert ctx.index("tier-2 fallback") < ctx.index("<retrieved_context>")
+        assert t_handoff > reject_time_remaining

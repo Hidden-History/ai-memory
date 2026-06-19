@@ -797,9 +797,10 @@ class TestDecayPath:
         assert len(build_decay_called) == 1
 
         # query_points was called with prefetch kwarg. BUG-319: the decay path
-        # now also fires a trailing plain-dense raw-cosine query (no prefetch) to
-        # populate raw_score, so locate the decay call among all calls rather than
-        # assuming it is the last one.
+        # fires a trailing plain-dense raw-cosine query (no prefetch) only when
+        # attach_raw_cosine=True (opt-in, Tier-2 gate). This call omits it, but
+        # locate the decay (prefetch) call among all calls rather than assuming it
+        # is the last one to stay robust either way.
         prefetch_calls = [
             c
             for c in mock_qdrant_client.query_points.call_args_list
