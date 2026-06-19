@@ -193,6 +193,47 @@ class TestAttachRawCosine:
         )
         assert memories[0]["raw_score"] == 0.0
 
+    def test_hybrid_gate_calls_query_points_exactly_once(self):
+        """With attach_raw_cosine=True on a hybrid path the if-gate fires and
+        query_points is called exactly once for the raw-cosine side channel."""
+        from unittest.mock import MagicMock
+
+        s = self._search()
+        mock_client = MagicMock()
+        mock_client.query_points.return_value = SimpleNamespace(points=[])
+        s.client = mock_client
+
+        s._attach_raw_cosine(
+            [{"id": "a", "score": 0.95}],
+            search_mode="hybrid_rrf_decay",
+            collection="discussions",
+            query_embedding=[0.1] * 768,
+            query_filter=None,
+            search_params=None,
+        )
+        assert mock_client.query_points.call_count == 1
+
+    def test_dense_path_does_not_call_query_points(self):
+        """With attach_raw_cosine=False the gate does not fire; even if
+        _attach_raw_cosine were invoked on the dense path, query_points is
+        never called — the banded score is copied directly, no extra round-trip."""
+        from unittest.mock import MagicMock
+
+        s = self._search()
+        mock_client = MagicMock()
+        mock_client.query_points.return_value = SimpleNamespace(points=[])
+        s.client = mock_client
+
+        s._attach_raw_cosine(
+            [{"id": "a", "score": 0.95}],
+            search_mode="dense",
+            collection="discussions",
+            query_embedding=[0.1] * 768,
+            query_filter=None,
+            search_params=None,
+        )
+        assert mock_client.query_points.call_count == 0
+
 
 # ---------------------------------------------------------------------------
 # F-1 (Q2): compute_relevance_signals — floor + margin discrimination
@@ -538,6 +579,22 @@ class TestProductionSizeDiscrimination:
         assert sig["best_raw"] == 0.0
         assert sig["has_dense_signal"] is False
         assert sig["floor_pass"] is True  # deferred, not skipped
+        assert sig["would_inject"] is True
+
+    def test_defer_short_circuits_margin_and_freshness_with_nonzero_margin_min(self):
+        """Opus-F1 scenario: with injection_margin_min=0.05 AND a code-patterns
+        defer set (all raw_score==0.0 → has_dense_signal False), the short-circuit
+        forces margin_pass=True and freshness_pass=True so a non-zero margin
+        threshold cannot silently suppress every deferred injection."""
+        cfg = _gate_config(margin_min=0.05)
+        results = [
+            _result(b, 0.0, type_="implementation", collection="code-patterns")
+            for b in (0.95, 0.90, 0.85)
+        ]
+        sig = compute_relevance_signals(results, cfg, now=_now())
+        assert sig["has_dense_signal"] is False
+        assert sig["margin_pass"] is True
+        assert sig["freshness_pass"] is True
         assert sig["would_inject"] is True
 
 

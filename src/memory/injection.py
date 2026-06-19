@@ -1059,7 +1059,7 @@ def select_results_greedy(
         nonlocal fallback_signaled
         result_type = result.get("type", "unknown")
         collection_label = result.get("collection", "unknown") or "unknown"
-        # BUG-302 field semantics (BP-158 amendment pending — see oversight):
+        # BUG-302 field semantics — budget=TOTAL, surface remaining (BP-158 §3.5 / DEC-PM334-D2):
         #   budget    = total token budget for this tier's injection (constant)
         #   tokens    = token size of THIS rejected candidate (result_tokens)
         #   remaining = budget tokens still free at the instant this candidate was
