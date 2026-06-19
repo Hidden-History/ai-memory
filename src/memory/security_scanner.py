@@ -322,17 +322,34 @@ _TECHNICAL_PROPER_NOUNS = frozenset(
         "black",
         "isort",
         "parzival",
+        "kafka",
+        "jenkins",
+        "cassandra",
+        "watson",
+        "maven",
+        "pinecone",
+        "splunk",
+        "datadog",
+        "webpack",
+        "ansible",
+        "pandas",
+        "numpy",
+        "terraform",
+        "tesla",
     }
 )
 
 # Personal-data context cues. A NAME candidate is treated as genuine PII only
 # when one of these is ADJACENT to it (the word immediately before or after the
-# candidate — see _has_pii_context). H-A: the set is curated to HIGH-PRECISION
-# cues only. Code-ubiquitous words (name, client, manager, person, customer,
+# candidate — see _has_pii_context). The set is curated to HIGH-PRECISION cues
+# only. Code-ubiquitous words (name, client, manager, person, customer,
 # employee, called, met, …) are deliberately EXCLUDED — they mis-fired on
 # technical content ("Kafka client", "Grafana manager") and re-admitted the
-# BUG-320 corruption. M-C: gerund/inflected forms of the retained verb families
-# (contact/call/meet/message/reach/phone) are included.
+# BUG-320 corruption.
+#
+# Strong cues mask regardless of candidate shape: honorifics, correspondence /
+# sign-off cues, and contact-info label nouns are rarely adjacent to a lone
+# capitalized technical token.
 _PII_CONTEXT_TRIGGERS = frozenset(
     {
         # honorifics
@@ -354,21 +371,34 @@ _PII_CONTEXT_TRIGGERS = frozenset(
         "phone",
         "tel",
         "email",
-        # contact/communication verb families + inflected forms (M-C)
+    }
+)
+
+# High-ambiguity communication-verb cues. These double as common verbs/nouns in
+# technical prose ("contacting the service", "calling the API", "reaching the
+# broker"), so on their own they over-mask adjacent single-token technical names
+# that SpaCy mis-tags PERSON (BUG-320). They mask ONLY when the candidate is a
+# multi-token name (e.g. "John Smith") — a lone capitalized technical token
+# ("Kafka", "Watson", "Cassandra") never matches. This is the BP-174 Q5 /
+# DEC-PM343-D5 precision-first tradeoff: under-masking a bare "call Bob" is the
+# accepted cost of never corrupting technical content (off-write-path recall
+# recovery is deferred to TD-661). The bare noun/verb forms that collide with
+# multi-token names too ("call"/"meet"/"meeting"/"reach"/"message") are dropped
+# entirely; only the unambiguous gerund/inflected forms are retained. "from"
+# covers "From:" reply headers (GitHub/Jira threads) without firing on Python
+# "from x import" (single-token, lowercase, not PERSON-tagged).
+_PII_CONTEXT_VERB_TRIGGERS = frozenset(
+    {
         "contact",
         "contacted",
         "contacting",
-        "call",
         "calling",
-        "meet",
-        "meeting",
-        "message",
         "messaging",
-        "reach",
         "reaching",
         "phoned",
         "phoning",
         "emailed",
+        "from",
     }
 )
 
@@ -392,6 +422,12 @@ def _line_containing(content: str, start: int, end: int) -> str:
 # "--- John Smith wrote:" is NOT treated as structural.
 _GIT_DIFF_FILE_HEADER = re.compile(r"^[+-]{3} [ab]/")
 
+# Git unified-diff "index <old>..<new> <mode>" metadata line. Anchored to the
+# blob-sha "<hex>..<hex>" form so a prose line that merely starts with "index "
+# ("index 42: contact John Smith about this") is NOT treated as structural and
+# can still be decided by PII context.
+_GIT_INDEX_LINE = re.compile(r"^index [0-9a-f]{4,}\.\.[0-9a-f]{4,}")
+
 
 def _is_structural_line(
     content: str, start: int, end: int, *, for_name: bool = False
@@ -409,7 +445,9 @@ def _is_structural_line(
     stripped = line.lstrip()
     if stripped.startswith("@@"):  # diff hunk header, e.g. "@@ -205,7 +205,9 @@"
         return True
-    if stripped.startswith(("diff --git", "index ")):
+    if stripped.startswith("diff --git"):
+        return True
+    if _GIT_INDEX_LINE.match(stripped):
         return True
     if _GIT_DIFF_FILE_HEADER.match(stripped):
         return True
@@ -440,16 +478,28 @@ def _is_allcaps_token(text: str) -> bool:
     return t.isupper() and len(t) > 1
 
 
-def _has_pii_context(content: str, start: int, end: int) -> bool:
+def _has_pii_context(content: str, start: int, end: int, candidate: str) -> bool:
     """True if a personal-data cue is ADJACENT to the candidate span — the word
     immediately before it (honorific/verb) or immediately after it (e.g. a
     "wrote"/sign-off cue). Adjacency is far higher precision than the previous
-    40-char window, which mis-fired on incidental nearby words (H-A)."""
+    40-char window, which mis-fired on incidental nearby words (H-A).
+
+    A strong cue (_PII_CONTEXT_TRIGGERS) masks any candidate. A high-ambiguity
+    communication-verb cue (_PII_CONTEXT_VERB_TRIGGERS) masks only when the
+    candidate is a multi-token name ("John Smith"), so a lone technical token
+    next to "calling"/"contacting"/"reaching" is never corrupted (BUG-320)."""
     before = re.findall(r"[A-Za-z]+", content[:start])
     after = re.findall(r"[A-Za-z]+", content[end:])
     preceding = before[-1].lower() if before else ""
     following = after[0].lower() if after else ""
-    return preceding in _PII_CONTEXT_TRIGGERS or following in _PII_CONTEXT_TRIGGERS
+    if preceding in _PII_CONTEXT_TRIGGERS or following in _PII_CONTEXT_TRIGGERS:
+        return True
+    if (
+        preceding in _PII_CONTEXT_VERB_TRIGGERS
+        or following in _PII_CONTEXT_VERB_TRIGGERS
+    ):
+        return len(candidate.split()) >= 2
+    return False
 
 
 def _should_mask_low_precision_pii(content: str, finding: "ScanFinding") -> bool:
@@ -473,7 +523,7 @@ def _should_mask_low_precision_pii(content: str, finding: "ScanFinding") -> bool
             return False
         # M-A: ALLCAPS is a weak signal — it vetoes only when no PII context is
         # present, so "contact JOHN SMITH urgently" still masks.
-        has_context = _has_pii_context(content, finding.start, finding.end)
+        has_context = _has_pii_context(content, finding.start, finding.end, text)
         if _is_allcaps_token(text) and not has_context:
             return False
         return has_context

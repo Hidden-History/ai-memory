@@ -1282,12 +1282,13 @@ class TestNameHandlePrecisionGate:
             ), f"{span!r} must not mask via dropped cue: {content!r}"
 
     def test_m_c_inflected_cues_mask(self):
-        """M-C: gerund/inflected forms of retained verb families mask a name."""
+        """M-C: gerund/inflected forms of retained verb families mask a multi-token
+        name. (The bare "meeting"/"call" forms were dropped — they collide with
+        common nouns in technical prose; see test_verb_cue_noun_collision_*.)"""
         from memory.security_scanner import _should_mask_low_precision_pii
 
         for content in (
             "contacting John Smith tomorrow",
-            "meeting Jordan Lee at noon",
             "reaching Jordan Lee by phone",
         ):
             span = "John Smith" if "John Smith" in content else "Jordan Lee"
@@ -1295,6 +1296,100 @@ class TestNameHandlePrecisionGate:
                 _should_mask_low_precision_pii(content, _name_finding(content, span))
                 is True
             ), f"inflected cue should mask: {content!r}"
+
+    def test_verb_cue_single_token_tech_not_masked(self):
+        """BUG-320 (cycle-2 F-1): a retained communication-verb cue next to a lone
+        technical token (non-allow-listed) must NOT mask — the multi-token
+        discriminator keeps single-token tech names unmasked."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        for content, span in (
+            ("contacting Watson for the model", "Watson"),
+            ("reaching Cassandra for the keyspace", "Cassandra"),
+            ("we call Kafka asynchronously", "Kafka"),
+            ("meet Jenkins at the build stage", "Jenkins"),
+        ):
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, span))
+                is False
+            ), f"verb cue + single-token tech must not mask: {content!r}"
+
+    def test_verb_cue_noun_collision_not_masked(self):
+        """BUG-320 (cycle-2): the dropped bare noun/verb cues
+        ("meeting"/"call"/"meet"/"reach") no longer mask an adjacent name in
+        attribution prose (standup notes, handoff logs)."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        for content, span in (
+            ("The standup meeting Jordan Lee attended", "Jordan Lee"),
+            ("weekly meeting John Smith scheduled", "John Smith"),
+            ("The function call John Smith registered", "John Smith"),
+            ("On the call John Smith made a point", "John Smith"),
+        ):
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, span))
+                is False
+            ), f"dropped noun cue must not mask: {content!r}"
+
+    def test_real_pii_still_masks_after_curation(self):
+        """The curation keeps genuine PII masked: "contact" + multi-token name."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        content = "Please contact John Smith about the issue"
+        assert (
+            _should_mask_low_precision_pii(
+                content, _name_finding(content, "John Smith")
+            )
+            is True
+        )
+
+    def test_allowlist_wins_over_pii_context(self):
+        """L-C (cycle-2 F-3): an allow-listed token is never masked even with an
+        adjacent PII cue."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        for content, span in (
+            ("contact Claude about the incident", "Claude"),
+            ("Dear Parzival, regards", "Parzival"),
+        ):
+            assert (
+                _should_mask_low_precision_pii(content, _name_finding(content, span))
+                is False
+            ), f"allow-listed token must win over PII context: {content!r}"
+
+    def test_from_reply_header_masks_name(self):
+        """cycle-2 F-4: "From:" reply headers (GitHub/Jira threads) mask a
+        multi-token name without firing on Python "from x import"."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        masks = "From: John Smith wrote the summary"
+        assert (
+            _should_mask_low_precision_pii(masks, _name_finding(masks, "John Smith"))
+            is True
+        )
+        no_mask = "from memory import SecurityScanner"
+        assert (
+            _should_mask_low_precision_pii(no_mask, _name_finding(no_mask, "memory"))
+            is False
+        )
+
+    def test_index_prose_line_masks_name(self):
+        """cycle-2 F-2: a non-git "index " prose line no longer exempts a name with
+        adjacent PII context, while a real git index line stays structural."""
+        from memory.security_scanner import _should_mask_low_precision_pii
+
+        prose = "index 42: contact John Smith about this"
+        assert (
+            _should_mask_low_precision_pii(prose, _name_finding(prose, "John Smith"))
+            is True
+        )
+        git_line = "index abc123..def456 100644 Jordan Lee"
+        assert (
+            _should_mask_low_precision_pii(
+                git_line, _name_finding(git_line, "Jordan Lee")
+            )
+            is False
+        )
 
     def test_m_a_allcaps_name_with_context_is_masked(self):
         """M-A: an ALLCAPS name no longer vetoes masking when PII context present."""
@@ -1488,6 +1583,33 @@ class TestNamePrecisionEndToEnd:
 
         assert result.action == ScanAction.BLOCKED
         assert result.content == ""
+
+    def test_verb_cue_over_masking_eliminated_end_to_end(self):
+        """cycle-2 F-1/F-4: verb-cue + tech-token and noun-collision attribution
+        prose stay UN-masked through the full scan() pipeline, while genuine PII
+        with a verb cue still masks."""
+        from memory.security_scanner import ScanAction, SecurityScanner
+
+        scanner = SecurityScanner(enable_ner=True)
+        for content in (
+            "we call Kafka asynchronously",
+            "contacting Watson for the model",
+            "meet Jenkins at the build stage",
+            "reaching Cassandra for the keyspace",
+            "The standup meeting Jordan Lee attended",
+            "weekly meeting John Smith scheduled",
+            "The function call John Smith registered",
+            "On the call John Smith made a point",
+        ):
+            result = scanner.scan(content)
+            assert "[NAME_REDACTED]" not in result.content, content
+            assert result.content == content, content
+            assert result.action == ScanAction.PASSED, content
+
+        masked = scanner.scan("Please contact John Smith about the issue")
+        assert masked.action == ScanAction.MASKED
+        assert "[NAME_REDACTED]" in masked.content
+        assert "John Smith" not in masked.content
 
 
 class TestHandleStructuralExclusion:
