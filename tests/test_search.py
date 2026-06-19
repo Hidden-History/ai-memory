@@ -796,10 +796,17 @@ class TestDecayPath:
         # build_decay_formula was called
         assert len(build_decay_called) == 1
 
-        # query_points was called with prefetch kwarg
-        call_kwargs = mock_qdrant_client.query_points.call_args.kwargs
-        assert "prefetch" in call_kwargs
-        assert call_kwargs["prefetch"] is not None
+        # query_points was called with prefetch kwarg. BUG-319: the decay path
+        # fires a trailing plain-dense raw-cosine query (no prefetch) only when
+        # attach_raw_cosine=True (opt-in, Tier-2 gate). This call omits it, but
+        # locate the decay (prefetch) call among all calls rather than assuming it
+        # is the last one to stay robust either way.
+        prefetch_calls = [
+            c
+            for c in mock_qdrant_client.query_points.call_args_list
+            if c.kwargs.get("prefetch") is not None
+        ]
+        assert prefetch_calls, "decay path must issue a prefetch+FormulaQuery call"
 
 
 class TestMustNotTypesFilter:
