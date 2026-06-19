@@ -11,7 +11,7 @@ The hook's consumption path is driven over mocked I/O boundaries (config / qdran
 client / search results / routing) so the genuine route → search → freshness →
 gate → ``select_results_greedy(score_gap_threshold=config.injection_score_gap_threshold)``
 → ``format_injection_output`` → ``additionalContext`` chain runs end-to-end. The
-fixtures are production-shaped (multi-hundred-token handoff/decision/session bodies),
+fixtures are production-shaped (~150-token handoff/decision/session bodies),
 not toy 1-line strings, so the assertions reflect real injected context.
 
 Coverage:
@@ -43,6 +43,9 @@ from memory.injection import InjectionSessionState, RouteTarget
 KEEP_TOP = "ZZKEEPTOPZZ"
 KEEP_MID = "ZZKEEPMIDZZ"
 GAP_DROP = "ZZGAPDROPZZ"
+# Discriminating candidate: kept by the RELATIVE filter at 0.7 but dropped by a
+# flat-threshold regression — see TestScoreGapLiveSkillPath and _result_set().
+BAND_KEEP = "ZZBANDKEEPZZ"
 
 _HOOK_PATH = (
     Path(__file__).resolve().parents[1]
@@ -88,7 +91,7 @@ class _FakeSearch:
 
 
 def _prod_body(marker: str, topic: str) -> str:
-    """A realistic-size (~200-300 token) discussions-class body carrying a marker.
+    """A realistic-size (~150-token) discussions-class body carrying a marker.
 
     Mirrors the shape of a stored agent_handoff / decision: a lead sentence, the
     marker, then several clauses of project prose — far larger than a toy fixture
@@ -112,10 +115,19 @@ def _prod_body(marker: str, topic: str) -> str:
 def _result_set():
     """best_score (highest semantic <1.0) = 0.95 → keep cutoff = 0.95 * threshold.
 
-    - KEEP_TOP  score 0.95  ratio 1.000  → always kept
-    - KEEP_MID  score 0.72  ratio 0.758  → kept at 0.7 (above cutoff 0.665)
-    - GAP_DROP  score 0.62  ratio 0.653  → dropped at 0.7 (below 0.665),
-                                           kept at 0.6 (above 0.57)
+    - KEEP_TOP   score 0.95  ratio 1.000  → always kept
+    - KEEP_MID   score 0.72  ratio 0.758  → kept at 0.7 (above cutoff 0.665)
+    - BAND_KEEP  score 0.68  ratio 0.716  → kept at 0.7 under the RELATIVE filter
+                                            (0.68 >= 0.95*0.7 = 0.665) but DROPPED
+                                            by a flat-0.7 regression (0.68 < 0.70).
+                                            This is the only candidate whose
+                                            keep/drop outcome differs between the
+                                            relative (best_score * threshold) and a
+                                            flat (threshold) filter, so it is what
+                                            pins the relative multiplier the test
+                                            documents.
+    - GAP_DROP   score 0.62  ratio 0.653  → dropped at 0.7 (below 0.665),
+                                            kept at 0.6 (above 0.57)
     raw_score 0.88 (> floor 0.76) on all so the BUG-319 absolute gate passes and
     injection proceeds; score-gap is the only thing that can drop GAP_DROP.
     """
@@ -134,6 +146,14 @@ def _result_set():
             "score": 0.72,
             "raw_score": 0.88,
             "type": "agent_handoff",
+            "collection": COLLECTION_DISCUSSIONS,
+        },
+        {
+            "id": "band-keep",
+            "content": _prod_body(BAND_KEEP, "relative-vs-flat discriminating band"),
+            "score": 0.68,
+            "raw_score": 0.88,
+            "type": "decision",
             "collection": COLLECTION_DISCUSSIONS,
         },
         {
@@ -203,11 +223,20 @@ def _run_hook(
     )
     monkeypatch.setattr("sys.stdin", io.StringIO(stdin_payload))
 
-    rc = mod.main()
-    assert rc == 0
-    out = capsys.readouterr().out
-    payload = json.loads(out)
-    return payload["hookSpecificOutput"]["additionalContext"]
+    try:
+        rc = mod.main()
+        # main() returns 0 by graceful-degradation design even when nothing is
+        # injected, so rc is non-discriminating; the content/audit assertions in
+        # each test are the real guard. Kept only as a smoke check that main()
+        # completed without raising.
+        assert rc == 0
+        out = capsys.readouterr().out
+        payload = json.loads(out)
+        return payload["hookSpecificOutput"]["additionalContext"]
+    finally:
+        # Clean the persisted session-state file at END too (not just at start),
+        # so reruns and any later test sharing this session id start clean.
+        state_path.unlink(missing_ok=True)
 
 
 def _audit_rejects(tmp_path):
@@ -238,12 +267,24 @@ class TestScoreGapLiveSkillPath:
         assert "<retrieved_context>" in ctx  # injection proceeded
         assert KEEP_TOP in ctx
         assert KEEP_MID in ctx
+        # The band candidate (score 0.68, ratio 0.716) is KEPT by the relative
+        # filter (0.68 >= 0.95*0.7 = 0.665). A regression that swapped the
+        # relative cutoff for a flat one (result_score < threshold) would drop it
+        # (0.68 < 0.70) and this assertion would fail — this is what actually pins
+        # the relative multiplier rather than a flat threshold.
+        assert BAND_KEEP in ctx
         assert GAP_DROP not in ctx  # dropped by the score-gap filter
 
         rejects = _audit_rejects(tmp_path)
         gap = [r for r in rejects if r["reason"] == "score_gap"]
         assert gap, "the dropped candidate must be recorded as a score_gap reject"
-        assert any(r["type"] == "session" for r in gap)
+        # Precise attribution: the sole score_gap reject is the GAP_DROP candidate.
+        # The reject record the live path writes carries no id field, so it is
+        # identified by its unique (type, score) signature — type "session" and
+        # score 0.62 belong only to the "gap-drop" candidate in _result_set().
+        assert len(gap) == 1
+        assert gap[0]["type"] == "session"
+        assert gap[0]["score"] == 0.62
 
     def test_live_path_consumes_configured_threshold(
         self, hook_module, monkeypatch, capsys, tmp_path
@@ -265,6 +306,7 @@ class TestScoreGapLiveSkillPath:
         assert "<retrieved_context>" in ctx
         assert KEEP_TOP in ctx
         assert KEEP_MID in ctx
+        assert BAND_KEEP in ctx  # well above the lowered cutoff → kept
         assert GAP_DROP in ctx  # now above the lowered cutoff → kept
 
         rejects = _audit_rejects(tmp_path)
