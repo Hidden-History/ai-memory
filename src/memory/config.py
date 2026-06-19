@@ -801,6 +801,14 @@ class MemoryConfig(BaseSettings):
         description="Weight for topic drift signal in adaptive budget computation",
     )
 
+    # PLAN-028 P2-2 Phase B (PM #346): 0.7 confirmed empirically against the
+    # representative testV2 injection histogram (PM #345 assessment) via a
+    # live-path boundary-band sample. The 0.60-0.665 relative band (drops just
+    # below the keep cutoff) is predominantly noise/redundant/tangential with
+    # zero unique carriers of useful context — every on-topic item already lands
+    # in the kept set. On/off-topic discrimination is handled upstream by the
+    # BUG-319 absolute-relevance gate (`compute_relevance_signals`), so this
+    # filter performs only relative tail-trimming; no value change warranted.
     injection_score_gap_threshold: float = Field(
         default=0.7,
         ge=0.5,
