@@ -212,6 +212,7 @@ class MemorySearch:
         _access_count_dedup: (
             list[str] | None
         ) = None,  # H-3: Cross-turn dedup list (mutated in-place)
+        attach_raw_cosine: bool = False,  # BUG-319: opt-in raw-cosine channel (tier-2 gate only)
     ) -> list[dict]:
         """Search for relevant memories using semantic similarity with project scoping.
 
@@ -241,6 +242,11 @@ class MemorySearch:
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
             source: Optional namespace filter (e.g., "github"). When set to "github",
                    also applies is_current=True filter to exclude superseded points (BP-074).
+            attach_raw_cosine: When True, attach an absolute raw-cosine ``raw_score``
+                   to each result (BUG-319). Only the Tier-2 injection relevance gate
+                   consumes raw_score; it defaults to False so every other caller
+                   (aim-search, Tier-1, programmatic) avoids the extra dense query
+                   the hybrid/decay path would otherwise fire per search.
 
         Returns:
             List of memory dicts with score, id, and all payload fields.
@@ -675,15 +681,18 @@ class MemorySearch:
         # BUG-319 / BP-174 Q1: attach an absolute raw-cosine signal alongside the
         # (possibly banded) ordering score so the injection relevance gate can
         # discriminate on-topic from same-domain-off-topic. raw_score never feeds
-        # ordering — only the gate.
-        self._attach_raw_cosine(
-            memories,
-            search_mode=_search_mode,
-            collection=collection,
-            query_embedding=query_embedding,
-            query_filter=query_filter,
-            search_params=search_params,
-        )
+        # ordering — only the gate. Opt-in (default off): only the Tier-2 hook sets
+        # attach_raw_cosine=True, so other callers don't pay the extra dense query
+        # the hybrid/decay path fires here.
+        if attach_raw_cosine:
+            self._attach_raw_cosine(
+                memories,
+                search_mode=_search_mode,
+                collection=collection,
+                query_embedding=query_embedding,
+                query_filter=query_filter,
+                search_params=search_params,
+            )
 
         # Tag results with search mode for downstream observability
         for m in memories:

@@ -750,57 +750,83 @@ def compute_relevance_signals(
     same-domain-off-topic in a single-domain store where the banded top-1 is
     pinned near 0.95 regardless of true similarity.
 
+    Reference point (PM #344 F3): the floor, margin, AND freshness signals all key
+    off ONE reference item — the highest-raw candidate across the set. Previously
+    the floor/margin used max-raw while freshness used the banded ``results[0]``,
+    which could be a different item (an unrelated stale banded-top-1 could suppress
+    a fresh, on-topic, above-floor candidate). Max-raw is the calibration-faithful
+    reference (the live sweep keyed the floor on the top dense-cosine item) and
+    keeps union routes dominated by the discussions signal (calibration.md §5).
+
     Returns a dict:
       - ``best_raw``: highest raw_score across results (0.0 if none)
       - ``second_raw``: second-highest raw_score (0.0 if < 2 results)
       - ``margin``: ``best_raw - second_raw`` (scale-free top-1/top-2 gap, Q2)
-      - ``top_age_days``: age of the top-ranked (banded) result, or None
-      - ``has_dense_signal``: ``best_raw > 0.0`` — False when no top result has a
-        dense neighbor (the floor is then deferred; BUG-319 calibration)
+      - ``top_age_days``: age of the highest-raw reference item, or None
+      - ``has_dense_signal``: ``best_raw > 0.0`` — False when no result has a dense
+        neighbor (the gate then fully defers to the banded gate; BUG-319 calibration)
       - ``floor_pass``: ``best_raw >= injection_absolute_floor`` (Q2 floor); True
-        when there is no dense signal (defer to banded gate), False when there are
-        no results at all
+        when there is no dense signal (defer), False when there are no results
       - ``margin_pass``: ``margin >= injection_margin_min``; True for a lone result
-      - ``freshness_pass``: top item within ``injection_freshness_max_age_days``;
-        True when the cap is disabled or the age is unknown (Q4)
-      - ``would_inject``: ``floor_pass and margin_pass and freshness_pass``
+        and True on the defer path
+      - ``freshness_pass``: reference item within ``injection_freshness_max_age_days``;
+        True when the cap is disabled, the age is unknown, or on the defer path (Q4)
+      - ``would_inject``: ``floor_pass and margin_pass and freshness_pass``. On the
+        defer path all three are forced True, so the banded gate alone decides.
 
     Pure and side-effect-free: the signals are computed regardless of whether the
     gate is enabled, so the tier-2 hook can emit them shadow-only before the flip.
     """
-    raw_scores = sorted(
-        (float(r.get("raw_score", 0.0) or 0.0) for r in results),
+    # Rank by raw_score desc, preserving item identity so the floor, margin, AND
+    # freshness signals all key off ONE reference item — the highest-raw candidate
+    # (PM #344 F3 reference-point consistency).
+    ranked = sorted(
+        results,
+        key=lambda r: float(r.get("raw_score", 0.0) or 0.0),
         reverse=True,
     )
-    best_raw = raw_scores[0] if raw_scores else 0.0
-    second_raw = raw_scores[1] if len(raw_scores) > 1 else 0.0
+    best_raw = float(ranked[0].get("raw_score", 0.0) or 0.0) if ranked else 0.0
+    second_raw = (
+        float(ranked[1].get("raw_score", 0.0) or 0.0) if len(ranked) > 1 else 0.0
+    )
     margin = best_raw - second_raw
 
-    # Top item is results[0] — the caller sorts by (penalized) banded score desc.
-    top_age_days = _result_age_days(results[0], now=now) if results else None
+    # Freshness keys off the SAME highest-raw reference item the floor/margin
+    # selected — not the banded results[0], which may be a different item.
+    reference_item = ranked[0] if ranked else None
+    top_age_days = _result_age_days(reference_item, now=now) if reference_item else None
 
-    # BUG-319 calibration (DEC-PM343-D7): the absolute floor is only meaningful
-    # when the top results have a real dense-cosine neighbor. On routes whose
-    # banded ranking is driven entirely by sparse/colbert/decay — so no top result
-    # appears in the dense neighborhood and best_raw collapses to 0.0 (empirically
-    # the code-patterns route, whose post-filter dense space is near-orthogonal to
-    # natural-language queries in this single-domain store; also any
-    # _attach_raw_cosine failure) — the dense floor cannot judge relevance, so it
-    # must NOT add a skip. Defer to the banded 4-tier gate (the degrade-gracefully
-    # intent documented on search.py _attach_raw_cosine). A genuinely empty result
-    # set still fails the floor: there is nothing to inject.
+    # has_dense_signal conflates "no dense neighbor" with a genuine ~0.0 off-topic
+    # cosine (PM #344 F7); acceptable here because real off-topic clusters sit at
+    # ~0.65-0.75, not 0.0, so a true 0.0 means "absent from the dense top-K".
     has_dense_signal = best_raw > 0.0
-    if not raw_scores:
+    if not ranked:
+        # Empty result set: nothing to inject — fail the floor (and the gate).
         floor_pass = False
+        margin_pass = True
+        freshness_pass = True
     elif not has_dense_signal:
+        # BUG-319 calibration (DEC-PM343-D7) + PM #344 F1: on routes whose banded
+        # ranking is driven entirely by sparse/colbert/decay — so no result appears
+        # in the dense neighborhood and best_raw collapses to 0.0 (empirically the
+        # code-patterns route, whose post-filter dense space is near-orthogonal to
+        # natural-language queries in this single-domain store; also any
+        # _attach_raw_cosine failure) — the dense floor cannot judge relevance.
+        # FULLY defer to the banded 4-tier gate: short-circuit floor, margin AND
+        # freshness, not just the floor. Deferring only the floor would let a
+        # multi-domain injection_margin_min > 0 (margin is 0.0 on the all-zero-raw
+        # defer set) or a freshness cap silently suppress every deferred injection —
+        # the regression this guard exists to prevent.
         floor_pass = True
+        margin_pass = True
+        freshness_pass = True
     else:
         floor_pass = best_raw >= config.injection_absolute_floor
-    margin_pass = (len(raw_scores) < 2) or (margin >= config.injection_margin_min)
-    if config.injection_freshness_max_age_days > 0 and top_age_days is not None:
-        freshness_pass = top_age_days <= config.injection_freshness_max_age_days
-    else:
-        freshness_pass = True
+        margin_pass = (len(ranked) < 2) or (margin >= config.injection_margin_min)
+        if config.injection_freshness_max_age_days > 0 and top_age_days is not None:
+            freshness_pass = top_age_days <= config.injection_freshness_max_age_days
+        else:
+            freshness_pass = True
 
     return {
         "best_raw": round(best_raw, 4),
@@ -1033,7 +1059,7 @@ def select_results_greedy(
         nonlocal fallback_signaled
         result_type = result.get("type", "unknown")
         collection_label = result.get("collection", "unknown") or "unknown"
-        # BUG-302 field semantics (BP-158 amendment pending — see oversight):
+        # BUG-302 field semantics — budget=TOTAL, surface remaining (BP-158 §3.5 / DEC-PM334-D2):
         #   budget    = total token budget for this tier's injection (constant)
         #   tokens    = token size of THIS rejected candidate (result_tokens)
         #   remaining = budget tokens still free at the instant this candidate was
