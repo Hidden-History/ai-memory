@@ -54,6 +54,16 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH="/app/src"
 
+# BUG-324 (footprint): shrink anon-RSS under concurrent inference. glibc spawns up to
+# 8×nproc malloc arenas, each fragmenting independently — the prime suspect for the
+# observed anon-rss overshoot past the container cap. MALLOC_ARENA_MAX=2 is the single
+# biggest easy win against that fragmentation. OMP_NUM_THREADS bounds OpenMP-governed
+# pools (BLAS, any OpenMP-built ONNX kernels), trading per-request throughput for a
+# lower, more predictable peak — acceptable since "process slowly" is the explicit goal.
+# Conservative image defaults; overridable via the compose env block / soak sizing.
+ENV MALLOC_ARENA_MAX=2 \
+    OMP_NUM_THREADS=2
+
 # Install only runtime dependencies (curl for compose healthcheck)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \

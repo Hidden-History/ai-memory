@@ -120,6 +120,12 @@ services:
       - EMBEDDING_ACQUIRE_TIMEOUT=${EMBEDDING_ACQUIRE_TIMEOUT:-30}
       - EMBEDDING_MAX_BATCH_TEXTS=${EMBEDDING_MAX_BATCH_TEXTS:-256}
       - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-1000000}
+      # BUG-324 (footprint): shrink anon-RSS under concurrent inference. MALLOC_ARENA_MAX
+      # caps glibc malloc arenas (fragmentation is the prime suspect for the >cap anon-rss
+      # overshoot); OMP_NUM_THREADS bounds OpenMP thread pools. Conservative defaults
+      # (also baked into the image); tune under the sizing soak.
+      - MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2}
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
       # Set fastembed cache to persistent volume location
       - FASTEMBED_CACHE_PATH=/home/embedding/.cache/fastembed
     restart: unless-stopped
