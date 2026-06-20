@@ -15,7 +15,6 @@ SPEC-010: Dual Embedding Routing - Both models loaded at startup for immediate a
 import asyncio
 import logging
 import os
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, suppress
@@ -25,25 +24,12 @@ from fastembed import LateInteractionTextEmbedding, SparseTextEmbedding, TextEmb
 from prometheus_client import REGISTRY, Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
 
-# Add project root to path for metrics import
-sys.path.insert(0, "/app/src")
-
-# Import metrics to register them with prometheus_client (AC 6.1.2)
-try:
-    from memory.metrics import embedding_duration_seconds, embedding_requests_total
-
-    metrics_available = True
-except ImportError:
-    logger = logging.getLogger("ai_memory.embedding")
-    logger.warning(
-        "metrics_import_failed",
-        extra={
-            "error_details": "Could not import memory.metrics module - metrics may be unavailable"
-        },
-    )
-    metrics_available = False
-    embedding_requests_total = None
-    embedding_duration_seconds = None
+# TD-694: the service emits its own metrics directly (see the embedding_* collectors
+# below) and never used the client-side aimemory_embedding_* counters, so importing
+# memory.metrics here was dead code. Worse, `from memory.metrics import ...` triggered
+# the heavy memory package __init__ (which pulls storage/search/qdrant — none installed
+# in this slim image), so it always raised and logged a spurious metrics_import_failed
+# WARNING at startup. Removed: no import, no warning, no behaviour change.
 
 # Model configuration with backward-compatible fallback chain (SPEC-010 Section 3.2)
 MODEL_NAMES = {
@@ -699,6 +685,13 @@ async def health():
     token while blocked on the inference semaphore, which would otherwise starve the
     healthcheck. This handler does only trivial in-memory work, so running it on the
     loop is safe.
+
+    TD-553 (don't restart a draining service): readiness is tied to ``model_loaded``,
+    NOT to load or memory pressure. Under the AIMD drain mode (effective concurrency
+    collapsed toward 1) the models stay loaded, so this returns 200 "healthy" — a
+    pressured-but-functioning service is never marked unhealthy and is not restarted.
+    Because the handler runs on the loop and does no inference, it stays responsive
+    within the healthcheck timeout even when every inference slot is occupied.
     """
     model_loaded = all(m is not None for m in MODEL_REGISTRY.values())
     response = HealthResponse(
