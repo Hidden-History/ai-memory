@@ -419,6 +419,8 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
     """
     if not request.texts:
         raise HTTPException(status_code=400, detail="No texts provided")
+    # Only texts[0] is used as the document; this count check is a conservative
+    # oversized-payload guard — the char-length check below is the operative limit.
     _enforce_payload_limits(request.texts)
 
     document = request.texts[0]

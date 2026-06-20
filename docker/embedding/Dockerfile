@@ -89,4 +89,4 @@ EXPOSE 8080
 # memory-pressure exit. Resilience is provided instead by in-app concurrency bounding
 # (EMBEDDING_MAX_CONCURRENCY) + per-request fault isolation in main.py, with Docker's
 # `restart: unless-stopped` as the process supervisor.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
