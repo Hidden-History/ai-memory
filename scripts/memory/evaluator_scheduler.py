@@ -119,7 +119,7 @@ def _register_langfuse_shutdown() -> None:
         is_langfuse_enabled = None  # type: ignore[assignment]
     if is_langfuse_enabled is not None and not is_langfuse_enabled():
         return
-
+    # Intentionally fail-open: ImportError sets is_langfuse_enabled=None, so registration still proceeds; DEC-PM350-D5.
     atexit.register(_langfuse_shutdown)
 
 

@@ -125,7 +125,7 @@ def _register_langfuse_shutdown():
     try:
         from memory.langfuse_config import is_langfuse_enabled
     except ImportError:
-        return  # memory.langfuse_config not available
+        return  # Intentionally fail-closed: ImportError skips atexit registration entirely; DEC-PM350-D5.
     if not is_langfuse_enabled():
         return
 

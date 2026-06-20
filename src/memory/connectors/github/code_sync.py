@@ -11,6 +11,7 @@ import ast
 import asyncio
 import atexit
 import base64
+import contextlib
 import logging
 import os
 import threading
@@ -102,6 +103,7 @@ def _bounded_langfuse_flush():
     """
     if _langfuse_get_client is None:
         return
+    # Intentionally fail-open: _langfuse_enabled=None (ImportError) does not skip the flush; DEC-PM350-D5.
     if _langfuse_enabled is not None and not _langfuse_enabled():
         return
 
@@ -115,7 +117,8 @@ def _bounded_langfuse_flush():
 
     worker = threading.Thread(target=_drain, name="langfuse-flush", daemon=True)
     worker.start()
-    worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
+    with contextlib.suppress(Exception):
+        worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
 
 
 if _langfuse_get_client is not None and (

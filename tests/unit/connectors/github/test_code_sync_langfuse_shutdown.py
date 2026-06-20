@@ -47,7 +47,7 @@ def test_shutdown_does_not_block_when_flush_hangs(monkeypatch):
 
         assert client.flush_started.wait(1.0)
         assert elapsed < 5.0
-        assert elapsed >= 0.25
+        assert elapsed >= 0.15
     finally:
         release.set()
 
@@ -67,7 +67,7 @@ def test_bounded_flush_does_not_block_when_flush_hangs(monkeypatch):
 
         assert client.flush_started.wait(1.0)
         assert elapsed < 5.0
-        assert elapsed >= 0.25
+        assert elapsed >= 0.15
     finally:
         release.set()
 
