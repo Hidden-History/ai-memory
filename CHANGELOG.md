@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Jira connector at-exit Langfuse drain no longer wedges process teardown** — the `atexit`-registered shutdown hook in the Jira sync connector now bounds its `flush()`/`shutdown()` with an external watchdog (the V4 SDK's `flush()`/`shutdown()` take no timeout and block on the worker queue join when a backend is reachable but slow to drain), and skips the drain and its registration entirely when Langfuse is disabled at the app level. Local unit suites with a reachable Langfuse no longer appear to hang after the final test.
+
 ## [2.7.0] - 2026-06-16
 
 ### Upgrade Instructions
