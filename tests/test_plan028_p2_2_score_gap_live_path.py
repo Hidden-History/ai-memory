@@ -248,7 +248,7 @@ def _audit_rejects(tmp_path):
 
 
 class TestScoreGapLiveSkillPath:
-    def test_band_candidate_dropped_from_injected_context_at_default_threshold(
+    def test_tail_candidate_dropped_relative_band_kept_at_default_threshold(
         self, hook_module, monkeypatch, capsys, tmp_path
     ):
         """At the 0.7 default the near-boundary candidate (ratio 0.653) is absent
