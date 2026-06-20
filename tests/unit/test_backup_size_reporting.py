@@ -64,30 +64,56 @@ class TestFormatSize:
 class TestSizeReportingLabel:
     """TD-688: per-collection line and summary use unambiguous snapshot-size labels."""
 
-    def test_per_collection_line_says_snapshot_file(self, capsys):
-        """Output line for each collection must include 'snapshot file' label."""
-        mod = _load_backup_module()
-        # Simulate the per-collection print used in main()
-        records = 18
-        size_bytes = 1_433_600_000  # ~1367 MB — the inflated figure from TD-688
-
-        GREEN = mod.GREEN
-        RESET = mod.RESET
-        print(
-            f"    {GREEN}✓{RESET} {records} records, "
-            f"snapshot file: {mod.format_size(size_bytes)} on disk"
+    def _mock_main(self, mod, monkeypatch, tmp_path, size_bytes):
+        """Patch all I/O helpers in *mod* and run main(), returning captured stdout."""
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "backup_qdrant.py",
+                "--output",
+                str(tmp_path),
+                "--collection",
+                "discussions",
+            ],
         )
+        mock_httpx = MagicMock()
+        mock_httpx.get.return_value.status_code = 200
+        monkeypatch.setattr(mod, "httpx", mock_httpx)
+        monkeypatch.setattr(
+            mod, "get_collection_info", lambda c: {"points_count": 18, "schema": None}
+        )
+        monkeypatch.setattr(
+            mod, "check_disk_space", lambda bd, es: (True, 10 * 1024 * 1024 * 1024)
+        )
+        monkeypatch.setattr(mod, "create_snapshot", lambda c: f"{c}_snap")
+        monkeypatch.setattr(
+            mod, "download_snapshot", lambda c, s, o, retries=0: size_bytes
+        )
+        monkeypatch.setattr(mod, "delete_server_snapshot", lambda c, s: True)
+        monkeypatch.setattr(mod, "backup_config_files", lambda bd: [])
+        monkeypatch.setattr(mod, "create_manifest", lambda *a, **kw: None)
+        monkeypatch.setattr(
+            mod, "write_checksums", lambda bd: tmp_path / "CHECKSUMS.sha256"
+        )
+        return mod.main()
+
+    def test_per_collection_line_says_snapshot_file(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        """main() per-collection output must include 'snapshot file' and 'on disk' labels."""
+        mod = _load_backup_module()
+        rc = self._mock_main(mod, monkeypatch, tmp_path, size_bytes=1_433_600_000)
+        assert rc == 0
         out = capsys.readouterr().out
         assert "snapshot file" in out
         assert "on disk" in out
-        # Must not use ambiguous bare size label
         assert "snapshot created" not in out
 
-    def test_summary_line_says_total_snapshot_size(self, capsys):
-        """Summary total must say 'Total snapshot size', not bare 'Total size'."""
+    def test_summary_line_says_total_snapshot_size(self, monkeypatch, capsys, tmp_path):
+        """main() summary line must say 'Total snapshot size'."""
         mod = _load_backup_module()
-        total_size = 2_867_200_000  # ~2734 MB
-
-        print(f"  Total snapshot size: {mod.format_size(total_size)}")
+        rc = self._mock_main(mod, monkeypatch, tmp_path, size_bytes=2_867_200_000)
+        assert rc == 0
         out = capsys.readouterr().out
         assert "Total snapshot size" in out

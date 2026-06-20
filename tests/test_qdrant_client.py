@@ -330,6 +330,27 @@ class TestQdrantClient:
             call_kwargs = MockQdrantClient.call_args.kwargs
             assert call_kwargs.get("check_compatibility") is False
 
+    def test_check_compatibility_disabled_on_http_fallback(self):
+        """TD-683: check_compatibility=False is set on the HTTP fallback client too."""
+        calls_kwargs = []
+        grpc_client = Mock()
+        grpc_client.get_collections.side_effect = RuntimeError(
+            "gRPC connection refused"
+        )
+
+        def side_effect(**kwargs):
+            calls_kwargs.append(dict(kwargs))
+            return grpc_client if kwargs.get("prefer_grpc") else Mock()
+
+        with patch("src.memory.qdrant_client.QdrantClient", side_effect=side_effect):
+            config = MemoryConfig()
+            get_qdrant_client(config)
+
+        assert len(calls_kwargs) == 2
+        # Both the gRPC attempt and the HTTP fallback must suppress the compat warning
+        assert calls_kwargs[0].get("check_compatibility") is False  # gRPC path
+        assert calls_kwargs[1].get("check_compatibility") is False  # HTTP fallback
+
     def test_module_has_all_exports(self):
         """AC 1.4.3: Module exports required functions."""
         from src.memory import qdrant_client as qc_module

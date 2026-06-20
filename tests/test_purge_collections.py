@@ -357,11 +357,20 @@ class TestBug317DatetimeRange:
     """
 
     def test_dry_run_no_crash_with_iso_cutoff(self, monkeypatch, capsys):
-        """(a) Dry-run returns exit 0 with a real ISO cutoff string — no ValidationError."""
+        """(a) Dry-run returns exit 0 with a real ISO cutoff string — no ValidationError.
+
+        Uses the REAL DatetimeRange so the filter construction is genuine and would
+        raise a ValidationError if the old buggy Range was still in place.
+        """
+        from qdrant_client.models import DatetimeRange as RealDatetimeRange
+
         mock_client = MagicMock()
         mock_client.scroll.return_value = ([], None)
 
         mod = _load_module(monkeypatch, mock_client)
+        # Replace the fake no-op DatetimeRange with the real one so the dry-run
+        # path genuinely constructs the real filter (proves BUG-317 is fixed).
+        mod.DatetimeRange = RealDatetimeRange
         monkeypatch.setattr(
             sys, "argv", ["purge_collections.py", "--older-than", "30d"]
         )
