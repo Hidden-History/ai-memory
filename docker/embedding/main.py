@@ -55,6 +55,14 @@ MODEL_NAMES = {
 VECTOR_DIMENSIONS = int(os.getenv("VECTOR_DIMENSIONS", "768"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
+# BUG-324 (footprint): bound the onnxruntime intra-op thread pool. On a non-OpenMP
+# onnxruntime build OMP_NUM_THREADS does NOT cap intra-op parallelism (it defaults to
+# all cores), so fastembed's threads= is the effective lever. Fewer threads => smaller
+# per-request peak and less CPU contention on the shared low-RAM host, trading
+# throughput for survivability ("process slowly"). Conservative default; tune under the
+# soak.
+EMBEDDING_INFERENCE_THREADS = int(os.getenv("EMBEDDING_INFERENCE_THREADS", "2"))
+
 # TD-670 / BUG-324: Bound concurrent model inference with a single service-global gate.
 # FastAPI ran the sync handlers in the anyio threadpool (~40 threads), so without a real
 # limit many concurrent embed requests drove the shared ONNX models in parallel, each
@@ -286,7 +294,7 @@ def load_models():
     en_name = MODEL_NAMES["en"]
     logger.info("model_loading", extra={"model": en_name, "key": "en"})
     start_load = time.time()
-    MODEL_REGISTRY["en"] = TextEmbedding(en_name)
+    MODEL_REGISTRY["en"] = TextEmbedding(en_name, threads=EMBEDDING_INFERENCE_THREADS)
     load_duration = time.time() - start_load
     logger.info(
         "model_loaded",
@@ -302,7 +310,9 @@ def load_models():
     try:
         logger.info("model_loading", extra={"model": code_name, "key": "code"})
         start_load = time.time()
-        MODEL_REGISTRY["code"] = TextEmbedding(code_name)
+        MODEL_REGISTRY["code"] = TextEmbedding(
+            code_name, threads=EMBEDDING_INFERENCE_THREADS
+        )
         load_duration = time.time() - start_load
         logger.info(
             "model_loaded",
@@ -338,7 +348,9 @@ def load_sparse_models():
     """Load BM25 sparse embedding model at startup."""
     logger.info("model_loading", extra={"model": "Qdrant/bm25", "key": "bm25"})
     start = time.time()
-    SPARSE_REGISTRY["bm25"] = SparseTextEmbedding("Qdrant/bm25")
+    SPARSE_REGISTRY["bm25"] = SparseTextEmbedding(
+        "Qdrant/bm25", threads=EMBEDDING_INFERENCE_THREADS
+    )
     logger.info(
         "model_loaded",
         extra={
@@ -354,7 +366,7 @@ def load_sparse_models():
         )
         start = time.time()
         LATE_REGISTRY["colbert"] = LateInteractionTextEmbedding(
-            "colbert-ir/colbertv2.0"
+            "colbert-ir/colbertv2.0", threads=EMBEDDING_INFERENCE_THREADS
         )
         logger.info(
             "model_loaded",

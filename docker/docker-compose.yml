@@ -128,6 +128,9 @@ services:
       # (also baked into the image); tune under the sizing soak.
       - MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2}
       - OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
+      # Bound the onnxruntime intra-op thread pool (effective lever on a non-OpenMP
+      # onnxruntime build, where OMP_NUM_THREADS alone won't cap it).
+      - EMBEDDING_INFERENCE_THREADS=${EMBEDDING_INFERENCE_THREADS:-2}
       # Set fastembed cache to persistent volume location
       - FASTEMBED_CACHE_PATH=/home/embedding/.cache/fastembed
     restart: unless-stopped

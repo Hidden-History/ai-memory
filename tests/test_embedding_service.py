@@ -60,7 +60,8 @@ _tracker = _ConcurrencyTracker()
 class _StubDenseModel:
     """Stand-in for fastembed.TextEmbedding with a measurable inference window."""
 
-    def __init__(self, name="stub", delay=0.05):
+    def __init__(self, name="stub", delay=0.05, **kwargs):
+        # **kwargs tolerates constructor args the service passes (e.g. threads=).
         self.name = name
         self.delay = delay
 
@@ -76,7 +77,8 @@ class _StubDenseModel:
 class _StubSparseModel:
     """Stand-in for fastembed.SparseTextEmbedding."""
 
-    def __init__(self, name="stub-bm25"):
+    def __init__(self, name="stub-bm25", **kwargs):
+        # **kwargs tolerates constructor args the service passes (e.g. threads=).
         self.name = name
 
     def embed(self, texts):
@@ -97,7 +99,8 @@ class _StubLateModel:
     ``EmbedLateResponse``.
     """
 
-    def __init__(self, name="stub-colbert", n_tokens=4):
+    def __init__(self, name="stub-colbert", n_tokens=4, **kwargs):
+        # **kwargs tolerates constructor args the service passes (e.g. threads=).
         self.name = name
         self.n_tokens = n_tokens
 
@@ -136,6 +139,7 @@ def _restore_global_state():
         "EMBEDDING_MAX_INPUT_CHARS",
         "EMBEDDING_MAX_WAITERS",
         "EMBEDDING_RETRY_AFTER",
+        "EMBEDDING_INFERENCE_THREADS",
     )
     saved_modules = {k: sys.modules.get(k) for k in module_keys}
     saved_env = {k: os.environ.get(k) for k in env_keys}
