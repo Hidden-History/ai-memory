@@ -13,17 +13,19 @@ Runs fully offline: the real fastembed/ONNX models are replaced with an in-proce
 stub, so there are no model downloads, no Docker, and no shared-Qdrant access.
 """
 
+import asyncio
 import importlib.util
 import os
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import ModuleType
 
+import httpx
 import numpy as np
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 _MAIN_PATH = Path(__file__).resolve().parents[1] / "docker" / "embedding" / "main.py"
@@ -132,6 +134,8 @@ def _restore_global_state():
         "EMBEDDING_ACQUIRE_TIMEOUT",
         "EMBEDDING_MAX_BATCH_TEXTS",
         "EMBEDDING_MAX_INPUT_CHARS",
+        "EMBEDDING_MAX_WAITERS",
+        "EMBEDDING_RETRY_AFTER",
     )
     saved_modules = {k: sys.modules.get(k) for k in module_keys}
     saved_env = {k: os.environ.get(k) for k in env_keys}
@@ -175,6 +179,15 @@ def _production_shaped_batch(count=8):
     return [f"chunk {i}: {paragraph}" for i in range(count)]
 
 
+def _backpressure_count(service, action):
+    """Read the embedding_backpressure_total counter child for a given action.
+
+    The metric is a process-global collector reused across module reloads, so callers
+    compare *deltas* around an action rather than absolute values.
+    """
+    return service.embedding_backpressure_total.labels(action=action)._value.get()
+
+
 def test_concurrent_inference_never_exceeds_cap():
     """Simultaneous inference must stay at or below EMBEDDING_MAX_CONCURRENCY."""
     cap = 3
@@ -183,14 +196,16 @@ def test_concurrent_inference_never_exceeds_cap():
     request_cls = service.EmbedDenseRequest
     texts = _production_shaped_batch(count=4)
 
-    def call():
-        return service.embed_dense(request_cls(texts=list(texts), model="en"))
+    async def _drive():
+        async def call():
+            return await service.embed_dense(request_cls(texts=list(texts), model="en"))
 
-    with ThreadPoolExecutor(max_workers=12) as executor:
-        results = [f.result() for f in [executor.submit(call) for _ in range(12)]]
+        return await asyncio.gather(*[call() for _ in range(12)])
+
+    results = asyncio.run(_drive())
 
     assert all(len(r.embeddings) == len(texts) for r in results)
-    # Core guard: the semaphore never let more than `cap` inferences run at once.
+    # Core guard: the semaphore + bounded executor never let more than `cap` run at once.
     assert _tracker.max_active <= cap
     # Sanity: genuine concurrency occurred, so the bound was actually exercised.
     assert _tracker.max_active >= 2
@@ -219,18 +234,31 @@ def test_faulty_request_returns_503_and_service_survives():
 
 
 def test_service_stable_under_concurrent_large_load():
-    """Many concurrent large requests all receive a clean response — none dropped."""
+    """Many concurrent large requests all receive a clean response — none dropped.
+
+    Drives concurrency over the real HTTP path on a single event loop (httpx
+    ASGITransport). The service-global asyncio.Semaphore is bound to the one uvicorn
+    event loop in production; a multi-threaded TestClient would span several loops, which
+    no single-worker deployment ever does.
+    """
     service = _load_service(4)
-    client = TestClient(service.app)
     texts = _production_shaped_batch(count=8)
 
-    def call():
-        response = client.post("/embed/dense", json={"texts": texts, "model": "en"})
-        return response.status_code
+    async def _drive():
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
 
-    with ThreadPoolExecutor(max_workers=16) as executor:
-        codes = [f.result() for f in [executor.submit(call) for _ in range(32)]]
+            async def call():
+                response = await client.post(
+                    "/embed/dense", json={"texts": texts, "model": "en"}
+                )
+                return response.status_code
 
+            return await asyncio.gather(*[call() for _ in range(32)])
+
+    codes = asyncio.run(_drive())
     assert all(code == 200 for code in codes)
 
 
@@ -255,16 +283,28 @@ def test_oversized_input_chars_returns_413():
 
 
 def test_acquire_timeout_returns_503_when_no_slot():
-    """When no inference slot frees within the timeout, the request gets a 503."""
+    """When no inference slot frees within the timeout, the request is shed with a 503.
+
+    Shedding is the last resort (the bounded queue cannot drain in time); it carries a
+    Retry-After so the client retries rather than dropping the memory (Phase 3).
+    """
     service = _load_service(1, acquire_timeout=0.2)
-    # Occupy the only slot so the incoming request cannot acquire one.
-    service._inference_semaphore.acquire()
-    try:
-        client = TestClient(service.app)
-        resp = client.post("/embed", json={"texts": ["blocked"]})
-        assert resp.status_code == 503
-    finally:
-        service._inference_semaphore.release()
+
+    async def _drive():
+        # Seize the only inference slot so the next admission cannot acquire one.
+        await service._inference_semaphore.acquire()
+        before = _backpressure_count(service, "shed")
+        try:
+            with pytest.raises(HTTPException) as exc:
+                await service.run_inference_async(lambda: [1])
+            return exc.value, _backpressure_count(service, "shed") - before
+        finally:
+            service._inference_semaphore.release()
+
+    err, shed_delta = asyncio.run(_drive())
+    assert err.status_code == 503
+    assert err.headers["Retry-After"] == str(service.EMBEDDING_RETRY_AFTER)
+    assert shed_delta == 1
 
 
 def test_late_embeddings_return_2d_shape():
@@ -279,3 +319,42 @@ def test_late_embeddings_return_2d_shape():
     # 2D: a list of per-token vectors, each a 768-dim list.
     assert isinstance(token_vectors, list) and isinstance(token_vectors[0], list)
     assert len(token_vectors[0]) == 768
+
+
+def test_backpressure_waits_without_shedding_under_designed_load():
+    """Realistic-size multi-client load stays bounded, WAITS (not sheds), and drains.
+
+    Phase-1 server-side resilience proof: concurrency far exceeds the slot cap but stays
+    within the bounded wait-queue, so every request is admitted by *waiting*
+    (backpressure) — none dropped, shed delta == 0, and inference never exceeds the cap
+    (the bounded-memory proxy). The end-to-end client<->server retry proof (inject 503 ->
+    client retries -> zero lost memories) lands in Phase 3.
+    """
+    cap = 4
+    service = _load_service(cap)
+    # Designed load: far more concurrent requests than slots, but within the wait-queue.
+    service.EMBEDDING_MAX_WAITERS = 256
+    _tracker.reset()
+    request_cls = service.EmbedDenseRequest
+    texts = _production_shaped_batch(count=8)
+    concurrency = 40
+
+    before_shed = _backpressure_count(service, "shed")
+    before_waited = _backpressure_count(service, "waited")
+
+    async def _drive():
+        async def call():
+            return await service.embed_dense(request_cls(texts=list(texts), model="en"))
+
+        return await asyncio.gather(*[call() for _ in range(concurrency)])
+
+    results = asyncio.run(_drive())
+
+    # No dropped embed: every request returned a full set of vectors.
+    assert len(results) == concurrency
+    assert all(len(r.embeddings) == len(texts) for r in results)
+    # Memory stayed bounded: inference never exceeded the slot cap (peak-memory proxy).
+    assert _tracker.max_active <= cap
+    # Backpressure engaged (callers were made to wait) but NOTHING was shed.
+    assert _backpressure_count(service, "shed") - before_shed == 0
+    assert _backpressure_count(service, "waited") - before_waited > 0

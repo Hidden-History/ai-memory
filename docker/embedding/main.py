@@ -12,15 +12,16 @@ Configuration via environment variables:
 SPEC-010: Dual Embedding Routing - Both models loaded at startup for immediate availability.
 """
 
+import asyncio
 import logging
 import os
 import sys
-import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, HTTPException
 from fastembed import LateInteractionTextEmbedding, SparseTextEmbedding, TextEmbedding
-from prometheus_client import make_asgi_app
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram, make_asgi_app
 from pydantic import BaseModel
 
 # Add project root to path for metrics import
@@ -54,24 +55,31 @@ MODEL_NAMES = {
 VECTOR_DIMENSIONS = int(os.getenv("VECTOR_DIMENSIONS", "768"))
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
-# TD-670: Bound concurrent model inference. The sync request handlers run in the
-# anyio threadpool (~40 threads), so without a limit many concurrent embed requests
-# drive the shared ONNX models in parallel and each materializes a full batch of
-# vectors at once — peak memory spikes toward the container limit (suspected clean-exit
-# trigger) and the shared fastembed model objects are exercised concurrently. A
-# process-wide semaphore caps simultaneous inference; requests beyond the cap wait up
-# to EMBEDDING_ACQUIRE_TIMEOUT seconds for a slot, then receive a 503 rather than
-# blocking forever or crashing the worker.
+# TD-670 / BUG-324: Bound concurrent model inference with a single service-global gate.
+# FastAPI ran the sync handlers in the anyio threadpool (~40 threads), so without a real
+# limit many concurrent embed requests drove the shared ONNX models in parallel, each
+# materializing a full batch of vectors at once — peak memory spiked toward the container
+# cap (the OOM trigger) and the 40-slot threadpool was a hidden second concurrency bound.
+#
+# The endpoints are now ``async`` and every model.embed() runs in a bounded executor
+# sized to the SAME semaphore, so the semaphore is the single source of truth for
+# concurrency. Admission is BACKPRESSURE, not load-shedding: a request blocks (waits) up
+# to EMBEDDING_ACQUIRE_TIMEOUT for a slot — a dropped embed is a lost memory, so callers
+# are made to wait, not failed. Only when the bounded wait-queue itself is full
+# (EMBEDDING_MAX_WAITERS) or the wait exceeds the timeout do we shed a last-resort 503 +
+# Retry-After, which the client retries (TD-678 / Phase 3). Numbers are env-driven and
+# conservative; the memory-budget sizing comes from the soak.
 EMBEDDING_MAX_CONCURRENCY = int(os.getenv("EMBEDDING_MAX_CONCURRENCY", "4"))
 EMBEDDING_ACQUIRE_TIMEOUT = float(os.getenv("EMBEDDING_ACQUIRE_TIMEOUT", "30"))
-_inference_semaphore = threading.Semaphore(EMBEDDING_MAX_CONCURRENCY)
+EMBEDDING_MAX_WAITERS = int(os.getenv("EMBEDDING_MAX_WAITERS", "64"))
+EMBEDDING_RETRY_AFTER = int(os.getenv("EMBEDDING_RETRY_AFTER", "5"))
 
 # TD-670: Reject oversized payloads up front so a single huge request cannot drive the
-# worker into an OS-level OOM SIGKILL (which the 503 fault-isolation in run_inference
-# cannot catch). Bound both the batch size (number of texts -> number of vectors
-# materialized) and the total input size (chars -> model working memory). Defaults are
-# provisional and meant to be tuned against real saturation behaviour during live load
-# testing.
+# worker into an OS-level OOM SIGKILL (which the 503 fault-isolation in
+# run_inference_async cannot catch). Bound both the batch size (number of texts ->
+# number of vectors materialized) and the total input size (chars -> model working
+# memory). Defaults are provisional and meant to be tuned against real saturation
+# behaviour during the soak.
 EMBEDDING_MAX_BATCH_TEXTS = int(os.getenv("EMBEDDING_MAX_BATCH_TEXTS", "256"))
 EMBEDDING_MAX_INPUT_CHARS = int(os.getenv("EMBEDDING_MAX_INPUT_CHARS", "1000000"))
 
@@ -83,37 +91,133 @@ logging.basicConfig(
 logger = logging.getLogger("ai_memory.embedding")
 
 
-def run_inference(operation):
-    """Execute a model inference call with TD-670 resilience guarantees.
+def _make_metric(factory, name, *args, **kwargs):
+    """Create a Prometheus metric, tolerating module re-import.
 
-    Bounds concurrency via the process-wide semaphore (peak-memory + shared-model
-    access guard): a caller waits at most ``EMBEDDING_ACQUIRE_TIMEOUT`` seconds for a
-    slot and otherwise receives an HTTP 503 instead of blocking forever. Faults are
-    isolated — any Python-level exception raised inside ``operation`` becomes an HTTP
-    503 so a request that fails inside the model call cannot crash the worker; the
-    service keeps serving other requests. An ``HTTPException`` raised inside
-    ``operation`` (e.g. a validation error) passes through unchanged.
+    The service is imported once in production, but the test harness execs this module
+    multiple times in one process; re-defining a metric on the global default REGISTRY
+    would raise "Duplicated timeseries". Reuse the already-registered collector instead.
+    """
+    try:
+        return factory(name, *args, **kwargs)
+    except ValueError:
+        for collector in list(getattr(REGISTRY, "_collector_to_names", {})):
+            if getattr(collector, "_name", None) == name:
+                return collector
+        raise
 
-    This isolation is Python-level only: it does NOT protect against an OS-level OOM
-    SIGKILL, which is uncatchable. Oversized payloads are rejected up front with HTTP
-    413 by ``_enforce_payload_limits`` to keep a single request from reaching that
-    point.
+
+# BUG-324 §7 observability: make backpressure + the OOM-loop visible *before* it kills.
+embedding_inflight = _make_metric(
+    Gauge, "embedding_inflight", "Model inferences currently in flight (slots held)"
+)
+embedding_queue_depth = _make_metric(
+    Gauge,
+    "embedding_queue_depth",
+    "Requests blocked waiting for an inference slot (backpressure queue depth)",
+)
+embedding_admission_wait_seconds = _make_metric(
+    Histogram,
+    "embedding_admission_wait_seconds",
+    "Seconds a request waited for an inference slot before admission",
+    buckets=(0.01, 0.1, 0.5, 1, 2, 5, 10, 30, 60, 120),
+)
+embedding_backpressure_total = _make_metric(
+    Counter,
+    "embedding_backpressure",
+    'Backpressure actions: "waited" (made to wait, good) vs "shed" (dropped, ~0)',
+    ["action"],
+)
+embedding_oom_events_total = _make_metric(
+    Counter,
+    "embedding_oom_events",
+    "cgroup memory.events OOM signals observed (oom / oom_kill)",
+)
+
+# Service-global concurrency gate. The asyncio.Semaphore is the single concurrency
+# bound; the executor is sized to it so model.embed() can never run more than
+# EMBEDDING_MAX_CONCURRENCY at once (no hidden 40-slot anyio-threadpool bound).
+_inference_semaphore = asyncio.Semaphore(EMBEDDING_MAX_CONCURRENCY)
+_inference_executor = ThreadPoolExecutor(
+    max_workers=EMBEDDING_MAX_CONCURRENCY, thread_name_prefix="embed-infer"
+)
+# Requests currently blocked on admission (the bounded wait-queue depth). Mutated only
+# on the single-threaded event loop, so a plain int needs no lock.
+_waiting_count = 0
+
+
+async def run_inference_async(operation):
+    """Run a model inference under the service-global backpressure gate (BUG-324).
+
+    Admission is BLOCK-not-drop: the caller waits up to ``EMBEDDING_ACQUIRE_TIMEOUT`` for
+    one of ``EMBEDDING_MAX_CONCURRENCY`` slots (a dropped embed = a lost memory, so we
+    make callers wait). The inference runs in a bounded executor sized to the semaphore,
+    so the semaphore is the only concurrency bound. Last-resort shedding (HTTP 503 +
+    ``Retry-After``) happens ONLY when the bounded wait-queue is full
+    (``EMBEDDING_MAX_WAITERS``) or the wait exceeds the timeout — both ~never under
+    correctly-sized load, and the client retries them (Phase 3).
+
+    Python-level inference faults are isolated to a 503 so one bad request cannot crash
+    the worker; this does NOT protect against an OS-level OOM SIGKILL, which the up-front
+    payload limits and the memory budget exist to prevent.
 
     Args:
-        operation: Zero-arg callable performing the model inference.
+        operation: Zero-arg callable performing the (blocking) model inference.
 
     Returns:
         Whatever ``operation`` returns.
 
     Raises:
-        HTTPException: 503 if no inference slot becomes available within the timeout,
-            or if the inference call raises any non-HTTPException error.
+        HTTPException: 503 (+ Retry-After) if no slot is admitted within the limits, or
+            if the inference call raises any non-HTTPException error.
     """
-    if not _inference_semaphore.acquire(timeout=EMBEDDING_ACQUIRE_TIMEOUT):
-        logger.warning("embedding_inference_busy")
-        raise HTTPException(status_code=503, detail="embedding_inference_busy")
+    global _waiting_count
+
+    # Bounded wait-queue: shed (last resort) only when the queue itself is full, so total
+    # memory = (in-flight + waiting) x per-request peak stays bounded (BP-175 §4).
+    if _waiting_count >= EMBEDDING_MAX_WAITERS:
+        embedding_backpressure_total.labels(action="shed").inc()
+        logger.warning(
+            "embedding_admission_queue_full", extra={"waiting": _waiting_count}
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="embedding_admission_queue_full",
+            headers={"Retry-After": str(EMBEDDING_RETRY_AFTER)},
+        )
+
+    # All slots held => this caller will block: record the backpressure (a good "wait",
+    # not a drop) before queueing.
+    if _inference_semaphore.locked():
+        embedding_backpressure_total.labels(action="waited").inc()
+
+    _waiting_count += 1
+    embedding_queue_depth.set(_waiting_count)
+    start = time.monotonic()
     try:
-        return operation()
+        await asyncio.wait_for(
+            _inference_semaphore.acquire(), timeout=EMBEDDING_ACQUIRE_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        embedding_backpressure_total.labels(action="shed").inc()
+        logger.warning(
+            "embedding_admission_timeout",
+            extra={"waited_seconds": round(time.monotonic() - start, 2)},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="embedding_admission_timeout",
+            headers={"Retry-After": str(EMBEDDING_RETRY_AFTER)},
+        ) from None
+    finally:
+        _waiting_count -= 1
+        embedding_queue_depth.set(_waiting_count)
+
+    embedding_admission_wait_seconds.observe(time.monotonic() - start)
+    embedding_inflight.inc()
+    try:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(_inference_executor, operation)
     except HTTPException:
         raise
     except Exception as e:
@@ -123,6 +227,7 @@ def run_inference(operation):
         )
         raise HTTPException(status_code=503, detail="embedding_inference_failed") from e
     finally:
+        embedding_inflight.dec()
         _inference_semaphore.release()
 
 
@@ -370,7 +475,7 @@ async def health():
 
 
 @app.post("/embed/dense", response_model=EmbedDenseResponse)
-def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
+async def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
     """New dual-model embedding endpoint (SPEC-010)."""
     if not request.texts:
         raise HTTPException(status_code=400, detail="No texts provided")
@@ -382,7 +487,7 @@ def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
     _enforce_payload_limits(request.texts)
 
     model = MODEL_REGISTRY[request.model]
-    embeddings = run_inference(lambda: list(model.embed(request.texts)))
+    embeddings = await run_inference_async(lambda: list(model.embed(request.texts)))
     return EmbedDenseResponse(
         embeddings=[e.tolist() for e in embeddings],
         model=MODEL_NAMES[request.model],
@@ -391,10 +496,10 @@ def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
 
 
 @app.post("/embed", response_model=EmbedResponse)
-def embed(request: EmbedRequest):
+async def embed(request: EmbedRequest):
     """Backward-compatible alias. Routes to /embed/dense with model=en."""
     dense_request = EmbedDenseRequest(texts=request.texts, model="en")
-    result = embed_dense(dense_request)
+    result = await embed_dense(dense_request)
     return EmbedResponse(
         embeddings=result.embeddings,
         model=result.model,
@@ -403,7 +508,7 @@ def embed(request: EmbedRequest):
 
 
 @app.post("/embed/chunked", response_model=EmbedResponse)
-def embed_chunked(request: EmbedWithOffsetsRequest):
+async def embed_chunked(request: EmbedWithOffsetsRequest):
     """Chunked embedding endpoint: returns one embedding per chunk offset (BP-028).
 
     Accepts a document (single text) and a list of [start, end] character offsets
@@ -428,7 +533,7 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
 
     if not request.chunk_offsets:
         # No offsets — embed whole document as single vector
-        embeddings = run_inference(lambda: list(model.embed([document])))
+        embeddings = await run_inference_async(lambda: list(model.embed([document])))
         return EmbedResponse(
             embeddings=[e.tolist() for e in embeddings],
             model=MODEL_NAMES["en"],
@@ -444,7 +549,7 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
         chunk_texts.append(document[start:end])
     _enforce_payload_limits(chunk_texts)
 
-    embeddings = run_inference(lambda: list(model.embed(chunk_texts)))
+    embeddings = await run_inference_async(lambda: list(model.embed(chunk_texts)))
     return EmbedResponse(
         embeddings=[e.tolist() for e in embeddings],
         model=MODEL_NAMES["en"],
@@ -453,7 +558,7 @@ def embed_chunked(request: EmbedWithOffsetsRequest):
 
 
 @app.post("/embed/sparse", response_model=EmbedSparseResponse)
-def embed_sparse(request: EmbedSparseRequest):
+async def embed_sparse(request: EmbedSparseRequest):
     """Generate BM25 sparse embeddings for keyword-aware hybrid search."""
     if not request.texts:
         raise HTTPException(status_code=400, detail="No texts provided")
@@ -461,7 +566,7 @@ def embed_sparse(request: EmbedSparseRequest):
         raise HTTPException(status_code=503, detail="BM25 model not loaded")
     _enforce_payload_limits(request.texts)
     model = SPARSE_REGISTRY["bm25"]
-    results = run_inference(lambda: list(model.embed(request.texts)))
+    results = await run_inference_async(lambda: list(model.embed(request.texts)))
     return EmbedSparseResponse(
         embeddings=[
             SparseEmbeddingResult(indices=r.indices.tolist(), values=r.values.tolist())
@@ -472,7 +577,7 @@ def embed_sparse(request: EmbedSparseRequest):
 
 
 @app.post("/embed/late", response_model=EmbedLateResponse)
-def embed_late(request: EmbedLateRequest):
+async def embed_late(request: EmbedLateRequest):
     """Generate ColBERT late interaction embeddings (conditional on COLBERT_ENABLED)."""
     if not request.texts:
         raise HTTPException(status_code=400, detail="No texts provided")
@@ -483,7 +588,7 @@ def embed_late(request: EmbedLateRequest):
         )
     _enforce_payload_limits(request.texts)
     model = LATE_REGISTRY["colbert"]
-    results = run_inference(lambda: list(model.embed(request.texts)))
+    results = await run_inference_async(lambda: list(model.embed(request.texts)))
     return EmbedLateResponse(
         embeddings=[LateEmbeddingResult(embeddings=r.tolist()) for r in results],
         model="colbert-ir/colbertv2.0",
