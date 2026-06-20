@@ -20,6 +20,13 @@ SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 # the worker, which replays the un-unlinked batch (loss-safe). Operators running a large
 # LANGFUSE_FLUSH_AT against a slow backend should raise LANGFUSE_STALL_DEADLINE_SECONDS
 # (a startup WARNING flags this; see _stall_deadline_warning).
+#
+# TD-611: a backend that passes the health probe but then times out / errors mid-export
+# does NOT wedge the loop (the OTLP exporter's own ~5s timeout returns control), so the
+# watchdog never fires — but flush() returns normally while the span never reached the
+# server. The unlink is therefore gated on the absence of an OTLP export-failure log
+# during the flush, not merely on flush() returning; see process_buffer_files and
+# _watch_otel_export_failures.
 
 import contextlib
 import json
@@ -524,6 +531,55 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
             observation.end()
 
 
+# TD-611: flush() returning is NOT proof of delivery. langfuse.flush() ->
+# LangfuseResourceManager.flush() -> TracerProvider.force_flush(), whose bool is
+# DISCARDED; and the underlying BatchProcessor.force_flush() returns True whenever
+# the processor is not shut down — regardless of whether the batch reached the
+# server (verified against opentelemetry-sdk 1.42.1 / langfuse 4.7.1: _export()
+# drops the exporter's SpanExportResult, catching only exceptions). The OTLP HTTP
+# exporter swallows read-timeouts / non-2xx as SpanExportResult.FAILURE WITHOUT
+# raising, logging "Failed to export span batch ..." on the ``opentelemetry``
+# logger. That ERROR log is the only in-process signal that a batch did not reach
+# the backend, so the buffer-file unlink is gated on its ABSENCE during the flush.
+# Limitation: this is best-effort at-least-once — it cannot detect a backend that
+# 2xx-accepts then drops the data server-side (no SDK signal exists for that), and
+# it treats any OTel export-failure log during the window as non-delivery (a
+# duplicate trace on replay is preferred over a dropped one). See BP-168 §4 + the
+# PM #350 addendum, TD-611.
+_OTEL_EXPORT_FAILURE_MARKERS = ("Failed to export", "Exception while exporting")
+
+
+class _ExportFailureSentinel(logging.Handler):
+    """Captures OTLP span-export FAILURE records during a flush window (TD-611)."""
+
+    def __init__(self) -> None:
+        super().__init__(level=logging.ERROR)
+        self.export_failed = False
+
+    def emit(self, record: logging.LogRecord) -> None:
+        with contextlib.suppress(Exception):
+            message = record.getMessage()
+            if any(marker in message for marker in _OTEL_EXPORT_FAILURE_MARKERS):
+                self.export_failed = True
+
+
+@contextlib.contextmanager
+def _watch_otel_export_failures():
+    """Attach an export-failure sentinel to the ``opentelemetry`` logger.
+
+    The OTLP exporter's failure ERROR is emitted synchronously inside
+    ``force_flush()`` (after its internal retries), so a record captured while the
+    ``langfuse.flush()`` call is in scope reliably reflects this batch's delivery.
+    """
+    sentinel = _ExportFailureSentinel()
+    otel_logger = logging.getLogger("opentelemetry")
+    otel_logger.addHandler(sentinel)
+    try:
+        yield sentinel
+    finally:
+        otel_logger.removeHandler(sentinel)
+
+
 def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, int]:
     """Drain up to ``limit`` *.json buffer files to Langfuse, deleting processed.
 
@@ -536,9 +592,10 @@ def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, i
     oldest-first (by mtime) to align with ``evict_oldest_traces`` (which evicts
     oldest-first), so an oldest un-flushed trace reaches the batch before eviction
     can drop it. The drain is loss-safe: a file is unlinked only AFTER ``flush()``
-    confirms the batch is enqueued (and only if it did not raise). A crash between
-    enqueue and unlink replays the batch on restart (at-least-once; a duplicate is
-    preferred over a dropped trace).
+    returns AND no OTLP export failure was logged during the flush window (TD-611 —
+    ``flush()`` returning does NOT by itself imply delivery under V4 OTel). A crash
+    or silently-failed export retains the batch for replay (at-least-once; a
+    duplicate is preferred over a dropped trace).
 
     Returns:
         Tuple of (processed_count, error_count).
@@ -601,26 +658,31 @@ def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, i
             logger.error("Failed to process buffer file %s: %s", json_file.name, e)
             errors += 1
 
-    # Loss-safe: flush the batch before unlinking so files are removed only once
-    # their spans are confirmed enqueued (flush() blocks until queues drain). Per
-    # BP-168, flush() logs+retries and never throws on network error, so the except
-    # is a defensive backstop; if it does raise, the files are retained (not unlinked)
-    # so the batch replays next pass rather than dropping traces (F-5).
+    # TD-611 loss-safety: flush() returning is NOT proof of delivery. Under V4
+    # (OTel) the OTLP exporter swallows export failures and force_flush()'s bool is
+    # non-load-bearing, so gate the unlink on flush() not raising AND no OTLP
+    # export-failure logged during the flush window (_watch_otel_export_failures).
+    # A silently-failed export retains the batch for replay next pass (at-least-once)
+    # instead of dropping traces; flush() raising (BP-168: theoretical on network
+    # error) is also treated as non-delivery (F-5).
     if enqueued:
-        flush_ok = False
-        try:
-            langfuse.flush()
-            flush_ok = True
-        except Exception as e:
-            logger.warning("Langfuse flush failed: %s", e)
-        if flush_ok:
+        delivered = False
+        with _watch_otel_export_failures() as export_watch:
+            try:
+                langfuse.flush()
+                delivered = not export_watch.export_failed
+            except Exception as e:
+                logger.warning("Langfuse flush failed: %s", e)
+        if delivered:
             for json_file in enqueued:
                 with contextlib.suppress(OSError):
                     json_file.unlink()
                 processed += 1
         else:
             logger.warning(
-                "Retaining %s buffered file(s) for retry — flush did not confirm enqueue",
+                "Retaining %s buffered file(s) for retry — flush did not confirm "
+                "delivery (OTLP export error or flush exception); batch replays "
+                "next pass (at-least-once)",
                 len(enqueued),
             )
 

@@ -3,6 +3,7 @@
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import signal
 import sys
@@ -409,6 +410,61 @@ def test_process_buffer_files_retains_files_when_flush_raises(tmp_path, monkeypa
     assert (
         path.exists()
     ), "File must be retained for retry when flush raises (loss-safe)"
+
+
+def test_process_buffer_files_retains_when_export_silently_fails(tmp_path, monkeypatch):
+    """TD-611: a hanging/erroring backend makes the OTLP exporter log an export
+    failure while flush() still returns normally (force_flush()'s bool is non-
+    load-bearing). The buffer file must be RETAINED, not unlinked, so the trace
+    replays instead of being silently dropped."""
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    path = _write_event(buffer_dir, "export_timeout")
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    # Stub backend: flush() returns normally (does NOT raise) but the underlying
+    # OTLP exporter logged a read-timeout export failure — exactly the TD-611 wedge
+    # (matches the real "Failed to export span batch ..." ERROR on the
+    # opentelemetry.exporter.otlp.* logger).
+    def flush_export_timeout():
+        logging.getLogger(
+            "opentelemetry.exporter.otlp.proto.http.trace_exporter"
+        ).error("Failed to export span batch due to timeout (read timeout=5.0)")
+
+    mock_langfuse.flush.side_effect = flush_export_timeout
+
+    processed, _ = mod.process_buffer_files(mock_langfuse)
+
+    mock_langfuse.flush.assert_called_once()
+    assert processed == 0
+    assert path.exists(), (
+        "Buffer file must be retained when the OTLP export fails silently "
+        "(flush() returned but the span never reached the server) — TD-611"
+    )
+
+
+def test_process_buffer_files_unlinks_on_unrelated_otel_error(tmp_path, monkeypatch):
+    """TD-611 specificity: an unrelated opentelemetry ERROR during the flush window
+    must NOT be mistaken for an export failure, else the buffer would never drain
+    (over-retention). Only export-delivery failures gate the unlink."""
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    path = _write_event(buffer_dir, "unrelated_err")
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    def flush_unrelated_error():
+        logging.getLogger("opentelemetry.sdk.trace").error(
+            "Some unrelated tracer error not about delivery"
+        )
+
+    mock_langfuse.flush.side_effect = flush_unrelated_error
+
+    processed, _ = mod.process_buffer_files(mock_langfuse)
+
+    assert processed == 1
+    assert not path.exists(), "Clean delivery must still unlink (no over-retention)"
 
 
 # --- R1(c): backend preflight (HTTP /api/public/health probe) -----------------

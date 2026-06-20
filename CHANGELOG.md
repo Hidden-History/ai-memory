@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trace-flush worker no longer silently drops traces on a hung backend** — `process_buffer_files()` previously unlinked a buffer file whenever `flush()` returned, but under the Langfuse V4 (OpenTelemetry) SDK the OTLP exporter swallows read-timeouts and non-2xx responses as an export failure without raising, so `flush()` returned normally even when the span never reached the server, and `force_flush()`'s boolean result is not propagated as a delivery signal. The unlink is now gated on both `flush()` not raising and the absence of an OTLP export-failure log during the flush window; a silently-failed export retains the buffer file for replay on the next pass (at-least-once), rather than deleting an undelivered trace.
+
 ## [2.7.0] - 2026-06-16
 
 ### Upgrade Instructions
