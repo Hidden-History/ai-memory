@@ -274,11 +274,30 @@ async def run_inference_async(operation):
     # raises). The callback runs on the worker thread, so the release is marshalled back
     # onto the event loop because asyncio.Semaphore is not thread-safe.
     loop = asyncio.get_running_loop()
-    future = _inference_executor.submit(operation)
 
     def _release_slot():
         embedding_inflight.dec()
         _inference_semaphore.release()
+
+    # If submit() raises (executor shutdown -> RuntimeError; or BrokenThreadPool after a
+    # worker thread dies, the conditions BP-175 targets) the done-callback below is never
+    # registered, so the only release for this slot is right here. Release exactly once
+    # (no callback exists yet, and we are on the event-loop thread so call it directly)
+    # and normalize to 503 + Retry-After — matching the executor-failure handling the
+    # pre-M1 try/finally provided, instead of leaking the slot under an unnormalized 500.
+    try:
+        future = _inference_executor.submit(operation)
+    except Exception as e:
+        _release_slot()
+        logger.error(
+            "embedding_executor_submit_failed",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="embedding_inference_failed",
+            headers={"Retry-After": str(EMBEDDING_RETRY_AFTER)},
+        ) from e
 
     future.add_done_callback(lambda _f: loop.call_soon_threadsafe(_release_slot))
 

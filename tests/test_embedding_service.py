@@ -680,6 +680,39 @@ def test_cancelled_midinference_holds_slot_until_thread_completes():
     asyncio.run(_drive())
 
 
+def test_submit_failure_releases_slot_and_returns_503():
+    """M1 regression: if the executor's submit() raises before the done-callback is
+    registered (executor shutdown / BrokenThreadPool), the slot must be released exactly
+    once and the error normalized to a 503 — not leaked under an unnormalized 500.
+
+    With the slot anchored to the future's done-callback, a submit() that never returns a
+    future would otherwise leave the acquired permit and the inflight gauge stranded
+    forever. The release happens inline (no callback exists yet), so the next request must
+    be admitted normally.
+    """
+    service = _load_service(1)
+
+    def boom(_operation):
+        raise RuntimeError("cannot schedule new futures after shutdown")
+
+    async def _drive():
+        sem = service._inference_semaphore
+        before_inflight = service.embedding_inflight._value.get()
+
+        service._inference_executor.submit = boom
+        with pytest.raises(HTTPException) as exc:
+            await service.run_inference_async(lambda: [1])
+
+        # Slot released (not leaked), inflight back to baseline, 503 (not 500).
+        assert exc.value.status_code == 503
+        assert exc.value.headers["Retry-After"] == str(service.EMBEDDING_RETRY_AFTER)
+        assert not sem.locked(), "slot leaked after submit() failure"
+        assert sem._value == 1
+        assert service.embedding_inflight._value.get() == before_inflight
+
+    asyncio.run(_drive())
+
+
 def test_max_waiters_floored_to_one(caplog):
     """L1: a configured EMBEDDING_MAX_WAITERS < 1 is floored to 1 (with a warning) so the
     admission check cannot shed every request even when a slot is free."""

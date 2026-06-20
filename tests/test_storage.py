@@ -325,6 +325,47 @@ def test_store_memories_batch_subbatches_large_group(
         assert stored_vec_by_content[content] == [_vec_seed(content)] * 768
 
 
+def test_store_memories_batch_clamps_subbatch_to_server_cap(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
+    """L4: a configured EMBEDDING_CLIENT_SUBBATCH larger than the server's
+    EMBEDDING_MAX_BATCH_TEXTS is clamped to the server cap, so no embed sub-batch can
+    exceed the cap and 413 the whole group to PENDING.
+
+    With CLIENT_SUBBATCH=300 > MAX_BATCH_TEXTS=256 and a 260-item group, the unclamped
+    path would send all 260 in one call (over the cap); the clamp forces sub-batches of
+    256, so every embed call stays within 256.
+    """
+    monkeypatch.setenv("EMBEDDING_CLIENT_SUBBATCH", "300")
+    monkeypatch.setenv("EMBEDDING_MAX_BATCH_TEXTS", "256")
+
+    mock_embedding_client.embed.side_effect = lambda texts, model=None: [
+        [0.1] * 768 for _ in texts
+    ]
+
+    memories = [
+        {
+            "content": f"Memory {i} implementation",
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+        }
+        for i in range(260)
+    ]
+
+    storage = MemoryStorage()
+    results = storage.store_memories_batch(memories, group_id="test-project")
+
+    assert len(results) == 260
+    assert all(r["status"] == "stored" for r in results)
+    # 260 items clamped to 256 -> 2 calls (256, 4), each within the server cap.
+    assert mock_embedding_client.embed.call_count == 2
+    for call in mock_embedding_client.embed.call_args_list:
+        sent_texts = call.args[0] if call.args else call.kwargs["texts"]
+        assert len(sent_texts) <= 256
+
+
 def test_store_memories_batch_mixed_content_types(
     mock_config, mock_qdrant_client, mock_embedding_client
 ):
