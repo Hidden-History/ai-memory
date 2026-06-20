@@ -40,7 +40,6 @@ per-seed values) and BP-167 Part C (rotation lifecycle).
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import os
 import re
 import sys
@@ -49,16 +48,21 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+# Shared governance core (single canonical source, no copy-paste). The install
+# copies _ai-memory/pov/ verbatim, so resolving from __file__ is install-robust:
+# this script lives at pov/skills/aim-tracking-rotate/scripts/, so parents[3] is
+# pov/ and pov/lib/governance/ holds the shared Contract + conservation modules.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib" / "governance"))
+from contract import Contract
+
 
 def _load_conservation():
-    """Return the sibling conservation module (cached after first load)."""
+    """Return the shared governance conservation module (cached after first load)."""
     cached = getattr(_load_conservation, "_cache", None)
     if cached is None:
-        p = Path(__file__).with_name("conservation.py")
-        spec = importlib.util.spec_from_file_location("_aim_conservation", p)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _load_conservation._cache = mod
+        import conservation  # pov/lib/governance is on sys.path (above)
+
+        _load_conservation._cache = conservation
     return _load_conservation._cache
 
 
@@ -73,19 +77,7 @@ def _load_conservation():
 # rotatable=True  -> --apply performs entry rotation.
 # rotatable=False -> check-only (heartbeat / thin register: rotation_trigger
 #                    none); --apply refuses with a clear message.
-
-
-@dataclass(frozen=True)
-class Contract:
-    cap_lines: int
-    cap_kb: float
-    klass: str
-    rotatable: bool
-    archive_target: str | None = None
-    index_file: str | None = None
-    # Entry-boundary regex for this file (overrides the global default). Table-
-    # row files (live-index) carry '^\\| '; H3-entry files inherit the default.
-    entry_pattern: str | None = None
+# Contract is the shared frozen dataclass from pov/lib/governance/contract.py.
 
 
 # Relative-path (POSIX) -> Contract. Keys are matched against the file's path
@@ -1414,13 +1406,20 @@ def _sibling_name_for(section_header: str, entry_text: str) -> str:
     return f"{section_slug}_{slug}.md"
 
 
+def _clean_pointer_label(line: str) -> str:
+    """Strip a leading markdown header prefix (TD-671: ``### Topic`` → ``Topic``)
+    then inline emphasis markers, so a pointer label reads ``[Topic]`` not
+    ``[### Topic]``."""
+    return re.sub(r"[*_`]", "", re.sub(r"^\s*#{1,6}\s+", "", line)).strip()
+
+
 def _make_pointer(entry_text: str, sibling_name: str) -> str:
     """Build a one-line ``- [Title](sibling.md) — hook`` pointer."""
     lines = [ln.strip() for ln in entry_text.splitlines() if ln.strip()]
     first_line = lines[0] if lines else "Detail"
-    title = re.sub(r"[*_`]", "", first_line)[:60].strip()
+    title = _clean_pointer_label(first_line)[:60].strip()
     hook_src = lines[1] if len(lines) > 1 else first_line
-    hook = re.sub(r"[*_`]", "", hook_src)[:80].strip()
+    hook = _clean_pointer_label(hook_src)[:80].strip()
     return f"- [{title}]({sibling_name}) — {hook}\n"
 
 
@@ -1597,12 +1596,9 @@ def run_fix_memory_md(memory_md: Path, now: datetime) -> int:
     all_md_after[memory_md] = new_text
     all_md_after.update(pending_writes)
 
-    after_set: Counter[str] = Counter()
-    for _text in all_md_after.values():
-        for _line in _text.splitlines():
-            _s = _line.strip()
-            if _s:
-                after_set[_s] += 1
+    # Build the virtual after-state via the shared conservation helper (same
+    # canonical multiset used everywhere) — proven BEFORE any write.
+    after_set = conservation.build_content_set_from_texts(all_md_after.values())
     try:
         conservation.assert_no_content_loss(before_set, after_set)
     except AssertionError as exc:

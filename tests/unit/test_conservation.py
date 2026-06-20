@@ -18,11 +18,10 @@ import pytest
 # Module loading
 # ---------------------------------------------------------------------------
 
-_SCRIPTS_DIR = (
-    Path(__file__).resolve().parent.parent.parent
-    / "_ai-memory/pov/skills/aim-tracking-rotate/scripts"
+_GOVERNANCE_DIR = (
+    Path(__file__).resolve().parent.parent.parent / "_ai-memory/pov/lib/governance"
 )
-_CONSERVATION_PATH = _SCRIPTS_DIR / "conservation.py"
+_CONSERVATION_PATH = _GOVERNANCE_DIR / "conservation.py"
 
 _cspec = importlib.util.spec_from_file_location("conservation", _CONSERVATION_PATH)
 _cmod = importlib.util.module_from_spec(_cspec)

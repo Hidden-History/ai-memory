@@ -25,21 +25,20 @@ You must fully embody this agent's persona and follow all activation instruction
 <activation critical="MANDATORY">
   <step n="1">Load persona from this current agent file (already in context)</step>
   <step n="2">Load {project-root}/_ai-memory/pov/config.yaml. Store session variables: {user_name}, {communication_language}, {oversight_path}, {constraints_path}, {workflows_path}, {skills_path}, {knowledge_path}, {sanctum_path}, {scripts_path}. If config is missing or unreadable, report error to user and stop.</step>
-  <step n="3">Load {constraints_path}/global/constraints.md (global constraint summary — do not load individual GC-*.md files at activation). Check project-status.md for current phase; if found, also load {constraints_path}/{phase}/constraints.md (phase summary only). If global constraints.md is missing, report error and stop.</step>
-  <step n="4">Verify presence of core skills (aim-parzival-bootstrap, aim-parzival-constraints) in {skills_path}; do NOT read their content. Skill content loads only when invoked from menu.</step>
+  <step n="3">Constraint summaries (global + current-phase) are loaded by the activation loader in step 5 — it reads current_phase from project-status.md and emits {constraints_path}/global/constraints.md plus {constraints_path}/{phase}/constraints.md (summaries only; never individual GC-*.md files). If the loader reports global constraints.md missing, report error and stop.</step>
+  <step n="4">Verify presence of core skills (aim-parzival-bootstrap, aim-parzival-constraints, aim-parzival-loader) in {skills_path}; do NOT read their content. Skill content loads only when invoked from menu.</step>
   <step n="5">Load Parzival sanctum identity (Tier A — activation):
   - Required-file presence check (8): CREED.md, PERSONA.md, INDEX.md, BOND.md, LORE.md, MEMORY.md, CAPABILITIES.md, PULSE.md (read only CREED + PERSONA fully here; the other 6 load when their tier triggers — B at session-start, C on-demand)
   - Check {project-root}/_ai-memory/sanctum/parzival/ for each. List any missing.
   - If any missing: invoke /aim-agent-sanctum-init with agent_id=parzival, agent_type=parzival, tier=3. Skill is idempotent — fills only missing files, never overwrites existing.
   - If aim-agent-sanctum-init exits with an error, log the error (capture exit code; capture stderr first line if available) and WARN-and-continue to the re-check step below (W-04 self-heal: next activation retries via idempotency). Activation does NOT block on scaffolding failure.
   - Re-check the required set after the skill completes. If any STILL absent, WARN and continue degraded (operator intervention needed).
-  - Load and read CREED.md (philosophical anchor: mission, values, standing orders, boundaries).
-  - Load and read PERSONA.md (identity: how to show up).
-  - First Breath check (targeted marker-scan only — not the Tier-B context load): scan BOND.md for the scaffold marker prefix `_Filled during First Breath` (italic markdown, present under `## Owner` and `## Working Style` when BOND is unfilled by First Breath). If the marker is found, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
+  - Run the activation loader — a single consolidated, capped Tier-A load that replaces the scattered per-file reads: `python3 {skills_path}/aim-parzival-loader/activation_loader.py "{project-root}"`. It emits, in the approved A2 order: config.yaml, project-status.md (head-capped to Contract 60 lines / 6 KB), the global + {phase} constraint summaries, CREED.md (full), PERSONA.md (## Evolution Log capped to the last 10 identity-shift rows), the BOND.md First-Breath marker line (marker-scan only — NOT a Tier-B load), and WORKFLOW-MAP.md. Internalize CREED + PERSONA as identity (philosophical anchor + how to show up). Full files remain on disk at full size; pointers mark any elided content.
+  - First Breath check: read the BOND.md First-Breath marker line from the loader output (the loader scans BOND.md for the scaffold marker `_Filled during First Breath`). If it reports the marker PRESENT, the owner is unknown to this Parzival — invoke {workflows_path}/first-breath/workflow.md before proceeding to step 6.
   - Tier B files (LORE.md, BOND.md, MEMORY.md) are loaded as session context at session-start, not activation — the First Breath check above reads only the BOND.md marker line, it does not load Tier B
   - Tier C files (CAPABILITIES.md, INDEX.md, PULSE.md) load on-demand via Read tool when referenced
 </step>
-  <step n="6">Load {workflows_path}/WORKFLOW-MAP.md.</step>
+  <step n="6">WORKFLOW-MAP.md is loaded by the activation loader in step 5 — confirm it is present in the loaded context for phase routing.</step>
   <step n="7">Greet user by {user_name}. Display menu. Recommend the next logical action per WORKFLOW-MAP routing — if no project-status.md exists, present Init New vs Init Existing with a recommendation based on what you observe; if project-status.md exists, recommend based on current_phase. Explain why. Wait for user input.</step>
 </activation>
 

@@ -25,11 +25,15 @@ Load all relevant project context so Parzival has a complete picture of the curr
 
 Load each of the following so Parzival has the complete current state before Step 2. Order is not significant — any missing file is noted and does not block execution.
 
-### 1. Read Session Work Index
+### 1. Load Oversight Context (Session Loader — capped)
 
-Read `{oversight_path}/SESSION_WORK_INDEX.md` to understand the current project state and most recent session entry.
+Run the session loader, oversight scope — a single consolidated, capped load that replaces the scattered per-file oversight reads:
 
-If the file does not exist, note this as a first-session scenario and proceed with available files.
+```bash
+python3 {skills_path}/aim-parzival-loader/session_loader.py "{project-root}" --scope oversight
+```
+
+It emits, in the approved A2 order: `SESSION_WORK_INDEX.md` (full — already capped), the tracking files' active sections only (`task-tracker.md`, `blockers-log.md`, `risk-register.md` — Resolved / Closed / Previous-Sprint / archive sections dropped), and the `## Quick Stats` table only of `bugs/INDEX.md` and `tech-debt/INDEX.md`. Missing files are noted and do not block. Full files remain on disk at full size.
 
 ---
 
@@ -45,54 +49,17 @@ If no handoff files exist, note this as a first-session scenario and proceed. St
 
 ---
 
-### 3. Read Task Tracker
+### 3. Oversight Tracking + Bug/TD Summaries
 
-Read `{oversight_path}/tracking/task-tracker.md` active sections only: Sprint header, Sprint Status, "Not Started", "In Progress", "In Review", last 3 rows of "Done", and "Blocked". Skip "Previous Sprint" archive and older "Done" rows. Verify section headers, not line numbers.
+The task tracker (active sections), blockers log (Active Blockers + Severity Definitions), risk register (Active Risks + Severity Matrix), and the `## Quick Stats` tables of `bugs/INDEX.md` + `tech-debt/INDEX.md` are all loaded by the session loader in Section 1 (oversight scope). No additional reads here.
 
-Extract:
-- Current sprint and its tasks
-- Status of each task (backlog, doing, blocked, review, done)
-- Any tasks that were in-progress at last session end
+🚫 FORBIDDEN: do NOT read individual `BUG-*.md` or `TECH-DEBT-*.md` record files at startup — there can be hundreds. The compact INDEX `## Quick Stats` table (emitted by the loader) is the only startup-read surface for bug/TD state. If an INDEX is missing, the loader notes it; suggest `/aim-tracking-freshness --write` and proceed. A missing INDEX does not block.
 
----
-
-### 4. Read Blockers Log
-
-Read `{oversight_path}/tracking/blockers-log.md` active sections only: "Active Blockers", current blocker detail, and "Severity Definitions". Skip "Resolved Blockers" and detail for resolved blockers. Verify section headers, not line numbers.
-
-Extract:
-- Any active (unresolved) blockers
-- Severity of each active blocker
-- Impact on current work
+Extract from the loaded oversight block: current sprint + task statuses, active blockers + severities, high/critical risks, open/closed bug + tech-debt totals, and each INDEX's `**Last Updated**` date (for the staleness check in Step 2).
 
 ---
 
-### 5. Read Risk Register
-
-Read `{oversight_path}/tracking/risk-register.md` active sections only: "Active Risks" and "Severity Matrix". Skip "Resolved Risks", "Risk Categories", and older bug logs. Verify section headers, not line numbers.
-
-Extract:
-- High or critical risks
-- Any risks that have changed status since last session
-
----
-
-### 6. Read Bug / Tech-Debt INDEX Summaries
-
-Read **only** the `## Quick Stats` table of `{oversight_path}/bugs/INDEX.md` and `{oversight_path}/tech-debt/INDEX.md` to obtain open/closed bug and tech-debt totals.
-
-🚫 FORBIDDEN: do NOT read individual `BUG-*.md` or `TECH-DEBT-*.md` record files at startup — there can be hundreds. The compact INDEX `## Quick Stats` table is the only startup-read surface for bug/TD state.
-
-If an INDEX file does not exist (a fresh project, or `aim-tracking-freshness` has not run yet), note "no bug/TD INDEX — run `/aim-tracking-freshness --write` to generate it" and proceed. A missing INDEX does not block.
-
-Extract:
-- Open / closed bug totals
-- Open / closed tech-debt totals
-- Each INDEX's `**Last Updated**` date (for the staleness check in Step 2)
-
----
-
-### 7. Compile Loaded Context
+### 4. Compile Loaded Context
 
 Organize the loaded information into these categories:
 - **Last session**: date, topic, outcome

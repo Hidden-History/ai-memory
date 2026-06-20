@@ -8,11 +8,22 @@ allowed-tools: Bash
 
 This skill is invoked **only on demand** from `[ST]` Session Start workflow step-01b. It does NOT auto-load at activation.
 
-`parzival.md` activation step 4 verifies the **presence** of the core skills (aim-parzival-bootstrap, aim-parzival-constraints) in `{skills_path}` without reading their content. Per `parzival.md <rules> r6` ("Load files ONLY when executing user-chosen workflow"), skill content is read only when the menu command that uses the skill is invoked.
+`parzival.md` activation step 4 verifies the **presence** of the core skills (aim-parzival-bootstrap, aim-parzival-constraints, aim-parzival-loader) in `{skills_path}` without reading their content. Per `parzival.md <rules> r6` ("Load files ONLY when executing user-chosen workflow"), skill content is read only when the menu command that uses the skill is invoked.
 
 # Parzival Bootstrap — Cross-Session Memory
 
 Load cross-session context from previous Parzival sessions stored in Qdrant. This replaces the automatic startup injection with an on-demand skill invocation.
+
+## Output layers (Qdrant only)
+
+The script retrieves three layers from Qdrant and emits each as a markdown section:
+
+- **L1 `### Last Handoff`** — most recent agent handoff (deterministic, agent_id=parzival)
+- **L2 `### Recent Decisions`** — recent decisions and agent memories (deterministic)
+- **L3 `### Insights`** — recent agent insights (deterministic, agent_id=parzival)
+
+Sanctum Tier B files (LORE.md, BOND.md) are **not** loaded here — they load in step-01b
+section 4 (Tier B), after the Qdrant gate completes.
 
 ## Steps
 
@@ -30,6 +41,5 @@ Load cross-session context from previous Parzival sessions stored in Qdrant. Thi
 ## Implementation
 
 - Script: `_ai-memory/pov/skills/aim-parzival-bootstrap/bootstrap.py`
-- Sibling helper: `sanctum_tier_b.py` (Tier B sanctum LORE + BOND prepend, loaded via the script's `sys.path` wiring)
 - Project scope: resolved through the shared `resolve_project_id` (env-first → cwd/git → fail-loud), the same helper the write paths use, so read and write never disagree (BUG-314)
 - Failure mode: print a friendly notice and continue with file-based context (the bootstrap is best-effort; files are the primary record)

@@ -32,11 +32,10 @@ Run the bootstrap skill:
 
 /aim-parzival-bootstrap
 
-This retrieves (in layer order):
+This retrieves (in layer order, Qdrant only — the L4 GitHub layer was removed from bootstrap in TASK-077 A1):
 - L1 [DETERMINISTIC]: Last handoff (1) — agent_id=parzival
 - L2 [DETERMINISTIC]: Recent decisions (5)
 - L3 [SEMANTIC]: Recent insights (3) — agent_id=parzival
-- L4 [SEMANTIC]: GitHub enrichment (10) — since last handoff
 
 ---
 
@@ -87,15 +86,21 @@ Do not duplicate information already present from file context.
 
 ---
 
-### 4. Load Sanctum Tier B Files
+### 4. Load Sanctum Tier B Files (Session Loader — capped)
 
-Load the sanctum files designated for session-start (Tier B):
+Run the session loader, sanctum scope — a single consolidated, capped load that runs AFTER the Qdrant section above, per the approved A2 order:
 
-1. **LORE.md** — Read `{project-root}/_ai-memory/sanctum/parzival/LORE.md`. Internalize as earned project knowledge: architecture, design decisions, validated patterns, project-specific idioms. This supplements Qdrant context with curated, distilled understanding.
+```bash
+python3 {skills_path}/aim-parzival-loader/session_loader.py "{project-root}" --scope sanctum
+```
 
-2. **BOND.md** — Read `{project-root}/_ai-memory/sanctum/parzival/BOND.md`. Internalize as the system-wide user preference authority: how the user prefers to work, what to avoid, what earns trust. Apply these preferences for the remainder of the session.
+It emits, in the approved A2 order:
 
-**If files not found** (sanctum not yet initialized): Note and continue silently. Sanctum Tier B is supplementary — session-start proceeds without it.
+1. **LORE.md** — a recency-weighted slice: the structural sections (System Architecture + Key Design Decisions + Patterns & Conventions) + the most-recent "Things Learned the Hard Way" lessons up to the 25 KB budget + a pointer to the full LORE.md. Internalize as earned project knowledge.
+2. **BOND.md** — full (vital floor: Owner + Things They've Asked Me to Remember + Things to Avoid). Internalize as the system-wide user-preference authority; apply for the remainder of the session.
+3. **MEMORY.md** (sanctum) — full (tiny). The Tier-B identity file — NOT the Claude-Code auto-memory `~/.claude/projects/<slug>/memory/MEMORY.md`.
+
+**If files not found** (sanctum not yet initialized): the loader emits `(absent)` markers and continues. Sanctum Tier B is supplementary — session-start proceeds without it.
 
 > **Reference**: For keeping the Claude Code per-project auto-memory directory (`~/.claude/projects/<project>/memory/MEMORY.md`) lean, see the lazy-loaded reference `{project-root}/_ai-memory/pov/references/auto-memory-best-practices.md`.
 

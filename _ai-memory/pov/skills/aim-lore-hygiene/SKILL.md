@@ -1,9 +1,11 @@
 ---
 name: aim-lore-hygiene
-description: Enforce hygiene on per-operator sanctum LORE/MEMORY files — line-cap
-  enforcement, anchored-summarization compaction at ~80% of cap, and the
-  prune-vs-archive decision. Use when a sanctum file approaches its size cap, on a
-  scheduled hygiene pass, or when the operator asks to compact or prune lore.
+description: Enforce hygiene on per-operator sanctum files (LORE/MEMORY compaction,
+  PERSONA Evolution-Log section-cap, CREED/BOND cap-check) — line-cap enforcement,
+  anchored-summarization compaction at ~80% of cap, the prune-vs-archive decision,
+  and a conservation 0-lost proof on every relocation. Use when a sanctum file
+  approaches its size cap, on a scheduled hygiene pass, or when the operator asks to
+  compact or prune lore.
 allowed-tools: Bash, Read
 ---
 
@@ -27,7 +29,8 @@ This file decides *when* to run, *which* files, and *how to read the plan*.
 ## Steps
 
 1. Resolve the sanctum path: `{project-root}/_ai-memory/sanctum/{agent_id}/`.
-   Confirm it contains `LORE.md` and/or `MEMORY.md`.
+   The scan governs every present class — `LORE.md`/`MEMORY.md` (compact),
+   `PERSONA.md` (Evolution-Log section-cap), `CREED.md`/`BOND.md` (cap-check only).
 
 2. **Dry-run audit (DEFAULT — never mutates):**
    `python3 scripts/lore_hygiene.py <sanctum-path>`
@@ -107,6 +110,43 @@ next hygiene pass acts on them safely.
 > *cross-day* crash-rerun writes a second, differently-dated archive block for the
 > same content — accepted behavior that preserves a per-day audit trail and never
 > loses content.
+
+## Governed classes & per-class strategy
+
+When run on a sanctum dir the script governs each present class by its declared
+`Contract` (caps from TASK-077 A2; the `Contract` model is the **shared**
+`pov/lib/governance/contract.py`, the same one `aim-tracking-rotate` uses):
+
+- **LORE.md / MEMORY.md — compact.** Marker-driven prune/archive/dedup (above).
+- **PERSONA.md — section-cap.** The `## Evolution Log` section keeps its last 10
+  entries; older rows relocate losslessly to the cold archive with one pointer
+  left below the table. Symbolic section anchor only — never line numbers; the
+  rest of PERSONA is not rotated.
+- **CREED.md / BOND.md — check-only.** Cap is reported but identity directives are
+  **never auto-relocated**. An over-cap CREED/BOND makes the run exit non-zero so
+  closeout HALTs — relocate by hand.
+
+## Session-close gate (`--check`)
+
+`python3 scripts/lore_hygiene.py --check <sanctum-path>` is the read-only
+session-close gate (companion to `aim-tracking-rotate --check` for oversight
+files). It never mutates: it exits non-zero with a SYSTEM FAILURE block per
+**blocking** over-cap sanctum file (CREED/BOND line+KB, PERSONA `## Evolution Log`
+over the last-10 entry cap) and a remedy command, so closeout is blocked until
+each blocking class is within cap. The LORE/MEMORY compact-class file-SIZE cap is
+**reporting-only** (A2: full files stay on disk at full size; file rotation is
+tag-driven, not a closeout blocker) — an over-size LORE/MEMORY prints a WARNING
+but never blocks closeout. Wired into session-close step-04.
+
+## Conservation proof (prove-then-commit)
+
+Every relocation is proven 0-lost **before** anything is written: the script
+builds the content multiset over the hot file and the cold archive and proves,
+via the shared `conservation` module, that every line not intentionally
+prune/dedup-removed survives in the would-be hot file **or** the would-be archive
+(and that the archive never shrinks). If the proof fails the run aborts with a
+non-zero exit and **leaves every original byte-identical** — no `.bak`, no
+partial write. The `.bak` sidecar is written only once the proof passes.
 
 ## `--cap` on a directory (global override)
 
