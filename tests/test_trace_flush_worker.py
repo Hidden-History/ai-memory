@@ -28,7 +28,7 @@ def _load_module(tmp_path, monkeypatch):
     installed in the test environment.
     """
     monkeypatch.setenv("AI_MEMORY_INSTALL_DIR", str(tmp_path))
-    monkeypatch.setenv("LANGFUSE_FLUSH_INTERVAL", "0")
+    monkeypatch.setenv("LANGFUSE_FLUSH_INTERVAL", "1")
     monkeypatch.setenv("LANGFUSE_TRACE_BUFFER_MAX_MB", "100")
 
     # Remove cached module so re-import picks up new env vars
@@ -510,6 +510,53 @@ def test_process_buffer_files_detects_failure_when_otel_logger_silenced(
         assert level_after_flush == logging.CRITICAL
     finally:
         otel_logger.setLevel(original_level)  # don't leak level to other tests
+
+
+def test_process_buffer_files_detects_failure_when_descendant_logger_silenced(
+    tmp_path, monkeypatch
+):
+    """TD-611 fail-open guard (descendant case): an operator may silence a SPECIFIC
+    OTLP emitter logger (e.g. setLevel(CRITICAL) on
+    opentelemetry.exporter.otlp.proto.http.trace_exporter to quiet OTLP spam) while
+    leaving the parent opentelemetry logger at default. A descendant's EXPLICIT level
+    wins over the parent, so forcing only the parent leaves the failure record
+    suppressed → sentinel never trips → buffer unlinked → trace dropped. The flush
+    window must also force ERROR on explicitly-silenced descendants so the failure is
+    still detected → RETAINED.
+    """
+    mod, buffer_dir = _load_module(tmp_path, monkeypatch)
+    path = _write_event(buffer_dir, "silenced_descendant")
+
+    child_name = "opentelemetry.exporter.otlp.proto.http.trace_exporter"
+    child_logger = logging.getLogger(child_name)
+    original_level = child_logger.level
+    child_logger.setLevel(logging.CRITICAL)  # operator quiets this specific emitter
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.return_value = MagicMock()
+
+    def flush_export_timeout_while_descendant_silenced():
+        # Real OTLP failure line, emitted on the explicitly-silenced descendant logger.
+        logging.getLogger(child_name).error(
+            "Failed to export span batch due to timeout, max retries or shutdown."
+        )
+
+    mock_langfuse.flush.side_effect = flush_export_timeout_while_descendant_silenced
+
+    try:
+        processed, _ = mod.process_buffer_files(mock_langfuse)
+        level_after_flush = child_logger.level
+
+        assert processed == 0
+        assert path.exists(), (
+            "Failure must be detected and the buffer RETAINED even when a specific "
+            "opentelemetry.* descendant emitter is silenced above ERROR (fail-open "
+            "guard, TD-611)"
+        )
+        # The guard must restore the descendant's explicit level after the window.
+        assert level_after_flush == logging.CRITICAL
+    finally:
+        child_logger.setLevel(original_level)  # don't leak level to other tests
 
 
 def test_otel_real_exporter_failure_retains_buffer(tmp_path, monkeypatch):

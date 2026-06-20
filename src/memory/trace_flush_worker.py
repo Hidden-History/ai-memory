@@ -567,10 +567,18 @@ class _ExportFailureSentinel(logging.Handler):
         self.export_failed = False
 
     def emit(self, record: logging.LogRecord) -> None:
-        with contextlib.suppress(Exception):
+        try:
             message = record.getMessage()
-            if any(marker in message for marker in _OTEL_EXPORT_FAILURE_MARKERS):
-                self.export_failed = True
+        except Exception:
+            # Loss-safe (TD-611): a record reached this ERROR-level handler but its
+            # message cannot be evaluated (malformed %-args). Rather than swallow to
+            # export_failed=False — which could silently drop a real export-failure
+            # batch — treat the unreadable record as a possible failure and retain
+            # (prefer over-retention / at-least-once to a silent drop).
+            self.export_failed = True
+            return
+        if any(marker in message for marker in _OTEL_EXPORT_FAILURE_MARKERS):
+            self.export_failed = True
 
 
 @contextlib.contextmanager
@@ -580,28 +588,53 @@ def _watch_otel_export_failures():
     The OTLP exporter's failure ERROR is emitted synchronously inside
     ``force_flush()`` (after its internal retries), so a record captured while the
     ``langfuse.flush()`` call is in scope reliably reflects this batch's delivery.
+
+    Fail-open coverage: for the flush window this forces ``ERROR`` on BOTH the parent
+    ``opentelemetry`` logger AND every ``opentelemetry.*`` descendant that an operator
+    has explicitly silenced above ERROR (see the guard below), then restores every
+    touched logger's prior level. It still depends on child→parent propagation staying
+    ``True`` — the emitting descendant logger's record must propagate up to the parent
+    where the sentinel is attached.
     """
     sentinel = _ExportFailureSentinel()
     otel_logger = logging.getLogger("opentelemetry")
-    # Fail-open guard (TD-611): logger.error() is gated by isEnabledFor(ERROR) BEFORE
+    # Fail-open guard (TD-611): logger.error() is gated by getEffectiveLevel() BEFORE
     # any handler runs, so merely attaching an ERROR-level handler does NOT force
-    # emission. If the opentelemetry logger has been silenced above ERROR (e.g. an
-    # operator did logging.getLogger("opentelemetry").setLevel(CRITICAL) to quiet noisy
-    # OTel logs), the export-failure record is never created — the sentinel never trips,
-    # the buffer is unlinked, and the trace is dropped (the exact TD-611 bug, hidden).
-    # Force the logger to at least ERROR for the flush window, restoring the operator's
-    # explicit level afterward. NOTE: this relies on child→parent log propagation staying
-    # True — the OTLP exporter's child logger emits the record, which propagates up to
-    # this logger where the sentinel is attached.
-    saved_level = otel_logger.level
-    if otel_logger.getEffectiveLevel() > logging.ERROR:
-        otel_logger.setLevel(logging.ERROR)
-    otel_logger.addHandler(sentinel)
+    # emission. Two ways an operator can silence the export-failure record above ERROR,
+    # both of which would let the sentinel miss the failure → buffer unlinked → trace
+    # dropped (the exact TD-611 bug, hidden):
+    #   (a) parent silenced — setLevel(CRITICAL) on "opentelemetry"; a descendant with
+    #       NOTSET level inherits that effective level.
+    #   (b) descendant silenced — setLevel(CRITICAL) on a specific emitter logger (e.g.
+    #       "opentelemetry.exporter.otlp.proto.http.trace_exporter") to quiet OTLP spam;
+    #       its EXPLICIT level wins over the parent, so forcing only the parent is not
+    #       enough.
+    # Force ERROR on the parent plus any explicitly-silenced descendant for the window,
+    # saving each touched logger's prior level and restoring all of them afterward. The
+    # descendant walk is general (no hardcoded emitter names — OTel can rename them):
+    # any opentelemetry.* Logger with an EXPLICIT level (level != NOTSET) above ERROR.
+    # NOTE: this relies on child→parent log propagation staying True — the OTLP
+    # exporter's descendant logger emits the record, which propagates up to this logger
+    # where the sentinel is attached.
+    touched: list[tuple[logging.Logger, int]] = []
     try:
+        if otel_logger.getEffectiveLevel() > logging.ERROR:
+            touched.append((otel_logger, otel_logger.level))
+            otel_logger.setLevel(logging.ERROR)
+        for name, obj in list(logging.root.manager.loggerDict.items()):
+            if not isinstance(obj, logging.Logger) or not name.startswith(
+                "opentelemetry."
+            ):
+                continue
+            if obj.level != logging.NOTSET and obj.level > logging.ERROR:
+                touched.append((obj, obj.level))
+                obj.setLevel(logging.ERROR)
+        otel_logger.addHandler(sentinel)
         yield sentinel
     finally:
         otel_logger.removeHandler(sentinel)
-        otel_logger.setLevel(saved_level)
+        for touched_logger, prior_level in touched:
+            touched_logger.setLevel(prior_level)
 
 
 def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, int]:
