@@ -347,10 +347,57 @@ def test_backpressure_waits_without_shedding_under_designed_load():
     before_waited = _backpressure_count(service, "waited")
 
     async def _drive():
+        loop = asyncio.get_running_loop()
+        all_slots_held = asyncio.Event()
+        release_threads = threading.Event()
+
+        def _on_all_held():
+            # Barrier action: called in a thread once all cap threads arrive.
+            loop.call_soon_threadsafe(all_slots_held.set)
+
+        barrier = threading.Barrier(cap, action=_on_all_held, timeout=10)
+
+        class _GatedModel:
+            """Stub that parks all cap inference threads at a barrier before releasing.
+
+            When all cap threads are simultaneously inside embed() the asyncio event loop
+            is notified (all_slots_held). Threads then hold at release_threads until the
+            asyncio side has let rest_tasks observe locked()==True. This removes the
+            scheduling-dependent saturation window that caused the 3.11 failure.
+            """
+
+            name = "gated-stub"
+
+            def embed(self, embed_texts):
+                _tracker.enter()
+                try:
+                    barrier.wait()  # park until all cap threads arrive simultaneously
+                    release_threads.wait(timeout=10)  # hold until asyncio says go
+                    return [np.full(768, 0.1, dtype=np.float32) for _ in embed_texts]
+                finally:
+                    _tracker.exit()
+
+        service.MODEL_REGISTRY["en"] = _GatedModel()
+
         async def call():
             return await service.embed_dense(request_cls(texts=list(texts), model="en"))
 
-        return await asyncio.gather(*[call() for _ in range(concurrency)])
+        # Phase 1: fill all cap slots; barrier action sets all_slots_held once all cap
+        # threads are simultaneously inside embed() (semaphore fully drained).
+        fill_tasks = [asyncio.create_task(call()) for _ in range(cap)]
+        await all_slots_held.wait()
+
+        # Phase 2: rest admissions all see locked()==True and increment "waited".
+        rest_tasks = [asyncio.create_task(call()) for _ in range(concurrency - cap)]
+
+        # One event-loop cycle: rest_tasks all run to their first await (past the
+        # locked() check) before _drive resumes — deterministic on 3.10/3.11/3.12.
+        await asyncio.sleep(0)
+
+        # Release the threads; they return, freeing slots for rest_tasks to drain.
+        release_threads.set()
+
+        return await asyncio.gather(*fill_tasks, *rest_tasks)
 
     results = asyncio.run(_drive())
 
