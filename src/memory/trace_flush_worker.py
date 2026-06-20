@@ -14,12 +14,17 @@ SPEC-020 §5 / PLAN-008 / DEC-PLAN008-004
 #
 # BUG-315 residual risk: the preflight HTTP /api/public/health probe skips the flush
 # when the backend is unreachable or app-hung, and processing is bounded per batch, so
-# the stall watchdog should only ever see a genuinely-slow-but-progressing drain. The
-# one case it can still hard-exit is a backend that passes the health probe but then
-# hangs mid-flush-request past LANGFUSE_STALL_DEADLINE_SECONDS — the watchdog restarts
-# the worker, which replays the un-unlinked batch (loss-safe). Operators running a large
-# LANGFUSE_FLUSH_AT against a slow backend should raise LANGFUSE_STALL_DEADLINE_SECONDS
-# (a startup WARNING flags this; see _stall_deadline_warning).
+# the stall watchdog should only ever see a genuinely-slow-but-progressing drain. A
+# backend that passes the health probe but then times out / errors mid-export no longer
+# wedges the loop: the OTLP exporter's own read-timeout returns control so flush()
+# completes, and the export-failure sentinel (TD-611, below) retains the batch for
+# replay — the watchdog does NOT fire for that case. The watchdog's actual remaining
+# trigger is a genuinely-wedged pass — an indefinite block somewhere in the
+# flush/process path that the OTLP read-timeout does not bound (an unforeseen hang, not
+# the now-handled mid-export timeout) — past LANGFUSE_STALL_DEADLINE_SECONDS; the
+# watchdog restarts the worker, which replays the un-unlinked batch (loss-safe).
+# Operators running a large LANGFUSE_FLUSH_AT against a slow backend should raise
+# LANGFUSE_STALL_DEADLINE_SECONDS (a startup WARNING flags this; see _stall_deadline_warning).
 #
 # TD-611: a backend that passes the health probe but then times out / errors mid-export
 # does NOT wedge the loop (the OTLP exporter's own ~5s timeout returns control), so the
@@ -535,7 +540,7 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
 # LangfuseResourceManager.flush() -> TracerProvider.force_flush(), whose bool is
 # DISCARDED; and the underlying BatchProcessor.force_flush() returns True whenever
 # the processor is not shut down — regardless of whether the batch reached the
-# server (verified against opentelemetry-sdk 1.42.1 / langfuse 4.7.1: _export()
+# server (verified against opentelemetry-sdk 1.42.x / langfuse 4.7.x: _export()
 # drops the exporter's SpanExportResult, catching only exceptions). The OTLP HTTP
 # exporter swallows read-timeouts / non-2xx as SpanExportResult.FAILURE WITHOUT
 # raising, logging "Failed to export span batch ..." on the ``opentelemetry``
@@ -546,7 +551,12 @@ def _process_event_sdk(event: dict, data: dict, langfuse) -> None:
 # it treats any OTel export-failure log during the window as non-delivery (a
 # duplicate trace on replay is preferred over a dropped one). See BP-168 §4 + the
 # PM #350 addendum, TD-611.
-_OTEL_EXPORT_FAILURE_MARKERS = ("Failed to export", "Exception while exporting")
+# Marker is "Failed to export span" (not the broader "Failed to export") so a metric/
+# log exporter's own "Failed to export ..." line cannot be mistaken for a span-delivery
+# failure and cause false over-retention. The real OTLP span exporter logs "Failed to
+# export span batch code: ..." / "Failed to export span batch due to timeout, ..."; the
+# BatchSpanProcessor logs "Exception while exporting Span." on a raised error.
+_OTEL_EXPORT_FAILURE_MARKERS = ("Failed to export span", "Exception while exporting")
 
 
 class _ExportFailureSentinel(logging.Handler):
@@ -573,11 +583,25 @@ def _watch_otel_export_failures():
     """
     sentinel = _ExportFailureSentinel()
     otel_logger = logging.getLogger("opentelemetry")
+    # Fail-open guard (TD-611): logger.error() is gated by isEnabledFor(ERROR) BEFORE
+    # any handler runs, so merely attaching an ERROR-level handler does NOT force
+    # emission. If the opentelemetry logger has been silenced above ERROR (e.g. an
+    # operator did logging.getLogger("opentelemetry").setLevel(CRITICAL) to quiet noisy
+    # OTel logs), the export-failure record is never created — the sentinel never trips,
+    # the buffer is unlinked, and the trace is dropped (the exact TD-611 bug, hidden).
+    # Force the logger to at least ERROR for the flush window, restoring the operator's
+    # explicit level afterward. NOTE: this relies on child→parent log propagation staying
+    # True — the OTLP exporter's child logger emits the record, which propagates up to
+    # this logger where the sentinel is attached.
+    saved_level = otel_logger.level
+    if otel_logger.getEffectiveLevel() > logging.ERROR:
+        otel_logger.setLevel(logging.ERROR)
     otel_logger.addHandler(sentinel)
     try:
         yield sentinel
     finally:
         otel_logger.removeHandler(sentinel)
+        otel_logger.setLevel(saved_level)
 
 
 def process_buffer_files(langfuse, limit: int = FLUSH_BATCH_MAX) -> tuple[int, int]:
