@@ -72,6 +72,10 @@ dependencies = [
 observability = [
     # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
     "langfuse>=4.7.0,<4.8.0",
+    # OpenAI SDK for the evaluator LLM-as-judge provider (BUG-316) — used by
+    # evaluator/provider.py for the ollama (default), openrouter, openai, and
+    # custom OpenAI-compatible provider paths.
+    "openai>=1.99.0,<3.0.0",
 ]
 dev = [
     # Testing

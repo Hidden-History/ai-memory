@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Evaluator-scheduler missing `openai` dependency** — the LLM-as-judge evaluator's default `ollama` provider (and the `openrouter`, `openai`, and `custom` provider paths) build their client through the `openai` SDK, but the package was not declared in `requirements.txt` or `pyproject.toml`. The evaluator-scheduler image installs only `requirements.txt`, so every evaluation failed at runtime with `No module named 'openai'` and the scheduler reported `scored: 0` despite sampling traces. `openai` is now declared in both `requirements.txt` and the `observability` extra, and a smoke test asserts the configured default provider's client builds via the real import path.
+
 ## [2.7.0] - 2026-06-16
 
 ### Upgrade Instructions
