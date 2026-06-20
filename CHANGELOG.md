@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Evaluation-dataset golden fixtures (`create_datasets.py`)** — refreshed the Langfuse seed fixtures and the file's governance header from stale V3-only guidance to the current V4 (OTel-based) SDK. The dataset previously seeded V3-era answers (a decision fixture, an insight fixture, a retrieval expectation, and a spec-excerpt chunking fixture) that could score outdated responses as correct; their content and `key_terms_required` now reflect V4, and the spec-excerpt fixture's token estimate is re-derived from its rewritten text. The coupled `test_create_datasets.py` assertions are updated to match.
+
 ## [2.7.0] - 2026-06-16
 
 ### Upgrade Instructions
