@@ -75,6 +75,8 @@ observability = [
     # OpenAI SDK for the evaluator LLM-as-judge provider (BUG-316) — used by
     # evaluator/provider.py for the ollama (default), openrouter, openai, and
     # custom OpenAI-compatible provider paths.
+    # Bundled with the observability extra because the evaluator-scheduler (LLM-as-judge) is part of the observability stack, so its provider SDK lives with the observability deps.
+    # Pin policy: requirements.txt exact-pins openai==1.99.1 for reproducible image bakes; this >=1.99.1,<3.0.0 range is intentional so CI acts as a forward-compat gate — bump the requirements.txt image pin once CI passes on a new openai major.
     "openai>=1.99.1,<3.0.0",
 ]
 dev = [
