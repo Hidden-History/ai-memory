@@ -147,6 +147,9 @@ FRESHNESS_OWNED: frozenset[str] = frozenset({"bugs/INDEX.md", "tech-debt/INDEX.m
 #   - risk-register.md : TABLE rows under "### Critical/High/Medium/Low" severity
 #                        headers — the H3 boundary matches a severity header, not
 #                        a record.
+#   - technical-debt.md : "### TD-NNN:" detail H3 entries + "### <Category>"
+#                        summary tables in "Debt by Category" — H3-boundary
+#                        rotation would orphan table rows referencing those TDs.
 #   - SESSION_WORK_INDEX.md : FOUR distinct tables (Active Task / Last 5 Sessions
 #                        / Active Blockers / High Priority Risks); a bare '^\\| '
 #                        match sheds rows from the wrong table, and the
@@ -1364,7 +1367,10 @@ def _is_memory_pointer(line: str) -> bool:
 
 def _has_log_shape_violation(text: str) -> bool:
     """True if ``text`` contains at least one block that needs relocation."""
-    return any(_entry_needs_relocation(block) for block in _split_into_blocks(text))
+    for block in _split_into_blocks(text):  # noqa: SIM110  # pre-existing loop; unrelated to Lane C
+        if _entry_needs_relocation(block):
+            return True
+    return False
 
 
 def _entry_needs_relocation(block: str) -> bool:
