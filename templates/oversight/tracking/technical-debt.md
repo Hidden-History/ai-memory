@@ -1,3 +1,14 @@
+---
+class: register
+read_path: section-anchored
+owns: "technical debt records (TD-*)"
+cap_lines: 150
+cap_kb: 15
+rotation_trigger: on-close-over-cap  # auto-rotation deferred to TD-655; rotate manually until then
+archive_target: tracking/technical-debt-archive-{YYYY}.md
+index_file: N/A
+reconciliation: "live = OPEN/Active only + banner; on Resolved MOVE to archive"
+---
 # Technical Debt Ledger
 
 **Purpose**: Track technical debt incurred and plans for resolution.

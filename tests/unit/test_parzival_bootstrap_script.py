@@ -122,6 +122,41 @@ def test_main_respects_parzival_disabled(monkeypatch, capsys, tmp_path, enabled)
     assert "Parzival is not enabled" in out
 
 
+def test_insights_not_truncated_at_200_chars(monkeypatch, capsys, tmp_path):
+    """TD-682: insight content longer than 200 chars must not be truncated.
+
+    Decisions and other-context keep their [:200] cap; only insights are
+    untruncated (dense cross-session 'what to do next' context loses its
+    actionable tail at 200 chars).
+    """
+    monkeypatch.chdir(tmp_path)
+    resolve_spy = MagicMock(return_value="resolved-project")
+    _inject_fake_memory(monkeypatch, resolve_spy)
+
+    long_insight = "A" * 300  # 300 chars — well past the former 200-char cut
+    fake_results = [
+        {"id": "i1", "type": "agent_insight", "content": long_insight, "score": 0.8},
+    ]
+    sys.modules["memory.injection"].retrieve_bootstrap_context.return_value = (
+        fake_results,
+        {},
+    )
+    sys.modules["memory.injection"].select_results_greedy.return_value = (
+        fake_results,
+        50,
+        {},
+    )
+
+    module = _load_bootstrap_module()
+    rc = module.main()
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "### Insights" in out
+    # Full 300-char content must appear verbatim — no truncation at 200.
+    assert long_insight in out
+
+
 def test_output_has_no_github_or_sanctum_sections(monkeypatch, capsys, tmp_path):
     """A1 contract: bootstrap output never contains GitHub Activity or sanctum LORE/BOND.
 

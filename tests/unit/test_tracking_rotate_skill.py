@@ -831,10 +831,11 @@ def test_apply_refuses_session_index_non_destructive(tmp_path: Path) -> None:
 def test_all_manual_files_refuse_apply(tmp_path: Path) -> None:
     """Every rel-path in MANUAL_ROTATION_FILES refuses --apply non-destructively
     (guards against a future registry edit silently re-enabling one)."""
-    assert len(MANUAL_ROTATION_FILES) == 4
+    assert len(MANUAL_ROTATION_FILES) == 5
     for expected in (
         "tracking/blockers-log.md",
         "tracking/risk-register.md",
+        "tracking/technical-debt.md",
         "SESSION_WORK_INDEX.md",
         "session-index/INDEX.md",
     ):
@@ -869,6 +870,54 @@ def test_check_still_enforces_cap_on_manual_files(tmp_path: Path) -> None:
     assert "TD-655" in result.stderr
     assert "by hand" in result.stderr
     assert "--apply" not in result.stderr  # do not loop the operator back
+
+
+# ---------------------------------------------------------------------------
+# TD-681: technical-debt.md now governed by the cap gate (parity with other
+#          manual-rotation registers; --check enforces, --apply refuses)
+# ---------------------------------------------------------------------------
+
+
+def test_technical_debt_in_fallback_registry_and_manual_rotation() -> None:
+    """technical-debt.md must be in both FALLBACK_REGISTRY and MANUAL_ROTATION_FILES
+    so --check enforces its cap and --apply refuses non-destructively (TD-681).
+    """
+    assert "tracking/technical-debt.md" in FALLBACK_REGISTRY
+    assert "tracking/technical-debt.md" in MANUAL_ROTATION_FILES
+    contract = FALLBACK_REGISTRY["tracking/technical-debt.md"]
+    assert contract.cap_lines == 150
+    assert contract.cap_kb == 15
+
+
+def test_check_enforces_technical_debt_cap(tmp_path: Path) -> None:
+    """--check on an over-cap technical-debt.md emits SYSTEM FAILURE and exits
+    non-zero (TD-681: parity with blockers-log / risk-register governance).
+    The remedy must NOT point to --apply (manual-rotation guard).
+    """
+    root = _make_oversight(tmp_path)
+    td = root / "tracking" / "technical-debt.md"
+    # 180 lines > cap of 150.
+    td.write_text("\n".join(f"line {i}" for i in range(180)) + "\n", encoding="utf-8")
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1
+    assert "SYSTEM FAILURE" in result.stderr
+    assert "technical-debt.md" in result.stderr
+    assert "by hand" in result.stderr
+    assert "--apply" not in result.stderr
+
+
+def test_check_passes_technical_debt_within_cap(tmp_path: Path) -> None:
+    """--check on a within-cap technical-debt.md passes cleanly (TD-681)."""
+    root = _make_oversight(tmp_path)
+    td = root / "tracking" / "technical-debt.md"
+    # 50 lines < cap of 150.
+    td.write_text(
+        "\n".join(f"### TD-{i:03d}: some debt item {i}" for i in range(50)) + "\n",
+        encoding="utf-8",
+    )
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, result.stderr
+    assert "PASS" in result.stdout
 
 
 # ---------------------------------------------------------------------------

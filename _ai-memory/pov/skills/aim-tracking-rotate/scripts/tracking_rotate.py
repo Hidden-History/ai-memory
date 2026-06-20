@@ -115,6 +115,13 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
         archive_target="tracking/archive/decision-log-ARCHIVE-{YYYY-MM}.md",
         index_file="tracking/decision-log-INDEX.md",
     ),
+    "tracking/technical-debt.md": Contract(
+        150,
+        15,
+        "register",
+        True,
+        archive_target="tracking/technical-debt-archive-{YYYY}.md",
+    ),
     "session-index/INDEX.md": Contract(
         120,
         10,
@@ -156,6 +163,7 @@ MANUAL_ROTATION_FILES: frozenset[str] = frozenset(
     {
         "tracking/blockers-log.md",
         "tracking/risk-register.md",
+        "tracking/technical-debt.md",
         "SESSION_WORK_INDEX.md",
         "session-index/INDEX.md",
     }
@@ -1356,10 +1364,7 @@ def _is_memory_pointer(line: str) -> bool:
 
 def _has_log_shape_violation(text: str) -> bool:
     """True if ``text`` contains at least one block that needs relocation."""
-    for block in _split_into_blocks(text):
-        if _entry_needs_relocation(block):
-            return True
-    return False
+    return any(_entry_needs_relocation(block) for block in _split_into_blocks(text))
 
 
 def _entry_needs_relocation(block: str) -> bool:
