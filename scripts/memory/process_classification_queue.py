@@ -120,6 +120,18 @@ def _langfuse_shutdown():
     worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
 
 
+def _register_langfuse_shutdown():
+    """Register the bounded at-exit drain unless Langfuse is disabled (TD-698)."""
+    try:
+        from memory.langfuse_config import is_langfuse_enabled
+    except ImportError:
+        return  # memory.langfuse_config not available
+    if not is_langfuse_enabled():
+        return
+
+    atexit.register(_langfuse_shutdown)
+
+
 # SPEC-020 §6: Enable Langfuse auto-instrumentation for Anthropic calls
 try:
     from memory.langfuse_config import is_langfuse_enabled
@@ -134,11 +146,10 @@ try:
             logger.warning(
                 "opentelemetry-instrumentation-anthropic not installed — Anthropic SDK calls will not be traced"
             )
-
-        # Registration only happens in this enabled branch (skipped when off)
-        atexit.register(_langfuse_shutdown)
 except ImportError:
     pass  # memory.langfuse_config not available
+
+_register_langfuse_shutdown()
 
 # =============================================================================
 # PROMETHEUS METRICS
