@@ -18,6 +18,7 @@ import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException
 from fastembed import LateInteractionTextEmbedding, SparseTextEmbedding, TextEmbedding
@@ -82,6 +83,17 @@ EMBEDDING_ACQUIRE_TIMEOUT = float(os.getenv("EMBEDDING_ACQUIRE_TIMEOUT", "30"))
 EMBEDDING_MAX_WAITERS = int(os.getenv("EMBEDDING_MAX_WAITERS", "64"))
 EMBEDDING_RETRY_AFTER = int(os.getenv("EMBEDDING_RETRY_AFTER", "5"))
 
+# BUG-324 Phase 2: memory-aware AIMD self-throttle (the OOM-loop fix). A background
+# controller reads cgroup-v2 memory signals and shrinks the EFFECTIVE concurrency toward
+# 1 under memory pressure (multiplicative decrease / drain mode), recovering additively
+# (+1) when healthy. EMBEDDING_MAX_CONCURRENCY is the ceiling; effective floats in
+# [1, max]. Thresholds are env-driven and conservative; final values come from the soak.
+EMBEDDING_CGROUP_PATH = os.getenv("EMBEDDING_CGROUP_PATH", "/sys/fs/cgroup")
+EMBEDDING_PRESSURE_INTERVAL = float(os.getenv("EMBEDDING_PRESSURE_INTERVAL", "1.0"))
+EMBEDDING_PSI_THRESHOLD = float(os.getenv("EMBEDDING_PSI_THRESHOLD", "10.0"))
+EMBEDDING_MEMORY_HIGH_RATIO = float(os.getenv("EMBEDDING_MEMORY_HIGH_RATIO", "0.9"))
+EMBEDDING_MEMORY_OK_RATIO = float(os.getenv("EMBEDDING_MEMORY_OK_RATIO", "0.75"))
+
 # TD-670: Reject oversized payloads up front so a single huge request cannot drive the
 # worker into an OS-level OOM SIGKILL (which the 503 fault-isolation in
 # run_inference_async cannot catch). Bound both the batch size (number of texts ->
@@ -141,6 +153,24 @@ embedding_oom_events_total = _make_metric(
     "embedding_oom_events",
     "cgroup memory.events OOM signals observed (oom / oom_kill)",
 )
+embedding_effective_concurrency_limit = _make_metric(
+    Gauge,
+    "embedding_effective_concurrency_limit",
+    "Current AIMD effective concurrency limit (collapses toward 1 under memory pressure)",
+)
+embedding_memory_current_bytes = _make_metric(
+    Gauge, "embedding_memory_current_bytes", "cgroup memory.current (bytes)"
+)
+embedding_memory_headroom_bytes = _make_metric(
+    Gauge,
+    "embedding_memory_headroom_bytes",
+    "Headroom to the throttle threshold (memory.high or memory.max minus current)",
+)
+embedding_memory_pressure_full_avg10 = _make_metric(
+    Gauge,
+    "embedding_memory_pressure_full_avg10",
+    "PSI memory.pressure full avg10 (percent of time stalled on reclaim)",
+)
 
 # Service-global concurrency gate. The asyncio.Semaphore is the single concurrency
 # bound; the executor is sized to it so model.embed() can never run more than
@@ -152,6 +182,15 @@ _inference_executor = ThreadPoolExecutor(
 # Requests currently blocked on admission (the bounded wait-queue depth). Mutated only
 # on the single-threaded event loop, so a plain int needs no lock.
 _waiting_count = 0
+
+# BUG-324 Phase 2: the AIMD controller shrinks the EFFECTIVE limit below the static max
+# by *parking* permits on the semaphore (acquiring without releasing) — so a collapse to
+# 1 simply drains as in-flight requests finish. effective = max - parked.
+_effective_limit = EMBEDDING_MAX_CONCURRENCY
+_parked_permits = 0
+_limit_lock = asyncio.Lock()
+_last_oom_total = 0
+embedding_effective_concurrency_limit.set(_effective_limit)
 
 
 async def run_inference_async(operation):
@@ -266,10 +305,206 @@ def _enforce_payload_limits(texts: list[str]) -> None:
         )
 
 
+def _read_cgroup_int(path):
+    """Read a single-int cgroup file; None if missing/unreadable or the literal 'max'."""
+    try:
+        with open(path) as fh:
+            value = fh.read().strip()
+    except OSError:
+        return None
+    if value == "max":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+def _read_cgroup_events(path):
+    """Parse a cgroup key/value file (e.g. memory.events) into a dict; {} if unavailable."""
+    events = {}
+    try:
+        with open(path) as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) == 2:
+                    try:
+                        events[parts[0]] = int(parts[1])
+                    except ValueError:
+                        continue
+    except OSError:
+        return {}
+    return events
+
+
+def _read_psi_full_avg10(path):
+    """Read PSI memory.pressure 'full avg10'; None if PSI is unavailable (WSL2 fallback)."""
+    try:
+        with open(path) as fh:
+            for line in fh:
+                if line.startswith("full"):
+                    for token in line.split():
+                        if token.startswith("avg10="):
+                            try:
+                                return float(token.split("=", 1)[1])
+                            except ValueError:
+                                return None
+    except OSError:
+        return None
+    return None
+
+
+def read_cgroup_memory(base=None):
+    """Snapshot cgroup-v2 memory signals.
+
+    Each field is None when its file is unavailable so the controller degrades
+    gracefully on hosts without cgroup-v2 / PSI (BP-175 §3 caveat). The throttle
+    threshold is the soft ``memory.high`` if set, else the hard ``memory.max``.
+    """
+    base = base if base is not None else EMBEDDING_CGROUP_PATH
+    current = _read_cgroup_int(os.path.join(base, "memory.current"))
+    mem_max = _read_cgroup_int(os.path.join(base, "memory.max"))
+    mem_high = _read_cgroup_int(os.path.join(base, "memory.high"))
+    events = _read_cgroup_events(os.path.join(base, "memory.events"))
+    psi = _read_psi_full_avg10(os.path.join(base, "memory.pressure"))
+    limit = mem_high if mem_high is not None else mem_max
+    headroom = limit - current if (limit is not None and current is not None) else None
+    ratio = current / limit if (limit and current is not None) else None
+    return {
+        "current": current,
+        "limit": limit,
+        "headroom": headroom,
+        "ratio": ratio,
+        "psi_full_avg10": psi,
+        "oom": events.get("oom", 0) + events.get("oom_kill", 0),
+        "psi_available": psi is not None,
+        "ratio_available": ratio is not None,
+    }
+
+
+def _decide_effective_limit(current_limit, signals):
+    """AIMD: next effective limit from memory signals, clamped to [1, max].
+
+    Multiplicative decrease (halve toward 1) on any memory-pressure signal; additive
+    increase (+1) only when healthy on every available signal; hold when no signal is
+    available (defensive — never grow blind).
+    """
+    psi = signals.get("psi_full_avg10")
+    ratio = signals.get("ratio")
+    if psi is None and ratio is None:
+        return current_limit
+    under_pressure = False
+    healthy = True
+    if psi is not None:
+        if psi > EMBEDDING_PSI_THRESHOLD:
+            under_pressure = True
+        if psi > 0:
+            healthy = False
+    if ratio is not None:
+        if ratio > EMBEDDING_MEMORY_HIGH_RATIO:
+            under_pressure = True
+        if ratio > EMBEDDING_MEMORY_OK_RATIO:
+            healthy = False
+    if under_pressure:
+        return max(1, current_limit // 2)
+    if healthy and current_limit < EMBEDDING_MAX_CONCURRENCY:
+        return current_limit + 1
+    return current_limit
+
+
+async def _apply_effective_limit(new_effective):
+    """Move the effective concurrency limit by parking/unparking semaphore permits.
+
+    Parking acquires a permit and never releases it, so shrinking under pressure drains
+    naturally as in-flight requests finish; unparking restores capacity on recovery.
+    """
+    global _effective_limit, _parked_permits
+    new_effective = max(1, min(EMBEDDING_MAX_CONCURRENCY, new_effective))
+    target_parked = EMBEDDING_MAX_CONCURRENCY - new_effective
+    async with _limit_lock:
+        while _parked_permits < target_parked:
+            await _inference_semaphore.acquire()
+            _parked_permits += 1
+        while _parked_permits > target_parked:
+            _inference_semaphore.release()
+            _parked_permits -= 1
+        _effective_limit = new_effective
+    embedding_effective_concurrency_limit.set(_effective_limit)
+
+
+async def _apply_pressure_decision(signals):
+    """One AIMD control step: publish gauges, count OOM deltas, adjust effective limit."""
+    global _last_oom_total
+    if signals["current"] is not None:
+        embedding_memory_current_bytes.set(signals["current"])
+    if signals["headroom"] is not None:
+        embedding_memory_headroom_bytes.set(signals["headroom"])
+    if signals["psi_full_avg10"] is not None:
+        embedding_memory_pressure_full_avg10.set(signals["psi_full_avg10"])
+    oom_total = signals["oom"]
+    if oom_total > _last_oom_total:
+        embedding_oom_events_total.inc(oom_total - _last_oom_total)
+    _last_oom_total = oom_total
+    new_limit = _decide_effective_limit(_effective_limit, signals)
+    if new_limit != _effective_limit:
+        await _apply_effective_limit(new_limit)
+        logger.info(
+            "embedding_effective_limit_changed",
+            extra={
+                "effective": _effective_limit,
+                "ratio": signals["ratio"],
+                "psi_full_avg10": signals["psi_full_avg10"],
+            },
+        )
+
+
+async def _pressure_controller():
+    """Background AIMD loop driving the memory-aware self-throttle (BP-175 §2b/§3)."""
+    while True:
+        try:
+            await asyncio.sleep(EMBEDDING_PRESSURE_INTERVAL)
+            await _apply_pressure_decision(read_cgroup_memory())
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # never let one bad read kill the controller
+            logger.error(
+                "embedding_pressure_controller_error",
+                extra={"error": str(e), "error_type": type(e).__name__},
+            )
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    """Start/stop the memory-pressure controller alongside the app.
+
+    Logs which signal path is active (PSI vs memory-ratio fallback vs none) so the
+    BP-175 §3 WSL2 caveat is observable at runtime rather than assumed.
+    """
+    probe = read_cgroup_memory()
+    if probe["psi_available"]:
+        signal_mode = "psi"
+    elif probe["ratio_available"]:
+        signal_mode = "memory_ratio_fallback"
+    else:
+        signal_mode = "unavailable"
+    logger.info(
+        "embedding_pressure_controller_start",
+        extra={"signal_mode": signal_mode, "cgroup_path": EMBEDDING_CGROUP_PATH},
+    )
+    task = asyncio.create_task(_pressure_controller())
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+
 app = FastAPI(
     title="AI Memory Embedding Service",
     description="Dual embedding generation using Jina v2 Base EN (prose) + Base Code (code) - 768d",
     version="2.3.2",
+    lifespan=_lifespan,
 )
 
 # Mount Prometheus metrics endpoint (AC 6.1.5, AC 6.1.1)

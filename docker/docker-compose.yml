@@ -122,6 +122,13 @@ services:
       - EMBEDDING_RETRY_AFTER=${EMBEDDING_RETRY_AFTER:-5}
       - EMBEDDING_MAX_BATCH_TEXTS=${EMBEDDING_MAX_BATCH_TEXTS:-256}
       - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-1000000}
+      # BUG-324 Phase 2: memory-aware AIMD self-throttle (the OOM-loop fix). The
+      # controller reads cgroup-v2 memory signals and collapses effective concurrency
+      # toward 1 under pressure. Thresholds are conservative; tune under the soak.
+      - EMBEDDING_PRESSURE_INTERVAL=${EMBEDDING_PRESSURE_INTERVAL:-1.0}
+      - EMBEDDING_PSI_THRESHOLD=${EMBEDDING_PSI_THRESHOLD:-10.0}
+      - EMBEDDING_MEMORY_HIGH_RATIO=${EMBEDDING_MEMORY_HIGH_RATIO:-0.9}
+      - EMBEDDING_MEMORY_OK_RATIO=${EMBEDDING_MEMORY_OK_RATIO:-0.75}
       # BUG-324 (footprint): shrink anon-RSS under concurrent inference. MALLOC_ARENA_MAX
       # caps glibc malloc arenas (fragmentation is the prime suspect for the >cap anon-rss
       # overshoot); OMP_NUM_THREADS bounds OpenMP thread pools. Conservative defaults

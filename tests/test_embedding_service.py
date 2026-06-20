@@ -362,3 +362,129 @@ def test_backpressure_waits_without_shedding_under_designed_load():
     # Backpressure engaged (callers were made to wait) but NOTHING was shed.
     assert _backpressure_count(service, "shed") - before_shed == 0
     assert _backpressure_count(service, "waited") - before_waited > 0
+
+
+# --- Phase 2: cgroup-v2 reader + memory-aware AIMD self-throttle ---
+
+
+def _write_cgroup(
+    base, current=None, mem_max=None, mem_high=None, events=None, psi=None
+):
+    """Materialize a fake cgroup-v2 memory dir for the reader under test."""
+    base = Path(base)
+    if current is not None:
+        (base / "memory.current").write_text(str(current))
+    if mem_max is not None:
+        (base / "memory.max").write_text(str(mem_max))
+    if mem_high is not None:
+        (base / "memory.high").write_text(str(mem_high))
+    if events is not None:
+        (base / "memory.events").write_text(events)
+    if psi is not None:
+        (base / "memory.pressure").write_text(psi)
+
+
+def test_read_cgroup_memory_parses_signals(tmp_path):
+    """Reader parses current/limit/headroom/ratio/PSI and sums oom + oom_kill."""
+    service = _load_service(4)
+    _write_cgroup(
+        tmp_path,
+        current=2_000_000_000,
+        mem_max=4_000_000_000,
+        mem_high="max",  # unset -> falls back to memory.max as the threshold
+        events="low 0\nhigh 5\nmax 2\noom 3\noom_kill 1\n",
+        psi=(
+            "some avg10=1.20 avg60=0.0 avg300=0.0 total=1\n"
+            "full avg10=4.50 avg60=0.0 avg300=0.0 total=1\n"
+        ),
+    )
+    sig = service.read_cgroup_memory(str(tmp_path))
+    assert sig["current"] == 2_000_000_000
+    assert sig["limit"] == 4_000_000_000
+    assert sig["headroom"] == 2_000_000_000
+    assert abs(sig["ratio"] - 0.5) < 1e-9
+    assert sig["psi_full_avg10"] == 4.50
+    assert sig["oom"] == 4
+    assert sig["psi_available"] is True
+    assert sig["ratio_available"] is True
+
+
+def test_read_cgroup_memory_missing_files_degrade(tmp_path):
+    """No cgroup files (non-cgroup-v2 / no-PSI host) -> all-None, both paths unavailable."""
+    service = _load_service(4)
+    sig = service.read_cgroup_memory(str(tmp_path))
+    assert sig["current"] is None
+    assert sig["limit"] is None
+    assert sig["ratio"] is None
+    assert sig["psi_full_avg10"] is None
+    assert sig["psi_available"] is False
+    assert sig["ratio_available"] is False
+    assert sig["oom"] == 0
+
+
+def test_decide_effective_limit_multiplicative_decrease_on_psi():
+    service = _load_service(4)
+    sig = {"psi_full_avg10": 50.0, "ratio": None}
+    assert service._decide_effective_limit(4, sig) == 2
+    assert service._decide_effective_limit(2, sig) == 1
+    assert service._decide_effective_limit(1, sig) == 1  # floor at 1
+
+
+def test_decide_effective_limit_multiplicative_decrease_on_ratio():
+    service = _load_service(4)
+    sig = {"psi_full_avg10": None, "ratio": 0.95}
+    assert service._decide_effective_limit(4, sig) == 2
+
+
+def test_decide_effective_limit_additive_increase_when_healthy():
+    service = _load_service(4)
+    sig = {"psi_full_avg10": 0.0, "ratio": 0.10}
+    assert service._decide_effective_limit(2, sig) == 3
+    assert service._decide_effective_limit(4, sig) == 4  # never above the ceiling
+
+
+def test_decide_effective_limit_holds_without_signal():
+    service = _load_service(4)
+    sig = {"psi_full_avg10": None, "ratio": None}
+    assert service._decide_effective_limit(3, sig) == 3  # never grow blind
+
+
+def test_apply_effective_limit_parks_and_restores_permits():
+    """Collapsing the effective limit parks permits; recovering unparks them."""
+    service = _load_service(4)
+
+    async def _drive():
+        assert service._inference_semaphore._value == 4
+        await service._apply_effective_limit(1)  # drain mode -> park 3
+        assert service._effective_limit == 1
+        assert service._inference_semaphore._value == 1
+        await service._apply_effective_limit(4)  # recover -> unpark
+        assert service._effective_limit == 4
+        assert service._inference_semaphore._value == 4
+
+    asyncio.run(_drive())
+
+
+def test_pressure_decision_collapses_limit_and_counts_oom():
+    """Under pressure the AIMD step halves the effective limit and counts OOM deltas."""
+    service = _load_service(4)
+    before_oom = service.embedding_oom_events_total._value.get()
+
+    async def _drive():
+        await service._apply_pressure_decision(
+            {
+                "current": 3_900_000_000,
+                "limit": 4_000_000_000,
+                "headroom": 100_000_000,
+                "ratio": 0.975,
+                "psi_full_avg10": 80.0,
+                "oom": 2,
+                "psi_available": True,
+                "ratio_available": True,
+            }
+        )
+        return service._effective_limit
+
+    eff = asyncio.run(_drive())
+    assert eff == 2
+    assert service.embedding_oom_events_total._value.get() - before_oom == 2
