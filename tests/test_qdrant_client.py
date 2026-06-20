@@ -318,6 +318,18 @@ class TestQdrantClient:
             call_kwargs = MockQdrantClient.call_args.kwargs
             assert call_kwargs["api_key"] == rw_key
 
+    def test_check_compatibility_disabled(self):
+        """TD-683: check_compatibility=False suppresses the server-version UserWarning."""
+        with patch("src.memory.qdrant_client.QdrantClient") as MockQdrantClient:
+            mock_instance = Mock()
+            MockQdrantClient.return_value = mock_instance
+
+            config = MemoryConfig()
+            get_qdrant_client(config)
+
+            call_kwargs = MockQdrantClient.call_args.kwargs
+            assert call_kwargs.get("check_compatibility") is False
+
     def test_module_has_all_exports(self):
         """AC 1.4.3: Module exports required functions."""
         from src.memory import qdrant_client as qc_module
