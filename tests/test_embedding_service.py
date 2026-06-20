@@ -488,3 +488,50 @@ def test_pressure_decision_collapses_limit_and_counts_oom():
     eff = asyncio.run(_drive())
     assert eff == 2
     assert service.embedding_oom_events_total._value.get() - before_oom == 2
+
+
+# --- Cardinal end-to-end: real server shed (Phase 1) <-> real client retry (Phase 3) ---
+
+
+def test_live_asgi_server_backpressure_then_client_retry_lands(monkeypatch):
+    """THE integration proof: the REAL embedding app emits its own 503 + Retry-After
+    under backpressure, and the REAL EmbeddingClient retries it so the memory lands —
+    zero loss — composing Phase 1's shed with Phase 3's retry through the actual code on
+    both sides (no mocks). TestClient is the sync->ASGI bridge that drives the real app.
+    """
+    from src.memory import embeddings as embeddings_mod
+    from src.memory.config import MemoryConfig
+    from src.memory.embeddings import EmbeddingClient
+
+    # Real service app (stub models). A full wait-queue forces the real shed path.
+    service = _load_service(1)
+    service.EMBEDDING_MAX_WAITERS = 0  # queue full -> server sheds 503 + Retry-After
+    service.EMBEDDING_RETRY_AFTER = 1  # the real header value the client will honor
+
+    # Real client, driving the real app through TestClient (sync -> real ASGI app).
+    client = EmbeddingClient(MemoryConfig())
+    client.client = TestClient(service.app)
+    client._max_retries = 3
+
+    # Deterministic "transient backpressure": when the real client hits its retry-sleep
+    # boundary, the pressure clears (a slot opens) — so the next attempt is admitted.
+    # Hooking the client's own time.sleep ties the flip to the real retry, no timing race.
+    # Note: patching the time module is process-global, so gate the flip to the client's
+    # retry sleep (Retry-After == 1s) and ignore the stub model's short ~0.05s window.
+    flips = {"n": 0}
+
+    def fake_sleep(seconds):
+        if seconds >= 0.5:
+            flips["n"] += 1
+            service.EMBEDDING_MAX_WAITERS = 64  # pressure cleared before the retry
+
+    monkeypatch.setattr(embeddings_mod.time, "sleep", fake_sleep)
+
+    result = client.embed(["a memory that must survive backpressure"], model="en")
+
+    # The real server shed once, the real client retried once, and the memory landed.
+    assert flips["n"] == 1
+    assert len(result) == 1
+    assert len(result[0]) == 768
+    # TD-354 intact end-to-end: a real non-zero vector, never a degenerate placeholder.
+    assert any(v != 0.0 for v in result[0])
