@@ -96,6 +96,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ai_memory.embedding")
 
+# L1: a misconfigured EMBEDDING_MAX_WAITERS < 1 would make the admission check
+# (`_waiting_count >= EMBEDDING_MAX_WAITERS`) shed every request even when a slot is free,
+# rendering the service non-functional. Floor it to 1 and warn so the misconfiguration is
+# observable rather than silently fatal.
+if EMBEDDING_MAX_WAITERS < 1:
+    logger.warning(
+        "embedding_max_waiters_floored",
+        extra={"configured": EMBEDDING_MAX_WAITERS, "floored_to": 1},
+    )
+    EMBEDDING_MAX_WAITERS = 1
+
 
 def _make_metric(factory, name, *args, **kwargs):
     """Create a Prometheus metric, tolerating module re-import.
@@ -176,6 +187,9 @@ _effective_limit = EMBEDDING_MAX_CONCURRENCY
 _parked_permits = 0
 _limit_lock = asyncio.Lock()
 _last_oom_total = 0
+# L7: latch so the "held at 1 with no pressure signal" warning is emitted once per entry
+# into that state (on transition), not on every controller tick.
+_blind_hold_logged = False
 embedding_effective_concurrency_limit.set(_effective_limit)
 
 
@@ -248,9 +262,28 @@ async def run_inference_async(operation):
 
     embedding_admission_wait_seconds.observe(time.monotonic() - start)
     embedding_inflight.inc()
+    # M1 (BUG-324): release the slot EXACTLY ONCE and ONLY when the executor thread truly
+    # completes. A client disconnect raises asyncio.CancelledError (a BaseException) out of
+    # the await below; releasing in the request-coroutine ``finally`` would free the
+    # semaphore while the worker thread is still running ``operation`` — the freed slot
+    # over-admits and the ThreadPoolExecutor's own (uncounted) work queue can then grow
+    # past the BP-175 memory bound. Anchoring the release to the concurrent.futures
+    # future's done-callback fires it precisely when the thread finishes (the asyncio
+    # future returned by run_in_executor fires its callback EARLY on cancel, so it cannot
+    # carry the release; asyncio.shield does not help either — the outer await still
+    # raises). The callback runs on the worker thread, so the release is marshalled back
+    # onto the event loop because asyncio.Semaphore is not thread-safe.
+    loop = asyncio.get_running_loop()
+    future = _inference_executor.submit(operation)
+
+    def _release_slot():
+        embedding_inflight.dec()
+        _inference_semaphore.release()
+
+    future.add_done_callback(lambda _f: loop.call_soon_threadsafe(_release_slot))
+
     try:
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(_inference_executor, operation)
+        return await asyncio.wrap_future(future)
     except HTTPException:
         raise
     except Exception as e:
@@ -259,9 +292,6 @@ async def run_inference_async(operation):
             extra={"error": str(e), "error_type": type(e).__name__},
         )
         raise HTTPException(status_code=503, detail="embedding_inference_failed") from e
-    finally:
-        embedding_inflight.dec()
-        _inference_semaphore.release()
 
 
 def _enforce_payload_limits(texts: list[str]) -> None:
@@ -420,7 +450,7 @@ async def _apply_effective_limit(new_effective):
 
 async def _apply_pressure_decision(signals):
     """One AIMD control step: publish gauges, count OOM deltas, adjust effective limit."""
-    global _last_oom_total
+    global _last_oom_total, _blind_hold_logged
     if signals["current"] is not None:
         embedding_memory_current_bytes.set(signals["current"])
     if signals["headroom"] is not None:
@@ -442,6 +472,24 @@ async def _apply_pressure_decision(signals):
                 "psi_full_avg10": signals["psi_full_avg10"],
             },
         )
+
+    # L7: surface when the controller is throttled "blind" — pinned at the floor of 1 with
+    # no pressure signal available (PSI and memory-ratio both None), so it cannot recover
+    # additively and operators get no other signal of the held-down state. Log on entry
+    # into the state and reset on exit, so it's observable without per-tick spam.
+    blind_held_at_1 = (
+        signals["psi_full_avg10"] is None
+        and signals["ratio"] is None
+        and _effective_limit == 1
+    )
+    if blind_held_at_1 and not _blind_hold_logged:
+        logger.warning(
+            "embedding_effective_limit_held_blind",
+            extra={"effective": _effective_limit},
+        )
+        _blind_hold_logged = True
+    elif not blind_held_at_1:
+        _blind_hold_logged = False
 
 
 async def _pressure_controller():

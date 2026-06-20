@@ -15,6 +15,7 @@ stub, so there are no model downloads, no Docker, and no shared-Qdrant access.
 
 import asyncio
 import importlib.util
+import logging
 import os
 import sys
 import threading
@@ -612,3 +613,114 @@ def test_live_asgi_server_backpressure_then_client_retry_lands(monkeypatch):
     assert len(result[0]) == 768
     # TD-354 intact end-to-end: a real non-zero vector, never a degenerate placeholder.
     assert any(v != 0.0 for v in result[0])
+
+
+# --- M1: exactly-once slot release on executor-thread completion, even under cancel ---
+
+
+def test_cancelled_midinference_holds_slot_until_thread_completes():
+    """M1: a request cancelled mid-inference (client disconnect) must NOT free its
+    semaphore slot until the executor thread actually finishes.
+
+    If the slot leaked on cancellation, a new request would over-admit while the worker
+    thread is still running ``operation`` — growing the ThreadPoolExecutor's uncounted
+    work queue past the memory bound. With a single slot the over-admit is directly
+    observable: the next request is shed (503) while the cancelled inference is still in
+    flight, then admitted once the thread completes (slot released exactly once).
+    """
+    service = _load_service(1, acquire_timeout=0.3)
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_op():
+        started.set()
+        release.wait(timeout=10)  # hold the inference open across the cancellation
+        return [1]
+
+    async def _drive():
+        sem = service._inference_semaphore
+        before_inflight = service.embedding_inflight._value.get()
+
+        task = asyncio.create_task(service.run_inference_async(blocking_op))
+        # Wait until the worker thread is actually inside the inference (slot held).
+        await asyncio.get_running_loop().run_in_executor(None, started.wait, 10)
+        assert sem.locked()
+        assert service.embedding_inflight._value.get() == before_inflight + 1
+
+        # Client disconnect mid-inference.
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # CRITICAL (M1): the slot is still held — the worker thread has not completed, so
+        # cancellation must not have released it.
+        assert sem.locked(), "slot freed on cancel before the executor thread completed"
+        assert service.embedding_inflight._value.get() == before_inflight + 1
+
+        # No over-admit: a new request cannot acquire the (still-held) slot and is shed.
+        with pytest.raises(HTTPException) as exc:
+            await service.run_inference_async(lambda: [2])
+        assert exc.value.status_code == 503
+
+        # Let the worker thread finish; only now is the slot released — exactly once.
+        release.set()
+        for _ in range(200):
+            if not sem.locked():
+                break
+            await asyncio.sleep(0.01)
+        assert not sem.locked(), "slot not released after the executor thread completed"
+        assert service.embedding_inflight._value.get() == before_inflight
+
+        # The freed slot admits the next request normally; a double-release would have
+        # corrupted the permit count, so a clean single free slot proves exactly-once.
+        assert await service.run_inference_async(lambda: [3]) == [3]
+        assert sem._value == 1
+
+    asyncio.run(_drive())
+
+
+def test_max_waiters_floored_to_one(caplog):
+    """L1: a configured EMBEDDING_MAX_WAITERS < 1 is floored to 1 (with a warning) so the
+    admission check cannot shed every request even when a slot is free."""
+    os.environ["EMBEDDING_MAX_WAITERS"] = "0"
+    with caplog.at_level(logging.WARNING, logger="ai_memory.embedding"):
+        service = _load_service(4)
+    assert service.EMBEDDING_MAX_WAITERS == 1
+    assert any(
+        "embedding_max_waiters_floored" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_blind_hold_at_one_logs_once_per_state_entry(caplog):
+    """L7: when the AIMD effective limit is pinned at the floor of 1 with no pressure
+    signal available, the throttled-blind state is logged ONCE per entry (on transition),
+    not on every controller tick."""
+    service = _load_service(4)
+    no_signal = {
+        "current": None,
+        "limit": None,
+        "headroom": None,
+        "ratio": None,
+        "psi_full_avg10": None,
+        "oom": 0,
+        "psi_available": False,
+        "ratio_available": False,
+    }
+
+    async def _drive():
+        # Pin the effective limit at the floor of 1, as a memory-pressure collapse would.
+        await service._apply_effective_limit(1)
+        with caplog.at_level(logging.WARNING, logger="ai_memory.embedding"):
+            # First tick enters the blind-hold state -> logs once.
+            await service._apply_pressure_decision(dict(no_signal))
+            # Second tick is still in the state -> silent (no per-tick spam).
+            await service._apply_pressure_decision(dict(no_signal))
+        return [
+            r
+            for r in caplog.records
+            if r.getMessage() == "embedding_effective_limit_held_blind"
+        ]
+
+    blind_logs = asyncio.run(_drive())
+    assert len(blind_logs) == 1

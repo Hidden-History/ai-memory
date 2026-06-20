@@ -271,10 +271,23 @@ def test_store_memories_batch_subbatches_large_group(
     mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
 ):
     """TD-689: a group larger than the client sub-batch is split into several embed
-    calls, each within the cap, so a big batch never 413s the whole group to PENDING."""
+    calls, each within the cap, so a big batch never 413s the whole group to PENDING.
+
+    L6: each text embeds to a DISTINCT, content-derived vector and the test asserts that
+    the vector stored with each content is the one embed produced for that exact content.
+    This makes a sub-batch order/alignment bug (a vector attached to the wrong content
+    across a sub-batch boundary) fail the test — which the previous all-identical-vector
+    fixture could not catch.
+    """
     monkeypatch.setenv("EMBEDDING_CLIENT_SUBBATCH", "2")
+
+    def _vec_seed(text):
+        # Distinct, deterministic per content (the texts differ only by their index digit,
+        # so their ord-sums differ -> distinct seeds).
+        return float((sum(ord(c) for c in text) % 997) + 1)
+
     mock_embedding_client.embed.side_effect = lambda texts, model=None: [
-        [0.1] * 768 for _ in texts
+        [_vec_seed(t)] * 768 for t in texts
     ]
 
     memories = [
@@ -298,6 +311,18 @@ def test_store_memories_batch_subbatches_large_group(
     for call in mock_embedding_client.embed.call_args_list:
         sent_texts = call.args[0] if call.args else call.kwargs["texts"]
         assert len(sent_texts) <= 2
+
+    # Order preserved across sub-batch boundaries: the vector upserted with each content is
+    # exactly the one embed produced for that content. A misalignment would attach the
+    # wrong vector to a content and fail here.
+    upserted = []
+    for call in mock_qdrant_client.upsert.call_args_list:
+        upserted.extend(call.kwargs["points"])
+    stored_vec_by_content = {p.payload["content"]: p.vector for p in upserted}
+    assert len(stored_vec_by_content) == 5
+    for memory in memories:
+        content = memory["content"]
+        assert stored_vec_by_content[content] == [_vec_seed(content)] * 768
 
 
 def test_store_memories_batch_mixed_content_types(
