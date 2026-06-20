@@ -359,6 +359,8 @@ def test_backpressure_waits_without_shedding_under_designed_load():
     assert all(len(r.embeddings) == len(texts) for r in results)
     # Memory stayed bounded: inference never exceeded the slot cap (peak-memory proxy).
     assert _tracker.max_active <= cap
+    # And the cap was actually exercised under real concurrency (not a vacuous bound).
+    assert _tracker.max_active >= 2
     # Backpressure engaged (callers were made to wait) but NOTHING was shed.
     assert _backpressure_count(service, "shed") - before_shed == 0
     assert _backpressure_count(service, "waited") - before_waited > 0
@@ -454,6 +456,9 @@ def test_apply_effective_limit_parks_and_restores_permits():
     service = _load_service(4)
 
     async def _drive():
+        # ._value is the CPython-3.12 asyncio.Semaphore internal free-permit counter
+        # (the container runs python:3.12-slim); we assert on it to witness that parking
+        # actually removes/returns permits, not just that the bookkeeping ints changed.
         assert service._inference_semaphore._value == 4
         await service._apply_effective_limit(1)  # drain mode -> park 3
         assert service._effective_limit == 1
@@ -488,6 +493,31 @@ def test_pressure_decision_collapses_limit_and_counts_oom():
     eff = asyncio.run(_drive())
     assert eff == 2
     assert service.embedding_oom_events_total._value.get() - before_oom == 2
+
+
+def test_pressure_decision_does_not_recount_preexisting_ooms():
+    """First-interval over-count guard: the OOM baseline that _lifespan seeds from the
+    startup memory.events read is not re-counted as new on the next control tick."""
+    service = _load_service(4)
+    service._last_oom_total = 5  # as if startup observed 5 cumulative OOMs
+    before_oom = service.embedding_oom_events_total._value.get()
+
+    async def _drive():
+        await service._apply_pressure_decision(
+            {
+                "current": None,
+                "limit": None,
+                "headroom": None,
+                "ratio": None,
+                "psi_full_avg10": None,
+                "oom": 5,  # same cumulative total -> zero NEW OOMs
+                "psi_available": False,
+                "ratio_available": False,
+            }
+        )
+
+    asyncio.run(_drive())
+    assert service.embedding_oom_events_total._value.get() - before_oom == 0
 
 
 # --- Cardinal end-to-end: real server shed (Phase 1) <-> real client retry (Phase 3) ---

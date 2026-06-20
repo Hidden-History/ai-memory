@@ -466,7 +466,11 @@ async def _lifespan(_app):
     Logs which signal path is active (PSI vs memory-ratio fallback vs none) so the
     BP-175 §3 WSL2 caveat is observable at runtime rather than assumed.
     """
+    global _last_oom_total
     probe = read_cgroup_memory()
+    # Seed the OOM baseline from the startup memory.events total so the first controller
+    # tick reports only NEW OOMs, not the cgroup's pre-existing cumulative count.
+    _last_oom_total = probe["oom"]
     if probe["psi_available"]:
         signal_mode = "psi"
     elif probe["ratio_available"]:
