@@ -943,12 +943,22 @@ class MemoryStorage:
 
         embeddings = [None] * len(memories)
         embedding_status = EmbeddingStatus.COMPLETE
+        # TD-689: sub-batch each model group client-side so a large batch never exceeds
+        # the embedding service's EMBEDDING_MAX_BATCH_TEXTS guard — which would 413 the
+        # whole group and degrade every memory in it to PENDING. Belt-and-suspenders
+        # behind the server cap; keep this <= the service's value.
+        sub_batch = max(1, int(os.getenv("EMBEDDING_CLIENT_SUBBATCH", "128")))
         try:
             for model, items in model_groups.items():
                 indices, contents = zip(*items, strict=True)
-                group_embeddings = self.embedding_client.embed(
-                    list(contents), model=model
-                )
+                contents = list(contents)
+                group_embeddings = []
+                for start in range(0, len(contents), sub_batch):
+                    group_embeddings.extend(
+                        self.embedding_client.embed(
+                            contents[start : start + sub_batch], model=model
+                        )
+                    )
                 for orig_idx, emb in zip(indices, group_embeddings, strict=True):
                     embeddings[orig_idx] = emb
 

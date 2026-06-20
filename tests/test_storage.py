@@ -267,6 +267,39 @@ def test_store_memories_batch(mock_config, mock_qdrant_client, mock_embedding_cl
     mock_qdrant_client.upsert.assert_called_once()
 
 
+def test_store_memories_batch_subbatches_large_group(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
+    """TD-689: a group larger than the client sub-batch is split into several embed
+    calls, each within the cap, so a big batch never 413s the whole group to PENDING."""
+    monkeypatch.setenv("EMBEDDING_CLIENT_SUBBATCH", "2")
+    mock_embedding_client.embed.side_effect = lambda texts, model=None: [
+        [0.1] * 768 for _ in texts
+    ]
+
+    memories = [
+        {
+            "content": f"Memory {i} implementation",
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+        }
+        for i in range(5)
+    ]
+
+    storage = MemoryStorage()
+    results = storage.store_memories_batch(memories, group_id="test-project")
+
+    assert len(results) == 5
+    assert all(r["status"] == "stored" for r in results)
+    # 5 items at sub-batch 2 -> 3 calls (2, 2, 1), each within the server's cap.
+    assert mock_embedding_client.embed.call_count == 3
+    for call in mock_embedding_client.embed.call_args_list:
+        sent_texts = call.args[0] if call.args else call.kwargs["texts"]
+        assert len(sent_texts) <= 2
+
+
 def test_store_memories_batch_mixed_content_types(
     mock_config, mock_qdrant_client, mock_embedding_client
 ):
