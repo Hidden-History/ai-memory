@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Agent memory types now route to the discussions collection on the async/retry store paths (BUG-322)** — the four agent memory types (`agent_handoff`, `agent_insight`, `agent_memory`, `agent_task`) were omitted from the type-to-collection selection in both `process_retry_queue.py` (`get_collection_for_type`) and `post_work_store_async.py` (`store_memory_async`), so they fell through to the code-patterns collection instead of discussions. This diverged from the authoritative `MemoryStorage.store_agent_memory` path and could store an agent record into the wrong collection (and miss the discussions original during dedup). Both selection sites now map all four types to the discussions collection, matching the store path.
+
 ## [2.7.0] - 2026-06-16
 
 ### Upgrade Instructions
