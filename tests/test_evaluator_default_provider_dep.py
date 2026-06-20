@@ -13,12 +13,33 @@ missing dependency fails the build instead of silently zeroing scores at
 runtime.
 """
 
+import re
 from pathlib import Path
 
 from memory.evaluator.provider import EvaluatorConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "evaluator_config.yaml"
+REQUIREMENTS = REPO_ROOT / "requirements.txt"
+
+
+def test_requirements_txt_declares_provider_sdks():
+    """requirements.txt — the image-bake source-of-truth — pins openai + anthropic.
+
+    The evaluator-scheduler image installs ONLY requirements.txt (not the
+    pyproject [dev]/observability extras), so the import smoke tests above pass
+    in the CI .[dev] venv even if a provider SDK is dropped from requirements.txt
+    — the exact BUG-316 regression. This static assertion locks the image
+    source-of-truth: removing the openai (or anthropic) line from
+    requirements.txt fails here regardless of what the [dev] venv has installed.
+    """
+    text = REQUIREMENTS.read_text()
+    assert re.search(
+        r"(?m)^openai[>=<]", text
+    ), "openai must be declared in requirements.txt (evaluator image SDK, BUG-316)"
+    assert re.search(
+        r"(?m)^anthropic[>=<]", text
+    ), "anthropic must be declared in requirements.txt (conversation-capture SDK)"
 
 
 def test_openai_sdk_importable():
@@ -29,6 +50,8 @@ def test_openai_sdk_importable():
 def test_shipped_default_provider_is_ollama():
     """The image-mounted evaluator_config.yaml selects the ollama provider."""
     config = EvaluatorConfig.from_yaml(str(DEFAULT_CONFIG))
+    # If this fails after a config change, verify the new default provider's SDK
+    # is declared in requirements.txt + pyproject [dev] (links back to BUG-316).
     assert config.provider == "ollama"
 
 
