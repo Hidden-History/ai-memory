@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Unbounded Langfuse at-exit drain could wedge process teardown** — the GitHub code-blob sync, GitHub sync engine, evaluator scheduler, and classification-queue processor all flushed and shut down the Langfuse client on exit via a plain `flush()`/`shutdown()`. In langfuse 4.x these calls take no timeout and block on the SDK worker's internal queue drain, which never returns when a reachable-but-slow backend keeps the queue non-empty, so a normally-exiting process could hang indefinitely. Each drain now runs in a daemon thread bounded by an external watchdog join, and is skipped entirely (along with its `atexit` registration) when Langfuse is disabled at the app level. The two post-sync-cycle inline flushes in the GitHub connectors are bounded the same way.
+
 ## [2.7.0] - 2026-06-16
 
 ### Upgrade Instructions

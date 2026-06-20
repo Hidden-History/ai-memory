@@ -28,9 +28,11 @@ Reference:
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import asyncio
+import atexit
 import os
 import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -86,6 +88,38 @@ DLQ_FILE = QUEUE_DIR / "classification_queue_dlq.jsonl"  # Dead letter queue
 # Setup logging
 logger = setup_hook_logging("ai_memory.classifier.processor")
 
+# External bound for the at-exit Langfuse drain. langfuse 4.7.1 flush() and
+# shutdown() take no timeout and block on the SDK worker's queue.join(), which
+# never returns when a reachable-but-slow backend keeps the queue non-empty
+# (TD-698). The drain therefore runs in a daemon thread bounded EXTERNALLY by a
+# watchdog join (langfuse-guard §5 / BP-168 addendum).
+_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
+
+def _langfuse_shutdown():
+    """Flush and shutdown the Langfuse client on process exit, bounded (TD-698).
+
+    The blocking flush/shutdown runs in a daemon thread abandoned after
+    ``_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS`` so a reachable-but-slow backend can
+    never wedge process teardown.
+    """
+
+    def _drain():
+        try:
+            from langfuse import get_client
+
+            client = get_client()
+            if client:
+                client.flush()
+                client.shutdown()
+        except Exception:
+            pass
+
+    worker = threading.Thread(target=_drain, name="langfuse-atexit-drain", daemon=True)
+    worker.start()
+    worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
+
+
 # SPEC-020 §6: Enable Langfuse auto-instrumentation for Anthropic calls
 try:
     from memory.langfuse_config import is_langfuse_enabled
@@ -101,20 +135,7 @@ try:
                 "opentelemetry-instrumentation-anthropic not installed — Anthropic SDK calls will not be traced"
             )
 
-        import atexit
-
-        def _langfuse_shutdown():
-            """Flush and shutdown Langfuse client on process exit."""
-            try:
-                from langfuse import get_client
-
-                client = get_client()
-                if client:
-                    client.flush()
-                    client.shutdown()
-            except Exception:
-                pass
-
+        # Registration only happens in this enabled branch (skipped when off)
         atexit.register(_langfuse_shutdown)
 except ImportError:
     pass  # memory.langfuse_config not available
