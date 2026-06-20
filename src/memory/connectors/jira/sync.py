@@ -19,7 +19,8 @@ Error Handling:
 """
 
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
-# SDK VERSION: V4. Path A files use emit_trace_event() only — no direct langfuse import.
+# SDK VERSION: V4. Tracing uses emit_trace_event() only (Path A); get_client() is
+# imported solely for the atexit drain lifecycle (TD-625), not for tracing.
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import asyncio
@@ -63,6 +64,8 @@ except ImportError:
 # drain therefore runs in a daemon thread bounded EXTERNALLY by a watchdog join
 # (langfuse-guard §5 / BP-168 addendum); flush(timeout=…)/shutdown(timeout=…)
 # do not exist in V4.
+# 5s: best-effort at-exit local drain bound — deliberately short and distinct from
+# the stop-hook's longer in-flow LANGFUSE_FLUSH_TIMEOUT_SECONDS (default 15s).
 _LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
