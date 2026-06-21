@@ -43,7 +43,7 @@ claude-opus-4-7
 - Multi-step problem solving
 - Architectural design
 - High-stakes content creation
-- BMAD agent orchestration (review and architecture dispatches)
+- BMAD agent orchestration (review and architecture dispatches) — prefer Opus 4.8 for new review/architecture dispatches
 
 **Pricing Tier:** Premium (highest cost)
 

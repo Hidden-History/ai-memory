@@ -8,7 +8,7 @@
 
 The Team Builder is Parzival's skill for designing agent teams that execute work in parallel. When a task can be decomposed into independent units -- multiple stories to implement, research across domains, test coverage for several modules -- the Team Builder analyzes the work, selects the right team structure, assigns file ownership, and produces a team design document ready for dispatch.
 
-Parzival designs teams and activates agents. The user does not run agents directly. After the team design is approved, Parzival routes it to the dispatch layer (`aim-agent-dispatch` or `aim-bmad-dispatch`) for execution.
+Parzival designs teams and activates agents. The user does not run agents directly. After the team design is approved, Parzival routes it to the dispatch layer (`aim-agent-dispatch`) for execution.
 
 ---
 
@@ -165,8 +165,7 @@ The Team Builder produces a design document. It does not assemble final prompts 
 
 | Dispatch Skill | When Used |
 |----------------|-----------|
-| `aim-bmad-dispatch` | Activating BMAD agents (dev, pm, architect, sm, analyst, ux) |
-| `aim-agent-dispatch` | Activating generic (non-BMAD) agents |
+| `aim-agent-dispatch` | Activating agents — BMAD roles (dev, pm, architect, sm, analyst, ux) and generic (non-BMAD) workers |
 | `aim-model-dispatch` | Selecting the appropriate model for each agent role |
 
 Dispatch uses the context blocks from Step 4 and the prompt templates (`team-prompt-2tier.template.md` or `team-prompt-3tier.template.md`) to assemble the final prompts when spawning agents.
@@ -176,7 +175,7 @@ Dispatch uses the context blocks from Step 4 and the prompt templates (`team-pro
 ```
 Team design approved
   --> aim-model-dispatch (select models per agent)
-  --> aim-bmad-dispatch or aim-agent-dispatch (activate agents)
+  --> aim-agent-dispatch (activate agents)
   --> aim-agent-lifecycle (monitor, review, accept/loop, shutdown)
 ```
 
@@ -316,7 +315,6 @@ For teams where agents produce interfaces consumed by other agents. The lead act
 | Document | Description |
 |----------|-------------|
 | `_ai-memory/pov/skills/aim-parzival-team-builder/SKILL.md` | Full skill definition |
-| `_ai-memory/pov/skills/aim-agent-dispatch/SKILL.md` | Generic agent dispatch skill |
-| `_ai-memory/pov/skills/aim-bmad-dispatch/SKILL.md` | BMAD agent dispatch skill |
+| `_ai-memory/pov/skills/aim-agent-dispatch/SKILL.md` | Generic and BMAD agent dispatch skill |
 | `_ai-memory/pov/skills/aim-agent-lifecycle/SKILL.md` | Agent lifecycle management |
 | `docs/parzival/BMAD-Multi-Agent-Architecture.md` | Multi-agent architecture research |

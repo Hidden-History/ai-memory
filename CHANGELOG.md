@@ -46,6 +46,11 @@ cd ~/.ai-memory/docker && docker compose \
 - **Embedding client retries on backpressure** — `EmbeddingClient.embed()` now retries on HTTP 503/429 honoring `Retry-After` (previously only on timeout), keeping the client in lockstep with the service's backpressure so a transient shed no longer drops a memory. Batch storage (`store_memories_batch`) sub-batches large groups client-side (`EMBEDDING_CLIENT_SUBBATCH`) so an oversized batch is split rather than rejected (413) and degraded to PENDING.
 - **Embedding memory default raised `4G` → `6G` (BUG-324)** — the shared embedding service climbs well past its ~3GB model footprint under real multi-project load (glibc arena retention), so the prior `4G` default OOM-loops a multi-project install. New [`docs/EMBEDDING-SIZING.md`](docs/EMBEDDING-SIZING.md) gives per-system sizing by concurrent-project count. (Default is provisional pending the BUG-324 capacity soak.)
 
+### Removed
+
+- **`aim-bmad-dispatch` backward-compat redirect stub** (`.claude/skills/aim-bmad-dispatch/`) — the v2.4.0 shim (originally intended for a single release) is now removed. Use `/aim-agent-dispatch` instead; it handles both BMAD and generic agent dispatch via a unified routing path. Operators whose `settings.json` still references `aim-bmad-dispatch` must update the path to `aim-agent-dispatch`.
+- **`docs/parzival/BMAD-DISPATCH-GUIDE.md`** — the standalone BMAD dispatch guide is removed. BMAD agent selection and activation are documented in `aim-agent-dispatch` and `docs/parzival/AGENT-DISPATCH-GUIDE.md` now that BMAD dispatch is unified into `aim-agent-dispatch`.
+
 ### Fixed
 
 - **Evaluator-scheduler missing `openai` dependency** — the LLM-as-judge evaluator's default `ollama` provider (and the `openrouter`, `openai`, and `custom` provider paths) build their client through the `openai` SDK, but the package was not declared in `requirements.txt` or `pyproject.toml`. The evaluator-scheduler image installs only `requirements.txt`, so every evaluation failed at runtime with `No module named 'openai'` and the scheduler reported `scored: 0` despite sampling traces. `openai` is now declared in `requirements.txt` and the `observability` extra, and a smoke test asserts the configured default provider's client builds via the real import path while pinning the `requirements.txt` (image-bake) source-of-truth.
@@ -57,10 +62,6 @@ cd ~/.ai-memory/docker && docker compose \
 - **Embedding-service OOM-kill/restart loop under memory pressure (BUG-324)** — combined multi-repo load no longer drives the shared service past its cgroup cap; the memory-aware AIMD controller throttles *before* the kernel OOM-kills, turning the kill/restart loop into "slow down and survive".
 - **Dropped memory on embedding backpressure (TD-678)** — a server backpressure 503/429 is now retried by the client instead of raising and losing the memory; the zero-vector rejection (TD-354) remains intact end to end.
 - **`metrics_import_failed` startup warning (TD-694)** — the embedding service no longer imports the unused client-side `memory.metrics` module (which triggered the heavy `memory` package init absent from the slim image), eliminating the spurious startup WARNING.
-
-### Removed
-
-- **`aim-bmad-dispatch` backward-compat redirect stub** (`.claude/skills/aim-bmad-dispatch/`) — the one-release shim shipped in v2.4.0 is now removed. Use `/aim-agent-dispatch` instead; it handles both BMAD and generic agent dispatch via a unified routing path. Operators whose `settings.json` still references `aim-bmad-dispatch` must update the path to `aim-agent-dispatch`.
 
 ## [2.7.0] - 2026-06-16
 

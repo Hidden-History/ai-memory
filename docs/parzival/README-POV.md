@@ -770,7 +770,7 @@ Each dispatch skill has a SKILL.md definition in `_ai-memory/pov/skills/`. Thin 
 
 #### v2.1.0 (2026-03-15)
 - **Shim architecture** -- Skills live in `_ai-memory/pov/skills/`, thin shims in `.claude/skills/`
-- **Dispatch skills** -- aim-agent-dispatch, aim-agent-lifecycle, aim-bmad-dispatch, aim-model-dispatch, aim-parzival-team-builder
+- **Dispatch skills** -- aim-agent-dispatch, aim-agent-lifecycle, aim-model-dispatch, aim-parzival-team-builder
 - **17 Global Constraints** -- GC-01 through GC-15 + GC-19 (spawn as teammates) + GC-20 (no instruction in activation)
 - **GC-04 redefined** -- "User Manages Parzival Only -- Parzival Manages All Agents"
 - **15-item menu** -- HP, CH, ST, SU, BL, DC, VE, CR, BR, FR, TP, HO, CL, DA, EX (VI removed)
