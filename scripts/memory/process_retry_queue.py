@@ -76,6 +76,10 @@ def get_collection_for_type(memory_type: str) -> str:
         "agent_decision",
         "user_message",
         "agent_response",
+        "agent_handoff",
+        "agent_memory",
+        "agent_task",
+        "agent_insight",
     ]:
         return COLLECTION_DISCUSSIONS
     else:

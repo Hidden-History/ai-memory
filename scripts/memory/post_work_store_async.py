@@ -193,6 +193,10 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
             "session_summary",
             "chat_memory",
             "agent_decision",
+            "agent_handoff",
+            "agent_memory",
+            "agent_task",
+            "agent_insight",
         ]:
             collection = COLLECTION_DISCUSSIONS
         # code-patterns: implementation, error_pattern, refactor, file_pattern
