@@ -27,10 +27,10 @@ _install_dir = os.environ.get(
 sys.path.insert(0, os.path.join(_install_dir, "src"))
 
 from qdrant_client.models import (
+    DatetimeRange,
     FieldCondition,
     Filter,
     MatchValue,
-    Range,
 )
 
 from memory.config import (
@@ -100,7 +100,7 @@ def scan_purgeable(client, collections, group_id, cutoff_iso):
         must_conditions = [
             FieldCondition(
                 key="timestamp",
-                range=Range(lt=cutoff_iso),
+                range=DatetimeRange(lt=cutoff_iso),
             ),
         ]
         if group_id:

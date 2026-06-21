@@ -213,6 +213,7 @@ ignore = ["E501"]  # Line length handled by black
 "tests/integration/test_sdk_integration.py" = ["E402"]  # E402: sys.modules mock before imports
 "tests/unit/connectors/**/*.py" = ["E402"]  # E402: conftest logger setup before imports
 "scripts/memory/post_work_store_async.py" = ["E402"]  # E402: sys.path.insert before imports
+"scripts/memory/purge_collections.py" = ["E402"]  # E402: sys.path.insert before imports
 "scripts/memory/store-chat-memory.py" = ["E402"]  # E402: sys.path.insert before imports
 
 # Black configuration

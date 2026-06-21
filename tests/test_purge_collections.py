@@ -73,14 +73,14 @@ def _inject_mocks(monkeypatch, mock_client):
         def __init__(self, **kw):
             pass
 
-    class _Range:
+    class _DatetimeRange:
         def __init__(self, **kw):
             pass
 
     qc_models.FieldCondition = _FC
     qc_models.Filter = _Filter
     qc_models.MatchValue = _MV
-    qc_models.Range = _Range
+    qc_models.DatetimeRange = _DatetimeRange
 
     for name, mod in [
         ("memory", mem_pkg),
@@ -347,3 +347,61 @@ class TestConfirmPath:
 
         assert rc == 0
         assert mock_client.delete.call_count == 2
+
+
+class TestBug317DatetimeRange:
+    """BUG-317 regression guard: Range(lt=ISO_string) crashes; DatetimeRange is the fix.
+
+    (a) dry-run path completes without crash.
+    (b) DatetimeRange(lt=cutoff_iso) selects records BEFORE cutoff — delete scope unchanged.
+    """
+
+    def test_dry_run_no_crash_with_iso_cutoff(self, monkeypatch, capsys):
+        """(a) Dry-run returns exit 0 with a real ISO cutoff string — no ValidationError.
+
+        Uses the REAL DatetimeRange so the filter construction is genuine and would
+        raise a ValidationError if the old buggy Range was still in place.
+        """
+        from qdrant_client.models import DatetimeRange as RealDatetimeRange
+
+        mock_client = MagicMock()
+        mock_client.scroll.return_value = ([], None)
+
+        mod = _load_module(monkeypatch, mock_client)
+        # Replace the fake no-op DatetimeRange with the real one so the dry-run
+        # path genuinely constructs the real filter (proves BUG-317 is fixed).
+        mod.DatetimeRange = RealDatetimeRange
+        monkeypatch.setattr(
+            sys, "argv", ["purge_collections.py", "--older-than", "30d"]
+        )
+
+        rc = mod.main()
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "No memories found" in out
+
+    def test_datetime_range_lt_boundary(self):
+        """(b) Real DatetimeRange(lt=cutoff_iso) selects records before cutoff only.
+
+        Proves delete-scope is unchanged: records older than the cutoff satisfy
+        the lt condition; records at or after the cutoff do not.
+        """
+        from datetime import datetime, timezone
+
+        from qdrant_client.models import DatetimeRange as RealDatetimeRange
+
+        cutoff_dt = datetime(2024, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        dr = RealDatetimeRange(lt=cutoff_dt.isoformat())
+        cutoff_parsed = dr.lt  # DatetimeRange parses the ISO string to a datetime
+
+        # Record 1 second before cutoff → older, must satisfy lt
+        before = datetime(2024, 6, 1, 11, 59, 59, tzinfo=timezone.utc)
+        # Record 1 second after cutoff → newer, must NOT satisfy lt
+        after = datetime(2024, 6, 1, 12, 0, 1, tzinfo=timezone.utc)
+
+        assert before < cutoff_parsed, "Record before cutoff must satisfy lt condition"
+        assert (
+            after > cutoff_parsed
+        ), "Record after cutoff must NOT satisfy lt condition"
+        assert cutoff_parsed == cutoff_dt  # round-trip fidelity

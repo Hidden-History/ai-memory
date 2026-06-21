@@ -113,6 +113,7 @@ def get_qdrant_client(
             timeout=config.qdrant_timeout,
             prefer_grpc=True,
             grpc_port=grpc_port,
+            check_compatibility=False,
         )
         # Probe to verify gRPC is reachable (construction alone does not connect)
         client.get_collections()
@@ -128,6 +129,7 @@ def get_qdrant_client(
             api_key=api_key_value,
             https=config.qdrant_use_https,
             timeout=config.qdrant_timeout,
+            check_compatibility=False,
         )
 
     _client_cache[cache_key] = client
