@@ -114,6 +114,12 @@ dev = [
     "openai>=1.99.1,<3.0.0",
     # Streamlit dashboard (CI validation of docker/streamlit/app.py)
     "streamlit==1.56.0",
+    # Embedding service resilience tests (CI validation of docker/embedding/main.py, TD-670)
+    # fastapi pinned to match the shipped image (docker/embedding/requirements.txt:
+    # fastapi[standard]==0.128.0); only the framework + TestClient are needed here, not
+    # the [standard] server stack. httpx is required by fastapi.testclient.TestClient.
+    "fastapi==0.128.0",
+    "httpx>=0.27,<1.0",
 ]
 
 [project.urls]

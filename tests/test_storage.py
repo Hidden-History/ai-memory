@@ -267,6 +267,105 @@ def test_store_memories_batch(mock_config, mock_qdrant_client, mock_embedding_cl
     mock_qdrant_client.upsert.assert_called_once()
 
 
+def test_store_memories_batch_subbatches_large_group(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
+    """TD-689: a group larger than the client sub-batch is split into several embed
+    calls, each within the cap, so a big batch never 413s the whole group to PENDING.
+
+    L6: each text embeds to a DISTINCT, content-derived vector and the test asserts that
+    the vector stored with each content is the one embed produced for that exact content.
+    This makes a sub-batch order/alignment bug (a vector attached to the wrong content
+    across a sub-batch boundary) fail the test — which the previous all-identical-vector
+    fixture could not catch.
+    """
+    monkeypatch.setenv("EMBEDDING_CLIENT_SUBBATCH", "2")
+
+    def _vec_seed(text):
+        # Distinct, deterministic per content (the texts differ only by their index digit,
+        # so their ord-sums differ -> distinct seeds).
+        return float((sum(ord(c) for c in text) % 997) + 1)
+
+    mock_embedding_client.embed.side_effect = lambda texts, model=None: [
+        [_vec_seed(t)] * 768 for t in texts
+    ]
+
+    memories = [
+        {
+            "content": f"Memory {i} implementation",
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+        }
+        for i in range(5)
+    ]
+
+    storage = MemoryStorage()
+    results = storage.store_memories_batch(memories, group_id="test-project")
+
+    assert len(results) == 5
+    assert all(r["status"] == "stored" for r in results)
+    # 5 items at sub-batch 2 -> 3 calls (2, 2, 1), each within the server's cap.
+    assert mock_embedding_client.embed.call_count == 3
+    for call in mock_embedding_client.embed.call_args_list:
+        sent_texts = call.args[0] if call.args else call.kwargs["texts"]
+        assert len(sent_texts) <= 2
+
+    # Order preserved across sub-batch boundaries: the vector upserted with each content is
+    # exactly the one embed produced for that content. A misalignment would attach the
+    # wrong vector to a content and fail here.
+    upserted = []
+    for call in mock_qdrant_client.upsert.call_args_list:
+        upserted.extend(call.kwargs["points"])
+    stored_vec_by_content = {p.payload["content"]: p.vector for p in upserted}
+    assert len(stored_vec_by_content) == 5
+    for memory in memories:
+        content = memory["content"]
+        assert stored_vec_by_content[content] == [_vec_seed(content)] * 768
+
+
+def test_store_memories_batch_clamps_subbatch_to_server_cap(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
+    """L4: a configured EMBEDDING_CLIENT_SUBBATCH larger than the server's
+    EMBEDDING_MAX_BATCH_TEXTS is clamped to the server cap, so no embed sub-batch can
+    exceed the cap and 413 the whole group to PENDING.
+
+    With CLIENT_SUBBATCH=300 > MAX_BATCH_TEXTS=256 and a 260-item group, the unclamped
+    path would send all 260 in one call (over the cap); the clamp forces sub-batches of
+    256, so every embed call stays within 256.
+    """
+    monkeypatch.setenv("EMBEDDING_CLIENT_SUBBATCH", "300")
+    monkeypatch.setenv("EMBEDDING_MAX_BATCH_TEXTS", "256")
+
+    mock_embedding_client.embed.side_effect = lambda texts, model=None: [
+        [0.1] * 768 for _ in texts
+    ]
+
+    memories = [
+        {
+            "content": f"Memory {i} implementation",
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+        }
+        for i in range(260)
+    ]
+
+    storage = MemoryStorage()
+    results = storage.store_memories_batch(memories, group_id="test-project")
+
+    assert len(results) == 260
+    assert all(r["status"] == "stored" for r in results)
+    # 260 items clamped to 256 -> 2 calls (256, 4), each within the server cap.
+    assert mock_embedding_client.embed.call_count == 2
+    for call in mock_embedding_client.embed.call_args_list:
+        sent_texts = call.args[0] if call.args else call.kwargs["texts"]
+        assert len(sent_texts) <= 256
+
+
 def test_store_memories_batch_mixed_content_types(
     mock_config, mock_qdrant_client, mock_embedding_client
 ):
