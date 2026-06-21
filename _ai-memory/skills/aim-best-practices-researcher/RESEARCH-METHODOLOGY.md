@@ -90,9 +90,8 @@ scripts/memory/run-with-env.sh store_best_practice.py \
     --domain "topic-domain" \
     --tags topic keywords \
     --source "https://source-url.com" \
-    --source-date "2026-01-29"
-# Optionally pin scope explicitly: --group-id <project-id>
-# (resolved automatically via full-precedence chain if omitted)
+    --source-date "2026-01-29" \
+    --group-id "$AI_MEMORY_PROJECT_ID"
 ```
 
 Output: `Stored: <memory_id>` on success, `Duplicate skipped` if already present.

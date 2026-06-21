@@ -241,7 +241,7 @@ def main() -> int:
                 print("### Insights\n")
                 for i in insights:
                     score_pct = int(i.get("score", 0) * 100)
-                    print(f"- **[{score_pct}%]** {i.get('content', '').strip()[:200]}")
+                    print(f"- **[{score_pct}%]** {i.get('content', '').strip()}")
                 print()
 
             if other:
