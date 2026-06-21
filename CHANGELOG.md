@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade Instructions
+
+**This release changes embedding dependencies and baked worker code, so a plain install + restart is not enough — the affected images must be rebuilt.**
+
+```bash
+# 1. Update source + install (refreshes ~/.ai-memory and any target project)
+cd <your ai-memory clone> && git pull
+./scripts/install.sh <project-path>
+
+# 2. Rebuild the images that bake Python deps / code. Note evaluator-scheduler
+#    and trace-flush-worker are defined in docker-compose.langfuse.yml:
+cd ~/.ai-memory/docker && docker compose \
+  --env-file .env --env-file .env.secrets \
+  -f docker-compose.yml -f docker-compose.langfuse.yml \
+  build embedding evaluator-scheduler classifier-worker trace-flush-worker github-sync
+
+# 3. Restart to deploy the rebuilt images
+~/.ai-memory/scripts/stack.sh restart
+```
+
+`install.sh` uses `up -d --no-recreate` and `stack.sh restart` does not rebuild images — so without step 2 the new `openai` dependency and the updated worker/embedding code are **not** deployed (the evaluator would fail with `No module named 'openai'`).
+
+**Embedding memory default raised `4G` → `6G`.** The embedding service is shared across all projects on an install and must be sized for combined load; `4G` OOM-loops a multi-project install. The default is written to `docker/.env` on install. To tune it, edit `docker/.env` (`EMBEDDING_MEMORY_LIMIT=…`) and `stack.sh restart` — no rebuild needed for the memory cap. See [`docs/EMBEDDING-SIZING.md`](docs/EMBEDDING-SIZING.md).
+
 ### Added
 
 - **`aim-tracking-rotate` fix action** (`--fix <file>` / `--fix-all` / `--fix-memory-md` / `--include-memory-md`) — non-interactive cap remediation that brings an over-cap oversight tree to a `--check` PASS without losing any record. The algorithm is conformance-first (adds D2 front-matter from the template when absent), then cap-fixes by class (entry rotation for append-only logs and rotatable registers; archive-whole-verbatim for table-row registers (`blockers-log.md`, `risk-register.md`), non-rotatable registers (`task-tracker.md`), and multi-table live-indexes (`SESSION_WORK_INDEX.md`, `session-index/INDEX.md`); template front-matter refresh for heartbeats), then proves conservation (`lost == 0`) before returning. Every mutation path creates a timestamped backup first and writes atomically; no interactive confirmation is required.
@@ -20,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`aim-tracking-rotate` section-scaffold preservation** — both `--fix` and the session-close `--apply` now fence an unfenced `## Entry Format` example before rotating so the section scaffold (`## How to Use`, `## Entry Format`, `## Decisions`) survives and entries stay under `## Decisions`. `--fix` additionally adds any missing `## ` section headers from the template when the file lacks them.
 - **Embedding service footprint + concurrency model** — the image now sets `MALLOC_ARENA_MAX=2`, `OMP_NUM_THREADS=2`, and bounds the onnxruntime intra-op pool (`EMBEDDING_INFERENCE_THREADS=2`) to shrink anon-RSS and the allocator-fragmentation overshoot past the container cap. Endpoints are now `async` with a bounded inference executor sized to the concurrency semaphore, so the semaphore is the single concurrency bound.
 - **Embedding client retries on backpressure** — `EmbeddingClient.embed()` now retries on HTTP 503/429 honoring `Retry-After` (previously only on timeout), keeping the client in lockstep with the service's backpressure so a transient shed no longer drops a memory. Batch storage (`store_memories_batch`) sub-batches large groups client-side (`EMBEDDING_CLIENT_SUBBATCH`) so an oversized batch is split rather than rejected (413) and degraded to PENDING.
+- **Embedding memory default raised `4G` → `6G` (BUG-324)** — the shared embedding service climbs well past its ~3GB model footprint under real multi-project load (glibc arena retention), so the prior `4G` default OOM-loops a multi-project install. New [`docs/EMBEDDING-SIZING.md`](docs/EMBEDDING-SIZING.md) gives per-system sizing by concurrent-project count. (Default is provisional pending the BUG-324 capacity soak.)
 
 ### Fixed
 

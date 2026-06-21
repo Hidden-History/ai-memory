@@ -150,8 +150,11 @@ services:
     deploy:
       resources:
         limits:
-          # SPEC-010: Increased from 2G to 4G for dual model support (two ONNX models ~3GB)
-          memory: ${EMBEDDING_MEMORY_LIMIT:-4G}
+          # SPEC-010 / BUG-324: 6G default for multi-project shared deployments. The
+          # shared service climbs well past the ~3GB model footprint under real mixed
+          # load (arena retention); 4G OOM-loops. Tune by concurrent-project count —
+          # see docs/EMBEDDING-SIZING.md. (Provisional pending the BUG-324 soak.)
+          memory: ${EMBEDDING_MEMORY_LIMIT:-6G}
 
   monitoring-api:
     build:
