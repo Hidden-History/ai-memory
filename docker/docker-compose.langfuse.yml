@@ -393,6 +393,11 @@ services:
       langfuse-web:
         condition: service_healthy
     restart: unless-stopped
+    # Run as host user so the bind-mounted .audit dir (host-owned, default
+    # 1000:1000) is writable. The image bakes a uid 1001 user, which cannot
+    # write the host-owned .audit/logs mount (TD-712). Matches the github-sync
+    # pattern for services that write to host-mounted .audit directories.
+    user: "${UID:-1000}:${GID:-1000}"
     read_only: true
     tmpfs:
       - /tmp

@@ -565,6 +565,73 @@ class TestRunnerRunTracePath:
         assert entry["trace_id"] == "audit_trace"
         assert entry["score"] == 0.75
 
+    def test_audit_write_failure_does_not_masquerade_as_eval_error(
+        self, runner, evaluator_yaml, caplog
+    ):
+        """TD-712: a failing audit-log write must not surface as an evaluation error.
+
+        The audit append runs after the score is attached but inside the
+        per-item handler. A write failure (e.g. a uid/permission mismatch on the
+        mounted .audit/logs dir) must be caught in _append_audit_log: the score
+        still counts and no "Error evaluating" log is emitted.
+        """
+        import logging
+
+        trace = make_mock_trace(trace_id="audit_fail_trace", tags=["retrieval"])
+        mock_langfuse = MagicMock()
+        mock_langfuse.api.trace.list.return_value = make_paginated_response([trace])
+
+        mock_evaluator_config = MagicMock()
+        mock_evaluator_config.evaluate.return_value = {
+            "score": 0.9,
+            "reasoning": "ok",
+        }
+
+        since = datetime(2026, 3, 12, tzinfo=timezone.utc)
+
+        # Inject the failure at the write boundary (open) for the audit-log path
+        # only, so the real fixed _append_audit_log handles it. Patching the
+        # method itself would bypass the guard under test; a blanket open patch
+        # would also break the evaluator-YAML read inside run().
+        import builtins
+
+        _real_open = builtins.open
+
+        def _open_side_effect(file, *a, **k):
+            if str(file) == str(runner.audit_log_path):
+                raise PermissionError("[Errno 13] Permission denied")
+            return _real_open(file, *a, **k)
+
+        with (
+            patch("memory.evaluator.runner.get_client", return_value=mock_langfuse),
+            patch.object(runner, "evaluator_config", mock_evaluator_config),
+            patch("memory.evaluator.runner.open", side_effect=_open_side_effect),
+            caplog.at_level(logging.WARNING, logger="memory.evaluator.runner"),
+        ):
+            summary = runner.run(since=since)
+
+        # Scoring is unaffected by the audit-write failure.
+        assert summary["scored"] == 1
+        mock_langfuse.create_score.assert_called_once()
+        # The failure must NOT have surfaced through the per-item handler.
+        assert "Error evaluating" not in caplog.text
+
+    def test_append_audit_log_swallows_write_errors(self, runner, caplog):
+        """_append_audit_log catches its own write failures and warns (TD-712)."""
+        import logging
+
+        with (
+            patch(
+                "memory.evaluator.runner.open",
+                side_effect=PermissionError("[Errno 13] Permission denied"),
+            ),
+            caplog.at_level(logging.WARNING, logger="memory.evaluator.runner"),
+        ):
+            # Must not raise.
+            runner._append_audit_log({"trace_id": "x", "score": 1.0})
+
+        assert "Failed to write evaluation audit log" in caplog.text
+
     def test_run_uses_get_client_not_constructor(self, runner, evaluator_yaml):
         """Must use get_client() — never Langfuse() constructor directly in code."""
         import inspect

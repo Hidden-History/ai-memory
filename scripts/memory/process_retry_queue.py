@@ -23,6 +23,9 @@ Usage:
 
     # Clear all items (dangerous)
     python3 scripts/memory/process_retry_queue.py --clear
+
+    # Drain only one project's entries (default is a global drain)
+    python3 scripts/memory/process_retry_queue.py --group-id myorg-myrepo
 """
 
 import argparse
@@ -198,6 +201,27 @@ def process_entry(
         return False, f"Storage error: {type(e).__name__}: {str(e)[:100]}"
 
 
+def extract_group_id(entry: dict) -> str | None:
+    """Return the group_id an entry would be stored under.
+
+    Mirrors the per-format group_id resolution in process_entry so a scoped
+    drain (--group-id) can match an entry without storing it. Returns None when
+    the group cannot be determined (unknown payload format).
+    """
+    memory_data = entry.get("memory_data", {})
+
+    if "hook_input" in memory_data:
+        from memory.project import resolve_project_id
+
+        cwd = memory_data["hook_input"].get("cwd", "/")
+        return resolve_project_id(cwd)
+    elif "payload" in memory_data:
+        return memory_data["payload"].get("metadata", {}).get("group_id", "unknown")
+    elif "content" in memory_data:
+        return memory_data.get("group_id", "unknown")
+    return None
+
+
 def move_to_dlq(entry: dict):
     """Move exhausted entry to dead letter queue."""
     DLQ_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -206,13 +230,21 @@ def move_to_dlq(entry: dict):
         f.write(json.dumps(entry) + "\n")
 
 
-def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) -> dict:
+def process_queue(
+    force: bool = False,
+    dry_run: bool = False,
+    limit: int = 100,
+    group_id: str | None = None,
+) -> dict:
     """Process pending items in the retry queue.
 
     Args:
         force: If True, also process items that exceeded max_retries
         dry_run: If True, don't actually store or modify queue
         limit: Maximum items to process
+        group_id: If set, drain only entries belonging to this group. When
+            omitted (default) the drain is global across all groups, preserving
+            backward-compatible behavior for automated/cron callers.
 
     Returns:
         dict with processing statistics
@@ -231,6 +263,20 @@ def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) 
 
     # Get pending items
     pending = queue.get_pending(limit=limit, include_exhausted=force)
+
+    # Scope the drain to one group when requested (TD-713). Default (group_id
+    # None) leaves the global drain unchanged.
+    if group_id is not None:
+        before = len(pending)
+        pending = [e for e in pending if extract_group_id(e) == group_id]
+        logger.info(
+            "scoped_drain",
+            extra={
+                "group_id": group_id,
+                "matched": len(pending),
+                "skipped_other_groups": before - len(pending),
+            },
+        )
 
     if not pending:
         logger.info("queue_empty", extra={"details": "No items pending"})
@@ -332,6 +378,11 @@ def main():
         "--limit", type=int, default=100, help="Maximum items to process (default: 100)"
     )
     parser.add_argument(
+        "--group-id",
+        default=None,
+        help="Drain only entries for this group (default: global drain across all groups)",
+    )
+    parser.add_argument(
         "--clear", action="store_true", help="Clear all items from queue (dangerous)"
     )
     parser.add_argument(
@@ -363,7 +414,12 @@ def main():
             print("Aborted")
             return 1
 
-    stats = process_queue(force=args.force, dry_run=args.dry_run, limit=args.limit)
+    stats = process_queue(
+        force=args.force,
+        dry_run=args.dry_run,
+        limit=args.limit,
+        group_id=args.group_id,
+    )
 
     print("\nProcessing Complete:")
     print(f"  Processed: {stats['processed']}")

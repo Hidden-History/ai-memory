@@ -235,10 +235,25 @@ class EvaluatorRunner:
         return hashlib.md5(seed.encode()).hexdigest()
 
     def _append_audit_log(self, entry: dict) -> None:
-        """Append an evaluation result to the JSONL audit log."""
-        self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.audit_log_path, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+        """Append an evaluation result to the JSONL audit log.
+
+        Audit-write failures (e.g. a uid/permission mismatch on a mounted
+        .audit/logs directory) are caught and logged here rather than raised.
+        The two call sites run inside the per-item evaluation handler; without
+        this guard a benign audit-write failure would surface through that
+        handler as an "Error evaluating ..." log, masquerading as a scoring
+        failure even though the score was already attached (TD-712).
+        """
+        try:
+            self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self.audit_log_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as exc:
+            logger.warning(
+                "Failed to write evaluation audit log to %s: %s",
+                self.audit_log_path,
+                exc,
+            )
 
     def _compute_avg_score(self, ev_name: str) -> float | None:
         """Return average of accumulated scores for ev_name, or None if no scores."""

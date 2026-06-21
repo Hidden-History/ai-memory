@@ -160,3 +160,92 @@ class TestPostWorkStoreAsync:
         ):
             result = pwsav.main()
         assert result == 0
+
+
+class TestPostStoreMetricLabels:
+    """TD-715: the post-store Prometheus push must supply the declared label set.
+
+    aimemory_captures_total declares hook_type/status/project/collection and
+    aimemory_dedup_events_total declares action/collection/project. A missing
+    label raises 'Incorrect label names', which store_memory_async swallows as a
+    validation_failed ERROR — so the child counter stays at 0 on the broken path.
+    Asserting the child increments proves the corrected label set validated.
+    """
+
+    @pytest.mark.asyncio
+    async def test_success_increments_capture_counter_with_collection_label(
+        self, valid_decision_payload
+    ):
+        from prometheus_client import CollectorRegistry, Counter
+
+        from memory.config import COLLECTION_DISCUSSIONS
+
+        reg = CollectorRegistry()
+        captures = Counter(
+            "td715_captures_total",
+            "test capture counter",
+            ["hook_type", "status", "project", "collection"],
+            registry=reg,
+        )
+
+        mock_storage = MagicMock()
+        mock_storage.store_memory.return_value = {
+            "status": "stored",
+            "memory_id": "id-715-a",
+            "embedding_status": "complete",
+        }
+        mock_storage_cls = MagicMock(return_value=mock_storage)
+
+        with (
+            patch.object(pwsav, "MemoryStorage", mock_storage_cls),
+            patch.object(pwsav, "memory_captures_total", captures),
+            patch("memory.project.resolve_project_id", return_value="ai-memory-module"),
+        ):
+            await pwsav.store_memory_async(valid_decision_payload)
+
+        child = captures.labels(
+            hook_type="SubagentStop",
+            status="success",
+            project="ai-memory-module",
+            collection=COLLECTION_DISCUSSIONS,
+        )
+        assert child._value.get() == 1.0
+
+    @pytest.mark.asyncio
+    async def test_duplicate_increments_dedup_counter_with_action_and_collection(
+        self, valid_decision_payload
+    ):
+        from prometheus_client import CollectorRegistry, Counter
+
+        from memory.config import COLLECTION_DISCUSSIONS
+
+        reg = CollectorRegistry()
+        dedup = Counter(
+            "td715_dedup_events_total",
+            "test dedup counter",
+            ["action", "collection", "project"],
+            registry=reg,
+        )
+
+        mock_storage = MagicMock()
+        mock_storage.store_memory.return_value = {
+            "status": "duplicate",
+            "memory_id": "id-715-b",
+            "embedding_status": "skipped",
+        }
+        mock_storage_cls = MagicMock(return_value=mock_storage)
+
+        with (
+            patch.object(pwsav, "MemoryStorage", mock_storage_cls),
+            patch.object(pwsav, "memory_captures_total", None),
+            patch.object(pwsav, "deduplication_events_total", dedup),
+            patch("memory.project.resolve_project_id", return_value="ai-memory-module"),
+        ):
+            await pwsav.store_memory_async(valid_decision_payload)
+
+        child = dedup.labels(
+            action="skipped_duplicate",
+            collection=COLLECTION_DISCUSSIONS,
+            project="ai-memory-module",
+        )
+        assert child._value.get() == 1.0

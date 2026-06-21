@@ -58,6 +58,12 @@ def _inject_mocks(monkeypatch, mock_client):
     trace_mod = types.ModuleType("memory.trace_buffer")
     trace_mod.emit_trace_event = MagicMock()
 
+    # TD-714: purge now resolves scope via the shared resolver. Default mock
+    # returns the canonical lowercase id; per-test overrides set on the loaded
+    # module exercise the call boundary.
+    project_mod = types.ModuleType("memory.project")
+    project_mod.resolve_project_id = MagicMock(return_value="ai-memory-testv2")
+
     qc_pkg = types.ModuleType("qdrant_client")
     qc_models = types.ModuleType("qdrant_client.models")
 
@@ -87,6 +93,7 @@ def _inject_mocks(monkeypatch, mock_client):
         ("memory.config", cfg_mod),
         ("memory.qdrant_client", qdrant_cli_mod),
         ("memory.metrics_push", metrics_mod),
+        ("memory.project", project_mod),
         ("memory.trace_buffer", trace_mod),
         ("qdrant_client", qc_pkg),
         ("qdrant_client.models", qc_models),
@@ -405,3 +412,78 @@ class TestBug317DatetimeRange:
             after > cutoff_parsed
         ), "Record after cutoff must NOT satisfy lt condition"
         assert cutoff_parsed == cutoff_dt  # round-trip fidelity
+
+
+class TestScopeResolution:
+    """TD-714: purge resolves scope via the shared resolver, not cwd basename.
+
+    Mocks resolve_project_id at the call boundary (the symbol bound in the loaded
+    purge module), with AI_MEMORY_PROJECT_ID unset (enforced by _isolate_env).
+    """
+
+    def test_scan_uses_resolver_result_as_group_id(self, monkeypatch, capsys):
+        """The id returned by resolve_project_id is the scope passed to scan."""
+        mock_client = MagicMock()
+        mock_client.scroll.return_value = ([], None)
+        mod = _load_module(monkeypatch, mock_client)
+
+        # Mock at the call boundary — the resolver symbol on the purge module.
+        monkeypatch.setattr(
+            mod, "resolve_project_id", MagicMock(return_value="ai-memory-testv2")
+        )
+
+        captured = {}
+
+        def _capture_scan(client, collections, group_id, cutoff_iso):
+            captured["group_id"] = group_id
+            return {}
+
+        monkeypatch.setattr(mod, "scan_purgeable", _capture_scan)
+        monkeypatch.setattr(
+            sys, "argv", ["purge_collections.py", "--older-than", "30d"]
+        )
+
+        rc = mod.main()
+
+        assert rc == 0
+        assert captured["group_id"] == "ai-memory-testv2"
+        mod.resolve_project_id.assert_called_once()
+
+    def test_legacy_group_id_env_passed_as_explicit(self, monkeypatch):
+        """AI_MEMORY_GROUP_ID is forwarded as the explicit override (back-compat)."""
+        mock_client = MagicMock()
+        mock_client.scroll.return_value = ([], None)
+        mod = _load_module(monkeypatch, mock_client)
+
+        resolver = MagicMock(return_value="ai-memory-testv2")
+        monkeypatch.setattr(mod, "resolve_project_id", resolver)
+        monkeypatch.setattr(mod, "scan_purgeable", lambda *a, **k: {})
+        monkeypatch.setenv("AI_MEMORY_GROUP_ID", "legacy-scope")
+        monkeypatch.setattr(
+            sys, "argv", ["purge_collections.py", "--older-than", "30d"]
+        )
+
+        rc = mod.main()
+
+        assert rc == 0
+        assert resolver.call_args.kwargs.get("explicit") == "legacy-scope"
+
+    def test_unresolvable_scope_returns_exit1_without_scanning(self, monkeypatch):
+        """A resolver ValueError aborts with exit 1 — never purge a guessed scope."""
+        mock_client = MagicMock()
+        mod = _load_module(monkeypatch, mock_client)
+
+        monkeypatch.setattr(
+            mod, "resolve_project_id", MagicMock(side_effect=ValueError("no project"))
+        )
+        scan_spy = MagicMock()
+        monkeypatch.setattr(mod, "scan_purgeable", scan_spy)
+        monkeypatch.setattr(
+            sys, "argv", ["purge_collections.py", "--older-than", "30d"]
+        )
+
+        rc = mod.main()
+
+        assert rc == 1
+        scan_spy.assert_not_called()
+        mock_client.delete.assert_not_called()
