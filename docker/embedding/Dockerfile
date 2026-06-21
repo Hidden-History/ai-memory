@@ -54,6 +54,16 @@ ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH="/app/src"
 
+# BUG-324 (footprint): shrink anon-RSS under concurrent inference. glibc spawns up to
+# 8×nproc malloc arenas, each fragmenting independently — the prime suspect for the
+# observed anon-rss overshoot past the container cap. MALLOC_ARENA_MAX=2 is the single
+# biggest easy win against that fragmentation. OMP_NUM_THREADS bounds OpenMP-governed
+# pools (BLAS, any OpenMP-built ONNX kernels), trading per-request throughput for a
+# lower, more predictable peak — acceptable since "process slowly" is the explicit goal.
+# Conservative image defaults; overridable via the compose env block / soak sizing.
+ENV MALLOC_ARENA_MAX=2 \
+    OMP_NUM_THREADS=2
+
 # Install only runtime dependencies (curl for compose healthcheck)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl && \
@@ -83,4 +93,10 @@ USER embedding
 
 EXPOSE 8080
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# TD-670: deliberately a SINGLE uvicorn worker. Each worker process loads its own copy
+# of the dual ONNX models (~3GB), so N workers ≈ N×3GB against the container memory
+# limit (4G) — adding `--workers 2` would guarantee OOM and worsen the suspected
+# memory-pressure exit. Resilience is provided instead by in-app concurrency bounding
+# (EMBEDDING_MAX_CONCURRENCY) + per-request fault isolation in main.py, with Docker's
+# `restart: unless-stopped` as the process supervisor.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]

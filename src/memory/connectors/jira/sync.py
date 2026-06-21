@@ -19,7 +19,8 @@ Error Handling:
 """
 
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7
-# SDK VERSION: V4. Path A files use emit_trace_event() only — no direct langfuse import.
+# SDK VERSION: V4. Tracing uses emit_trace_event() only (Path A); get_client() is
+# imported solely for the atexit drain lifecycle (TD-625), not for tracing.
 # CONSTANT: TRACE_CONTENT_MAX = 10000 (no other value permitted)
 
 import asyncio
@@ -28,6 +29,7 @@ import contextlib
 import json
 import logging
 import os
+import threading
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -50,10 +52,37 @@ try:
 except ImportError:
     _langfuse_get_client = None  # type: ignore[assignment]
 
+try:
+    from ...langfuse_config import is_langfuse_enabled as _langfuse_enabled
+except ImportError:
+    _langfuse_enabled = None  # type: ignore[assignment]
+
+# External bound for the at-exit Langfuse drain. langfuse 4.7.1 flush() and
+# shutdown() take no timeout and block on the SDK worker's queue.join(), which
+# never returns when a reachable-but-slow backend keeps the queue non-empty
+# (TD-625) — the surrounding try/except catches exceptions, not a hang. The
+# drain therefore runs in a daemon thread bounded EXTERNALLY by a watchdog join
+# (langfuse-guard §5 / BP-168 addendum); flush(timeout=…)/shutdown(timeout=…)
+# do not exist in V4.
+# 5s: best-effort at-exit local drain bound — deliberately short and distinct from
+# the stop-hook's longer in-flow LANGFUSE_FLUSH_TIMEOUT_SECONDS (default 15s).
+_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
 
 def _langfuse_shutdown():
-    """Flush and shutdown Langfuse client on process exit (TD-248)."""
-    if _langfuse_get_client is not None:
+    """Flush and shutdown the Langfuse client on process exit (TD-248, TD-625).
+
+    Skipped entirely when Langfuse is disabled at the app level. The blocking
+    flush/shutdown runs in a daemon thread that is abandoned after
+    ``_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS`` so a reachable-but-slow backend can
+    never wedge process teardown.
+    """
+    if _langfuse_get_client is None:
+        return
+    if _langfuse_enabled is not None and not _langfuse_enabled():
+        return
+
+    def _drain():
         try:
             client = _langfuse_get_client()
             if client:
@@ -62,8 +91,14 @@ def _langfuse_shutdown():
         except Exception:
             pass
 
+    worker = threading.Thread(target=_drain, name="langfuse-atexit-drain", daemon=True)
+    worker.start()
+    worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
 
-if _langfuse_get_client is not None:
+
+if _langfuse_get_client is not None and (
+    _langfuse_enabled is None or _langfuse_enabled()
+):
     atexit.register(_langfuse_shutdown)
 
 from .client import JiraClient

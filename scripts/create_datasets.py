@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # LANGFUSE: V4 SDK ONLY. See LANGFUSE-INTEGRATION-SPEC.md
-# FORBIDDEN: Langfuse(host=...) with explicit creds, start_span(), start_generation(), langfuse_context
+# FORBIDDEN (removed in V4): start_span(), start_generation(), V3 decorator context helpers
 # REQUIRED: get_client(), create_dataset(), create_dataset_item(), flush()
 """Create 5 Langfuse golden datasets for regression testing.
 
@@ -184,7 +184,7 @@ DS_01_ITEMS = [
             "type_filter": "decision",
         },
         "expected_output": {
-            "should_match": "DEC-068 mandates Langfuse V3 SDK only; V2 patterns forbidden; get_client() singleton",
+            "should_match": "The project standardized on the Langfuse V4 (OTel-based) SDK; get_client() is preferred for call sites and the bare Langfuse() constructor is also valid",
             "min_relevance": 0.85,
         },
     },
@@ -539,14 +539,14 @@ DS_03_ITEMS = [
         "input": {
             "agent_id": "parzival",
             "content_type": "decision",
-            "content": "DEC-068: Langfuse V3 SDK only in this project. Use get_client() singleton pattern. Never use the constructor with explicit creds. Rationale: V2/V3 divergence caused 13+ integration failures across 10 sessions.",
+            "content": "Decision: standardize on the Langfuse V4 (OTel-based) SDK in this project. Use get_client() as the singleton accessor for ordinary call sites; the bare Langfuse() constructor is also valid and returns the same singleton (only the explicit-credentials constructor form is discouraged). Rationale: V4 is the current generation; earlier V2/V3 SDK divergence caused repeated integration failures.",
             "skill": "parzival-save-handoff",
         },
         "expected_output": {
             "agent_id": "parzival",
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
-            "key_terms_required": ["DEC-068", "Langfuse", "V3", "get_client"],
+            "key_terms_required": ["Langfuse", "V4", "get_client", "OTel"],
             "min_relevance": 0.80,
         },
     },
@@ -554,7 +554,7 @@ DS_03_ITEMS = [
         "input": {
             "agent_id": "parzival",
             "content_type": "insight",
-            "content": "Insight from PM #145: When migrating Langfuse V2 to V3, the critical change is replacing Langfuse(public_key=..., secret_key=..., host=...) with get_client() which reads env vars automatically. The V3 SDK is OTel-based and not fully backward compatible.",
+            "content": "Insight: migrating to the Langfuse V4 (OTel-based) SDK means replacing the span methods removed in V4. V4 removed start_span and start_generation; use the unified start_observation (as_type='span') instead. V4 is not fully backward compatible with V2 or V3, so any code still calling the old span methods breaks at runtime.",
             "skill": "parzival-save-handoff",
         },
         "expected_output": {
@@ -562,12 +562,10 @@ DS_03_ITEMS = [
             "retrieved_by_skill": "aim-parzival-bootstrap",
             "content_present": True,
             "key_terms_required": [
-                "PM #145",
                 "Langfuse",
-                "V2",
-                "V3",
-                "get_client",
-                "OTel",
+                "V4",
+                "start_observation",
+                "start_span",
             ],
             "min_relevance": 0.80,
         },
@@ -1400,14 +1398,14 @@ DS_05_ITEMS = [
     },
     {
         "input": {
-            "content": "## LANGFUSE-INTEGRATION-SPEC.md\n\n**Version**: 1.2  \n**Status**: AUTHORITATIVE\n\n### 2. CRITICAL: V3 SDK Only\n\nThe Langfuse Python SDK V3 (released May 2025) is OTel-based and NOT backward compatible with V2.\n\n```python\n# CORRECT — V3 singleton\nfrom langfuse import get_client\nlangfuse = get_client()\n\n# WRONG — V2 pattern: bypasses env config, do not use\n# Langfuse(host=...) with explicit creds is DISCOURAGED\n```\n\n### 3. Architecture: Dual Integration\n\nPath A (hooks): emit_trace_event() → JSON buffer → trace_flush_worker  \nPath B (services): get_client() → direct SDK calls",
+            "content": "## LANGFUSE-INTEGRATION-SPEC.md\n\n**Version**: 1.4  \n**Status**: AUTHORITATIVE\n\n### 2. CRITICAL: V4 SDK (OTel-Based)\n\nThe Langfuse Python SDK V4 is OTel-based and removed several V3 methods (start_span, start_generation, and the legacy decorator context helper). It is NOT backward compatible with V2 or V3.\n\n```python\n# CORRECT — V4 singleton accessor\nfrom langfuse import get_client\nlangfuse = get_client()\n\n# VALID — bare constructor returns the same singleton, reads env vars\nfrom langfuse import Langfuse\nlangfuse = Langfuse()\n```\n\n### 3. Architecture: Dual Integration\n\nPath A (hooks): emit_trace_event writes a JSON buffer drained by trace_flush_worker  \nPath B (services): get_client() makes direct SDK calls",
             "content_type": "markdown_with_code_blocks",
-            "estimated_tokens": 130,
+            "estimated_tokens": 178,
         },
         "expected_output": {
             "expected_chunk_count": 3,
             "chunk_strategy": "markdown_heading_with_code_preservation",
-            "avg_tokens_per_chunk": 43,
+            "avg_tokens_per_chunk": 59,
             "boundary_quality": "high",
             "chunker_type": "markdown",
         },

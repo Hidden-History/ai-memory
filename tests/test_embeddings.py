@@ -6,6 +6,8 @@ Tests AC 1.4.2 - Embeddings Client Module functionality.
 import sys
 from unittest.mock import Mock, patch
 
+import httpx
+
 from src.memory.config import MemoryConfig
 from src.memory.embeddings import EmbeddingClient, EmbeddingError
 
@@ -149,6 +151,80 @@ class TestEmbeddingClient:
 
         assert hasattr(embed_module, "logger")
 
+    def _client_with_handler(self, handler, max_retries=3):
+        """Build an EmbeddingClient whose HTTP calls are served by a MockTransport."""
+        client = EmbeddingClient(MemoryConfig())
+        client.client = httpx.Client(transport=httpx.MockTransport(handler))
+        client._max_retries = max_retries
+        return client
+
+    def test_embed_retries_on_503_backpressure_then_succeeds(self):
+        """TD-678 / BP-175 §8 — THE data-safety proof: a server 503 backpressure is
+        retried (honoring Retry-After), so the memory lands instead of being dropped."""
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # First attempt: bounded-queue admission sheds with a Retry-After.
+                return httpx.Response(
+                    503,
+                    headers={"Retry-After": "0"},
+                    json={"detail": "embedding_admission_timeout"},
+                )
+            # Retry: a slot freed — the embed succeeds and the memory is preserved.
+            return httpx.Response(200, json={"embeddings": [[0.1] * 768]})
+
+        client = self._client_with_handler(handler)
+        result = client.embed(["a memory that must not be lost"], model="en")
+
+        # The retry actually fired (1 shed + 1 success) and the memory landed intact.
+        assert calls["n"] == 2
+        assert len(result) == 1
+        assert len(result[0]) == 768
+        # TD-354 intact: a real non-zero vector, never a degenerate placeholder.
+        assert any(v != 0.0 for v in result[0])
+
+    def test_embed_does_not_retry_on_413_oversized(self):
+        """413 (oversized payload) is terminal — must NOT retry (no admission loop)."""
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            return httpx.Response(413, json={"detail": "Too many texts"})
+
+        client = self._client_with_handler(handler, max_retries=3)
+        raised = None
+        try:
+            client.embed(["x"], model="en")
+        except EmbeddingError as e:
+            raised = e
+
+        assert raised is not None
+        assert getattr(raised, "retryable", False) is False
+        assert calls["n"] == 1  # single attempt, no retry
+
+    def test_embed_exhausts_retries_on_persistent_backpressure(self):
+        """Persistent 503 surfaces a bounded, retryable error after the retry budget —
+        so the caller degrades to PENDING storage rather than losing the memory."""
+        calls = {"n": 0}
+
+        def handler(request):
+            calls["n"] += 1
+            return httpx.Response(503, headers={"Retry-After": "0"})
+
+        client = self._client_with_handler(handler, max_retries=2)
+        raised = None
+        try:
+            client.embed(["y"], model="en")
+        except EmbeddingError as e:
+            raised = e
+
+        assert raised is not None
+        assert raised.retryable is True
+        assert "BACKPRESSURE" in str(raised)
+        assert calls["n"] == 3  # 1 initial + 2 retries, then surfaced (not looped)
+
 
 if __name__ == "__main__":
     print("Running embedding client tests...")
@@ -163,6 +239,18 @@ if __name__ == "__main__":
         ("test_health_check_unhealthy", test.test_health_check_unhealthy),
         ("test_batch_embedding_support", test.test_batch_embedding_support),
         ("test_uses_structured_logging", test.test_uses_structured_logging),
+        (
+            "test_embed_retries_on_503_backpressure_then_succeeds",
+            test.test_embed_retries_on_503_backpressure_then_succeeds,
+        ),
+        (
+            "test_embed_does_not_retry_on_413_oversized",
+            test.test_embed_does_not_retry_on_413_oversized,
+        ),
+        (
+            "test_embed_exhausts_retries_on_persistent_backpressure",
+            test.test_embed_exhausts_retries_on_persistent_backpressure,
+        ),
     ]
 
     passed = 0

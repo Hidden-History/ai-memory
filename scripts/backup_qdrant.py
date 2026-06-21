@@ -631,7 +631,8 @@ def main() -> int:
             collection_backups.append(backup)
 
             print(
-                f"    {GREEN}✓{RESET} {records} records, snapshot created ({format_size(size_bytes)})"
+                f"    {GREEN}✓{RESET} {records} records, "
+                f"snapshot file: {format_size(size_bytes)} on disk"
             )
 
         except Exception as e:
@@ -684,7 +685,7 @@ def main() -> int:
     print(f"\n{'='*60}")
     print(f"  {GREEN}✓ Backup complete: {backup_dir}{RESET}")
     print()
-    print(f"  Total size: {format_size(total_size)}")
+    print(f"  Total snapshot size: {format_size(total_size)}")
     print(f"  Collections: {len(collection_backups)}")
     print(f"  Records: {total_records}")
     print(f"{'='*60}\n")

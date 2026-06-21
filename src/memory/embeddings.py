@@ -54,9 +54,33 @@ class EmbeddingError(Exception):
     """Raised when embedding generation fails.
 
     This exception wraps httpx errors and timeouts for consistent error handling.
+
+    Attributes:
+        retryable: True when the failure is transient and the caller should retry
+            (e.g. server backpressure 503/429). Timeout errors are also retried via the
+            message-based check for backward compatibility.
+        retry_after: Server-advised wait in seconds (from a ``Retry-After`` header), or
+            None. The retry layer honors this when present.
     """
 
-    pass
+    def __init__(self, message, *, retryable=False, retry_after=None):
+        super().__init__(message)
+        self.retryable = retryable
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(value):
+    """Parse a ``Retry-After`` header (delta-seconds) into float seconds.
+
+    Returns None when the header is absent or not delta-seconds. The embedding service
+    emits integer delta-seconds; the HTTP-date form is unsupported (and unnecessary).
+    """
+    if not value:
+        return None
+    try:
+        return max(0.0, float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 class EmbeddingClient:
@@ -128,10 +152,14 @@ class EmbeddingClient:
     def embed(
         self, texts: list[str], model: str = "en", project: str = "unknown"
     ) -> list[list[float]]:
-        """Generate embeddings with retry on timeout errors.
+        """Generate embeddings with retry on transient failures.
 
         Wraps _embed_once() with exponential backoff + full jitter (AWS formula,
-        BP-091). Only retries on timeout errors; non-timeout errors raise immediately.
+        BP-091). Retries on timeout AND on server backpressure (HTTP 503/429) — the
+        latter honoring the ``Retry-After`` header so the client stays in lockstep with
+        the service's bounded-queue admission (BP-175 §8): a backpressure signal makes
+        the caller wait and re-submit rather than dropping the memory. Non-retryable
+        errors (e.g. 413 oversized, 4xx) raise immediately.
 
         Args:
             texts: List of text strings to embed.
@@ -142,26 +170,36 @@ class EmbeddingClient:
             List of embedding vectors (768 dimensions each).
 
         Raises:
-            EmbeddingError: If all retries exhausted or non-timeout error occurs.
+            EmbeddingError: If all retries exhausted or a non-retryable error occurs.
         """
         last_error: EmbeddingError | None = None
         for attempt in range(1 + self._max_retries):
             try:
                 return self._embed_once(texts, model=model, project=project)
             except EmbeddingError as e:
-                if "timeout" not in str(e).lower():
-                    raise  # Non-timeout errors: no retry
+                retryable = (
+                    getattr(e, "retryable", False) or "timeout" in str(e).lower()
+                )
+                if not retryable:
+                    raise  # Non-retryable errors: surface immediately
                 last_error = e
                 if attempt < self._max_retries:
-                    sleep_time = random.uniform(
-                        0, min(self._backoff_cap, self._backoff_base * (2**attempt))
-                    )
+                    retry_after = getattr(e, "retry_after", None)
+                    if retry_after is not None:
+                        # Honor the server's Retry-After, capped so a stuck server can't
+                        # block the caller indefinitely.
+                        sleep_time = min(self._backoff_cap, retry_after)
+                    else:
+                        sleep_time = random.uniform(
+                            0, min(self._backoff_cap, self._backoff_base * (2**attempt))
+                        )
                     logger.warning(
                         "embedding_retry",
                         extra={
                             "attempt": attempt + 1,
                             "max_retries": self._max_retries,
                             "sleep_seconds": round(sleep_time, 2),
+                            "retry_after": retry_after,
                             "texts_count": len(texts),
                             "model": model,
                         },
@@ -332,6 +370,18 @@ class EmbeddingClient:
             raise EmbeddingError("EMBEDDING_TIMEOUT") from e
 
         except httpx.HTTPError as e:
+            # BP-175 §8: a 503/429 is server backpressure (bounded-queue admission), not
+            # a hard failure — mark it retryable and carry Retry-After so embed()
+            # re-submits in lockstep rather than dropping the memory. Other HTTP errors
+            # (e.g. 413 oversized, 4xx) are terminal and must not loop.
+            backpressure = isinstance(
+                e, httpx.HTTPStatusError
+            ) and e.response.status_code in (503, 429)
+            retry_after = (
+                _parse_retry_after(e.response.headers.get("Retry-After"))
+                if backpressure
+                else None
+            )
             logger.error(
                 "embedding_error",
                 extra={
@@ -339,6 +389,8 @@ class EmbeddingClient:
                     "base_url": self.base_url,
                     "model": model,
                     "error": str(e),
+                    "backpressure": backpressure,
+                    "retry_after": retry_after,
                 },
             )
 
@@ -380,6 +432,12 @@ class EmbeddingClient:
                 project=project,
             )
 
+            if backpressure:
+                raise EmbeddingError(
+                    f"EMBEDDING_BACKPRESSURE: HTTP {e.response.status_code}",
+                    retryable=True,
+                    retry_after=retry_after,
+                ) from e
             raise EmbeddingError(f"EMBEDDING_ERROR: {e}") from e
 
     def embed_sparse(self, texts: list[str]) -> list[dict]:

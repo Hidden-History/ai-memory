@@ -554,7 +554,7 @@ class TestIdempotencyAndDryRun:
 
 
 class TestV4SDKCompliance:
-    def test_script_has_v3_header_comment(self):
+    def test_script_has_v4_header_comment(self):
         """create_datasets.py must have the V4 SDK header comment."""
         script_path = os.path.join(
             os.path.dirname(__file__), "..", "scripts", "create_datasets.py"
@@ -601,7 +601,7 @@ class TestV4SDKCompliance:
                 )
 
     def test_uses_get_client(self):
-        """create_datasets.py must use get_client() (V3 singleton pattern)."""
+        """create_datasets.py must use get_client() (V4 singleton accessor)."""
         script_path = os.path.join(
             os.path.dirname(__file__), "..", "scripts", "create_datasets.py"
         )

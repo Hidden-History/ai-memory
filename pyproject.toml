@@ -72,6 +72,12 @@ dependencies = [
 observability = [
     # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
     "langfuse>=4.7.0,<4.8.0",
+    # OpenAI SDK for the evaluator LLM-as-judge provider (BUG-316) — used by
+    # evaluator/provider.py for the ollama (default), openrouter, openai, and
+    # custom OpenAI-compatible provider paths.
+    # Bundled with the observability extra because the evaluator-scheduler (LLM-as-judge) is part of the observability stack, so its provider SDK lives with the observability deps.
+    # Pin policy: requirements.txt exact-pins openai==1.99.1 for reproducible image bakes; this >=1.99.1,<3.0.0 range is intentional so CI acts as a forward-compat gate — bump the requirements.txt image pin once CI passes on a new openai major.
+    "openai>=1.99.1,<3.0.0",
 ]
 dev = [
     # Testing
@@ -104,8 +110,16 @@ dev = [
     "PyYAML>=6.0,<7.0",
     # Include observability deps so CI has langfuse for tests
     "langfuse>=4.7.0,<4.8.0",
+    # Evaluator provider SDK so CI can exercise the openai import path (BUG-316)
+    "openai>=1.99.1,<3.0.0",
     # Streamlit dashboard (CI validation of docker/streamlit/app.py)
     "streamlit==1.56.0",
+    # Embedding service resilience tests (CI validation of docker/embedding/main.py, TD-670)
+    # fastapi pinned to match the shipped image (docker/embedding/requirements.txt:
+    # fastapi[standard]==0.128.0); only the framework + TestClient are needed here, not
+    # the [standard] server stack. httpx is required by fastapi.testclient.TestClient.
+    "fastapi==0.128.0",
+    "httpx>=0.27,<1.0",
 ]
 
 [project.urls]
@@ -205,6 +219,7 @@ ignore = ["E501"]  # Line length handled by black
 "tests/integration/test_sdk_integration.py" = ["E402"]  # E402: sys.modules mock before imports
 "tests/unit/connectors/**/*.py" = ["E402"]  # E402: conftest logger setup before imports
 "scripts/memory/post_work_store_async.py" = ["E402"]  # E402: sys.path.insert before imports
+"scripts/memory/purge_collections.py" = ["E402"]  # E402: sys.path.insert before imports
 "scripts/memory/store-chat-memory.py" = ["E402"]  # E402: sys.path.insert before imports
 
 # Black configuration
