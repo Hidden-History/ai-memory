@@ -58,6 +58,10 @@ cd ~/.ai-memory/docker && docker compose \
 - **Dropped memory on embedding backpressure (TD-678)** — a server backpressure 503/429 is now retried by the client instead of raising and losing the memory; the zero-vector rejection (TD-354) remains intact end to end.
 - **`metrics_import_failed` startup warning (TD-694)** — the embedding service no longer imports the unused client-side `memory.metrics` module (which triggered the heavy `memory` package init absent from the slim image), eliminating the spurious startup WARNING.
 
+### Removed
+
+- **`aim-bmad-dispatch` backward-compat redirect stub** (`.claude/skills/aim-bmad-dispatch/`) — the one-release shim shipped in v2.4.0 is now removed. Use `/aim-agent-dispatch` instead; it handles both BMAD and generic agent dispatch via a unified routing path. Operators whose `settings.json` still references `aim-bmad-dispatch` must update the path to `aim-agent-dispatch`.
+
 ## [2.7.0] - 2026-06-16
 
 ### Upgrade Instructions
