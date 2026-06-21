@@ -57,6 +57,7 @@ cd ~/.ai-memory/docker && docker compose \
 - **Embedding-service OOM-kill/restart loop under memory pressure (BUG-324)** — combined multi-repo load no longer drives the shared service past its cgroup cap; the memory-aware AIMD controller throttles *before* the kernel OOM-kills, turning the kill/restart loop into "slow down and survive".
 - **Dropped memory on embedding backpressure (TD-678)** — a server backpressure 503/429 is now retried by the client instead of raising and losing the memory; the zero-vector rejection (TD-354) remains intact end to end.
 - **`metrics_import_failed` startup warning (TD-694)** — the embedding service no longer imports the unused client-side `memory.metrics` module (which triggered the heavy `memory` package init absent from the slim image), eliminating the spurious startup WARNING.
+- **Grafana no longer logs a startup `level=error` for a missing `provisioning/plugins` directory** — an empty `plugins/.gitkeep` is now shipped so the provisioning path exists (TD-538).
 
 ## [2.7.0] - 2026-06-16
 
