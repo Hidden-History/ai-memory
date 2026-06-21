@@ -14,6 +14,7 @@ import base64
 import contextlib
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -52,9 +53,34 @@ except ImportError:
         return contextlib.nullcontext()
 
 
+try:
+    from memory.langfuse_config import is_langfuse_enabled as _langfuse_enabled
+except ImportError:
+    _langfuse_enabled = None  # type: ignore[assignment]
+
+# External bound for the Langfuse drain. langfuse 4.7.1 flush() and shutdown()
+# take no timeout and block on the SDK worker's queue.join(), which never returns
+# when a reachable-but-slow backend keeps the queue non-empty (TD-698) — the
+# surrounding try/except catches exceptions, not a hang. The drain therefore runs
+# in a daemon thread bounded EXTERNALLY by a watchdog join (langfuse-guard §5 /
+# BP-168 addendum); flush(timeout=…)/shutdown(timeout=…) do not exist in V4.
+_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
+
 def _langfuse_shutdown():
-    """Flush and shutdown Langfuse client on process exit (TD-246)."""
-    if _langfuse_get_client is not None:
+    """Flush and shutdown the Langfuse client on process exit (TD-246, TD-698).
+
+    Skipped entirely when Langfuse is disabled at the app level. The blocking
+    flush/shutdown runs in a daemon thread that is abandoned after
+    ``_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS`` so a reachable-but-slow backend can
+    never wedge process teardown.
+    """
+    if _langfuse_get_client is None:
+        return
+    if _langfuse_enabled is not None and not _langfuse_enabled():
+        return
+
+    def _drain():
         try:
             client = _langfuse_get_client()
             if client:
@@ -63,8 +89,42 @@ def _langfuse_shutdown():
         except Exception:
             pass
 
+    worker = threading.Thread(target=_drain, name="langfuse-atexit-drain", daemon=True)
+    worker.start()
+    worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
 
-atexit.register(_langfuse_shutdown)
+
+def _bounded_langfuse_flush():
+    """Flush buffered Langfuse traces under the same external bound (TD-698).
+
+    The post-sync-cycle flush blocks on the same unbounded ``queue.join()`` as
+    the at-exit drain, so it runs in a daemon thread that is abandoned after
+    ``_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS``. Skipped when Langfuse is disabled.
+    """
+    if _langfuse_get_client is None:
+        return
+    # Intentionally fail-open: _langfuse_enabled=None (ImportError) does not skip the flush; DEC-PM350-D5.
+    if _langfuse_enabled is not None and not _langfuse_enabled():
+        return
+
+    def _drain():
+        try:
+            client = _langfuse_get_client()
+            if client:
+                client.flush()
+        except Exception:
+            pass
+
+    worker = threading.Thread(target=_drain, name="langfuse-flush", daemon=True)
+    worker.start()
+    with contextlib.suppress(Exception):
+        worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
+
+
+if _langfuse_get_client is not None and (
+    _langfuse_enabled is None or _langfuse_enabled()
+):
+    atexit.register(_langfuse_shutdown)
 
 from memory.connectors.github.client import (
     GitHubClient,
@@ -1152,10 +1212,9 @@ class CodeBlobSync:
                 )
                 return result
         finally:
-            # Flush Langfuse traces after sync cycle (runs on all exit paths)
-            if _langfuse_get_client is not None:
-                with contextlib.suppress(Exception):
-                    _langfuse_get_client().flush()
+            # Flush Langfuse traces after sync cycle (runs on all exit paths),
+            # bounded so a slow backend cannot wedge the cycle (TD-698)
+            _bounded_langfuse_flush()
 
     async def _wait_for_embedding_ready(
         self, max_wait_seconds: int = 60, poll_interval: float = 5.0

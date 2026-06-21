@@ -27,6 +27,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -78,10 +79,23 @@ def _handle_sigterm(signum, frame) -> None:
     _shutdown_requested = True
 
 
-def _register_langfuse_shutdown() -> None:
-    """Register atexit handler to flush and shutdown Langfuse V4 client on exit."""
+# External bound for the at-exit Langfuse drain. langfuse 4.7.1 flush() and
+# shutdown() take no timeout and block on the SDK worker's queue.join(), which
+# never returns when a reachable-but-slow backend keeps the queue non-empty
+# (TD-698). The drain therefore runs in a daemon thread bounded EXTERNALLY by a
+# watchdog join (langfuse-guard §5 / BP-168 addendum).
+_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
-    def _langfuse_shutdown() -> None:
+
+def _langfuse_shutdown() -> None:
+    """Flush and shutdown the Langfuse V4 client on exit, bounded (TD-698).
+
+    The blocking flush/shutdown runs in a daemon thread abandoned after
+    ``_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS`` so a reachable-but-slow backend can
+    never wedge process teardown.
+    """
+
+    def _drain() -> None:
         try:
             from langfuse import get_client
 
@@ -92,6 +106,20 @@ def _register_langfuse_shutdown() -> None:
         except Exception:
             pass  # Never fail on process exit
 
+    worker = threading.Thread(target=_drain, name="langfuse-atexit-drain", daemon=True)
+    worker.start()
+    worker.join(_LANGFUSE_SHUTDOWN_TIMEOUT_SECONDS)
+
+
+def _register_langfuse_shutdown() -> None:
+    """Register the bounded at-exit drain unless Langfuse is disabled (TD-698)."""
+    try:
+        from memory.langfuse_config import is_langfuse_enabled
+    except ImportError:
+        is_langfuse_enabled = None  # type: ignore[assignment]
+    if is_langfuse_enabled is not None and not is_langfuse_enabled():
+        return
+    # Intentionally fail-open: ImportError sets is_langfuse_enabled=None, so registration still proceeds; DEC-PM350-D5.
     atexit.register(_langfuse_shutdown)
 
 
