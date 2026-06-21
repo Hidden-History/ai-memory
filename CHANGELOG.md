@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Evaluator-scheduler missing `openai` dependency** — the LLM-as-judge evaluator's default `ollama` provider (and the `openrouter`, `openai`, and `custom` provider paths) build their client through the `openai` SDK, but the package was not declared in `requirements.txt` or `pyproject.toml`. The evaluator-scheduler image installs only `requirements.txt`, so every evaluation failed at runtime with `No module named 'openai'` and the scheduler reported `scored: 0` despite sampling traces. `openai` is now declared in `requirements.txt` and the `observability` extra, and a smoke test asserts the configured default provider's client builds via the real import path while pinning the `requirements.txt` (image-bake) source-of-truth.
+- **Jira connector at-exit Langfuse drain no longer wedges process teardown** — the `atexit`-registered shutdown hook in the Jira sync connector now bounds its `flush()`/`shutdown()` with an external watchdog (the V4 SDK's `flush()`/`shutdown()` take no timeout and block on the worker queue join when a backend is reachable but slow to drain), and skips the drain and its registration entirely when Langfuse is disabled at the app level. Scoped to the Jira connector's at-exit hook only: local unit suites that import the Jira sync connector no longer appear to hang after the final test on account of that hook (the sibling at-exit sites in other modules are addressed separately).
 
 ## [2.7.0] - 2026-06-16
 
