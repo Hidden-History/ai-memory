@@ -1,6 +1,6 @@
 ---
 name: aim-sot
-description: Track the source-of-truth for each part of the user's own project — registry schema, templates, and engine (consult / detect-propose / verify).
+description: Track the source-of-truth for each part of the user's own project — registry schema, templates, and engine (consult / detect-propose / verify). Detects file and directory drift (content-digest and directory tree-digest), runs a machine-local shadow-git history for change detection, and correlates code changes to stale docs (doc-drift via DOCOWNERS). Use when checking SOT drift, choosing a drift_strategy, setting up the shadow git, or reviewing doc-staleness findings.
 allowed-tools: Bash, Read
 ---
 
@@ -96,6 +96,7 @@ registry is never created or written.
 | `--all` | off | Disable cap — surface all new candidates |
 | `--json` | off | Machine-readable JSON output |
 | `--registry PATH` | (git root) | Override registry path |
+| `--shadow` | off | Run the `[CL]` detect pass — BP-039 digest → BP-040 shadow-git commit → BP-042 doc-drift → structured `findings`. The Stop hooks pass it; see [Drift strategies, shadow git & doc-drift](#drift-strategies-shadow-git--doc-drift). |
 
 ### Output — drift proposals
 
@@ -111,11 +112,13 @@ emits *both* `staleness_hash` (re-verify the artifact) *and* `declaration_realit
 complementary signals — consumers may act on `k1_trigger` independently of the
 staleness signal. Do not treat the two as duplicates; they require different actions.
 
-**Hash drift covers file `sot_location`s only:** content-hash drift (types 2b/3/K1)
-requires a readable file. When `sot_location` points to a **directory**, hash checks
-are no-ops by design (spec §5: "sha256(file)"); the directory boundary still
-participates in location and temporal-staleness drift. A directory-tree digest
-extension is being considered separately — it is not implemented in this version.
+**Drift digest is dispatched by strategy:** a **file** `sot_location` uses
+`content-digest` (sha256 of the file — unchanged behavior); a **directory**
+`sot_location` uses `tree-digest` (BP-039 sorted-per-file-SHA-256 over the tree),
+so directory boundaries now get content-hash drift too. Override per entry with the
+schema-validated `drift_strategy` enum (never a shell command). A strategy switch or
+digest-version bump **re-baselines** the entry rather than firing drift. See
+[Drift strategies, shadow git & doc-drift](#drift-strategies-shadow-git--doc-drift).
 
 ### Output — new candidate proposals
 
@@ -129,6 +132,28 @@ are never auto-filled — human-authored always (BP-029).**
   state; never committed.
 - **5b** (Qdrant `conventions` collection, `type=sot_entry`) — derived memory
   cache; deterministically rebuildable from the committed registry via `reindex`.
+
+## Drift strategies, shadow git & doc-drift
+
+The `--shadow` flag on `detect-propose run` runs the `[CL]` detect pass: one BP-039
+tree-digest of the project → on change, a machine-local **shadow-git** commit
+(BP-040) → a `git diff` → **doc-drift** correlation (BP-042) → a structured
+**findings** pipe. All of it is engine-side, shared by every CLI; the per-CLI Stop
+hooks are thin callers that pass `--shadow`.
+
+Key guarantees:
+
+- **Non-invasive** — the shadow git is a bare repo under `~/.ai-memory/sot-git/<project_id>/` driven by an explicit two-pointer (`GIT_DIR`/`GIT_WORK_TREE`); it writes **nothing** into the user's tree (no `.git`, no `.gitignore`). Teardown is `rm -rf`.
+- **git-required, project-need-not-be-git** — git is a required tool, but the portable directory tree-digest never needs the project itself to be a git repo.
+- **Propose-only + machine-local** — only `.sot/registry.yaml` and `.sot/DOCOWNERS` are committed; the shadow git, setup sentinel, and drift-state are machine-local and never committed.
+- **Findings emit, Parzival records** — the engine emits the structured `findings[]` pipe (drift / doc-staleness / `ERROR` / `FRICTION`); it never writes any oversight register.
+
+Registry config (optional, top-level): `exclude:` (extra gitignore-style globs for
+the tree-digest) and `docowners:` (path override, default `.sot/DOCOWNERS`). Per
+entry: `drift_strategy:` (enum override).
+
+→ Full reference — strategy table, shadow-git setup/cadence/teardown, `.sot/DOCOWNERS`
+format, the setup sentinel, and the findings schema: [`references/drift-and-shadow-git.md`](references/drift-and-shadow-git.md).
 
 ## Verify — Invocation
 
@@ -223,7 +248,9 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ## Stop Hook — Default-on
 
 The Claude `Stop` hook (`sot_drift_stop.py`) is **registered by default on install**
-alongside the core ai-memory hooks. To opt out, set `AI_MEMORY_SOT_HOOKS=off`
+alongside the core ai-memory hooks. It calls the engine with `--shadow`, so the Stop
+event runs the full `[CL]` detect pass (digest → shadow-git commit → doc-drift →
+findings) and surfaces a one-line `[ai-memory] SOT` summary to stderr. To opt out, set `AI_MEMORY_SOT_HOOKS=off`
 (case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before
 running `install.sh`. Note: `AI_MEMORY_SOT_HOOKS=off` prevents adding the hooks on
 install; it does **not** remove hooks already registered by a prior install (settings

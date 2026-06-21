@@ -371,7 +371,28 @@ def cmd_get(entries: list[dict], entry_id: str, as_json: bool) -> int:
     return 0
 
 
-def cmd_digest(entries: list[dict], as_json: bool) -> int:
+def _read_drift_rollup(registry_path: Path) -> dict | None:
+    """Read the live drift rollup (changed / docs-stale counts) the detect pass
+    persisted to the 5a drift-state cache (machine-local, read-only here).
+
+    Returns the rollup dict or None when the cache / project_id is unavailable.
+    Reuses detect_propose's cache reader so the [ST] surface reflects exactly
+    what the [CL] pass wrote (single source of truth).
+    """
+    if _dp is None:
+        return None
+    project_id = _resolve_project_id_for_cache(registry_path)
+    if not project_id:
+        return None
+    try:
+        cache = _dp._read_drift_cache(project_id)
+        rollup = cache.get("drift_rollup")
+        return rollup if isinstance(rollup, dict) else None
+    except Exception:
+        return None
+
+
+def cmd_digest(entries: list[dict], as_json: bool, rollup: dict | None = None) -> int:
     # Drift rollup — pure dict inspection, no engine calls.
     # drift_status enum (detect_propose.py): clean | drifted | missing | unverified.
     # Absent drift_status (file-only registry, engine never ran) = indeterminate,
@@ -393,12 +414,21 @@ def cmd_digest(entries: list[dict], as_json: bool) -> int:
     ]
     truncated = len(lines) > DIGEST_MAX_LINES
 
+    # Live rollup (BP-040/042 detect pass): N changed / M docs-stale. Appended
+    # to the static registry-derived rollup as the [ST] ambient surface (§7).
+    rollup_suffix = ""
+    if rollup:
+        changed = rollup.get("changed", 0)
+        docs_stale = rollup.get("docs_stale", 0)
+        rollup_suffix = f", {changed} changed, {docs_stale} docs-stale"
+
     if as_json:
         _emit_json(
             {
                 "digest": lines[:DIGEST_MAX_LINES] if truncated else lines,
                 "count": len(entries),
                 "drift": {"clean": clean, "stale": stale, "unverified": unverified},
+                "drift_rollup": rollup,
                 "truncated": truncated,
             }
         )
@@ -413,12 +443,12 @@ def cmd_digest(entries: list[dict], as_json: bool) -> int:
             f"SOT registry: {len(entries)} components"
             f" (digest truncated — exceeds {DIGEST_MAX_LINES} lines)"
         )
-        print(f"drift: {drift_label}")
+        print(f"drift: {drift_label}{rollup_suffix}")
         print("Run 'aim-sot consult list' for the full set.")
     else:
         for line in lines:
             print(line)
-        print(f"drift: {drift_label}")
+        print(f"drift: {drift_label}{rollup_suffix}")
 
     return 0
 
@@ -514,7 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "drift":
         return cmd_field(entries, args.id, "drift_check", as_json)
     if cmd == "digest":
-        return cmd_digest(entries, as_json)
+        return cmd_digest(entries, as_json, _read_drift_rollup(registry_path))
 
     return 0  # unreachable
 

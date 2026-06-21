@@ -64,6 +64,18 @@ For each issue encountered:
 
 ---
 
+### 4b. Run the SOT Detect Pass (the `[CL]` close step)
+
+Only when `<project-root>/.sot/registry.yaml` exists. Run the aim-sot detect pass so any source-of-truth drift / doc-staleness from this session is surfaced as a first-class close item:
+
+`bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_detect_propose.py" run --shadow --json --registry <project-root>/.sot/registry.yaml`
+
+- The engine **emits** the structured `findings[]` pipe (drift / doc-staleness / `ERROR` / `FRICTION`); it does **not** write any oversight register.
+- Fold each finding into the session summary so the next step records it in the bug/TD/findings register — only Parzival writes the register (GC-16).
+- Nothing is silently dropped: an empty `findings[]` is a clean pass; record that too.
+
+---
+
 ### 5. Catalog Files Modified
 
 List every file that was created, modified, or deleted during this session:
