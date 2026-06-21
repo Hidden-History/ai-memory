@@ -4,6 +4,29 @@ Available Claude models via OpenRouter and native Anthropic API.
 
 ---
 
+## Opus 4.8
+
+```
+claude-opus-4-8
+```
+
+**Capabilities:**
+- Latest and most capable Claude model (2026)
+- Superior reasoning, coding, and complex task handling
+- 200K token context window
+- 128K output tokens
+
+**Use Cases:**
+- Complex analysis and synthesis
+- Multi-step problem solving
+- Architectural design
+- High-stakes content creation
+- BMAD agent orchestration (review and architecture dispatches)
+
+**Pricing Tier:** Premium (highest cost)
+
+---
+
 ## Opus 4.7
 
 ```
@@ -11,7 +34,6 @@ claude-opus-4-7
 ```
 
 **Capabilities:**
-- Latest and most capable Claude model (2026)
 - Superior reasoning, coding, and complex task handling
 - 200K token context window
 - 128K output tokens
@@ -98,19 +120,20 @@ claude-haiku-4-5-20251001
 
 | Task Type | Recommended Model | Notes |
 |-----------|------------------|-------|
-| Complex analysis / architecture (review) | Opus 4.7 | Newest; use for reviewer and architecture dispatches |
-| Complex analysis / architecture | Opus 4.6 | Most capable reasoning |
+| Complex analysis / architecture (review) | Opus 4.8 | Newest; use for reviewer and architecture dispatches |
+| Complex analysis / architecture | Opus 4.7 | Still available; prior preferred Opus |
+| Complex analysis / architecture | Opus 4.6 | Still available |
 | General coding / dev work | Sonnet 4.6 | Best balance |
 | Quick / simple tasks | Haiku 4.5 | Fastest and cheapest |
 | Image analysis | Sonnet 4.6 | Strong vision support |
-| BMAD agents | Sonnet 4.6 or Opus 4.7 | Depends on complexity |
+| BMAD agents | Sonnet 4.6 or Opus 4.8 | Depends on complexity |
 
 ---
 
 ## Available via
 
 - **Native Anthropic:** Direct API via `ANTHROPIC_API_KEY`
-- **OpenRouter:** Via `anthropic/claude-opus-4-7`, `anthropic/claude-opus-4-6`, `anthropic/claude-sonnet-4-6`, `anthropic/claude-haiku-4-5`
+- **OpenRouter:** Via `anthropic/claude-opus-4-8`, `anthropic/claude-opus-4-7`, `anthropic/claude-opus-4-6`, `anthropic/claude-sonnet-4-6`, `anthropic/claude-haiku-4-5`
 
 ---
 
