@@ -249,3 +249,85 @@ class TestPostStoreMetricLabels:
             project="ai-memory-module",
         )
         assert child._value.get() == 1.0
+
+    @pytest.mark.asyncio
+    async def test_qdrant_unavailable_increments_failed_capture_counter(
+        self, valid_decision_payload
+    ):
+        """QdrantUnavailable records hook_type/failed/project/collection='unknown'.
+
+        Asserts the failure-path counter push (except QdrantUnavailable block) uses
+        the declared label set; a missing label would raise 'Incorrect label names'
+        (swallowed) and leave the child at 0.
+        """
+        from prometheus_client import CollectorRegistry, Counter
+
+        from memory.qdrant_client import QdrantUnavailable
+
+        reg = CollectorRegistry()
+        captures = Counter(
+            "td715_fail_qdrant_captures_total",
+            "test failure counter (qdrant unavailable)",
+            ["hook_type", "status", "project", "collection"],
+            registry=reg,
+        )
+
+        mock_storage = MagicMock()
+        mock_storage.store_memory.side_effect = QdrantUnavailable("down")
+        mock_storage_cls = MagicMock(return_value=mock_storage)
+
+        with (
+            patch.object(pwsav, "MemoryStorage", mock_storage_cls),
+            patch.object(pwsav, "memory_captures_total", captures),
+            patch.object(pwsav, "queue_operation", MagicMock()),
+            patch("memory.project.resolve_project_id", return_value="ai-memory-module"),
+        ):
+            await pwsav.store_memory_async(valid_decision_payload)
+
+        child = captures.labels(
+            hook_type="SubagentStop",
+            status="failed",
+            project="ai-memory-module",
+            collection="unknown",
+        )
+        assert child._value.get() == 1.0
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_increments_failed_capture_counter(
+        self, valid_decision_payload
+    ):
+        """Unexpected Exception records hook_type/failed/project/collection='unknown'.
+
+        Asserts the failure-path counter push (except Exception block) uses the
+        declared label set; a missing label would raise 'Incorrect label names'
+        (swallowed) and leave the child at 0.
+        """
+        from prometheus_client import CollectorRegistry, Counter
+
+        reg = CollectorRegistry()
+        captures = Counter(
+            "td715_fail_exc_captures_total",
+            "test failure counter (generic exception)",
+            ["hook_type", "status", "project", "collection"],
+            registry=reg,
+        )
+
+        mock_storage = MagicMock()
+        mock_storage.store_memory.side_effect = RuntimeError("unexpected failure")
+        mock_storage_cls = MagicMock(return_value=mock_storage)
+
+        with (
+            patch.object(pwsav, "MemoryStorage", mock_storage_cls),
+            patch.object(pwsav, "memory_captures_total", captures),
+            patch.object(pwsav, "queue_operation", MagicMock()),
+            patch("memory.project.resolve_project_id", return_value="ai-memory-module"),
+        ):
+            await pwsav.store_memory_async(valid_decision_payload)
+
+        child = captures.labels(
+            hook_type="SubagentStop",
+            status="failed",
+            project="ai-memory-module",
+            collection="unknown",
+        )
+        assert child._value.get() == 1.0

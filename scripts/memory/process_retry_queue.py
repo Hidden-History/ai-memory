@@ -380,7 +380,10 @@ def main():
     parser.add_argument(
         "--group-id",
         default=None,
-        help="Drain only entries for this group (default: global drain across all groups)",
+        help=(
+            "Drain only entries for this group"
+            " (default: global drain across all groups)"
+        ),
     )
     parser.add_argument(
         "--clear", action="store_true", help="Clear all items from queue (dangerous)"
