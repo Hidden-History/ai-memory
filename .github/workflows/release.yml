@@ -22,7 +22,7 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0 # Full history for changelog generation
 
@@ -94,7 +94,7 @@ jobs:
     if: github.event_name == 'release'
     steps:
       - name: Checkout code at release tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.release.tag_name }}
 
