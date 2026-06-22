@@ -315,7 +315,9 @@ def _fork_fix_to_background(
         logger.warning("fork_fix_failed", extra={"error": str(e)})
 
 
-def detect_error_indicators(output: str, exit_code: int | None) -> bool:
+def detect_error_indicators(
+    output: str, exit_code: int | None, is_stderr: bool = False
+) -> bool:
     """Detect if output contains error indicators.
 
     PLAN-010 (P10-7): Rewritten to avoid false positives from filenames
@@ -324,6 +326,10 @@ def detect_error_indicators(output: str, exit_code: int | None) -> bool:
     Args:
         output: Tool output text
         exit_code: Command exit code (None if not available)
+        is_stderr: True when `output` came from the command's stderr stream
+            (BUG-325 fix-r1). Genuine OS/shell diagnostics are written to
+            stderr; benign error-shaped substrings (grep matches, echoed
+            strings) appear on stdout. The stream of origin disambiguates them.
 
     Returns:
         True if error detected, False otherwise
@@ -406,20 +412,38 @@ def detect_error_indicators(output: str, exit_code: int | None) -> bool:
             return False
 
     # BUG-325: OS/shell diagnostic phrases (e.g. "no such file or directory")
-    # frequently appear as benign *content* — grep matches, quoted string
-    # literals, doc text — on successful commands. Treat them as an error only
-    # when they form an actual diagnostic line: matched at end-of-line and not
-    # inside a grep content match ("path:NN:" / "path-NN-" prefix). This removes
-    # the substring-on-success false positives that amplified embedding load
-    # without dropping genuine OS errors (which also carry a non-zero exit code).
-    grep_content_line = re.compile(r"^\s*[\w./+-]+[:-]\d+[:-]")
-    weak_diagnostic = re.compile(
-        r"(?:command not found|permission denied|"
-        r"no such file or directory|syntax error)[\s.]*$",
-        re.IGNORECASE,
+    # frequently appear as benign *content* on successful commands — grep
+    # matches, quoted string literals, doc text — and these land on **stdout**.
+    # Genuine OS/shell diagnostics are written to **stderr**. We use the stream
+    # of origin as the disambiguating signal (fix-r1 / F1).
+    weak_phrase = (
+        r"command not found|permission denied|"
+        r"no such file or directory|syntax error"
     )
+
+    if is_stderr:
+        # stderr carries real diagnostics: a weak phrase anywhere on a stderr
+        # line is a genuine error. This closes the false-negative when the exit
+        # code is unavailable (newer Claude Code may omit `exitCode`), where a
+        # mid-line `syntax error near unexpected token` was previously dropped
+        # because the non-zero-exit backstop never fired in that mode.
+        weak_diagnostic = re.compile(weak_phrase, re.IGNORECASE)
+        for line in lines:
+            if weak_diagnostic.search(line):
+                return True
+        return False
+
+    # stdout path: weak phrases are benign content here. Treat them as an error
+    # only when they form an actual end-of-line diagnostic and are not part of a
+    # grep content match. `grep_lineno` skips `path:NN:` / `path-NN-` (grep -n)
+    # prefixes; `grep_bare` skips a bare `path:` prefix (grep without -n, F2).
+    # `grep_lineno` also skips `file:lineno:` compiler/pytest output — that
+    # residual narrowing is mitigated by the non-zero-exit catch above (LOW-3).
+    grep_lineno = re.compile(r"^\s*[\w./+-]+[:-]\d+[:-]")
+    grep_bare = re.compile(r"^\s*[\w./+-]*[./][\w./+-]*:")
+    weak_diagnostic = re.compile(rf"(?:{weak_phrase})[\s.]*$", re.IGNORECASE)
     for line in lines:
-        if grep_content_line.match(line):
+        if grep_lineno.match(line) or grep_bare.match(line):
             continue
         if weak_diagnostic.search(line):
             return True
@@ -579,8 +603,9 @@ def extract_error_context(hook_input: dict[str, Any]) -> dict[str, Any] | None:
         "exitCode"
     )  # May not be present in newer Claude Code versions
 
-    # Detect if this is an error
-    if not detect_error_indicators(output, exit_code):
+    # Detect if this is an error. `output` is from stderr when stderr is
+    # non-empty (BUG-325 fix-r1: weak diagnostics on stderr are real errors).
+    if not detect_error_indicators(output, exit_code, is_stderr=bool(stderr)):
         return None
 
     # Extract error details
