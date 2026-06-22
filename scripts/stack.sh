@@ -241,6 +241,25 @@ cmd_start() {
         log_warning "  docker compose -f ${COMPOSE_CORE} build ${IMAGE_BAKE_SERVICES[*]}"
     fi
 
+    # ── Step 1b: Rebuild python-source baked services (core) ─────────────────
+    # TD-723: services using the build:+image: hybrid pattern with COPY'd python
+    # source (embedding, classifier-worker, github-sync) cache their built image.
+    # `compose up` reuses the cached image even when the COPY'd source changed —
+    # a baked-source release deploys stale silently. A CACHED `build` (NOT
+    # --no-cache) invalidates only the changed COPY layers, so it's cheap on a
+    # no-op restart and does NOT re-bake embedding ONNX models or re-run the
+    # github-sync spacy download every time. --profile github is required to make
+    # github-sync visible; embedding/classifier-worker are always visible.
+    local -a SOURCE_BAKE_SERVICES=(embedding classifier-worker github-sync)
+    step "Step 1b/2 — Rebuilding python-source baked services (${SOURCE_BAKE_SERVICES[*]})"
+    if ! _compose \
+            -f "${COMPOSE_CORE}" \
+            --profile github \
+            build "${SOURCE_BAKE_SERVICES[@]}"; then
+        log_warning "Python-source rebuild failed — continuing with cached images. Inspect:"
+        log_warning "  docker compose -f ${COMPOSE_CORE} --profile github build ${SOURCE_BAKE_SERVICES[*]}"
+    fi
+
     # ── Step 1: Core stack ────────────────────────────────────────────────────
     # Creates the ai-memory_default network that langfuse will join.
     local _profiles_short="${_profiles_display//--profile /}"
@@ -274,6 +293,20 @@ cmd_start() {
                     -f "${COMPOSE_LANGFUSE}" \
                     build --no-cache "${IMAGE_BAKE_SERVICES_LANGFUSE[@]}"; then
                 log_warning "Langfuse image-bake rebuild failed — continuing with cached images."
+            fi
+
+            # TD-723: evaluator-scheduler and trace-flush-worker use the
+            # build:+image: hybrid with COPY'd python source. CACHED build (NOT
+            # --no-cache) invalidates only changed COPY layers so a baked-source
+            # release deploys instead of the stale cached image. --profile
+            # langfuse is required to make these services visible.
+            local -a SOURCE_BAKE_SERVICES_LANGFUSE=(evaluator-scheduler trace-flush-worker)
+            if ! _compose \
+                    -f "${COMPOSE_CORE}" \
+                    -f "${COMPOSE_LANGFUSE}" \
+                    --profile langfuse \
+                    build "${SOURCE_BAKE_SERVICES_LANGFUSE[@]}"; then
+                log_warning "Langfuse python-source rebuild failed — continuing with cached images."
             fi
 
             # NOTE: Both compose files are passed intentionally. Docker Compose merges

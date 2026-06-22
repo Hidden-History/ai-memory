@@ -601,6 +601,92 @@ class TestStackShImageBakeRebuild:
 
 
 # ---------------------------------------------------------------------------
+# TD-723 — stack.sh cmd_start python-source CACHED rebuild assertions
+# ---------------------------------------------------------------------------
+
+# Python-source baked services (build:+image: hybrid with COPY'd python source).
+TD723_CORE_SOURCE_SERVICES = ["embedding", "classifier-worker", "github-sync"]
+TD723_LANGFUSE_SOURCE_SERVICES = ["evaluator-scheduler", "trace-flush-worker"]
+
+
+class TestStackShSourceBakeRebuild:
+    """Verify stack.sh cmd_start contains a CACHED compose build for the
+    python-source baked services.
+
+    TD-723: embedding, classifier-worker, github-sync (core) and
+    evaluator-scheduler, trace-flush-worker (langfuse) use the build:+image:
+    hybrid with COPY'd python source. `compose up -d` reuses the cached image
+    even when the COPY'd source changed, so a baked-source release deploys
+    stale silently. The fix adds a CACHED `build` (NOT --no-cache, so only
+    changed COPY layers are invalidated) before each `up -d --wait`.
+
+    These must be CACHED builds — adding them to the --no-cache IMAGE_BAKE
+    arrays would re-bake embedding ONNX models / re-run github-sync's spacy
+    download on every restart.
+    """
+
+    @pytest.fixture(scope="class")
+    def stack_sh_text(self):
+        return STACK_SH_PATH.read_text(encoding="utf-8")
+
+    def test_core_source_bake_cached_build_present(self, stack_sh_text):
+        """Core python-source services must be built via a CACHED build
+        (the build call must NOT carry --no-cache)."""
+        assert re.search(
+            r'build\s+"\$\{SOURCE_BAKE_SERVICES\[@\]\}"',
+            stack_sh_text,
+        ), "stack.sh must build SOURCE_BAKE_SERVICES (cached) before core up (TD-723)"
+        assert not re.search(
+            r'--no-cache\s+"\$\{SOURCE_BAKE_SERVICES\[@\]\}"',
+            stack_sh_text,
+        ), "core python-source build must be CACHED, not --no-cache (TD-723)"
+
+    def test_langfuse_source_bake_cached_build_present(self, stack_sh_text):
+        """Langfuse python-source services must be built via a CACHED build."""
+        assert re.search(
+            r'build\s+"\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}"',
+            stack_sh_text,
+        ), "stack.sh must build SOURCE_BAKE_SERVICES_LANGFUSE (cached) before langfuse up (TD-723)"
+        assert not re.search(
+            r'--no-cache\s+"\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}"',
+            stack_sh_text,
+        ), "langfuse python-source build must be CACHED, not --no-cache (TD-723)"
+
+    @pytest.mark.parametrize("service", TD723_CORE_SOURCE_SERVICES)
+    def test_core_service_in_source_bake_array(self, stack_sh_text, service):
+        """Each core python-source service must appear in the core array."""
+        assert re.search(
+            r"SOURCE_BAKE_SERVICES=\([^)]*\b" + re.escape(service) + r"\b[^)]*\)",
+            stack_sh_text,
+        ), f"'{service}' must be in the core SOURCE_BAKE_SERVICES array (TD-723)"
+
+    @pytest.mark.parametrize("service", TD723_LANGFUSE_SOURCE_SERVICES)
+    def test_langfuse_service_in_source_bake_array(self, stack_sh_text, service):
+        """Each langfuse python-source service must appear in the langfuse array."""
+        assert re.search(
+            r"SOURCE_BAKE_SERVICES_LANGFUSE=\([^)]*\b"
+            + re.escape(service)
+            + r"\b[^)]*\)",
+            stack_sh_text,
+        ), f"'{service}' must be in the SOURCE_BAKE_SERVICES_LANGFUSE array (TD-723)"
+
+    def test_core_build_is_profile_github_aware(self, stack_sh_text):
+        """github-sync is behind --profile github, so the core source build must
+        pass --profile github to make it visible."""
+        assert re.search(
+            r"--profile github \\\s*\n\s*build\s+\"\$\{SOURCE_BAKE_SERVICES\[@\]\}\"",
+            stack_sh_text,
+        ), "core source build must pass --profile github so github-sync is visible (TD-723)"
+
+    def test_langfuse_build_is_profile_langfuse_aware(self, stack_sh_text):
+        """langfuse services are behind --profile langfuse; the build must pass it."""
+        assert re.search(
+            r"--profile langfuse \\\s*\n\s*build\s+\"\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}\"",
+            stack_sh_text,
+        ), "langfuse source build must pass --profile langfuse (TD-723)"
+
+
+# ---------------------------------------------------------------------------
 # BP-162 Layer 2 — built-image parent-dir mode assertions
 # ---------------------------------------------------------------------------
 
