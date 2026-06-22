@@ -759,12 +759,14 @@ async def health():
     healthcheck. This handler does only trivial in-memory work, so running it on the
     loop is safe.
 
-    TD-553 (don't restart a draining service): readiness is tied to ``model_loaded``,
+    BUG-321 (don't restart a draining service): readiness is tied to ``model_loaded``,
     NOT to load or memory pressure. Under the AIMD drain mode (effective concurrency
     collapsed toward 1) the models stay loaded, so this returns 200 "healthy" — a
     pressured-but-functioning service is never marked unhealthy and is not restarted.
     Because the handler runs on the loop and does no inference, it stays responsive
     within the healthcheck timeout even when every inference slot is occupied.
+
+    TD-553: The 503-on-aliased-fallback gate below implements oversight TD-553.
     """
     model_loaded = all(m is not None for m in MODEL_REGISTRY.values())
     code_aliased_to_en = MODEL_REGISTRY.get("code") is MODEL_REGISTRY.get("en")
