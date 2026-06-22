@@ -158,6 +158,15 @@ def _make_metric(factory, name, *args, **kwargs):
 embedding_inflight = _make_metric(
     Gauge, "embedding_inflight", "Model inferences currently in flight (slots held)"
 )
+# BUG-327: embedding_inflight counts REQUESTS holding a slot; this counts the SUM of
+# their batch sizes (work-units) — the quantity the EMBEDDING_SAFE_INFLIGHT_TEXTS
+# envelope actually bounds. Exposed as a gauge so live load-verification can watch the
+# real in-flight work (not just request count) when tuning the envelope.
+embedding_inflight_work = _make_metric(
+    Gauge,
+    "embedding_inflight_work",
+    "Sum of in-flight batch sizes (work-units) across slots held; bounded by the envelope",
+)
 embedding_queue_depth = _make_metric(
     Gauge,
     "embedding_queue_depth",
@@ -258,20 +267,54 @@ async def run_inference_async(operation, work_units=1):
     the worker; this does NOT protect against an OS-level OOM SIGKILL, which the up-front
     payload limits and the memory budget exist to prevent.
 
+    BUG-327 belt-and-suspenders: a SINGLE request whose ``work_units`` already exceeds
+    ``EMBEDDING_SAFE_INFLIGHT_TEXTS`` is rejected up front with a PERMANENT 413 (not a
+    retryable 503), even when the service is idle — because no amount of waiting makes an
+    over-envelope lone batch memory-safe. This is safe to enforce because all clients now
+    sub-batch to <= the envelope (see storage._client_embed_batch_ceiling), so it never
+    fires on legitimate traffic; it only catches a misbehaving/legacy caller. The
+    lone-request ADMIT for batches <= the envelope is preserved (deadlock prevention).
+
     Args:
         operation: Zero-arg callable performing the (blocking) model inference.
         work_units: This request's batch size (number of texts to embed); the unit the
-            envelope bounds. Defaults to 1.
+            envelope bounds. Defaults to 1. CONTRACT: callers MUST pass
+            ``work_units=len(texts)`` — the envelope and the 413 gate are only correct if
+            this equals the number of texts ``operation`` will embed. A wrong value
+            silently under- or over-counts in-flight work and defeats the memory bound.
 
     Returns:
         Whatever ``operation`` returns.
 
     Raises:
-        HTTPException: 503 (+ Retry-After) if no slot is admitted within the limits, if
-            admitting would breach the in-flight-work envelope, or if the inference call
-            raises any non-HTTPException error.
+        HTTPException: 413 (permanent) if a lone request's ``work_units`` exceeds the
+            in-flight-work envelope; 503 (+ Retry-After) if no slot is admitted within the
+            limits, if admitting would breach the in-flight-work envelope, or if the
+            inference call raises any non-HTTPException error.
     """
     global _waiting_count, _inflight_work
+
+    # BUG-327: permanent 413 for a request whose own batch exceeds the envelope. Checked
+    # before queueing/acquiring a slot (independent of concurrency) — it is the work-unit
+    # twin of _enforce_payload_limits' EMBEDDING_MAX_BATCH_TEXTS guard, at the tighter
+    # memory-safety ceiling. NOT retryable: a lone over-envelope batch is never admissible,
+    # so a 503 would only make the client retry a request that can never succeed.
+    if work_units > EMBEDDING_SAFE_INFLIGHT_TEXTS:
+        embedding_backpressure_total.labels(action="shed").inc()
+        logger.warning(
+            "embedding_request_over_envelope_rejected",
+            extra={
+                "work_units": work_units,
+                "envelope": EMBEDDING_SAFE_INFLIGHT_TEXTS,
+            },
+        )
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Batch too large for memory envelope: {work_units} texts > "
+                f"max {EMBEDDING_SAFE_INFLIGHT_TEXTS}"
+            ),
+        )
 
     # Bounded wait-queue: shed (last resort) only when the queue itself is full, so total
     # memory = (in-flight + waiting) x per-request peak stays bounded (BP-175 §4).
@@ -345,6 +388,7 @@ async def run_inference_async(operation, work_units=1):
 
     _inflight_work += work_units
     embedding_inflight.inc()
+    embedding_inflight_work.set(_inflight_work)
     # M1 (BUG-324): release the slot EXACTLY ONCE and ONLY when the executor thread truly
     # completes. A client disconnect raises asyncio.CancelledError (a BaseException) out of
     # the await below; releasing in the request-coroutine ``finally`` would free the
@@ -362,6 +406,7 @@ async def run_inference_async(operation, work_units=1):
         global _inflight_work
         _inflight_work -= work_units
         embedding_inflight.dec()
+        embedding_inflight_work.set(_inflight_work)
         _inference_semaphore.release()
 
     # If submit() raises (executor shutdown -> RuntimeError; or BrokenThreadPool after a

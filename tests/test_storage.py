@@ -49,6 +49,11 @@ def mock_embedding_client(monkeypatch):
     """Mock embedding client."""
     mock_ec = Mock()
     mock_ec.embed = Mock(return_value=[[0.1] * 768])
+    # embed_sparse returns list[dict] (one per text) in production; default to [] so the
+    # sub-batched sparse path (BUG-327) concatenates a real iterable. [] is behaviorally
+    # equivalent to the prior bare-Mock return: the isinstance(list)+index checks fall
+    # through to the dense-only vector, exactly as before.
+    mock_ec.embed_sparse = Mock(return_value=[])
     monkeypatch.setattr("src.memory.storage.EmbeddingClient", lambda x: mock_ec)
     return mock_ec
 
@@ -334,10 +339,12 @@ def test_store_memories_batch_clamps_subbatch_to_server_cap(
 
     With CLIENT_SUBBATCH=300 > MAX_BATCH_TEXTS=256 and a 260-item group, the unclamped
     path would send all 260 in one call (over the cap); the clamp forces sub-batches of
-    256, so every embed call stays within 256.
+    256, so every embed call stays within 256. The in-flight-work envelope is held high
+    (BUG-327) so the server hard cap is the binding constraint under test here.
     """
     monkeypatch.setenv("EMBEDDING_CLIENT_SUBBATCH", "300")
     monkeypatch.setenv("EMBEDDING_MAX_BATCH_TEXTS", "256")
+    monkeypatch.setenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", "9999")
 
     mock_embedding_client.embed.side_effect = lambda texts, model=None: [
         [0.1] * 768 for _ in texts
@@ -364,6 +371,132 @@ def test_store_memories_batch_clamps_subbatch_to_server_cap(
     for call in mock_embedding_client.embed.call_args_list:
         sent_texts = call.args[0] if call.args else call.kwargs["texts"]
         assert len(sent_texts) <= 256
+
+
+def _prose_chunk(idx: int) -> str:
+    """A production-shaped prose memory (~2 KB), not a toy string."""
+    paragraph = (
+        "The embedding service must remain available while persisting memory. Each "
+        "capture carries multi-paragraph prose describing a decision, a code pattern, or "
+        "a convention that future sessions will need to retrieve from semantic memory. "
+    ) * 12
+    return f"memory {idx}: {paragraph}"
+
+
+def _sparse_lengths(mock_ec):
+    """Batch sizes passed to each embed_sparse call."""
+    out = []
+    for call in mock_ec.embed_sparse.call_args_list:
+        sent = call.args[0] if call.args else call.kwargs["texts"]
+        out.append(len(sent))
+    return out
+
+
+def _dense_lengths(mock_ec):
+    """Batch sizes passed to each embed call."""
+    out = []
+    for call in mock_ec.embed.call_args_list:
+        sent = call.args[0] if call.args else call.kwargs["texts"]
+        out.append(len(sent))
+    return out
+
+
+def test_store_memories_batch_dense_and_main_sparse_bounded_by_envelope(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
+    """BUG-327: the dense path AND the previously-unbounded main-sparse path both emit
+    embed/embed_sparse batches <= EMBEDDING_SAFE_INFLIGHT_TEXTS (the memory-safety
+    envelope), at the real default of 48 — so a lone batch can never breach the cap and
+    the server's over-envelope 413 never fires on legitimate traffic.
+
+    Production-shaped: 60 non-chunked ~2 KB prose memories with hybrid search on, so both
+    the dense (top) path and the main-sparse path each split across the 48-text envelope.
+    """
+    # Default envelope (48) governs: CLIENT_SUBBATCH (128) and MAX_BATCH_TEXTS (256) are
+    # both looser, so neither binds.
+    monkeypatch.delenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", raising=False)
+    mock_config.hybrid_search_enabled = True
+    mock_embedding_client.embed.side_effect = lambda texts, model=None: [
+        [0.1] * 768 for _ in texts
+    ]
+    mock_embedding_client.embed_sparse.side_effect = lambda texts: [
+        {"indices": [1], "values": [0.5]} for _ in texts
+    ]
+
+    memories = [
+        {
+            "content": _prose_chunk(i),
+            "group_id": "proj",
+            "type": MemoryType.IMPLEMENTATION.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+        }
+        for i in range(60)
+    ]
+
+    storage = MemoryStorage()
+    results = storage.store_memories_batch(memories, group_id="test-project")
+
+    assert len(results) == 60
+    assert all(r["status"] == "stored" for r in results)
+
+    dense_lengths = _dense_lengths(mock_embedding_client)
+    sparse_lengths = _sparse_lengths(mock_embedding_client)
+    # Every embed and embed_sparse request stays within the 48-text envelope.
+    assert dense_lengths and all(n <= 48 for n in dense_lengths)
+    assert sparse_lengths and all(n <= 48 for n in sparse_lengths)
+    # The envelope actually bound (a single 60-text call would have exceeded it): 60 -> 2
+    # sub-batches (48, 12) on both the dense and the main-sparse paths.
+    assert dense_lengths == [48, 12]
+    assert sparse_lengths == [48, 12]
+
+
+def test_store_memories_batch_chunk_dense_and_sparse_bounded_by_envelope(
+    mock_config, mock_qdrant_client, mock_embedding_client, monkeypatch
+):
+    """BUG-327: the previously-unbounded chunk-dense and chunk-sparse paths emit
+    embed/embed_sparse batches <= the envelope.
+
+    Production-shaped AGENT_RESPONSE memories route through the chunk paths (not the main
+    path). With the envelope pinned to 4 and >4 chunks in flight, both chunk paths must
+    split across the envelope boundary; no single embed/embed_sparse call may exceed 4.
+    """
+    monkeypatch.setenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", "4")
+    mock_config.hybrid_search_enabled = True
+    mock_embedding_client.embed.side_effect = lambda texts, model=None: [
+        [0.1] * 768 for _ in texts
+    ]
+    mock_embedding_client.embed_sparse.side_effect = lambda texts: [
+        {"indices": [1], "values": [0.5]} for _ in texts
+    ]
+
+    # 6 realistic AGENT_RESPONSE memories -> >=6 chunks in pending_chunks (> envelope 4).
+    memories = [
+        {
+            "content": _prose_chunk(i),
+            "group_id": "proj",
+            "type": MemoryType.AGENT_RESPONSE.value,
+            "source_hook": "PostToolUse",
+            "session_id": "sess",
+        }
+        for i in range(6)
+    ]
+
+    storage = MemoryStorage()
+    results = storage.store_memories_batch(memories, group_id="test-project")
+
+    assert len(results) >= 6
+    assert all(r["status"] == "stored" for r in results)
+
+    dense_lengths = _dense_lengths(mock_embedding_client)
+    sparse_lengths = _sparse_lengths(mock_embedding_client)
+    # Every embed (parent-dense + chunk-dense) and embed_sparse (chunk-sparse) request
+    # stays within the 4-text envelope.
+    assert dense_lengths and all(n <= 4 for n in dense_lengths)
+    assert sparse_lengths and all(n <= 4 for n in sparse_lengths)
+    # The chunk-sparse path actually split (>4 chunks -> at least 2 sub-batches), proving
+    # the formerly-unbounded path is now bounded.
+    assert len(sparse_lengths) >= 2
 
 
 def test_store_memories_batch_mixed_content_types(

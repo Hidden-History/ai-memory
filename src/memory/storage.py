@@ -71,6 +71,58 @@ __all__ = ["MemoryStorage", "store_best_practice", "update_point_payload"]
 logger = logging.getLogger("ai_memory.storage")
 
 
+def _embedding_inflight_envelope() -> int:
+    """The embedding service's memory-safety ceiling on concurrent in-flight texts.
+
+    Mirrors ``EMBEDDING_SAFE_INFLIGHT_TEXTS`` in ``docker/embedding/main.py`` (default
+    48). The service bounds the SUM of batch sizes of all requests concurrently holding
+    an inference slot to this value, and (BUG-327) permanently 413s a lone request whose
+    own batch exceeds it. Floored at 1.
+    """
+    return max(1, int(os.getenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", "48")))
+
+
+def _client_embed_batch_ceiling() -> int:
+    """Max texts the client may send in one embed/embed_sparse request.
+
+    BUG-327: every client embed call sub-batches to <= the embedding service's in-flight
+    work envelope so a lone batch can never breach the container memory cap (and never
+    earns the service's permanent 413). The ceiling is the tightest of three knobs:
+
+      - ``EMBEDDING_SAFE_INFLIGHT_TEXTS`` — memory-safety ceiling (default 48). GOVERNS.
+      - ``EMBEDDING_CLIENT_SUBBATCH``     — throughput knob (default 128).
+      - ``EMBEDDING_MAX_BATCH_TEXTS``     — server hard per-request upper bound (default 256).
+
+    Relationship: SAFE_INFLIGHT (memory safety) <= CLIENT_SUBBATCH (throughput) <=
+    MAX_BATCH_TEXTS (hard upper bound). The 128 -> 48 throughput reduction is the accepted
+    cost of memory safety: a lone 128-text batch alone (~6.4 GiB) breaches the 6 GiB cap,
+    so TD-689's 128 ceiling was never memory-safe — the memory envelope governs. Floored
+    at 1 so a misconfiguration can never produce a zero-size batch.
+    """
+    return max(
+        1,
+        min(
+            int(os.getenv("EMBEDDING_CLIENT_SUBBATCH", "128")),
+            _embedding_inflight_envelope(),
+            int(os.getenv("EMBEDDING_MAX_BATCH_TEXTS", "256")),
+        ),
+    )
+
+
+def _embed_sparse_subbatched(client: "EmbeddingClient", texts: list) -> list:
+    """``embed_sparse`` the texts in envelope-sized sub-batches, preserving order.
+
+    BUG-327: BM25 sparse vectors are per-text independent, so chunking the call and
+    concatenating the results is identical to one call — but keeps every request <= the
+    in-flight-work envelope. Returns one result per input text, in input order.
+    """
+    ceiling = _client_embed_batch_ceiling()
+    out: list = []
+    for start in range(0, len(texts), ceiling):
+        out.extend(client.embed_sparse(texts[start : start + ceiling]))
+    return out
+
+
 class MemoryStorage:
     """Handles memory storage operations with validation and graceful degradation.
 
@@ -943,17 +995,13 @@ class MemoryStorage:
 
         embeddings = [None] * len(memories)
         embedding_status = EmbeddingStatus.COMPLETE
-        # TD-689: sub-batch each model group client-side so a large batch never exceeds
-        # the embedding service's EMBEDDING_MAX_BATCH_TEXTS guard — which would 413 the
-        # whole group and degrade every memory in it to PENDING. Belt-and-suspenders
-        # behind the server cap. L4: enforce (not just document) the <= relationship by
-        # clamping the configured sub-batch to the server's EMBEDDING_MAX_BATCH_TEXTS
-        # (same env name, default 256), keeping a floor of 1, so a misconfigured client
-        # sub-batch can never exceed the server batch ceiling and 413.
-        server_batch_cap = int(os.getenv("EMBEDDING_MAX_BATCH_TEXTS", "256"))
-        sub_batch = max(
-            1, min(int(os.getenv("EMBEDDING_CLIENT_SUBBATCH", "128")), server_batch_cap)
-        )
+        # TD-689 / BUG-327: sub-batch each model group client-side so a large batch never
+        # exceeds the embedding service's in-flight-work envelope. The ceiling is the
+        # tightest of EMBEDDING_CLIENT_SUBBATCH (throughput), EMBEDDING_SAFE_INFLIGHT_TEXTS
+        # (memory-safety, governs at 48), and EMBEDDING_MAX_BATCH_TEXTS (server hard upper
+        # bound) — see _client_embed_batch_ceiling. Emitting batches <= the envelope is the
+        # contract the server's lone-request ADMIT (and its over-envelope 413) is built on.
+        sub_batch = _client_embed_batch_ceiling()
         try:
             for model, items in model_groups.items():
                 indices, contents = zip(*items, strict=True)
@@ -1235,7 +1283,10 @@ class MemoryStorage:
         if pending_main_points and self.config.hybrid_search_enabled:
             main_contents = [c for _, _, _, c in pending_main_points]
             try:
-                main_sparse_results = self.embedding_client.embed_sparse(main_contents)
+                # BUG-327: sub-batch to <= the in-flight-work envelope (was unbounded).
+                main_sparse_results = _embed_sparse_subbatched(
+                    self.embedding_client, main_contents
+                )
             except Exception as e:
                 logger.warning(
                     "batch_sparse_embedding_failed",
@@ -1282,9 +1333,14 @@ class MemoryStorage:
                 c_indices, _c_ids, c_payloads = zip(*c_items, strict=True)
                 c_contents = [p["content"] for p in c_payloads]
                 try:
-                    c_embs = self.embedding_client.embed(
-                        list(c_contents), model=c_model
-                    )
+                    # BUG-327: sub-batch to <= the in-flight-work envelope (was unbounded).
+                    c_embs = []
+                    for start in range(0, len(c_contents), sub_batch):
+                        c_embs.extend(
+                            self.embedding_client.embed(
+                                c_contents[start : start + sub_batch], model=c_model
+                            )
+                        )
                 except EmbeddingError:
                     c_embs = [[0.0] * 768 for _ in c_contents]
                 for c_idx, c_emb in zip(c_indices, c_embs, strict=True):
@@ -1295,8 +1351,9 @@ class MemoryStorage:
             if self.config.hybrid_search_enabled:
                 all_chunk_contents = [pd["content"] for _, pd, _ in pending_chunks]
                 try:
-                    chunk_sparse_results = self.embedding_client.embed_sparse(
-                        all_chunk_contents
+                    # BUG-327: sub-batch to <= the in-flight-work envelope (was unbounded).
+                    chunk_sparse_results = _embed_sparse_subbatched(
+                        self.embedding_client, all_chunk_contents
                     )
                 except Exception as e:
                     logger.warning(
@@ -1460,7 +1517,11 @@ class MemoryStorage:
 
         all_out: list[dict] = []
         stored_point_ids: list[str] = []
-        sub_batch_size = max(1, chunk_batch_size)
+        # BUG-327: clamp the configured github code-blob batch to the in-flight-work
+        # envelope so an operator-set github_code_blob_chunk_batch_size (le=128) can never
+        # emit an embed/sparse batch the service would 413. The embed + embed_sparse calls
+        # below iterate sub_batch_size, so this bounds them to <= the envelope.
+        sub_batch_size = min(max(1, chunk_batch_size), _embedding_inflight_envelope())
         payload_field_names = {
             field.name for field in dataclasses.fields(MemoryPayload)
         }

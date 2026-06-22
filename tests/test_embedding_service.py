@@ -452,6 +452,14 @@ def test_admission_envelope_sheds_over_envelope_concurrent_work():
 
         gate.set()
         await holder
+        # BUG-327 LOW: all in-flight work unwinds to zero — neither the shed nor the
+        # admitted requests leak a work-unit (the slot release is callback-driven, so
+        # yield until the threadsafe release has run).
+        for _ in range(1000):
+            if service._inflight_work == 0:
+                break
+            await asyncio.sleep(0)
+        assert service._inflight_work == 0
         return over.value, shed_delta, fit
 
     err, shed_delta, fit = asyncio.run(_drive())
@@ -462,19 +470,61 @@ def test_admission_envelope_sheds_over_envelope_concurrent_work():
     assert fit == ["y"]
 
 
-def test_admission_envelope_never_starves_lone_request():
-    """A request larger than the envelope is still admitted when nothing else is in
-    flight, so the proactive gate never starves a lone caller — its size is bounded
-    separately by EMBEDDING_MAX_BATCH_TEXTS (BUG-326).
+def test_admission_envelope_admits_lone_request_within_envelope():
+    """The lone-request ADMIT (deadlock prevention) is preserved for batches <= the
+    envelope: an idle request whose work_units fits is admitted (BUG-326/327).
     """
     service = _load_service(4)
     service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
 
     async def _drive():
-        # 100 > 40 envelope, but the service is idle (_inflight_work == 0) -> admitted.
-        return await service.run_inference_async(lambda: ["solo"], work_units=100)
+        # 40 == envelope, service idle -> admitted (not shed, not 413).
+        return await service.run_inference_async(lambda: ["solo"], work_units=40)
 
     assert asyncio.run(_drive()) == ["solo"]
+
+
+def test_lone_request_over_envelope_returns_permanent_413():
+    """BUG-327 root fix: a LONE request whose own batch exceeds the envelope is rejected
+    with a PERMANENT 413 (not a retryable 503), even when the service is idle — the
+    belt-and-suspenders behind the now-sub-batching clients. No slot/work is consumed.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        before_inflight_work = service._inflight_work
+        with pytest.raises(HTTPException) as exc:
+            # 100 > 40 envelope, idle -> permanent 413 (the BUG-326 lone-any-size ADMIT is
+            # intentionally superseded for over-envelope batches).
+            await service.run_inference_async(lambda: ["x"], work_units=100)
+        # No Retry-After header: it is not retryable.
+        assert "Retry-After" not in (exc.value.headers or {})
+        # The reject happens before slot acquisition -> no work counted, slot free.
+        assert service._inflight_work == before_inflight_work == 0
+        assert not service._inference_semaphore.locked()
+        return exc.value
+
+    err = asyncio.run(_drive())
+    assert err.status_code == 413
+
+
+def test_subbatched_legit_traffic_never_413s():
+    """A stream of requests each <= the envelope (the contract clients now honor) is never
+    413'd — proving the belt-and-suspenders never fires on legitimate sub-batched traffic.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        results = []
+        for size in (1, 40, 12, 40, 7):  # all <= envelope
+            results.append(
+                await service.run_inference_async(lambda: ["ok"], work_units=size)
+            )
+        return results
+
+    assert asyncio.run(_drive()) == [["ok"]] * 5
 
 
 def test_admission_envelope_enforced_on_http_path_with_production_batches():
@@ -518,6 +568,12 @@ def test_admission_envelope_enforced_on_http_path_with_production_batches():
 
             gate.set()
             holder_resp = await holder
+            # BUG-327 LOW: in-flight work fully unwinds after the e2e exchange.
+            for _ in range(1000):
+                if service._inflight_work == 0:
+                    break
+                await asyncio.sleep(0)
+            assert service._inflight_work == 0
             return over.status_code, over.json().get("detail"), holder_resp.status_code
 
     status, detail, holder_status = asyncio.run(_drive())
@@ -821,6 +877,9 @@ def test_submit_failure_releases_slot_and_returns_503():
         assert not sem.locked(), "slot leaked after submit() failure"
         assert sem._value == 1
         assert service.embedding_inflight._value.get() == before_inflight
+        # BUG-327 LOW: the inline release on submit() failure also unwinds in-flight work
+        # (incremented just before submit) back to zero — no work-unit leak.
+        assert service._inflight_work == 0
 
     asyncio.run(_drive())
 

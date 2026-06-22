@@ -92,6 +92,39 @@ def test_github_batch_sub_batches_split_embed_calls(gh_storage: MemoryStorage) -
     assert gh_storage.embedding_client.embed.call_count == 3
 
 
+def test_github_batch_size_clamped_to_inflight_envelope(
+    gh_storage: MemoryStorage, monkeypatch
+) -> None:
+    """BUG-327: an operator-set github_code_blob_chunk_batch_size above the in-flight-work
+    envelope is clamped to the envelope, so the github embed/sparse calls never exceed it
+    (and never earn the server's 413).
+
+    chunk_batch_size=128 (the config max) with the envelope pinned to 4: 9 chunks must
+    split into ceil(9/4)=3 embed calls of <=4, not one 9-text call.
+    """
+    monkeypatch.setenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", "4")
+
+    def _emb(texts: list, model: str | None = None) -> list:
+        return [[0.0] * 768 for _ in texts]
+
+    gh_storage.embedding_client.embed.side_effect = _emb
+    items = [_item(i) for i in range(9)]
+    gh_storage.store_github_code_blob_chunks_batch(
+        items,
+        cwd="/tmp",
+        collection="github",
+        group_id="o/r",
+        memory_type=MemoryType.GITHUB_CODE_BLOB,
+        source_hook="github_code_sync",
+        session_id="batch-1",
+        chunk_batch_size=128,
+    )
+    assert gh_storage.embedding_client.embed.call_count == 3
+    for call in gh_storage.embedding_client.embed.call_args_list:
+        sent = call.args[0] if call.args else call.kwargs["texts"]
+        assert len(sent) <= 4
+
+
 def test_github_batch_embedding_failure_still_upserts_pending(
     gh_storage: MemoryStorage,
 ) -> None:
