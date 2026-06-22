@@ -25,6 +25,7 @@ id-H3 append-only log it was verified against:
 | `tracking/decision-log.md` | ✅ supported | `### DEC-…` id-H3 entries, newest-first; archives the oldest into a dated shard + manifest |
 | `tracking/blockers-log.md` | ⛔ refused → TD-655 | "Active Blockers" table + `### BLK-` detail H3 + "Resolved Blockers" table — archiving the H3 details orphans the matching table rows |
 | `tracking/risk-register.md` | ⛔ refused → TD-655 | table rows under `### Critical/High/Medium/Low` severity headers — the H3 boundary is a severity header, not a record |
+| `tracking/technical-debt.md` | ⛔ refused → TD-655 | `### TD-NNN` detail H3 entries + `### <Category>` summary tables in "Debt by Category" — archiving the H3 details orphans the table rows referencing those TDs |
 | `SESSION_WORK_INDEX.md` | ⛔ refused → TD-655 | four distinct tables (Active Task / Last 5 Sessions / Active Blockers / High Priority Risks); a bare `^\| ` match sheds rows from the wrong table, and the last-5 window is hand-managed |
 | `session-index/INDEX.md` | ⛔ refused → TD-655 | `### [Month YYYY]` H3 sections + Current-Year and Archive tables (mixed) |
 
@@ -33,9 +34,9 @@ remedy; run `python $SCRIPT --fix {file} --oversight-root {oversight_path}`
 (archive-whole-verbatim + lean index rewrite) or trim by hand. Field-aware safe
 auto-rotation for table-under-severity registers and multi-table live-indexes is
 deferred to **TD-655**. The refusal is enforced by relative path (the fixed set:
-`blockers-log.md`, `risk-register.md`, `SESSION_WORK_INDEX.md`,
-`session-index/INDEX.md`), so a future cap-contract seed cannot re-enable an
-unsafe `--apply`.
+`blockers-log.md`, `risk-register.md`, `technical-debt.md`,
+`SESSION_WORK_INDEX.md`, `session-index/INDEX.md`), so a future cap-contract
+seed cannot re-enable an unsafe `--apply`.
 
 ---
 
@@ -103,7 +104,8 @@ cat "$(dirname "$SCRIPT")/../assets/memory_md_fix.md"
   if missing (template-sourced), (2) cap-fix by class (`--apply` for
   append-only-log / rotatable registers; archive-whole-verbatim + lean index
   rewrite for table-row registers and multi-table live-indexes (`blockers-log.md`,
-  `risk-register.md`, `SESSION_WORK_INDEX.md`, `session-index/INDEX.md`); template
+  `risk-register.md`, `technical-debt.md`, `SESSION_WORK_INDEX.md`,
+  `session-index/INDEX.md`); template
   front-matter refresh for heartbeats), (3) prove conservation (`lost == 0`).
   Always backup-first; emits a plan + conservation report. `--fix-all` iterates
   over all governed oversight files; pass `--include-memory-md` to also fix
