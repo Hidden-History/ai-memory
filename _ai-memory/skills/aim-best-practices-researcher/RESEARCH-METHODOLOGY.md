@@ -84,7 +84,7 @@ WebSearch: "[topic] official documentation 2026"
 ## Phase 4: Store to Database
 
 ```bash
-scripts/memory/run-with-env.sh store_best_practice.py \
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" store_best_practice.py \
     --content "Concise best practice description" \
     --session-id "current-session-id" \
     --domain "topic-domain" \

@@ -1,6 +1,6 @@
 ---
 name: aim-sot
-description: Track the source-of-truth for each part of the user's own project — registry schema, templates, and engine (consult / detect-propose / verify).
+description: Tracks the source-of-truth for each part of the user's own project — registry schema, templates, and engine (consult / detect-propose / verify). Detects file and directory drift (content-digest and directory tree-digest), runs a machine-local shadow-git history for change detection, and correlates code changes to stale docs (doc-drift via DOCOWNERS). Use when checking SOT drift, choosing a drift_strategy, setting up the shadow git, or reviewing doc-staleness findings. Do NOT use for AI Memory search or save operations, or for checking AI Memory system health (use aim-search, aim-save, or aim-status).
 allowed-tools: Bash, Read
 ---
 
@@ -96,6 +96,7 @@ registry is never created or written.
 | `--all` | off | Disable cap — surface all new candidates |
 | `--json` | off | Machine-readable JSON output |
 | `--registry PATH` | (git root) | Override registry path |
+| `--shadow` | off | Run the `[CL]` detect pass — BP-039 digest → BP-040 shadow-git commit → BP-042 doc-drift → structured `findings`. The Stop hooks pass it; see [Drift strategies, shadow git & doc-drift](#drift-strategies-shadow-git--doc-drift). |
 
 ### Output — drift proposals
 
@@ -111,11 +112,13 @@ emits *both* `staleness_hash` (re-verify the artifact) *and* `declaration_realit
 complementary signals — consumers may act on `k1_trigger` independently of the
 staleness signal. Do not treat the two as duplicates; they require different actions.
 
-**Hash drift covers file `sot_location`s only:** content-hash drift (types 2b/3/K1)
-requires a readable file. When `sot_location` points to a **directory**, hash checks
-are no-ops by design (spec §5: "sha256(file)"); the directory boundary still
-participates in location and temporal-staleness drift. A directory-tree digest
-extension is being considered separately — it is not implemented in this version.
+**Drift digest is dispatched by strategy:** a **file** `sot_location` uses
+`content-digest` (sha256 of the file — unchanged behavior); a **directory**
+`sot_location` uses `tree-digest` (BP-039 sorted-per-file-SHA-256 over the tree),
+so directory boundaries now get content-hash drift too. Override per entry with the
+schema-validated `drift_strategy` enum (never a shell command). A strategy switch or
+digest-version bump **re-baselines** the entry rather than firing drift. See
+[Drift strategies, shadow git & doc-drift](#drift-strategies-shadow-git--doc-drift).
 
 ### Output — new candidate proposals
 
@@ -129,6 +132,28 @@ are never auto-filled — human-authored always (BP-029).**
   state; never committed.
 - **5b** (Qdrant `conventions` collection, `type=sot_entry`) — derived memory
   cache; deterministically rebuildable from the committed registry via `reindex`.
+
+## Drift strategies, shadow git & doc-drift
+
+The `--shadow` flag on `detect-propose run` runs the `[CL]` detect pass: one BP-039
+tree-digest of the project → on change, a machine-local **shadow-git** commit
+(BP-040) → a `git diff` → **doc-drift** correlation (BP-042) → a structured
+**findings** pipe. All of it is engine-side, shared by every CLI; the per-CLI Stop
+hooks are thin callers that pass `--shadow`.
+
+Key guarantees:
+
+- **Non-invasive** — the shadow git is a bare repo under `~/.ai-memory/sot-git/<project_id>/` driven by an explicit two-pointer (`GIT_DIR`/`GIT_WORK_TREE`); it writes **nothing** into the user's tree (no `.git`, no `.gitignore`). Teardown is `rm -rf`.
+- **git-required, project-need-not-be-git** — git is a required tool, but the portable directory tree-digest never needs the project itself to be a git repo.
+- **Propose-only + machine-local** — only `.sot/registry.yaml` and `.sot/DOCOWNERS` are committed; the shadow git, setup sentinel, and drift-state are machine-local and never committed.
+- **Findings emit, Parzival records** — the engine emits the structured `findings[]` pipe (drift / doc-staleness / `ERROR` / `FRICTION`); it never writes any oversight register.
+
+Registry config (optional, top-level): `exclude:` (extra gitignore-style globs for
+the tree-digest) and `docowners:` (path override, default `.sot/DOCOWNERS`). Per
+entry: `drift_strategy:` (enum override).
+
+→ Full reference — strategy table, shadow-git setup/cadence/teardown, `.sot/DOCOWNERS`
+format, the setup sentinel, and the findings schema: [`references/drift-and-shadow-git.md`](references/drift-and-shadow-git.md).
 
 ## Verify — Invocation
 
@@ -223,7 +248,9 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ## Stop Hook — Default-on
 
 The Claude `Stop` hook (`sot_drift_stop.py`) is **registered by default on install**
-alongside the core ai-memory hooks. To opt out, set `AI_MEMORY_SOT_HOOKS=off`
+alongside the core ai-memory hooks. It calls the engine with `--shadow`, so the Stop
+event runs the full `[CL]` detect pass (digest → shadow-git commit → doc-drift →
+findings) and surfaces a one-line `[ai-memory] SOT` summary to stderr. To opt out, set `AI_MEMORY_SOT_HOOKS=off`
 (case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before
 running `install.sh`. Note: `AI_MEMORY_SOT_HOOKS=off` prevents adding the hooks on
 install; it does **not** remove hooks already registered by a prior install (settings
@@ -237,32 +264,7 @@ manually from `settings.json` or re-run with `FORCE_IDE`.
 
 The engine also runs standalone (`detect-propose run` manually or via cron).
 
-### Hook config reference
-
-The following entry is written to `.claude/settings.json` (under `hooks.Stop`) on install:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_drift_stop.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_drift_stop.py\" || true",
-            "timeout": 30000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Once registered, the hook fires automatically at every Claude Code session end. It invokes
-`detect-propose` in propose-only mode and prints a one-line summary to stderr when drift
-or new candidates are detected. It never writes any committed file.
+→ Full hook-config reference (Claude Stop, Codex Stop, Cursor stop, Gemini AfterAgent, and all SessionStart variants): [`references/hook-setup.md`](references/hook-setup.md).
 
 ---
 
@@ -273,79 +275,7 @@ default on install** (same as the Claude Stop hook above). Set `AI_MEMORY_SOT_HO
 before `install.sh` to skip registration for all SOT hooks. To register only specific
 adapters, remove the unwanted entries from your hook config after install.
 
-The hook config snippets below are written by the installer for reference:
-
-### Codex — Stop hook
-
-Adapter: `src/memory/adapters/codex/sot_drift.py`  
-Config: `.codex/hooks.json` — add under `hooks.Stop`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_drift.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_drift.py\" || true",
-            "timeout": 30
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Fires propose-only at every Codex session stop. Never writes any committed file.
-
-### Cursor — stop hook
-
-Adapter: `src/memory/adapters/cursor/sot_drift.py`  
-Config: `.cursor/hooks.json` — add under `hooks.stop`:
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "stop": [
-      {
-        "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_drift.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_drift.py\" || true",
-        "timeout": 30
-      }
-    ]
-  }
-}
-```
-
-Fires propose-only at end-of-turn (Cursor `stop` event). Never writes any committed file.
-
-### Gemini — AfterAgent hook
-
-Adapter: `src/memory/adapters/gemini/sot_drift.py`  
-Config: `.gemini/settings.json` — add under `hooks.AfterAgent`:
-
-```json
-{
-  "hooks": {
-    "AfterAgent": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_drift.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_drift.py\" || true",
-            "timeout": 60000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Fires propose-only at end-of-turn (Gemini `AfterAgent` event). Never writes any committed file.
+→ Per-CLI hook-config snippets (Codex Stop, Cursor stop, Gemini AfterAgent): [`references/hook-setup.md`](references/hook-setup.md).
 
 ---
 
@@ -364,104 +294,7 @@ Disable all SOT hooks (drift + digest) by setting `AI_MEMORY_SOT_HOOKS=off`
 (case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before
 `install.sh`. See the Stop Hook § above for the kill-switch limitation note.
 
-### Claude — SessionStart hook
-
-Script: `.claude/hooks/scripts/sot_digest_session_start.py`  
-Config: `.claude/settings.json` — add under `hooks.SessionStart`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.claude/hooks/scripts/sot_digest_session_start.py\" || true",
-            "timeout": 30000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Once registered, fires on every Claude Code session start and injects the SOT digest as
-`additionalContext`. Requires `.sot/registry.yaml` in the project root to activate.
-
-### Codex — SessionStart hook
-
-Script: `src/memory/adapters/codex/sot_digest_session_start.py`  
-Config: `.codex/hooks.json` — add under `hooks.SessionStart`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/codex/sot_digest_session_start.py\" || true",
-            "timeout": 30
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Fires at Codex session start and injects the SOT digest as `systemMessage`.
-
-### Cursor — sessionStart hook
-
-Script: `src/memory/adapters/cursor/sot_digest_session_start.py`  
-Config: `.cursor/hooks.json` — add under `hooks.sessionStart`:
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "sessionStart": [
-      {
-        "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/cursor/sot_digest_session_start.py\" || true",
-        "timeout": 30
-      }
-    ]
-  }
-}
-```
-
-Fires at Cursor session start and injects the SOT digest as top-level `additional_context`.
-
-### Gemini — SessionStart hook
-
-Script: `src/memory/adapters/gemini/sot_digest_session_start.py`  
-Config: `.gemini/settings.json` — add under `hooks.SessionStart`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "[ -f \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_digest_session_start.py\" ] && \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python\" \"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/src/memory/adapters/gemini/sot_digest_session_start.py\" || true",
-            "timeout": 60000
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Fires at Gemini session start and injects the SOT digest as `additionalContext`.
+→ Per-CLI hook-config snippets (Claude, Codex, Cursor, Gemini SessionStart): [`references/hook-setup.md`](references/hook-setup.md).
 
 ---
 

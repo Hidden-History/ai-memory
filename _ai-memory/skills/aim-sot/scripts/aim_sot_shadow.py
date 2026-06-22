@@ -1,0 +1,1032 @@
+#!/usr/bin/env python3
+"""
+aim-sot shadow — SOT-owned shadow-git substrate, tree-digest gate, doc-drift,
+and the structured findings pipe (TD-675 / TASK-079).
+
+This module is the detection substrate shared by all four CLIs.  It holds NO
+CLI-specific logic: the per-CLI Stop/SessionStart hooks call the engine
+(``aim_sot_detect_propose.py``), which imports the primitives here.  Nothing in
+this module writes the committed ``.sot/registry.yaml`` or any oversight register.
+
+Layers (design §1):
+    SETUP GATE  — BP-041 idempotent run-once sentinel
+    LAYER 1     — BP-039 sorted-per-file-SHA-256 tree-digest ("did anything change?")
+    LAYER 2     — BP-040 bare two-pointer shadow git ("what / where / how")
+    LAYER 3     — BP-042 git-diff doc-drift ("which docs are now stale")
+    FINDINGS    — one structured emitter for drift + doc-staleness + ERROR + FRICTION
+
+Machine-local state (never committed) lives under
+``${AI_MEMORY_INSTALL_DIR:-~/.ai-memory}/``:
+    sot-git/<project_id>/      bare shadow repo (BP-040)
+    sot-setup/sot_setup_<id>.json   setup sentinel (BP-041)
+    drift-state/sot_drift_<id>.json the 5a drift cache (BP-027; owned by the engine)
+
+Of-record state (committed, team-visible) lives under the user repo's
+``.sot/``: ``registry.yaml`` (BP-030) and ``DOCOWNERS`` (BP-042 Pattern A).
+
+Safety rails (non-negotiable, design §8):
+    - No arbitrary code execution — strategies are enum-selected built-ins.
+    - Non-invasive — zero writes into the user's project tree (bare repo +
+      explicit two-pointer; ``--separate-git-dir`` is rejected).
+    - git is a required tool; the project itself need NOT be a git repo.
+"""
+
+import contextlib
+import fnmatch
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Machine-local roots (honor AI_MEMORY_INSTALL_DIR; tests patch these attrs)
+# ---------------------------------------------------------------------------
+
+_INSTALL_DIR = Path(
+    os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory"))
+)
+_SHADOW_GIT_ROOT = _INSTALL_DIR / "sot-git"
+_SETUP_DIR = _INSTALL_DIR / "sot-setup"
+
+# Versions — bump SETUP_VERSION when setup does something new; bump
+# SCHEMA_VERSION when the sentinel JSON shape changes (BP-041 Q3).
+SETUP_SCHEMA_VERSION = "1"
+SETUP_VERSION = "2.8.0"
+
+# Tree-digest algorithm version.  A v1:→v2: bump is a RE-BASELINE, not drift
+# (R-1): the engine compares the stored digest_version before treating a digest
+# mismatch as drift.
+DIGEST_VERSION = "v1"
+
+
+def _safe_id(project_id: str) -> str:
+    """Filesystem-safe form of a project_id (mirrors the 5a cache convention)."""
+    return project_id.replace("/", "__")
+
+
+# ---------------------------------------------------------------------------
+# BP-039 — sorted-per-file-SHA-256 tree-digest + exclude semantics
+# ---------------------------------------------------------------------------
+
+# Default exclude globs applied to the POSIX relpath BEFORE the file set is
+# frozen (BP-039 §ignore-semantics).  Committed alongside the SOT intent rather
+# than read from an ambient .gitignore, so the identical file set is compared on
+# every machine.  Shared with the shadow git's info/exclude (BP-040 Q2).
+DEFAULT_EXCLUDES: tuple[str, ...] = (
+    ".git/",
+    "__pycache__/",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    ".mypy_cache/",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    "node_modules/",
+    ".npm/",
+    "dist/",
+    "build/",
+    "*.egg-info/",
+    ".eggs/",
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    ".sot/",
+    ".DS_Store",
+    ".idea/",
+    ".vscode/",
+    "Thumbs.db",
+    "*.sqlite",
+    "*.sqlite3",
+    "*.db",
+    "*.log",
+)
+
+
+def path_excluded(rel: str, patterns) -> bool:
+    """gitignore-style match of a POSIX relpath against ``patterns``.
+
+    Supports the subset the default exclude set needs: a trailing-slash dir
+    prefix (``build/`` → any path under ``build/`` or the dir itself), a bare
+    name (matched against any path segment, e.g. ``__pycache__``), and an
+    ``fnmatch`` glob applied to both the full relpath and the basename
+    (``*.pyc``, ``.env.*``).  Matching is on the relpath, never the absolute
+    path, so it is cross-machine deterministic.
+    """
+    rel = rel.replace(os.sep, "/")
+    if rel.startswith("./"):
+        rel = rel[2:]
+    if not rel:
+        return False
+    segments = rel.split("/")
+    base = segments[-1]
+    for pat in patterns:
+        p = pat.replace(os.sep, "/").strip()
+        if not p:
+            continue
+        if p.endswith("/"):
+            d = p.rstrip("/")
+            has_glob = any(c in d for c in "*?[")
+            if has_glob:
+                # fnmatch each non-final segment (directory component) and the
+                # whole relpath for a bare top-level dir name (e.g. "foo.egg-info").
+                if any(
+                    fnmatch.fnmatch(seg, d) for seg in segments[:-1]
+                ) or fnmatch.fnmatch(rel, d):
+                    return True
+            elif d in segments[:-1] or rel == d or rel.startswith(d + "/"):
+                return True
+            continue
+        if "/" in p:
+            if fnmatch.fnmatch(rel, p):
+                return True
+            continue
+        # bare name or basename glob: match any path segment or the basename
+        if p in segments or fnmatch.fnmatch(base, p):
+            return True
+    return False
+
+
+def file_sha256(path: Path, chunk: int = 1 << 20) -> str:
+    """Stream sha256 of a file's bytes (never loads the whole file)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for block in iter(lambda: fh.read(chunk), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+@dataclass
+class TreeDigest:
+    """Result of :func:`tree_digest`: the versioned digest plus the symlinks
+    skipped (recorded per BP-039 — symlink policy is *skip*, made explicit)."""
+
+    digest: str
+    skipped_symlinks: list[str]
+    file_count: int
+
+
+def tree_digest(root: Path, excludes=DEFAULT_EXCLUDES) -> TreeDigest:
+    """BP-039 sorted-per-file-SHA-256 hash-of-hashes over ``root``.
+
+    Deterministic across walk-order, machine, and clone/restore:
+      - regular files only; directories are not entries; symlinks are skipped
+        and recorded (cycle-safe, platform-stable).
+      - per-file summary line ``<hex>  <posix-relpath>\\n``; relpath is relative
+        to ``root`` and POSIX-normalized (never absolute).
+      - lines byte-sorted by the relpath-keyed line, then SHA-256'd.
+      - ``DIGEST_VERSION`` prefix so the algorithm can evolve (R-1 re-baseline).
+
+    Excludes are applied to the relpath before the file set is frozen.
+    """
+    lines: list[str] = []
+    skipped: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune excluded directories in-place so we never descend into them.
+        kept = []
+        for d in dirnames:
+            drel = os.path.relpath(os.path.join(dirpath, d), root).replace(os.sep, "/")
+            if path_excluded(drel + "/", excludes):
+                continue
+            kept.append(d)
+        dirnames[:] = kept
+        for name in filenames:
+            full = Path(dirpath) / name
+            rel = os.path.relpath(full, root).replace(os.sep, "/")
+            if path_excluded(rel, excludes):
+                continue
+            if full.is_symlink():
+                skipped.append(rel)
+                continue
+            try:
+                digest = file_sha256(full)
+            except OSError:
+                # Unreadable regular file: skip but do not abort the whole
+                # digest — record nothing for it (deterministic: same skip on
+                # every machine where it is unreadable).
+                continue
+            lines.append(f"{digest}  {rel}\n")
+    summary = "".join(sorted(lines))
+    full_digest = (
+        DIGEST_VERSION + ":" + hashlib.sha256(summary.encode("utf-8")).hexdigest()
+    )
+    return TreeDigest(
+        digest=full_digest, skipped_symlinks=sorted(skipped), file_count=len(lines)
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drift strategy registry — enum-selected built-ins (NO arbitrary exec)
+# ---------------------------------------------------------------------------
+
+# The full safe strategy set (design §4).  ``drift_strategy`` in the registry is
+# validated against this enum by verify S4 (schema-driven); a non-enum value is
+# REJECTED, never executed.  Only ``content-digest`` and ``tree-digest`` are
+# wired as default selectors today; the others are reserved, schema-valid
+# opt-ins (``git-tree-hash`` needs the shadow git, ``git-ahead-behind`` needs a
+# ref boundary, ``temporal`` is the date-only fallback).
+STRATEGIES: tuple[str, ...] = (
+    "content-digest",
+    "tree-digest",
+    "git-tree-hash",
+    "git-ahead-behind",
+    "temporal",
+)
+
+# Strategies that are schema-valid enum members but produce no content digest.
+# Selecting one emits a FRICTION finding so it is never silently dropped.
+_UNIMPLEMENTED_STRATEGIES: frozenset[str] = frozenset({"git-ahead-behind"})
+
+
+def select_strategy(
+    entry: dict, full_path: Path | None, findings: list | None = None
+) -> str:
+    """Pick the drift strategy for an entry.
+
+    A schema-validated ``drift_strategy`` override wins (verify S4 guarantees it
+    is one of :data:`STRATEGIES`).  Otherwise the default is by artifact shape:
+    a directory ``sot_location`` → ``tree-digest`` (BP-039); a file → the
+    existing ``content-digest`` (sha256(file)[:8], behavior-preserving).
+
+    When ``findings`` is provided and the override is in
+    :data:`_UNIMPLEMENTED_STRATEGIES`, a FRICTION finding is appended so the
+    caller knows no content digest was computed for this entry.
+    """
+    override = entry.get("drift_strategy")
+    if override in STRATEGIES:
+        if override in _UNIMPLEMENTED_STRATEGIES and findings is not None:
+            findings.append(
+                friction_finding(
+                    f"strategy '{override}' is reserved and not yet implemented "
+                    "— no content digest will be computed for this entry; "
+                    "use 'content-digest' or 'tree-digest' instead.",
+                    where=entry.get("entry_id", "unknown"),
+                    severity="LOW",
+                )
+            )
+        return override
+    if full_path is not None and full_path.is_dir():
+        return "tree-digest"
+    return "content-digest"
+
+
+# ---------------------------------------------------------------------------
+# BP-040 — bare two-pointer shadow git
+# ---------------------------------------------------------------------------
+
+# Written to <shadow>/info/exclude at setup.  The user never sees or edits this;
+# it guarantees the same file set is snapshotted on every machine (no ambient
+# .gitignore drift).  Mirrors DEFAULT_EXCLUDES with the .git internals first.
+_SHADOW_EXCLUDE_LINES: tuple[str, ...] = (
+    "# Written by aim-sot at setup (BP-040). The user never sees or edits this.",
+    ".git",
+    ".git/**",
+    "__pycache__/",
+    "*.pyc",
+    "*.pyo",
+    "*.pyd",
+    ".mypy_cache/",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    "node_modules/",
+    ".npm/",
+    "dist/",
+    "build/",
+    "*.egg-info/",
+    ".eggs/",
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    ".sot/",
+    ".sot/**",
+    ".DS_Store",
+    ".idea/",
+    ".vscode/",
+    "Thumbs.db",
+    "*.sqlite",
+    "*.sqlite3",
+    "*.db",
+    "*.log",
+)
+
+# Cap-and-rotate thresholds (BP-040 Q4).
+_MAX_COMMITS = 500
+_MAX_PACK_MB = 100
+
+
+def shadow_git_dir(project_id: str) -> Path:
+    """``~/.ai-memory/sot-git/<project_id>`` — the bare shadow repo."""
+    return _SHADOW_GIT_ROOT / _safe_id(project_id)
+
+
+def _git_env(project_id: str, project_dir: Path) -> dict:
+    """Subprocess env pinning the two pointers (BP-040 Q1): GIT_DIR = the bare
+    shadow repo, GIT_WORK_TREE = the user's project.  Equivalent to
+    ``--git-dir``/``--work-tree`` but keeps command lines clean."""
+    env = dict(os.environ)
+    env["GIT_DIR"] = str(shadow_git_dir(project_id))
+    env["GIT_WORK_TREE"] = str(project_dir)
+    return env
+
+
+def run_git(project_id: str, project_dir: Path, *args: str, timeout: int = 30):
+    """Run a git command against the shadow repo with the two-pointer env."""
+    return subprocess.run(
+        ["git", *args],
+        env=_git_env(project_id, project_dir),
+        cwd=str(project_dir),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def git_available() -> bool:
+    """True iff the ``git`` binary is callable (git is a required tool)."""
+    try:
+        return (
+            subprocess.run(
+                ["git", "--version"], capture_output=True, text=True
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def ensure_shadow_git(project_id: str, project_dir: Path) -> None:
+    """Idempotently create + configure the bare shadow repo (BP-040, BP-041 Q4).
+
+    Every action is check-then-create: ``git init --bare`` is re-run-safe, config
+    is set each call (cheap, declarative), and ``info/exclude`` is rewritten to
+    the mandatory list.  ``--separate-git-dir`` is never used — it would write a
+    ``.git`` pointer file into the user's tree.
+    """
+    shadow = shadow_git_dir(project_id)
+    shadow.parent.mkdir(parents=True, exist_ok=True)
+    if not (shadow / "HEAD").exists():
+        subprocess.run(
+            ["git", "init", "--bare", str(shadow)],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    # Config (idempotent set). core.worktree pins the work-tree so plain commands
+    # need no --work-tree; the noise/perf/safety knobs are BP-040 Q1/Q4.
+    for key, val in (
+        ("core.worktree", str(project_dir)),
+        ("status.showUntrackedFiles", "no"),
+        ("gc.auto", "256"),
+        ("gc.pruneExpire", "30.days.ago"),
+        ("gc.autoPackLimit", "10"),
+        ("core.symlinks", "false"),
+        # Commits are machine-local snapshots; pin an identity so commit never
+        # fails on a host without a configured git user.
+        ("user.name", "aim-sot"),
+        ("user.email", "aim-sot@localhost"),
+    ):
+        subprocess.run(
+            ["git", f"--git-dir={shadow}", "config", key, val],
+            capture_output=True,
+            text=True,
+        )
+    info_dir = shadow / "info"
+    info_dir.mkdir(parents=True, exist_ok=True)
+    (info_dir / "exclude").write_text(
+        "\n".join(_SHADOW_EXCLUDE_LINES) + "\n", encoding="utf-8"
+    )
+
+
+def shadow_head(project_id: str, project_dir: Path) -> str | None:
+    """Current shadow HEAD sha, or None when there are no commits yet."""
+    res = run_git(project_id, project_dir, "rev-parse", "HEAD")
+    sha = res.stdout.strip()
+    return sha if res.returncode == 0 and sha else None
+
+
+class ShadowGitError(Exception):
+    """Raised by shadow_commit when a git operation (add/commit) returns non-zero."""
+
+
+def shadow_commit(project_id: str, project_dir: Path, message: str) -> str | None:
+    """``add -A`` + commit against the shadow repo; return the new HEAD sha.
+
+    Returns None (and does not commit) when the work-tree is clean.  Raises
+    :exc:`ShadowGitError` on a git error so the caller can surface an ERROR
+    finding without aborting the session.
+    """
+    # Stage everything, then test the index: ``git diff --cached --quiet`` exits
+    # 0 when nothing is staged (clean → skip, no empty snapshot) and 1 when there
+    # are staged changes.  This is correct even on the first commit, where every
+    # file is untracked (a plain ``status`` would hide them under the repo's
+    # status.showUntrackedFiles=no).
+    add = run_git(project_id, project_dir, "add", "-A")
+    if add.returncode != 0:
+        raise ShadowGitError(
+            f"git add failed (rc={add.returncode}): {add.stderr.strip()}"
+        )
+    staged = run_git(project_id, project_dir, "diff", "--cached", "--quiet")
+    if staged.returncode == 0:
+        return None  # nothing staged → clean → skip
+    commit = run_git(project_id, project_dir, "commit", "-m", message, "--quiet")
+    if commit.returncode != 0:
+        raise ShadowGitError(
+            f"git commit failed (rc={commit.returncode}): {commit.stderr.strip()}"
+        )
+    return shadow_head(project_id, project_dir)
+
+
+def shadow_gc(project_id: str, project_dir: Path) -> None:
+    """Bounded ``git gc`` after the Stop commit (BP-040 Q4 layer 1).  Never
+    ``--aggressive`` on the hot path."""
+    run_git(project_id, project_dir, "gc", "--prune=30.days.ago", "--quiet", timeout=60)
+
+
+def cap_and_rotate(project_id: str, project_dir: Path) -> bool:
+    """Cap-and-rotate when the shadow repo exceeds the commit/size bounds.
+
+    At ≥500 commits or ≥100 MB packed, run a one-shot aggressive gc (BP-040 Q4
+    layer 3).  Returns True when a rotation ran.  History squashing beyond gc is
+    intentionally NOT done here (out of scope; gc reclaims the bulk).
+    """
+    res = run_git(project_id, project_dir, "rev-list", "--count", "HEAD")
+    try:
+        count = int(res.stdout.strip() or "0")
+    except ValueError:
+        count = 0
+    pack = shadow_git_dir(project_id) / "objects" / "pack"
+    pack_mb = 0
+    if pack.exists():
+        pack_mb = sum(f.stat().st_size for f in pack.glob("*")) // (1024 * 1024)
+    if count >= _MAX_COMMITS or pack_mb >= _MAX_PACK_MB:
+        run_git(
+            project_id,
+            project_dir,
+            "gc",
+            "--aggressive",
+            "--prune=now",
+            "--quiet",
+            timeout=120,
+        )
+        return True
+    return False
+
+
+def teardown(project_id: str) -> None:
+    """Remove the shadow repo entirely — zero user-project residue (BP-040 Q6)."""
+    shadow = shadow_git_dir(project_id)
+    if shadow.exists():
+        import shutil
+
+        shutil.rmtree(shadow, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# BP-041 — idempotent run-once setup sentinel
+# ---------------------------------------------------------------------------
+
+
+def sentinel_path(project_id: str) -> Path:
+    """``~/.ai-memory/sot-setup/sot_setup_<project_id>.json`` (never committed)."""
+    return _SETUP_DIR / f"sot_setup_{_safe_id(project_id)}.json"
+
+
+def is_setup_valid(project_id: str) -> bool:
+    """Fast-exit gate (~0.35 ms): True iff setup is done AND current.
+
+    Invalidation, cheapest-first (BP-041 Q3): sentinel absent → corrupt →
+    schema_version mismatch → setup_version mismatch → explicit reconfigure
+    (``AIM_SOT_RECONFIGURE=1``).  The shadow ``.git`` presence is NOT checked
+    here — that is an on-demand ``--verify`` diagnostic, not a per-session stat.
+    """
+    if os.environ.get("AIM_SOT_RECONFIGURE") == "1":
+        return False
+    path = sentinel_path(project_id)
+    if not path.exists():
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False  # corrupt → treat as absent
+    if data.get("schema_version") != SETUP_SCHEMA_VERSION:
+        return False
+    return data.get("setup_version") == SETUP_VERSION
+
+
+def _write_sentinel(project_id: str, project_dir: Path) -> None:
+    """Write the sentinel LAST (atomic temp→replace), proof-of-completion."""
+    path = sentinel_path(project_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "schema_version": SETUP_SCHEMA_VERSION,
+        "project_id": project_id,
+        "setup_version": SETUP_VERSION,
+        "setup_at": datetime.now(timezone.utc).isoformat(),
+        "setup_by": "aim-sot/setup-workflow",
+        "artifacts": {
+            "shadow_git": {
+                "path": str(shadow_git_dir(project_id)),
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    }
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, delete=False, suffix=".tmp"
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(data, tmp, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        if tmp_path is not None:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink(missing_ok=True)
+        raise
+
+
+def run_setup(project_id: str, project_dir: Path) -> bool:
+    """Full setup.  Sentinel is written ONLY after all artifacts verify (BP-041
+    Q4): partial failure ⇒ sentinel absent ⇒ retry next session.  Returns True
+    on success."""
+    ensure_shadow_git(project_id, project_dir)
+    # Verify the artifact exists before recording completion.
+    if not (shadow_git_dir(project_id) / "HEAD").exists():
+        return False
+    _write_sentinel(project_id, project_dir)
+    return True
+
+
+def ensure_setup(project_id: str, project_dir: Path) -> bool:
+    """Skip-fast when valid, else run setup.  Returns True iff setup is usable
+    after the call (valid sentinel + shadow repo present)."""
+    if is_setup_valid(project_id):
+        return True
+    return run_setup(project_id, project_dir)
+
+
+# ---------------------------------------------------------------------------
+# BP-042 — git-history change detection + doc-drift correlation
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FileChange:
+    """One ``git diff --name-status`` row (BP-042 Q1)."""
+
+    status: str  # 'A' | 'M' | 'D' | 'R' | 'C'
+    similarity: int | None  # rename/copy score 0-100, else None
+    old_path: str
+    new_path: str | None  # destination for R/C, else None
+
+    @property
+    def path(self) -> str:
+        """The change's effective current path (new_path for R/C, else old)."""
+        return self.new_path or self.old_path
+
+
+def parse_name_status(text: str) -> list[FileChange]:
+    """Parse ``git diff --name-status`` output into typed FileChange rows."""
+    changes: list[FileChange] = []
+    for line in text.splitlines():
+        line = line.rstrip()
+        if not line:
+            continue
+        parts = line.split("\t")
+        raw = parts[0]
+        code = raw[0]
+        if code in ("R", "C") and len(parts) == 3:
+            similarity = int(raw[1:]) if len(raw) > 1 and raw[1:].isdigit() else None
+            changes.append(FileChange(code, similarity, parts[1], parts[2]))
+        elif len(parts) >= 2:
+            changes.append(FileChange(code, None, parts[1], None))
+    return changes
+
+
+def get_change_set(
+    project_id: str, project_dir: Path, since_sha: str, until_sha: str = "HEAD"
+) -> list[FileChange]:
+    """``git diff --name-status <since>..<until>`` over the shadow history."""
+    res = run_git(
+        project_id, project_dir, "diff", "--name-status", since_sha, until_sha
+    )
+    if res.returncode != 0:
+        raise RuntimeError(res.stderr.strip() or "git diff failed")
+    return parse_name_status(res.stdout)
+
+
+def load_docowners(
+    project_dir: Path, rel_path: str = ".sot/DOCOWNERS"
+) -> list[tuple[str, list[str]]]:
+    """Parse the DOCOWNERS file (BP-042 Pattern A): ``<doc-glob>  <code-glob...>``.
+
+    Defaults to ``.sot/DOCOWNERS`` (the single committed SOT home), NOT repo root
+    — it is of-record class (committed, team-visible) and consumed only by this
+    engine.  ``rel_path`` honors a registry ``docowners:`` pointer override.
+    Blank lines and ``#`` comments are ignored.  Returns a list of
+    ``(doc_glob, [code_globs])`` rules in file order.
+    """
+    path = project_dir / rel_path
+    rules: list[tuple[str, list[str]]] = []
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return rules
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        rules.append((parts[0], parts[1:]))
+    return rules
+
+
+def _glob_match(path: str, glob: str) -> bool:
+    """Match a POSIX path against a DOCOWNERS glob.
+
+    A trailing ``/**`` (or bare ``dir/``) matches anything under the dir; other
+    globs use ``fnmatch`` with ``*`` allowed to span ``/`` so ``src/api/**`` and
+    ``docs/api/*.md`` behave as authors expect.
+    """
+    path = path.replace(os.sep, "/")
+    glob = glob.replace(os.sep, "/")
+    if glob.endswith("/**"):
+        prefix = glob[:-3]
+        return path == prefix or path.startswith(prefix + "/")
+    if glob.endswith("/"):
+        return path.startswith(glob)
+    # Translate '**' → '*' so a single fnmatch '*' (which already spans '/') covers it.
+    return fnmatch.fnmatch(path, glob.replace("**", "*"))
+
+
+# Path-class predicates for the false-positive guards (BP-042 Q3).
+def _is_test_path(p: str) -> bool:
+    p = p.replace(os.sep, "/")
+    base = p.rsplit("/", 1)[-1]
+    return (
+        "/tests/" in f"/{p}"
+        or "/__tests__/" in f"/{p}"
+        or base.startswith("test_")
+        or base.endswith(("_test.py", "_test.go", ".test.ts", ".test.js", ".spec.ts"))
+        or base in ("conftest.py",)
+    )
+
+
+def _is_doc_path(p: str) -> bool:
+    p = p.replace(os.sep, "/")
+    return p.startswith("docs/") or p.endswith((".md", ".mdx", ".rst"))
+
+
+def _is_internal_path(p: str) -> bool:
+    p = p.replace(os.sep, "/")
+    return "/internal/" in f"/{p}" or "/_internal/" in f"/{p}"
+
+
+def correlate_doc_drift(
+    changes: list[FileChange],
+    docowners: list[tuple[str, list[str]]],
+    project_dir: Path,
+    trigger_commit: dict | None = None,
+) -> list[dict]:
+    """Correlate a change set against DOCOWNERS → DOC_DRIFT findings (BP-042).
+
+    For each changed code path, find the DOCOWNERS rules whose code-globs cover
+    it and emit a finding for each owned doc-glob.  False-positive guards
+    (BP-042 Q3) are applied to the *whole* change set first: if every changed
+    path is test-only, doc-only, or internal-only, no findings are emitted.
+    Severity: a deleted/renamed code path → HIGH; otherwise MEDIUM (area-level
+    correlation, Pattern A precision).
+    """
+    if not changes or not docowners:
+        return []
+
+    # Guard: skip when the commit is entirely test-only / doc-only / internal-only.
+    # Note: a reformat-only guard is deferred — ``--name-status`` cannot see line
+    # content, so all-M is indistinguishable from a normal modify commit; findings
+    # are advisory/propose-only and a reviewer can dismiss a formatter false-positive.
+    paths = [c.path for c in changes]
+    if all(_is_test_path(p) for p in paths):
+        return []
+    if all(_is_doc_path(p) for p in paths):
+        return []
+    if all(_is_internal_path(p) for p in paths):
+        return []
+
+    findings: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for change in changes:
+        cpath = change.path
+        # Per-path guards: never let a test/doc/internal path trigger a doc.
+        if _is_test_path(cpath) or _is_doc_path(cpath) or _is_internal_path(cpath):
+            continue
+        # For renames/copies, also match old_path so a rename-away from a watched
+        # area is still correlated to its doc (F-L2).
+        match_paths = {cpath}
+        if change.status in ("R", "C") and change.old_path:
+            match_paths.add(change.old_path)
+        for doc_glob, code_globs in docowners:
+            if not any(_glob_match(p, g) for p in match_paths for g in code_globs):
+                continue
+            # Resolve the doc-glob to concrete doc files when it is a literal or
+            # a simple glob under the project; fall back to the glob itself.
+            doc_targets = _resolve_doc_glob(project_dir, doc_glob)
+            for doc in doc_targets:
+                key = (doc, cpath)
+                if key in seen:
+                    continue
+                seen.add(key)
+                status_word = {
+                    "A": "Added",
+                    "M": "Modified",
+                    "D": "Deleted",
+                    "R": "Renamed",
+                    "C": "Copied",
+                }.get(change.status, change.status)
+                severity = "HIGH" if change.status in ("D", "R") else "MEDIUM"
+                findings.append(
+                    emit_finding(
+                        finding_type="DOC_DRIFT",
+                        severity=severity,
+                        doc_file=doc,
+                        trigger_path=f"{cpath} ({status_word})",
+                        trigger_commit=trigger_commit or {},
+                        anchor_type="DOCOWNERS_MAP",
+                        recommended_action=(
+                            f"Review {doc} against the change to {cpath}."
+                        ),
+                    )
+                )
+    return findings
+
+
+def _resolve_doc_glob(project_dir: Path, doc_glob: str) -> list[str]:
+    """Expand a DOCOWNERS doc-glob to existing doc files, else return the glob.
+
+    Keeps findings concrete when possible (``docs/api/*.md`` → the real files)
+    while never failing if the doc dir is absent (returns ``[doc_glob]``)."""
+    g = doc_glob.replace(os.sep, "/")
+    if any(ch in g for ch in "*?["):
+        try:
+            matched = sorted(
+                str(p.relative_to(project_dir)).replace(os.sep, "/")
+                for p in project_dir.glob(g)
+                if p.is_file()
+            )
+        except (OSError, ValueError):
+            matched = []
+        return matched or [doc_glob]
+    return [doc_glob]
+
+
+# ---------------------------------------------------------------------------
+# Findings pipe — one structured emitter for ALL findings (design §6)
+# ---------------------------------------------------------------------------
+
+
+def emit_finding(
+    finding_type: str,  # DOC_DRIFT | SOT_ANOMALY | ERROR | FRICTION
+    severity: str,  # HIGH | MEDIUM | LOW | INFO
+    doc_file: str,
+    trigger_path: str,
+    trigger_commit: dict,
+    anchor_type: str,
+    recommended_action: str,
+    bp_id: str = "BP-042",
+) -> dict:
+    """Build one structured finding dict (design §6 / BP-042 Q4).
+
+    The engine EMITS these (in its ``--json`` output); only Parzival writes the
+    oversight register.  ALL finding classes — drift, doc-staleness, anomalies,
+    and tool ERROR/FRICTION — flow through this single pipe so nothing is
+    silently dropped.
+    """
+    return {
+        "bp_id": bp_id,
+        "finding_type": finding_type,
+        "severity": severity,
+        "detected_at": datetime.now(timezone.utc).isoformat(),
+        "doc_file": doc_file,
+        "trigger_path": trigger_path,
+        "trigger_commit": trigger_commit,
+        "anchor_type": anchor_type,
+        "recommended_action": recommended_action,
+    }
+
+
+def error_finding(message: str, where: str, severity: str = "HIGH") -> dict:
+    """Convenience emitter for a tool ERROR (git failure, parse error)."""
+    return emit_finding(
+        finding_type="ERROR",
+        severity=severity,
+        doc_file="",
+        trigger_path=where,
+        trigger_commit={},
+        anchor_type="NONE",
+        recommended_action=message,
+        bp_id="BP-042",
+    )
+
+
+def friction_finding(message: str, where: str, severity: str = "MEDIUM") -> dict:
+    """Convenience emitter for a FRICTION (ambiguity resolved, workaround applied)."""
+    return emit_finding(
+        finding_type="FRICTION",
+        severity=severity,
+        doc_file="",
+        trigger_path=where,
+        trigger_commit={},
+        anchor_type="NONE",
+        recommended_action=message,
+        bp_id="BP-042",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stop-path orchestration — ONE digest → commit → diff → doc-drift → findings
+# ---------------------------------------------------------------------------
+
+
+def run_shadow_pass(
+    project_id: str,
+    project_dir: Path,
+    drift_state: dict,
+    excludes=DEFAULT_EXCLUDES,
+    docowners_rel: str = ".sot/DOCOWNERS",
+) -> dict:
+    """The [CL] detect pass (settled decision #3): ONE BP-039 digest at Stop →
+    if changed, drive (1) shadow-git commit, (2) git diff → doc-drift, (3)
+    findings emit.  No double tree-walk, no double emit.
+
+    ``drift_state`` is the 5a cache dict (mutated in place: stores
+    ``project_digest``, ``last_verified_sha``, ``drift_rollup``).  ``excludes``
+    and ``docowners_rel`` carry the registry's committed config (BP-039 exclude
+    set / BP-042 DOCOWNERS pointer).  Returns a summary
+    ``{committed, digest_changed, findings, docs_stale}`` for the caller to fold
+    into its JSON output.  Never raises — git/parse failures become ERROR
+    findings.
+    """
+    findings: list[dict] = []
+    summary = {
+        "committed": False,
+        "digest_changed": False,
+        "findings": findings,
+        "docs_stale": 0,
+    }
+
+    if not git_available():
+        findings.append(
+            error_finding("git binary not available; shadow pass skipped", "shadow")
+        )
+        return summary
+
+    try:
+        if not ensure_setup(project_id, project_dir):
+            findings.append(error_finding("shadow-git setup did not complete", "setup"))
+            return summary
+    except Exception as exc:  # pragma: no cover - defensive
+        findings.append(error_finding(f"setup error: {exc}", "setup"))
+        return summary
+
+    # LAYER 1 — one BP-039 digest of the project tree.
+    try:
+        td = tree_digest(project_dir, excludes)
+    except Exception as exc:  # pragma: no cover - defensive
+        findings.append(error_finding(f"tree-digest error: {exc}", "tree-digest"))
+        return summary
+
+    prior_digest = drift_state.get("project_digest", "")
+    prior_version = drift_state.get("project_digest_version", "")
+    # R-1: a digest-version bump is a re-baseline, not drift.
+    version_changed = bool(prior_version) and prior_version != DIGEST_VERSION
+    summary["digest_changed"] = (
+        bool(prior_digest) and td.digest != prior_digest and not version_changed
+    )
+
+    last_sha = drift_state.get("last_verified_sha", "")
+    new_head = None
+    try:
+        # Always (idempotently) snapshot at Stop so the next session has a
+        # baseline; commit is skipped internally when the tree is clean.
+        new_head = shadow_commit(
+            project_id,
+            project_dir,
+            f"sot-snapshot: session-end {project_id} "
+            f"{datetime.now(timezone.utc).isoformat()}",
+        )
+    except ShadowGitError as exc:
+        findings.append(error_finding(str(exc), "commit"))
+    except Exception as exc:  # pragma: no cover - defensive
+        findings.append(error_finding(f"shadow commit error: {exc}", "commit"))
+
+    if new_head:
+        summary["committed"] = True
+        # LAYER 3 — doc-drift over exactly the delta since the last verified sha.
+        if last_sha:
+            try:
+                changes = get_change_set(project_id, project_dir, last_sha, new_head)
+                docowners = load_docowners(project_dir, docowners_rel)
+                doc_findings = correlate_doc_drift(changes, docowners, project_dir)
+                findings.extend(doc_findings)
+                summary["docs_stale"] = len(doc_findings)
+            except Exception as exc:
+                findings.append(error_finding(f"doc-drift error: {exc}", "doc-drift"))
+        # Bound storage after the commit.
+        with contextlib.suppress(Exception):
+            shadow_gc(project_id, project_dir)
+            cap_and_rotate(project_id, project_dir)
+        drift_state["last_verified_sha"] = new_head
+    elif last_sha:
+        # Clean tree this session — keep the prior verified sha as the baseline.
+        drift_state["last_verified_sha"] = last_sha
+    else:
+        # First-ever run with a clean tree: nothing committed yet. Establish the
+        # baseline sha if a HEAD now exists (e.g. an earlier session committed).
+        head = shadow_head(project_id, project_dir)
+        if head:
+            drift_state["last_verified_sha"] = head
+
+    drift_state["project_digest"] = td.digest
+    drift_state["project_digest_version"] = DIGEST_VERSION
+    return summary
+
+
+# ---------------------------------------------------------------------------
+# CLI — explicit setup / teardown / status (the "separate setup workflow")
+# ---------------------------------------------------------------------------
+
+
+def _resolve_project_id(project_dir: Path) -> str | None:
+    try:
+        _install = os.environ.get(
+            "AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")
+        )
+        _src = os.path.join(_install, "src")
+        if _src not in sys.path:
+            sys.path.insert(0, _src)
+        from memory.project import resolve_project_id
+
+        return resolve_project_id(cwd=str(project_dir), warn=False)
+    except Exception:
+        return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="aim_sot_shadow",
+        description="SOT-owned shadow-git setup / teardown / status (machine-local).",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    for name in ("setup", "teardown", "status"):
+        p = sub.add_parser(name)
+        p.add_argument("--project-dir", default=os.getcwd())
+        p.add_argument("--reconfigure", action="store_true")
+
+    args = parser.parse_args(argv)
+    project_dir = Path(args.project_dir).resolve()
+    project_id = _resolve_project_id(project_dir)
+    if not project_id:
+        print("Error: could not resolve project_id.", file=sys.stderr)
+        return 1
+
+    if args.cmd == "setup":
+        if getattr(args, "reconfigure", False):
+            os.environ["AIM_SOT_RECONFIGURE"] = "1"
+        ok = ensure_setup(project_id, project_dir)
+        print(
+            f"aim-sot shadow setup: {'ready' if ok else 'FAILED'} for '{project_id}' "
+            f"(shadow: {shadow_git_dir(project_id)})"
+        )
+        return 0 if ok else 1
+    if args.cmd == "teardown":
+        teardown(project_id)
+        with contextlib.suppress(OSError):
+            sentinel_path(project_id).unlink(missing_ok=True)
+        print(f"aim-sot shadow teardown: removed shadow git for '{project_id}'.")
+        return 0
+    if args.cmd == "status":
+        valid = is_setup_valid(project_id)
+        head = shadow_head(project_id, project_dir) if valid else None
+        print(
+            f"aim-sot shadow status: setup={'valid' if valid else 'absent'} "
+            f"head={head or '(none)'} shadow={shadow_git_dir(project_id)}"
+        )
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
