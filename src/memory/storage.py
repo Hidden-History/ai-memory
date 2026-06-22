@@ -1517,15 +1517,20 @@ class MemoryStorage:
 
         all_out: list[dict] = []
         stored_point_ids: list[str] = []
-        # BUG-327: clamp the configured github code-blob batch to the client embed ceiling
-        # (the tightest of EMBEDDING_SAFE_INFLIGHT_TEXTS, EMBEDDING_CLIENT_SUBBATCH, and
-        # EMBEDDING_MAX_BATCH_TEXTS — see _client_embed_batch_ceiling) so an operator-set
+        # BUG-327: clamp github's OWN configured batch knob to BOTH server hard limits —
+        # the in-flight-work envelope (EMBEDDING_SAFE_INFLIGHT_TEXTS) AND the server's
+        # per-request cap (EMBEDDING_MAX_BATCH_TEXTS) — so an operator-set
         # github_code_blob_chunk_batch_size (le=128) can never emit an embed/sparse batch
-        # the service would 413, INCLUDING the case where a low EMBEDDING_MAX_BATCH_TEXTS
-        # (not the envelope) is the binding cap. Matches every other call site's ceiling.
-        # The embed + embed_sparse calls below iterate sub_batch_size, so this bounds them
-        # to <= the ceiling.
-        sub_batch_size = min(max(1, chunk_batch_size), _client_embed_batch_ceiling())
+        # the service would 413, including the case where a low EMBEDDING_MAX_BATCH_TEXTS
+        # (not the envelope) is the binding cap. Deliberately does NOT fold in
+        # EMBEDDING_CLIENT_SUBBATCH: that is the memory-store throughput knob, unrelated to
+        # github's own batch sizing. The embed + embed_sparse calls below iterate
+        # sub_batch_size, so this bounds them to <= both limits.
+        sub_batch_size = min(
+            max(1, chunk_batch_size),
+            _embedding_inflight_envelope(),
+            int(os.getenv("EMBEDDING_MAX_BATCH_TEXTS", "256")),
+        )
         payload_field_names = {
             field.name for field in dataclasses.fields(MemoryPayload)
         }

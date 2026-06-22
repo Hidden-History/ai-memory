@@ -182,7 +182,7 @@ embedding_backpressure_total = _make_metric(
     Counter,
     "embedding_backpressure",
     'Backpressure actions: "waited" (made to wait, good), "shed" (transient 503 drop, ~0), '
-    '"rejected_over_envelope" (permanent 413 for a lone over-envelope batch)',
+    '"over_envelope_reject" (permanent 413 for a lone over-envelope batch)',
     ["action"],
 )
 embedding_oom_events_total = _make_metric(
@@ -305,7 +305,7 @@ async def run_inference_async(operation, work_units=1):
         # load/concurrency shed (action="shed"). It is a server-wide gate: it lives here in
         # run_inference_async, so every embed endpoint (dense/sparse/late/chunked) enforces
         # it identically.
-        embedding_backpressure_total.labels(action="rejected_over_envelope").inc()
+        embedding_backpressure_total.labels(action="over_envelope_reject").inc()
         logger.warning(
             "embedding_request_over_envelope_rejected",
             extra={

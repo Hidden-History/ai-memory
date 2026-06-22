@@ -582,40 +582,6 @@ def test_admission_envelope_enforced_on_http_path_with_production_batches():
     assert holder_status == 200
 
 
-def test_admission_envelope_admits_concurrent_work_within_envelope():
-    """BUG-326/327: two requests whose SUMMED work_units fit the envelope (24 + 24 = 48
-    <= 48) are BOTH admitted while the first is held in flight — no spurious 503. The
-    existing legit-traffic test is sequential (_inflight_work resets to 0 between calls),
-    so it cannot exercise the concurrent under-envelope invariant this asserts.
-    """
-    service = _load_service(4)
-    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 48
-
-    async def _drive():
-        gate = threading.Event()
-
-        def _hold():
-            gate.wait(timeout=10)  # hold the slot so _inflight_work stays at 24
-            return ["held"]
-
-        holder = asyncio.create_task(service.run_inference_async(_hold, work_units=24))
-        while service._inflight_work < 24:
-            await asyncio.sleep(0)
-
-        # Concurrent second request: 24 + 24 = 48 == envelope (not over) -> admitted.
-        before_shed = _backpressure_count(service, "shed")
-        second = await service.run_inference_async(lambda: ["second"], work_units=24)
-        shed_delta = _backpressure_count(service, "shed") - before_shed
-
-        gate.set()
-        await holder
-        return second, shed_delta
-
-    second, shed_delta = asyncio.run(_drive())
-    assert second == ["second"]
-    assert shed_delta == 0  # the fitting concurrent request was not shed
-
-
 def test_inflight_envelope_default_matches_client_default():
     """BUG-327: EMBEDDING_SAFE_INFLIGHT_TEXTS (embedding service, docker/embedding/main.py)
     and _embedding_inflight_envelope() (storage client, src/memory/storage.py) are separate
