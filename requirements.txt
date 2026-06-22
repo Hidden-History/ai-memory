@@ -9,7 +9,7 @@ httpx==0.28.1
 
 # Environment Configuration
 pydantic==2.12.5
-pydantic-settings==2.13.1
+pydantic-settings==2.14.2
 
 # Logging
 structlog>=24.0.0,<26.0.0

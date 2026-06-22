@@ -7,7 +7,7 @@ uvicorn==0.43.0
 qdrant-client==1.17.1
 httpx==0.28.1
 pydantic==2.12.5
-pydantic-settings==2.13.1
+pydantic-settings==2.14.2
 prometheus-client==0.24.1
 anthropic==0.89.0
 tenacity==9.1.4
