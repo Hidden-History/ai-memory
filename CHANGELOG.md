@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Embedding service `/health` aliased-fallback detection (TD-553 / BUG-289)** — the `health()` endpoint now returns HTTP 503 when the code model has fallen back to the English model alias (both registry entries point to the same object), not only when a model entry is `None`. The response body `status` field reflects `"degraded"` in this case. Compose `depends_on: condition: service_healthy` now correctly gates on genuine dual-model readiness; consumers no longer receive a false-healthy signal when the code model is degraded.
+
 ## [2.8.0] - 2026-06-21
 
 ### Upgrade Instructions

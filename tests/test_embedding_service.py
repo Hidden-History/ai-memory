@@ -757,3 +757,37 @@ def test_blind_hold_at_one_logs_once_per_state_entry(caplog):
 
     blind_logs = asyncio.run(_drive())
     assert len(blind_logs) == 1
+
+
+# --- TD-553: /health aliased-fallback detection ---
+
+
+def test_health_both_models_loaded_returns_200():
+    """Both models loaded and distinct → /health returns HTTP 200 (BUG-289 / TD-553)."""
+    service = _load_service(4)
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "healthy"
+    assert resp.json()["model_loaded"] is True
+
+
+def test_health_code_aliased_to_en_returns_503():
+    """Code model aliased to en model (fallback) → /health returns HTTP 503 (TD-553)."""
+    service = _load_service(4)
+    # Simulate aliased fallback: code model failed to load, registry entry aliased to en
+    service.MODEL_REGISTRY["code"] = service.MODEL_REGISTRY["en"]
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "degraded"
+
+
+def test_health_model_none_returns_503():
+    """Any model None → /health returns HTTP 503 (existing BUG-289 case)."""
+    service = _load_service(4)
+    service.MODEL_REGISTRY["code"] = None
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "loading"

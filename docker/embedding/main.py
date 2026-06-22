@@ -765,8 +765,13 @@ async def health():
     within the healthcheck timeout even when every inference slot is occupied.
     """
     model_loaded = all(m is not None for m in MODEL_REGISTRY.values())
+    code_aliased_to_en = MODEL_REGISTRY.get("code") is MODEL_REGISTRY.get("en")
     response = HealthResponse(
-        status="healthy" if model_loaded else "loading",
+        status=(
+            "healthy"
+            if (model_loaded and not code_aliased_to_en)
+            else ("loading" if not model_loaded else "degraded")
+        ),
         model_loaded=model_loaded,
         model=MODEL_NAMES["en"],  # KEPT: backward compat for existing monitors
         models=list(MODEL_NAMES.values()),  # NEW: list both models
@@ -775,7 +780,7 @@ async def health():
         sparse_models=list(SPARSE_REGISTRY.keys()),
         late_models=list(LATE_REGISTRY.keys()),
     )
-    if not model_loaded:
+    if not model_loaded or code_aliased_to_en:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(
