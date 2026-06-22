@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`stack.sh start`/`restart` now rebuilds all source-baked services on the cached path (TD-723)** — `stack.sh` previously brought the `build:`+`image:` hybrid services up with no build, so they reused their cached image when baked content changed and a release could deploy stale silently. A cached (NOT `--no-cache`) build now runs before each `up -d`, redeploying baked src for the baked-src services (`embedding`, `monitoring-api`, `github-sync` core; `trace-flush-worker` langfuse) and baked pip dependencies (`requirements.txt`) for the volume-mounted-src services (`classifier-worker` core; `evaluator-scheduler` langfuse — the PM-#353 `No module named 'openai'` class). `monitoring-api` (genuinely baked-src, runs under `--profile monitoring` which defaults on) is now included; the `github-sync` rebuild is gated behind the same `GITHUB_SYNC_ENABLED` + `GITHUB_TOKEN` condition the startup uses. Cached builds keep no-op restarts cheap (embedding ONNX models and the github-sync spaCy download are not re-fetched) and are non-fatal on failure.
+
 ## [2.8.0] - 2026-06-21
 
 ### Upgrade Instructions

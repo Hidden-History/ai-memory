@@ -604,21 +604,53 @@ class TestStackShImageBakeRebuild:
 # TD-723 — stack.sh cmd_start python-source CACHED rebuild assertions
 # ---------------------------------------------------------------------------
 
-# Python-source baked services (build:+image: hybrid with COPY'd python source).
-TD723_CORE_SOURCE_SERVICES = ["embedding", "classifier-worker", "github-sync"]
+# Python-source baked services rebuilt by stack.sh cmd_start (TD-723).
+#
+# Two source-delivery classes both require the CACHED rebuild:
+#   • baked-src — COPY python source into the image with NO src volume mount, so
+#     a source change deploys ONLY via a rebuild: embedding, monitoring-api,
+#     github-sync (core); trace-flush-worker (langfuse).
+#   • baked-deps, src volume-mounted — COPY requirements.txt + pip-install but
+#     volume-mount ../src:/app/src:ro, so src changes deploy via the mount but a
+#     requirements.txt change (the PM #353 'No module named openai' class) still
+#     needs a rebuild: classifier-worker (core); evaluator-scheduler (langfuse).
+#
+# Unconditional core members (always built). github-sync is built ONLY when
+# github sync is enabled, so it is asserted separately by the gating test.
+TD723_CORE_SOURCE_SERVICES = ["embedding", "classifier-worker", "monitoring-api"]
 TD723_LANGFUSE_SOURCE_SERVICES = ["evaluator-scheduler", "trace-flush-worker"]
+
+
+def _source_bake_build_block(text, build_array):
+    """Return the `if ! _compose ... build "${build_array[@]}"` invocation text.
+
+    Spans from the nearest `if ! _compose` preceding the build call down to and
+    including the `build "${build_array[@]}"` line. Lets tests assert that a
+    --profile flag and its build call co-occur in the SAME invocation without
+    requiring them on adjacent lines (LOW-5: decoupled from the brittle
+    exact-adjacency regex that broke if any flag was inserted between them).
+    """
+    m = re.search(r'build\s+"\$\{' + re.escape(build_array) + r'\[@\]\}"', text)
+    if not m:
+        return None
+    starts = list(re.finditer(r"if ! _compose", text[: m.start()]))
+    if not starts:
+        return None
+    return text[starts[-1].start() : m.end()]
 
 
 class TestStackShSourceBakeRebuild:
     """Verify stack.sh cmd_start contains a CACHED compose build for the
     python-source baked services.
 
-    TD-723: embedding, classifier-worker, github-sync (core) and
-    evaluator-scheduler, trace-flush-worker (langfuse) use the build:+image:
-    hybrid with COPY'd python source. `compose up -d` reuses the cached image
-    even when the COPY'd source changed, so a baked-source release deploys
-    stale silently. The fix adds a CACHED `build` (NOT --no-cache, so only
-    changed COPY layers are invalidated) before each `up -d --wait`.
+    TD-723: embedding, classifier-worker, monitoring-api, github-sync (core) and
+    evaluator-scheduler, trace-flush-worker (langfuse) cache their built image
+    under the build:+image: hybrid pattern. `compose up -d` reuses the cached
+    image even when a baked change shipped, so a release deploys stale silently.
+    The fix adds a CACHED `build` (NOT --no-cache, so only changed layers are
+    invalidated) before each `up -d --wait`. The rebuild redeploys baked changes
+    — baked src for the baked-src services, and baked pip dependencies
+    (requirements.txt) for all of them.
 
     These must be CACHED builds — adding them to the --no-cache IMAGE_BAKE
     arrays would re-bake embedding ONNX models / re-run github-sync's spacy
@@ -654,11 +686,21 @@ class TestStackShSourceBakeRebuild:
 
     @pytest.mark.parametrize("service", TD723_CORE_SOURCE_SERVICES)
     def test_core_service_in_source_bake_array(self, stack_sh_text, service):
-        """Each core python-source service must appear in the core array."""
+        """Each unconditional core python-source service must appear in the core
+        array initializer (github-sync is gated — see the gating test)."""
         assert re.search(
             r"SOURCE_BAKE_SERVICES=\([^)]*\b" + re.escape(service) + r"\b[^)]*\)",
             stack_sh_text,
         ), f"'{service}' must be in the core SOURCE_BAKE_SERVICES array (TD-723)"
+
+    def test_monitoring_api_in_core_source_bake(self, stack_sh_text):
+        """monitoring-api is genuinely baked-src (monitoring/Dockerfile COPYs
+        src with NO src volume mount) and runs under --profile monitoring
+        (default ON), so it must be in the unconditional core source-bake set."""
+        assert re.search(
+            r"SOURCE_BAKE_SERVICES=\([^)]*\bmonitoring-api\b[^)]*\)",
+            stack_sh_text,
+        ), "monitoring-api must be in the core SOURCE_BAKE_SERVICES array (TD-723)"
 
     @pytest.mark.parametrize("service", TD723_LANGFUSE_SOURCE_SERVICES)
     def test_langfuse_service_in_source_bake_array(self, stack_sh_text, service):
@@ -670,19 +712,56 @@ class TestStackShSourceBakeRebuild:
             stack_sh_text,
         ), f"'{service}' must be in the SOURCE_BAKE_SERVICES_LANGFUSE array (TD-723)"
 
-    def test_core_build_is_profile_github_aware(self, stack_sh_text):
-        """github-sync is behind --profile github, so the core source build must
-        pass --profile github to make it visible."""
-        assert re.search(
-            r"--profile github \\\s*\n\s*build\s+\"\$\{SOURCE_BAKE_SERVICES\[@\]\}\"",
-            stack_sh_text,
-        ), "core source build must pass --profile github so github-sync is visible (TD-723)"
+    def test_core_build_is_profile_monitoring_aware(self, stack_sh_text):
+        """monitoring-api is behind --profile monitoring, so the core source
+        build invocation must carry --profile monitoring. Asserts co-occurrence
+        within the same `if ! _compose` block, NOT line-adjacency (LOW-5)."""
+        block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES")
+        assert block is not None, "core source-bake build invocation not found (TD-723)"
+        assert "--profile monitoring" in block, (
+            "core source build must pass --profile monitoring so monitoring-api "
+            "is visible (TD-723)"
+        )
+
+    def test_github_sync_build_conditionally_gated(self, stack_sh_text):
+        """github-sync is behind --profile github and is only started when
+        GITHUB_SYNC_ENABLED=true AND GITHUB_TOKEN is set, so the core source
+        build must append github-sync (and --profile github) under that SAME
+        condition — not build it unconditionally (TD-723)."""
+        gates = [
+            m.group(1)
+            for m in re.finditer(
+                r'if \[\[ "\$\{GITHUB_SYNC_ENABLED\}" == "true" '
+                r'&& -n "\$\{GITHUB_TOKEN:-\}" \]\]; then(.*?)\n    fi',
+                stack_sh_text,
+                re.DOTALL,
+            )
+            if "SOURCE_BAKE_SERVICES+=" in m.group(1)
+        ]
+        assert gates, (
+            "github-sync must be appended to SOURCE_BAKE_SERVICES inside the "
+            "GITHUB_SYNC_ENABLED + GITHUB_TOKEN gate (TD-723)"
+        )
+        gate = gates[0]
+        assert "SOURCE_BAKE_SERVICES+=(github-sync)" in gate, (
+            "github-sync must be appended to the core source-bake set inside the "
+            "github gate (TD-723)"
+        )
+        assert "--profile github" in gate, (
+            "the github gate must also enable --profile github for the source "
+            "build so github-sync is visible (TD-723)"
+        )
 
     def test_langfuse_build_is_profile_langfuse_aware(self, stack_sh_text):
-        """langfuse services are behind --profile langfuse; the build must pass it."""
-        assert re.search(
-            r"--profile langfuse \\\s*\n\s*build\s+\"\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}\"",
-            stack_sh_text,
+        """langfuse services are behind --profile langfuse; the build invocation
+        must carry --profile langfuse. Asserts co-occurrence within the same
+        `if ! _compose` block, NOT line-adjacency (LOW-5)."""
+        block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES_LANGFUSE")
+        assert (
+            block is not None
+        ), "langfuse source-bake build invocation not found (TD-723)"
+        assert (
+            "--profile langfuse" in block
         ), "langfuse source build must pass --profile langfuse (TD-723)"
 
 
