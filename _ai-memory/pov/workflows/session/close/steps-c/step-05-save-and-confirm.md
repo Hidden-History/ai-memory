@@ -15,11 +15,12 @@ Attempt to save the handoff and task state to Qdrant for cross-session AI-search
 - Available context: Handoff document from Step 3, session summary from Step 1
 - Focus: Qdrant save attempts and final closeout confirmation
 - Limits: Qdrant save is secondary — NEVER block closeout because Qdrant is unavailable
-- Dependencies: Handoff document from Step 3 is required
+- Dependencies: Handoff document from Step 3 is required; cap-enforcement warnings from Step 4 (if any) are surfaced in the §4 checklist only
 
 - Focus on Qdrant save attempts and final closeout confirmation
 **Behavioral Constraints:**
 - FORBIDDEN to block closeout because Qdrant is unavailable
+- Cap-breach warnings from Step 4 do NOT block the Qdrant save or closeout; surface them in the §4 checklist only
 - Approach: Attempt saves gracefully, present final checklist, handle user requests
 - File writes are the primary record — Qdrant is secondary and optional
 
@@ -121,6 +122,7 @@ via SHA-256 `content_hash` dedup.
 - [x] Task status updates: [Applied / Pending user approval]
 - [x] Decision log: [Updated / No new decisions]
 - [x] Blockers log: [Updated / No new blockers]
+- [x] Cap enforcement: [Clean / WARNING: over-cap files noted — remedies: {pending-items}]
 - [x] Qdrant handoff save: [Success / Skipped -- unavailable]
 - [x] Qdrant decision emit: [N saved / Skipped -- unavailable / No new decisions]
 

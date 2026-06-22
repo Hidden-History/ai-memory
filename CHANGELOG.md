@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- TD-702: closeout cap-gate (step-04) no longer hard-blocks the secondary Qdrant save (step-05 §1–§3); cap breaches are now surfaced as warnings with remedies and noted in the step-05 §4 checklist, honoring the workflow's "Qdrant save is secondary, never block closeout" contract.
+
 ## [2.8.0] - 2026-06-21
 
 ### Upgrade Instructions
