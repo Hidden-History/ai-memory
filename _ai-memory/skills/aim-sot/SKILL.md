@@ -1,6 +1,6 @@
 ---
 name: aim-sot
-description: Track the source-of-truth for each part of the user's own project — registry schema, templates, and engine (consult / detect-propose / verify). Detects file and directory drift (content-digest and directory tree-digest), runs a machine-local shadow-git history for change detection, and correlates code changes to stale docs (doc-drift via DOCOWNERS). Use when checking SOT drift, choosing a drift_strategy, setting up the shadow git, or reviewing doc-staleness findings.
+description: Tracks the source-of-truth for each part of the user's own project — registry schema, templates, and engine (consult / detect-propose / verify). Detects file and directory drift (content-digest and directory tree-digest), runs a machine-local shadow-git history for change detection, and correlates code changes to stale docs (doc-drift via DOCOWNERS). Use when checking SOT drift, choosing a drift_strategy, setting up the shadow git, or reviewing doc-staleness findings. Do NOT use for AI Memory search or save operations, or for checking AI Memory system health (use aim-search, aim-save, or aim-status).
 allowed-tools: Bash, Read
 ---
 
