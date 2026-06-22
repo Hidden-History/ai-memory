@@ -141,6 +141,7 @@ def _restore_global_state():
         "EMBEDDING_MAX_WAITERS",
         "EMBEDDING_RETRY_AFTER",
         "EMBEDDING_INFERENCE_THREADS",
+        "EMBEDDING_SAFE_INFLIGHT_TEXTS",
     )
     saved_modules = {k: sys.modules.get(k) for k in module_keys}
     saved_env = {k: os.environ.get(k) for k in env_keys}
@@ -412,6 +413,117 @@ def test_backpressure_waits_without_shedding_under_designed_load():
     # Backpressure engaged (callers were made to wait) but NOTHING was shed.
     assert _backpressure_count(service, "shed") - before_shed == 0
     assert _backpressure_count(service, "waited") - before_waited > 0
+
+
+# --- BUG-326: proactive in-flight-work admission envelope ---
+
+
+def test_admission_envelope_sheds_over_envelope_concurrent_work():
+    """Once work is in flight, a request that would push the concurrent in-flight work
+    over EMBEDDING_SAFE_INFLIGHT_TEXTS is shed (503 + Retry-After); a request that fits is
+    admitted (BUG-326). The semaphore cap is not the binding constraint here — the
+    work-envelope is.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        gate = threading.Event()
+
+        def _blocking_op():
+            gate.wait(timeout=10)  # hold the slot so _inflight_work stays at 30
+            return ["held"]
+
+        # Hold one in-flight request of 30 work-units; wait until it is counted.
+        holder = asyncio.create_task(
+            service.run_inference_async(_blocking_op, work_units=30)
+        )
+        while service._inflight_work < 30:
+            await asyncio.sleep(0)
+
+        # Over-envelope: 30 + 20 = 50 > 40 -> shed.
+        before_shed = _backpressure_count(service, "shed")
+        with pytest.raises(HTTPException) as over:
+            await service.run_inference_async(lambda: ["x"], work_units=20)
+        shed_delta = _backpressure_count(service, "shed") - before_shed
+
+        # Under-envelope: 30 + 10 = 40, not over -> admitted.
+        fit = await service.run_inference_async(lambda: ["y"], work_units=10)
+
+        gate.set()
+        await holder
+        return over.value, shed_delta, fit
+
+    err, shed_delta, fit = asyncio.run(_drive())
+    assert err.status_code == 503
+    assert err.detail == "embedding_admission_over_envelope"
+    assert err.headers["Retry-After"] == str(service.EMBEDDING_RETRY_AFTER)
+    assert shed_delta == 1
+    assert fit == ["y"]
+
+
+def test_admission_envelope_never_starves_lone_request():
+    """A request larger than the envelope is still admitted when nothing else is in
+    flight, so the proactive gate never starves a lone caller — its size is bounded
+    separately by EMBEDDING_MAX_BATCH_TEXTS (BUG-326).
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        # 100 > 40 envelope, but the service is idle (_inflight_work == 0) -> admitted.
+        return await service.run_inference_async(lambda: ["solo"], work_units=100)
+
+    assert asyncio.run(_drive()) == ["solo"]
+
+
+def test_admission_envelope_enforced_on_http_path_with_production_batches():
+    """End-to-end on the real /embed/dense path with production-shaped (~2KB/text)
+    batches: while a 30-text request is in flight, a concurrent 20-text request (30 + 20
+    = 50 > 40 envelope) is shed with the over-envelope 503. Proves work_units is wired
+    from the actual request batch size (BUG-326).
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        gate = threading.Event()
+        entered = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        class _GatedModel:
+            name = "gated-stub"
+
+            def embed(self, embed_texts):
+                loop.call_soon_threadsafe(entered.set)
+                gate.wait(timeout=10)  # hold the slot while the second request arrives
+                return [np.full(768, 0.1, dtype=np.float32) for _ in embed_texts]
+
+        service.MODEL_REGISTRY["en"] = _GatedModel()
+
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
+            held = _production_shaped_batch(count=30)  # 30 in-flight work-units
+            holder = asyncio.create_task(
+                client.post("/embed/dense", json={"texts": held, "model": "en"})
+            )
+            await entered.wait()  # the 30-text request is now in flight (counted)
+
+            over = await client.post(
+                "/embed/dense",
+                json={"texts": _production_shaped_batch(count=20), "model": "en"},
+            )
+
+            gate.set()
+            holder_resp = await holder
+            return over.status_code, over.json().get("detail"), holder_resp.status_code
+
+    status, detail, holder_status = asyncio.run(_drive())
+    assert status == 503
+    assert detail == "embedding_admission_over_envelope"
+    assert holder_status == 200
 
 
 # --- Phase 2: cgroup-v2 reader + memory-aware AIMD self-throttle ---
