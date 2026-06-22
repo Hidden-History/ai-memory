@@ -626,15 +626,17 @@ class TestTitleExtraction:
         )
         assert result == "Architecture Doc Keyword Trigger Mismatch"
 
-    def test_slug_less_bug_file_desluggifies_to_empty(self) -> None:
-        """BUG-001.md with a generic heading and no **Title** field returns empty title.
+    def test_slug_less_bug_file_falls_back_to_stem(self) -> None:
+        """BUG-001.md with a generic heading and no **Title** field falls back to the stem.
 
-        A slug-less file has nothing to de-slugify; extract_title must return "" rather
-        than echoing "BUG-001" as a title.
+        A slug-less file has nothing to de-slugify; extract_title must return the bare
+        stem ("BUG-001") so the INDEX never renders a blank Title cell.
         """
         text = "# Bug Report\n\n**Status**: OPEN\n"
         result = extract_title(text, "BUG-001.md")
-        assert result == "", f"Expected empty title for slug-less file, got {result!r}"
+        assert (
+            result == "BUG-001"
+        ), f"Expected stem fallback for slug-less file, got {result!r}"
 
     def test_slug_less_bug_file_with_good_heading(self) -> None:
         """BUG-001.md with a descriptive heading extracts from the heading normally."""
@@ -642,11 +644,15 @@ class TestTitleExtraction:
         result = extract_title(text, "BUG-001.md")
         assert result == "Some Useful Title"
 
-    def test_slug_less_td_file_desluggifies_to_empty(self) -> None:
-        """TECH-DEBT-010.md with a generic heading returns empty title."""
+    def test_slug_less_td_file_falls_back_to_stem(self) -> None:
+        """TECH-DEBT-010.md with a generic heading falls back to the stem.
+
+        A slug-less file has nothing to de-slugify; extract_title must return the bare
+        stem ("TECH-DEBT-010") so the INDEX never renders a blank Title cell.
+        """
         text = "# Technical Debt Item\n\n**Status**: RESOLVED\n"
         result = extract_title(text, "TECH-DEBT-010.md")
-        assert result == ""
+        assert result == "TECH-DEBT-010"
 
 
 # ---------------------------------------------------------------------------
