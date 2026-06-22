@@ -16,11 +16,14 @@ runtime.
 import re
 from pathlib import Path
 
+import yaml
+
 from memory.evaluator.provider import EvaluatorConfig
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPO_ROOT / "evaluator_config.yaml"
 REQUIREMENTS = REPO_ROOT / "requirements.txt"
+LANGFUSE_COMPOSE = REPO_ROOT / "docker" / "docker-compose.langfuse.yml"
 
 
 def test_requirements_txt_declares_provider_sdks():
@@ -68,3 +71,25 @@ def test_default_provider_client_builds_without_mock():
     config = EvaluatorConfig.from_yaml(str(DEFAULT_CONFIG))
     client = config.get_client()
     assert isinstance(client, OpenAI)
+
+
+def test_evaluator_scheduler_env_has_install_dir():
+    """evaluator-scheduler must declare AI_MEMORY_INSTALL_DIR=/app (TD-712).
+
+    Running as uid 1000 sets HOME=/ inside the container; MemoryConfig then
+    rejects install_dir='/.ai-memory' and the service crash-loops.  Mirroring
+    the trace-flush-worker pattern, AI_MEMORY_INSTALL_DIR=/app must be in the
+    evaluator-scheduler environment block so the config path resolves to /app.
+    """
+    compose = yaml.safe_load(LANGFUSE_COMPOSE.read_text())
+    env_list = compose["services"]["evaluator-scheduler"]["environment"]
+    # env_list is a list of "KEY=VALUE" strings
+    env_vars = {
+        item.split("=", 1)[0]: item.split("=", 1)[1]
+        for item in env_list
+        if isinstance(item, str) and "=" in item
+    }
+    assert env_vars.get("AI_MEMORY_INSTALL_DIR") == "/app", (
+        "evaluator-scheduler environment must contain AI_MEMORY_INSTALL_DIR=/app "
+        "(TD-712: uid 1000 run sets HOME=/ → MemoryConfig crash)"
+    )
