@@ -452,7 +452,7 @@ def test_admission_envelope_sheds_over_envelope_concurrent_work():
 
         gate.set()
         await holder
-        # BUG-327 LOW: all in-flight work unwinds to zero — neither the shed nor the
+        # BUG-327: all in-flight work unwinds to zero — neither the shed nor the
         # admitted requests leak a work-unit (the slot release is callback-driven, so
         # yield until the threadsafe release has run).
         for _ in range(1000):
@@ -568,7 +568,7 @@ def test_admission_envelope_enforced_on_http_path_with_production_batches():
 
             gate.set()
             holder_resp = await holder
-            # BUG-327 LOW: in-flight work fully unwinds after the e2e exchange.
+            # BUG-327: in-flight work fully unwinds after the e2e exchange.
             for _ in range(1000):
                 if service._inflight_work == 0:
                     break
@@ -580,6 +580,109 @@ def test_admission_envelope_enforced_on_http_path_with_production_batches():
     assert status == 503
     assert detail == "embedding_admission_over_envelope"
     assert holder_status == 200
+
+
+def test_admission_envelope_admits_concurrent_work_within_envelope():
+    """BUG-326/327: two requests whose SUMMED work_units fit the envelope (24 + 24 = 48
+    <= 48) are BOTH admitted while the first is held in flight — no spurious 503. The
+    existing legit-traffic test is sequential (_inflight_work resets to 0 between calls),
+    so it cannot exercise the concurrent under-envelope invariant this asserts.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 48
+
+    async def _drive():
+        gate = threading.Event()
+
+        def _hold():
+            gate.wait(timeout=10)  # hold the slot so _inflight_work stays at 24
+            return ["held"]
+
+        holder = asyncio.create_task(service.run_inference_async(_hold, work_units=24))
+        while service._inflight_work < 24:
+            await asyncio.sleep(0)
+
+        # Concurrent second request: 24 + 24 = 48 == envelope (not over) -> admitted.
+        before_shed = _backpressure_count(service, "shed")
+        second = await service.run_inference_async(lambda: ["second"], work_units=24)
+        shed_delta = _backpressure_count(service, "shed") - before_shed
+
+        gate.set()
+        await holder
+        return second, shed_delta
+
+    second, shed_delta = asyncio.run(_drive())
+    assert second == ["second"]
+    assert shed_delta == 0  # the fitting concurrent request was not shed
+
+
+def test_inflight_envelope_default_matches_client_default():
+    """BUG-327: EMBEDDING_SAFE_INFLIGHT_TEXTS (embedding service, docker/embedding/main.py)
+    and _embedding_inflight_envelope() (storage client, src/memory/storage.py) are separate
+    deploy units that cannot share a runtime import, so their DEFAULTS must be kept in
+    lockstep by hand. Fail loudly here if one is re-pegged without the other — otherwise the
+    envelope contract breaks silently (clients would sub-batch to a different size than the
+    server enforces).
+    """
+    os.environ.pop("EMBEDDING_SAFE_INFLIGHT_TEXTS", None)
+    service = _load_service(4)
+    from src.memory.storage import _embedding_inflight_envelope
+
+    client_default = _embedding_inflight_envelope()
+    assert client_default == service.EMBEDDING_SAFE_INFLIGHT_TEXTS
+
+
+def test_over_envelope_batch_returns_permanent_413_on_http_path():
+    """End-to-end on the real /embed/dense ASGI path: a single batch larger than the
+    in-flight-work envelope earns a PERMANENT 413 (no Retry-After), proving the
+    work_units=len(texts) contract and the 413 gate are wired at the endpoint — not only
+    via a direct run_inference_async call. The batch (50) stays well under
+    EMBEDDING_MAX_BATCH_TEXTS (256), so the envelope 413 (not the payload-limit 413) is the
+    one exercised.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
+            resp = await client.post(
+                "/embed/dense",
+                json={"texts": _production_shaped_batch(count=50), "model": "en"},
+            )
+            return resp.status_code, resp.json().get("detail"), dict(resp.headers)
+
+    status, detail, headers = asyncio.run(_drive())
+    assert status == 413
+    assert "memory envelope" in detail  # envelope gate, not the payload-limit guard
+    assert "retry-after" not in {k.lower() for k in headers}  # permanent, not retryable
+
+
+def test_over_envelope_413_is_endpoint_agnostic():
+    """BUG-327: the over-envelope 413 is a server-wide gate (it lives in
+    run_inference_async), so it fires identically on a NON-dense endpoint. Drives the real
+    /embed/sparse ASGI path (BM25, loaded by default — no COLBERT needed) with an
+    over-envelope batch and asserts the same permanent 413.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
+            resp = await client.post(
+                "/embed/sparse",
+                json={"texts": _production_shaped_batch(count=50)},
+            )
+            return resp.status_code, dict(resp.headers)
+
+    status, headers = asyncio.run(_drive())
+    assert status == 413
+    assert "retry-after" not in {k.lower() for k in headers}
 
 
 # --- Phase 2: cgroup-v2 reader + memory-aware AIMD self-throttle ---
@@ -877,7 +980,7 @@ def test_submit_failure_releases_slot_and_returns_503():
         assert not sem.locked(), "slot leaked after submit() failure"
         assert sem._value == 1
         assert service.embedding_inflight._value.get() == before_inflight
-        # BUG-327 LOW: the inline release on submit() failure also unwinds in-flight work
+        # BUG-327: the inline release on submit() failure also unwinds in-flight work
         # (incremented just before submit) back to zero — no work-unit leak.
         assert service._inflight_work == 0
 

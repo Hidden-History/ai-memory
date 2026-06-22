@@ -440,15 +440,30 @@ def test_store_memories_batch_dense_and_main_sparse_bounded_by_envelope(
     assert len(results) == 60
     assert all(r["status"] == "stored" for r in results)
 
+    # Derive the expected split from the live ceiling instead of pinning the literal 48,
+    # so a future envelope re-peg (e.g. BUG-324 live-verify) doesn't break this correct
+    # behavior. Still a strong assertion: exact split, every chunk <= ceiling, sum == total.
+    from src.memory.storage import _client_embed_batch_ceiling
+
+    ceiling = _client_embed_batch_ceiling()
+    total = 60
+    expected = [ceiling] * (total // ceiling)
+    if total % ceiling:
+        expected.append(total % ceiling)
+
     dense_lengths = _dense_lengths(mock_embedding_client)
     sparse_lengths = _sparse_lengths(mock_embedding_client)
-    # Every embed and embed_sparse request stays within the 48-text envelope.
-    assert dense_lengths and all(n <= 48 for n in dense_lengths)
-    assert sparse_lengths and all(n <= 48 for n in sparse_lengths)
-    # The envelope actually bound (a single 60-text call would have exceeded it): 60 -> 2
-    # sub-batches (48, 12) on both the dense and the main-sparse paths.
-    assert dense_lengths == [48, 12]
-    assert sparse_lengths == [48, 12]
+    # Every embed and embed_sparse request stays within the envelope, and the totals are
+    # conserved (no text dropped or duplicated by sub-batching).
+    assert dense_lengths and all(n <= ceiling for n in dense_lengths)
+    assert sparse_lengths and all(n <= ceiling for n in sparse_lengths)
+    assert sum(dense_lengths) == total
+    assert sum(sparse_lengths) == total
+    # The envelope actually bound (a single 60-text call would have exceeded it) and the
+    # dense + main-sparse paths split identically.
+    assert len(dense_lengths) >= 2
+    assert dense_lengths == expected
+    assert sparse_lengths == expected
 
 
 def test_store_memories_batch_chunk_dense_and_sparse_bounded_by_envelope(

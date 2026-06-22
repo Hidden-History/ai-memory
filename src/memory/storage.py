@@ -1001,16 +1001,16 @@ class MemoryStorage:
         # (memory-safety, governs at 48), and EMBEDDING_MAX_BATCH_TEXTS (server hard upper
         # bound) — see _client_embed_batch_ceiling. Emitting batches <= the envelope is the
         # contract the server's lone-request ADMIT (and its over-envelope 413) is built on.
-        sub_batch = _client_embed_batch_ceiling()
+        embed_ceiling = _client_embed_batch_ceiling()
         try:
             for model, items in model_groups.items():
                 indices, contents = zip(*items, strict=True)
                 contents = list(contents)
                 group_embeddings = []
-                for start in range(0, len(contents), sub_batch):
+                for start in range(0, len(contents), embed_ceiling):
                     group_embeddings.extend(
                         self.embedding_client.embed(
-                            contents[start : start + sub_batch], model=model
+                            contents[start : start + embed_ceiling], model=model
                         )
                     )
                 for orig_idx, emb in zip(indices, group_embeddings, strict=True):
@@ -1335,10 +1335,10 @@ class MemoryStorage:
                 try:
                     # BUG-327: sub-batch to <= the in-flight-work envelope (was unbounded).
                     c_embs = []
-                    for start in range(0, len(c_contents), sub_batch):
+                    for start in range(0, len(c_contents), embed_ceiling):
                         c_embs.extend(
                             self.embedding_client.embed(
-                                c_contents[start : start + sub_batch], model=c_model
+                                c_contents[start : start + embed_ceiling], model=c_model
                             )
                         )
                 except EmbeddingError:
@@ -1517,11 +1517,15 @@ class MemoryStorage:
 
         all_out: list[dict] = []
         stored_point_ids: list[str] = []
-        # BUG-327: clamp the configured github code-blob batch to the in-flight-work
-        # envelope so an operator-set github_code_blob_chunk_batch_size (le=128) can never
-        # emit an embed/sparse batch the service would 413. The embed + embed_sparse calls
-        # below iterate sub_batch_size, so this bounds them to <= the envelope.
-        sub_batch_size = min(max(1, chunk_batch_size), _embedding_inflight_envelope())
+        # BUG-327: clamp the configured github code-blob batch to the client embed ceiling
+        # (the tightest of EMBEDDING_SAFE_INFLIGHT_TEXTS, EMBEDDING_CLIENT_SUBBATCH, and
+        # EMBEDDING_MAX_BATCH_TEXTS — see _client_embed_batch_ceiling) so an operator-set
+        # github_code_blob_chunk_batch_size (le=128) can never emit an embed/sparse batch
+        # the service would 413, INCLUDING the case where a low EMBEDDING_MAX_BATCH_TEXTS
+        # (not the envelope) is the binding cap. Matches every other call site's ceiling.
+        # The embed + embed_sparse calls below iterate sub_batch_size, so this bounds them
+        # to <= the ceiling.
+        sub_batch_size = min(max(1, chunk_batch_size), _client_embed_batch_ceiling())
         payload_field_names = {
             field.name for field in dataclasses.fields(MemoryPayload)
         }

@@ -181,7 +181,8 @@ embedding_admission_wait_seconds = _make_metric(
 embedding_backpressure_total = _make_metric(
     Counter,
     "embedding_backpressure",
-    'Backpressure actions: "waited" (made to wait, good) vs "shed" (dropped, ~0)',
+    'Backpressure actions: "waited" (made to wait, good), "shed" (transient 503 drop, ~0), '
+    '"rejected_over_envelope" (permanent 413 for a lone over-envelope batch)',
     ["action"],
 )
 embedding_oom_events_total = _make_metric(
@@ -300,7 +301,11 @@ async def run_inference_async(operation, work_units=1):
     # memory-safety ceiling. NOT retryable: a lone over-envelope batch is never admissible,
     # so a 503 would only make the client retry a request that can never succeed.
     if work_units > EMBEDDING_SAFE_INFLIGHT_TEXTS:
-        embedding_backpressure_total.labels(action="shed").inc()
+        # BUG-327: distinct label — this is the PERMANENT 413 rejection, NOT a transient
+        # load/concurrency shed (action="shed"). It is a server-wide gate: it lives here in
+        # run_inference_async, so every embed endpoint (dense/sparse/late/chunked) enforces
+        # it identically.
+        embedding_backpressure_total.labels(action="rejected_over_envelope").inc()
         logger.warning(
             "embedding_request_over_envelope_rejected",
             extra={
