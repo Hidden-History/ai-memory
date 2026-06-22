@@ -69,7 +69,7 @@ User Request
 1. **Team Builder** analyzes the work request, selects a team structure (single agent, 2-tier flat, or 3-tier hierarchical), assigns file ownership, and produces a team design for user approval.
 2. **Bootstrap** and **Constraints** load Parzival's cross-session memory and behavioral rules.
 3. **Model Dispatch** selects the appropriate LLM model for each agent based on task complexity and role defaults. Routes to the correct provider backend.
-4. **Agent Dispatch** (generic) or **BMAD Dispatch** (persona-based) prepares instructions and spawns agents as teammates.
+4. **Agent Dispatch** prepares instructions and spawns agents as teammates — both generic (non-BMAD) workers and persona-based BMAD roles.
 5. **Agent Lifecycle** manages the running agents through a 9-step cycle: prepare, verify, spawn, send, monitor, review, accept/loop, shutdown, summary.
 
 ---
@@ -79,8 +79,7 @@ User Request
 | Skill | Purpose | When Used |
 |-------|---------|-----------|
 | `aim-parzival-team-builder` | Designs parallel agent teams (2-tier or 3-tier), assigns file ownership, selects conflict avoidance strategy | When work can be decomposed into independent parallel units |
-| `aim-agent-dispatch` | Prepares precise file-referenced instructions and activates generic (non-BMAD) agents | For agents that do not need a BMAD persona (code-reviewer, verify-implementation, skill-creator) |
-| `aim-bmad-dispatch` | Selects the correct BMAD agent role, handles two-phase activation (persona load then instruction) | For BMAD roles: Analyst, PM, Architect, DEV, Scrum Master, UX Designer, and others |
+| `aim-agent-dispatch` | Prepares precise file-referenced instructions and activates agents — generic (non-BMAD) workers and BMAD roles (including two-phase persona activation: persona load then instruction) | For generic agents (code-reviewer, verify-implementation, skill-creator) and BMAD roles (Analyst, PM, Architect, DEV, Scrum Master, UX Designer, and others) |
 | `aim-model-dispatch` | Selects LLM model based on task complexity and agent role; routes to provider backend | Every agent dispatch -- determines whether to use Sonnet, Opus, or a non-Claude model |
 | `aim-agent-lifecycle` | Manages running agents: send instruction, monitor progress, review output, accept or loop corrections, shutdown, summary | After any agent is spawned -- shared across both dispatch paths |
 | `aim-parzival-bootstrap` | Retrieves cross-session memory from Qdrant (session summaries, decisions, conventions, patterns) | On Parzival activation and after context compaction |
@@ -287,8 +286,7 @@ source ~/.bashrc
 | Document | Description |
 |----------|-------------|
 | [docs/parzival/TEAM-BUILDER-GUIDE.md](parzival/TEAM-BUILDER-GUIDE.md) | Team design process, presets, tier selection, file ownership, conflict avoidance |
-| [docs/parzival/AGENT-DISPATCH-GUIDE.md](parzival/AGENT-DISPATCH-GUIDE.md) | Generic agent dispatch cycle, instruction template, quality checklist |
-| [docs/parzival/BMAD-DISPATCH-GUIDE.md](parzival/BMAD-DISPATCH-GUIDE.md) | BMAD agent selection, activation sequences, role selection matrix |
+| [docs/parzival/AGENT-DISPATCH-GUIDE.md](parzival/AGENT-DISPATCH-GUIDE.md) | Generic and BMAD agent dispatch cycle, instruction template, quality checklist |
 | [docs/parzival/MODEL-DISPATCH-GUIDE.md](parzival/MODEL-DISPATCH-GUIDE.md) | Multi-provider LLM routing, provider reference, dispatch modes, multimodal API dispatch |
 | [Model Dispatch Setup Guide](_ai-memory/pov/skills/aim-model-dispatch/references/setup-guide.md) | Step-by-step installation and configuration |
 | [Model Dispatch User Guide](_ai-memory/pov/skills/aim-model-dispatch/references/user-guide.md) | Trigger phrases, backend selection, dispatch examples |

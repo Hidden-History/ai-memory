@@ -547,12 +547,11 @@ my-project/
 │       ├── knowledge/              # Reference docs (complexity, confidence, escalation, etc.)
 │       ├── references/             # Lazy-loaded reference docs (loaded on-demand)
 │       ├── workflows/              # Phase workflows
-│       ├── skills/                 # 7 Parzival skills (source of truth)
+│       ├── skills/                 # 6 Parzival skills (source of truth)
 │       │   ├── aim-parzival-bootstrap/
 │       │   ├── aim-parzival-constraints/
 │       │   ├── aim-parzival-team-builder/
 │       │   ├── aim-agent-dispatch/
-│       │   ├── aim-bmad-dispatch/
 │       │   ├── aim-agent-lifecycle/
 │       │   └── aim-model-dispatch/
 │       └── templates/              # Oversight templates
@@ -576,7 +575,6 @@ my-project/
 │       ├── aim-parzival-constraints/ # Each contains SKILL.md with
 │       ├── aim-parzival-team-builder/# **LOAD** pointer to _ai-memory/pov/skills/
 │       ├── aim-agent-dispatch/
-│       ├── aim-bmad-dispatch/
 │       ├── aim-agent-lifecycle/
 │       ├── aim-model-dispatch/
 │       ├── aim-search/               # Non-Parzival skills (full content, not shims)
