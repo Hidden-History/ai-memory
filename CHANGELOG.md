@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Error-pattern capture no longer flags benign output containing error-shaped substrings** (BUG-325). The PostToolUse hook's detection predicate treated OS/shell diagnostic phrases (`no such file or directory`, `permission denied`, `command not found`, `syntax error`) as errors whenever they appeared *anywhere* in tool output — so a successful `grep` whose matched line merely contained such a phrase was captured and queued for embedding as an `error_pattern`. These phrases are now recognized only when they form an actual diagnostic line (matched at end-of-line, excluding grep `path:line:` content matches); unambiguous markers (tracebacks, `*Error:` exception types, `command not found` shell diagnostics) and any non-zero exit code are still captured. This removes noise records and an uncontrolled `/embed` load amplifier.
+
 ## [2.8.0] - 2026-06-21
 
 ### Upgrade Instructions

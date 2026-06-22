@@ -348,12 +348,8 @@ def detect_error_indicators(output: str, exit_code: int | None) -> bool:
         r"Traceback \(most recent call last\)",
         r"(?:^|\s)(?:Error|Exception|Fatal|FATAL):\s",
         r"(?:^|\s)(?:error|FAILED|panic)\[?\s*[\d:]",
-        r"command not found",
-        r"permission denied",
-        r"no such file or directory",
         r"segmentation fault",
         r"core dumped",
-        r"syntax error",
         r"exit code [1-9]",
         r"FAILED\s",
         r"npm ERR!",
@@ -408,6 +404,25 @@ def detect_error_indicators(output: str, exit_code: int | None) -> bool:
         ]
         if any(phrase in first_lines for phrase in conversational_phrases):
             return False
+
+    # BUG-325: OS/shell diagnostic phrases (e.g. "no such file or directory")
+    # frequently appear as benign *content* — grep matches, quoted string
+    # literals, doc text — on successful commands. Treat them as an error only
+    # when they form an actual diagnostic line: matched at end-of-line and not
+    # inside a grep content match ("path:NN:" / "path-NN-" prefix). This removes
+    # the substring-on-success false positives that amplified embedding load
+    # without dropping genuine OS errors (which also carry a non-zero exit code).
+    grep_content_line = re.compile(r"^\s*[\w./+-]+[:-]\d+[:-]")
+    weak_diagnostic = re.compile(
+        r"(?:command not found|permission denied|"
+        r"no such file or directory|syntax error)[\s.]*$",
+        re.IGNORECASE,
+    )
+    for line in lines:
+        if grep_content_line.match(line):
+            continue
+        if weak_diagnostic.search(line):
+            return True
 
     return False
 
