@@ -44,7 +44,8 @@ scripts/memory/run-with-env.sh store_best_practice.py \
     --domain "python" \
     --tags topic \
     --source "https://source-url.com" \
-    --source-date "2026-01-29"
+    --source-date "2026-01-29" \
+    --group-id "$AI_MEMORY_PROJECT_ID"
 ```
 
 ## 5-Phase Workflow
@@ -92,8 +93,8 @@ scripts/memory/run-with-env.sh store_best_practice.py \
     --domain "YOUR_DOMAIN" \
     --tags YOUR TAGS \
     --source "SOURCE_URL" \
-    --source-date "2026-05-30"
-# Optionally pin scope: --group-id <project-id>  (resolved automatically if omitted)
+    --source-date "2026-05-30" \
+    --group-id "$AI_MEMORY_PROJECT_ID"
 ```
 
 **Checklist before moving to Phase 5**:
