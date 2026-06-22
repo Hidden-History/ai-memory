@@ -242,15 +242,15 @@ cmd_start() {
     fi
 
     # ── Step 1b: Rebuild python-source baked services (core) ─────────────────
-    # TD-723: these core services cache their built image under the build:+image:
-    # hybrid pattern, so `compose up -d` reuses the cached image and a changed
-    # release deploys stale silently. A CACHED `build` (NOT --no-cache)
-    # invalidates only the changed layers, so it's cheap on a no-op restart and
-    # does NOT re-bake embedding ONNX models or re-run the github-sync spacy
-    # download every time. The rebuild redeploys baked changes — baked src for
-    # the baked-src services, and baked pip dependencies (requirements.txt) for
-    # all of them, since `up -d` reuses the cached image. Two source-delivery
-    # classes are present, both needing this rebuild:
+    # TD-723: compose caches each service's built image — built once, reused by
+    # `up -d` even when COPY'd source changed — so a release deploys stale
+    # silently. (embedding uses the build:+image: hybrid pattern; the others are
+    # plain build: services.) A CACHED `build` (NOT --no-cache) invalidates only
+    # the changed layers, so it's cheap on a no-op restart and does NOT re-bake
+    # embedding ONNX models or re-run the github-sync spacy download every time.
+    # The rebuild redeploys baked changes — baked src for the baked-src services,
+    # and baked pip dependencies (requirements.txt) for all of them.
+    # Two source-delivery classes are present, both needing this rebuild:
     #   • baked-src — embedding, monitoring-api (+ github-sync): COPY their python
     #     source into the image with NO src volume mount, so a source change
     #     deploys ONLY via a rebuild.
@@ -258,11 +258,16 @@ cmd_start() {
     #     requirements.txt + pip-installs but volume-mounts ../src:/app/src:ro, so
     #     src changes deploy via the mount, but a requirements.txt change (the
     #     PM #353 'No module named openai' class) still needs a rebuild.
-    # monitoring-api is behind --profile monitoring (default ON) and built
-    # unconditionally; github-sync is behind --profile github and built only when
-    # github sync is enabled (mirrors the `up` gating below). Each profiled
-    # service needs its --profile flag to be visible to `build`.
-    local -a SOURCE_BAKE_SERVICES=(embedding classifier-worker monitoring-api)
+    # monitoring-api is behind --profile monitoring and gated on MONITORING_ENABLED
+    # (default ON, mirrors the `up` gating); github-sync is behind --profile github
+    # and built only when github sync is enabled (mirrors the `up` gating below).
+    # Each profiled service needs its --profile flag to be visible to `build`.
+    local -a SOURCE_BAKE_SERVICES=(embedding classifier-worker)
+    local -a _monitoring_source_profile=()
+    if [[ "${MONITORING_ENABLED}" != "false" ]]; then
+        SOURCE_BAKE_SERVICES+=(monitoring-api)
+        _monitoring_source_profile=(--profile monitoring)
+    fi
     local -a _github_source_profile=()
     if [[ "${GITHUB_SYNC_ENABLED}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
         SOURCE_BAKE_SERVICES+=(github-sync)
@@ -271,11 +276,11 @@ cmd_start() {
     step "Step 1b/2 — Rebuilding python-source baked services (${SOURCE_BAKE_SERVICES[*]})"
     if ! _compose \
             -f "${COMPOSE_CORE}" \
-            --profile monitoring \
+            "${_monitoring_source_profile[@]}" \
             "${_github_source_profile[@]}" \
             build "${SOURCE_BAKE_SERVICES[@]}"; then
         log_warning "Python-source rebuild failed — continuing with cached images. Inspect:"
-        log_warning "  docker compose -f ${COMPOSE_CORE} --profile monitoring ${_github_source_profile[*]} build ${SOURCE_BAKE_SERVICES[*]}"
+        log_warning "  docker compose -f ${COMPOSE_CORE} ${_monitoring_source_profile[*]} ${_github_source_profile[*]} build ${SOURCE_BAKE_SERVICES[*]}"
     fi
 
     # ── Step 1: Core stack ────────────────────────────────────────────────────

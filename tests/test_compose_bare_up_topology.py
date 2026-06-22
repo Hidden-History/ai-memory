@@ -615,9 +615,10 @@ class TestStackShImageBakeRebuild:
 #     requirements.txt change (the PM #353 'No module named openai' class) still
 #     needs a rebuild: classifier-worker (core); evaluator-scheduler (langfuse).
 #
-# Unconditional core members (always built). github-sync is built ONLY when
-# github sync is enabled, so it is asserted separately by the gating test.
-TD723_CORE_SOURCE_SERVICES = ["embedding", "classifier-worker", "monitoring-api"]
+# Unconditional core members (always built). monitoring-api is gated on
+# MONITORING_ENABLED and github-sync on GITHUB_SYNC_ENABLED+GITHUB_TOKEN;
+# both are asserted separately by their respective gating tests.
+TD723_CORE_SOURCE_SERVICES = ["embedding", "classifier-worker"]
 TD723_LANGFUSE_SOURCE_SERVICES = ["evaluator-scheduler", "trace-flush-worker"]
 
 
@@ -643,9 +644,10 @@ class TestStackShSourceBakeRebuild:
     """Verify stack.sh cmd_start contains a CACHED compose build for the
     python-source baked services.
 
-    TD-723: embedding, classifier-worker, monitoring-api, github-sync (core) and
-    evaluator-scheduler, trace-flush-worker (langfuse) cache their built image
-    under the build:+image: hybrid pattern. `compose up -d` reuses the cached
+    TD-723: embedding, classifier-worker, monitoring-api (conditional on
+    MONITORING_ENABLED), and github-sync (conditional on GITHUB_SYNC_ENABLED +
+    GITHUB_TOKEN) in core; evaluator-scheduler and trace-flush-worker in langfuse.
+    compose caches each service's built image; `compose up -d` reuses the cached
     image even when a baked change shipped, so a release deploys stale silently.
     The fix adds a CACHED `build` (NOT --no-cache, so only changed layers are
     invalidated) before each `up -d --wait`. The rebuild redeploys baked changes
@@ -693,15 +695,6 @@ class TestStackShSourceBakeRebuild:
             stack_sh_text,
         ), f"'{service}' must be in the core SOURCE_BAKE_SERVICES array (TD-723)"
 
-    def test_monitoring_api_in_core_source_bake(self, stack_sh_text):
-        """monitoring-api is genuinely baked-src (monitoring/Dockerfile COPYs
-        src with NO src volume mount) and runs under --profile monitoring
-        (default ON), so it must be in the unconditional core source-bake set."""
-        assert re.search(
-            r"SOURCE_BAKE_SERVICES=\([^)]*\bmonitoring-api\b[^)]*\)",
-            stack_sh_text,
-        ), "monitoring-api must be in the core SOURCE_BAKE_SERVICES array (TD-723)"
-
     @pytest.mark.parametrize("service", TD723_LANGFUSE_SOURCE_SERVICES)
     def test_langfuse_service_in_source_bake_array(self, stack_sh_text, service):
         """Each langfuse python-source service must appear in the langfuse array."""
@@ -713,14 +706,54 @@ class TestStackShSourceBakeRebuild:
         ), f"'{service}' must be in the SOURCE_BAKE_SERVICES_LANGFUSE array (TD-723)"
 
     def test_core_build_is_profile_monitoring_aware(self, stack_sh_text):
-        """monitoring-api is behind --profile monitoring, so the core source
-        build invocation must carry --profile monitoring. Asserts co-occurrence
-        within the same `if ! _compose` block, NOT line-adjacency (LOW-5)."""
+        """monitoring-api is behind --profile monitoring; the core source build
+        must expand _monitoring_source_profile so the flag reaches the build
+        when monitoring is enabled. Asserts co-occurrence within the same
+        `if ! _compose` block, NOT line-adjacency (LOW-5)."""
         block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES")
         assert block is not None, "core source-bake build invocation not found (TD-723)"
-        assert "--profile monitoring" in block, (
-            "core source build must pass --profile monitoring so monitoring-api "
-            "is visible (TD-723)"
+        assert '"${_monitoring_source_profile[@]}"' in block, (
+            'core source build must expand "${_monitoring_source_profile[@]}" so '
+            "--profile monitoring reaches the build invocation when monitoring is "
+            "enabled (TD-723)"
+        )
+
+    def test_monitoring_api_build_conditionally_gated(self, stack_sh_text):
+        """monitoring-api is behind --profile monitoring and only started when
+        MONITORING_ENABLED != 'false' (default ON, mirrors the `up` gating),
+        so the core source build must append monitoring-api (and set
+        _monitoring_source_profile) under that SAME condition — not build it
+        unconditionally (TD-723)."""
+        gates = [
+            m.group(1)
+            for m in re.finditer(
+                r'if \[\[ "\$\{MONITORING_ENABLED\}" != "false" \]\]; then(.*?)\n    fi',
+                stack_sh_text,
+                re.DOTALL,
+            )
+            if "SOURCE_BAKE_SERVICES+=" in m.group(1)
+        ]
+        assert gates, (
+            "monitoring-api must be appended to SOURCE_BAKE_SERVICES inside the "
+            "MONITORING_ENABLED gate (TD-723)"
+        )
+        gate = gates[0]
+        assert "SOURCE_BAKE_SERVICES+=(monitoring-api)" in gate, (
+            "monitoring-api must be appended to the core source-bake set inside "
+            "the monitoring gate (TD-723)"
+        )
+        assert "_monitoring_source_profile=(--profile monitoring)" in gate, (
+            "the monitoring gate must set _monitoring_source_profile to "
+            "--profile monitoring so monitoring-api is visible to the build (TD-723)"
+        )
+        # Assert the profile variable is wired into the build invocation
+        build_block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES")
+        assert (
+            build_block is not None
+        ), "core source-bake build invocation not found (TD-723)"
+        assert '"${_monitoring_source_profile[@]}"' in build_block, (
+            '"${_monitoring_source_profile[@]}" must appear in the core source '
+            "build invocation so --profile monitoring is wired in (TD-723)"
         )
 
     def test_github_sync_build_conditionally_gated(self, stack_sh_text):
@@ -750,6 +783,15 @@ class TestStackShSourceBakeRebuild:
         assert "--profile github" in gate, (
             "the github gate must also enable --profile github for the source "
             "build so github-sync is visible (TD-723)"
+        )
+        # Assert the profile variable expansion is wired into the build invocation
+        build_block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES")
+        assert (
+            build_block is not None
+        ), "core source-bake build invocation not found (TD-723)"
+        assert '"${_github_source_profile[@]}"' in build_block, (
+            '"${_github_source_profile[@]}" must appear in the core source build '
+            "invocation so --profile github is wired in, not just set (TD-723)"
         )
 
     def test_langfuse_build_is_profile_langfuse_aware(self, stack_sh_text):
