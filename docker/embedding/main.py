@@ -89,6 +89,36 @@ EMBEDDING_MEMORY_OK_RATIO = float(os.getenv("EMBEDDING_MEMORY_OK_RATIO", "0.75")
 EMBEDDING_MAX_BATCH_TEXTS = int(os.getenv("EMBEDDING_MAX_BATCH_TEXTS", "256"))
 EMBEDDING_MAX_INPUT_CHARS = int(os.getenv("EMBEDDING_MAX_INPUT_CHARS", "1000000"))
 
+# BUG-326: PROACTIVE pre-admission envelope on the worst-case concurrent transient
+# footprint. With the BUG-324 arena-off retention fix in place, the service still admits
+# loads whose *transient* allocation peak reaches the 6 GiB container cap with zero
+# headroom — measured (Round-2 S115): 4 concurrent batch-30 (~2KB/text) /embed requests
+# (= 4 x 30 = 120 concurrent in-flight texts) peaked at exactly 6.000 GiB == cap. It
+# survived only because the kernel held at cap and the #198 AIMD limiter fired AFTER the
+# peak; AIMD is REACTIVE. This bound is PROACTIVE: it caps the sum of batch sizes of all
+# requests concurrently holding an inference slot (the "effective in-flight work", in
+# units of texts) so the worst-case admitted transient cannot reach the cap. It is the
+# equivalent-effective-work realization of bounding (effective_concurrency x batch_size):
+# Sigma(in-flight batch sizes) <= effective_concurrency x max_batch, and is tighter +
+# correct for mixed batch sizes. It COMPLEMENTS — does not replace — the AIMD
+# _effective_limit controller (a second, pre-acquire admission gate; see run_inference_async).
+#
+# Default derivation (conservative; FINAL value set by live verification — see report):
+#   - Anchor: the cap-reproducing load is 4 x 30 = 120 concurrent in-flight texts ->
+#     6.000 GiB == cap (S115, ~2KB/text). Idle base ~1.5 GiB => ~4.5 GiB transient for
+#     120 texts ~= 38 MiB/text (linear-from-idle).
+#   - Bounding concurrent in-flight texts to 48 (= 40% of the 120 that hit the cap)
+#     projects a worst-case peak of ~1.5 + 48 x 0.038 ~= 3.3 GiB — ~2.7 GiB (~45%)
+#     headroom below the 6 GiB cap, and guarantees the exact bug load (120) is shed down
+#     to <= 48 in-flight texts.
+#   - 48 still fully admits the designed multi-client prose regime (<= 32 concurrent
+#     in-flight texts), so healthy load is never shed.
+#   - The 2-way batch-16 (32 texts -> ~5.25 GiB) datapoint is superlinear vs the 120
+#     anchor (text size unspecified, noisier); it is WHY the default sits well under that
+#     work level and why live verification governs the final value. Per-request total
+#     chars remain separately bounded by EMBEDDING_MAX_INPUT_CHARS.
+EMBEDDING_SAFE_INFLIGHT_TEXTS = int(os.getenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", "48"))
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
@@ -128,6 +158,15 @@ def _make_metric(factory, name, *args, **kwargs):
 embedding_inflight = _make_metric(
     Gauge, "embedding_inflight", "Model inferences currently in flight (slots held)"
 )
+# BUG-327: embedding_inflight counts REQUESTS holding a slot; this counts the SUM of
+# their batch sizes (work-units) — the quantity the EMBEDDING_SAFE_INFLIGHT_TEXTS
+# envelope actually bounds. Exposed as a gauge so live load-verification can watch the
+# real in-flight work (not just request count) when tuning the envelope.
+embedding_inflight_work = _make_metric(
+    Gauge,
+    "embedding_inflight_work",
+    "Sum of in-flight batch sizes (work-units) across slots held; bounded by the envelope",
+)
 embedding_queue_depth = _make_metric(
     Gauge,
     "embedding_queue_depth",
@@ -142,7 +181,8 @@ embedding_admission_wait_seconds = _make_metric(
 embedding_backpressure_total = _make_metric(
     Counter,
     "embedding_backpressure",
-    'Backpressure actions: "waited" (made to wait, good) vs "shed" (dropped, ~0)',
+    'Backpressure actions: "waited" (made to wait, good), "shed" (transient 503 drop, ~0), '
+    '"over_envelope_reject" (permanent 413 for a lone over-envelope batch)',
     ["action"],
 )
 embedding_oom_events_total = _make_metric(
@@ -180,6 +220,12 @@ _inference_executor = ThreadPoolExecutor(
 # on the single-threaded event loop, so a plain int needs no lock.
 _waiting_count = 0
 
+# BUG-326: sum of batch sizes of requests CURRENTLY holding an inference slot (the
+# "effective in-flight work", in texts). Bounded by EMBEDDING_SAFE_INFLIGHT_TEXTS at
+# admission. Mutated only on the single-threaded event loop between a slot acquire and
+# its release (no await in that window), so a plain int needs no lock.
+_inflight_work = 0
+
 # BUG-324 Phase 2: the AIMD controller shrinks the EFFECTIVE limit below the static max
 # by *parking* permits on the semaphore (acquiring without releasing) — so a collapse to
 # 1 simply drains as in-flight requests finish. effective = max - parked.
@@ -193,7 +239,7 @@ _blind_hold_logged = False
 embedding_effective_concurrency_limit.set(_effective_limit)
 
 
-async def run_inference_async(operation):
+async def run_inference_async(operation, work_units=1):
     """Run a model inference under the service-global backpressure gate (BUG-324).
 
     Admission is BLOCK-not-drop: the caller waits up to ``EMBEDDING_ACQUIRE_TIMEOUT`` for
@@ -204,21 +250,76 @@ async def run_inference_async(operation):
     (``EMBEDDING_MAX_WAITERS``) or the wait exceeds the timeout — both ~never under
     correctly-sized load, and the client retries them (Phase 3).
 
+    BUG-326: after a slot is acquired, a PROACTIVE envelope gate checks whether admitting
+    this request's ``work_units`` (its batch size) would push the sum of batch sizes of
+    all requests concurrently holding a slot over ``EMBEDDING_SAFE_INFLIGHT_TEXTS``. If
+    so — and only if other work is already in flight — the slot is returned and the
+    request is shed via the SAME 503 + ``Retry-After`` path (detail
+    ``embedding_admission_over_envelope``) so the worst-case admitted concurrent transient
+    cannot reach the container cap. A request that finds the service idle
+    (``_inflight_work == 0``) is ALWAYS admitted regardless of size, so this gate never
+    starves a lone request (the per-request single-batch bound stays
+    ``EMBEDDING_MAX_BATCH_TEXTS`` / the 413 path). The gate is independent of the AIMD
+    ``_effective_limit`` controller — it neither parks nor reads semaphore permits — so
+    the two cannot deadlock or double-count: the semaphore bounds concurrency, this gate
+    bounds concurrent work.
+
     Python-level inference faults are isolated to a 503 so one bad request cannot crash
     the worker; this does NOT protect against an OS-level OOM SIGKILL, which the up-front
     payload limits and the memory budget exist to prevent.
 
+    BUG-327 belt-and-suspenders: a SINGLE request whose ``work_units`` already exceeds
+    ``EMBEDDING_SAFE_INFLIGHT_TEXTS`` is rejected up front with a PERMANENT 413 (not a
+    retryable 503), even when the service is idle — because no amount of waiting makes an
+    over-envelope lone batch memory-safe. This is safe to enforce because all clients now
+    sub-batch to <= the envelope (see storage._client_embed_batch_ceiling), so it never
+    fires on legitimate traffic; it only catches a misbehaving/legacy caller. The
+    lone-request ADMIT for batches <= the envelope is preserved (deadlock prevention).
+
     Args:
         operation: Zero-arg callable performing the (blocking) model inference.
+        work_units: This request's batch size (number of texts to embed); the unit the
+            envelope bounds. Defaults to 1. CONTRACT: callers MUST pass
+            ``work_units=len(texts)`` — the envelope and the 413 gate are only correct if
+            this equals the number of texts ``operation`` will embed. A wrong value
+            silently under- or over-counts in-flight work and defeats the memory bound.
 
     Returns:
         Whatever ``operation`` returns.
 
     Raises:
-        HTTPException: 503 (+ Retry-After) if no slot is admitted within the limits, or
-            if the inference call raises any non-HTTPException error.
+        HTTPException: 413 (permanent) if a lone request's ``work_units`` exceeds the
+            in-flight-work envelope; 503 (+ Retry-After) if no slot is admitted within the
+            limits, if admitting would breach the in-flight-work envelope, or if the
+            inference call raises any non-HTTPException error.
     """
-    global _waiting_count
+    global _waiting_count, _inflight_work
+
+    # BUG-327: permanent 413 for a request whose own batch exceeds the envelope. Checked
+    # before queueing/acquiring a slot (independent of concurrency) — it is the work-unit
+    # twin of _enforce_payload_limits' EMBEDDING_MAX_BATCH_TEXTS guard, at the tighter
+    # memory-safety ceiling. NOT retryable: a lone over-envelope batch is never admissible,
+    # so a 503 would only make the client retry a request that can never succeed.
+    if work_units > EMBEDDING_SAFE_INFLIGHT_TEXTS:
+        # BUG-327: distinct label — this is the PERMANENT 413 rejection, NOT a transient
+        # load/concurrency shed (action="shed"). It is a server-wide gate: it lives here in
+        # run_inference_async, so every embed endpoint (dense/sparse/late/chunked) enforces
+        # it identically.
+        embedding_backpressure_total.labels(action="over_envelope_reject").inc()
+        logger.warning(
+            "embedding_request_over_envelope_rejected",
+            extra={
+                "work_units": work_units,
+                "envelope": EMBEDDING_SAFE_INFLIGHT_TEXTS,
+            },
+        )
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Batch too large for memory envelope: {work_units} texts > "
+                f"max {EMBEDDING_SAFE_INFLIGHT_TEXTS}"
+            ),
+        )
 
     # Bounded wait-queue: shed (last resort) only when the queue itself is full, so total
     # memory = (in-flight + waiting) x per-request peak stays bounded (BP-175 §4).
@@ -261,7 +362,38 @@ async def run_inference_async(operation):
         embedding_queue_depth.set(_waiting_count)
 
     embedding_admission_wait_seconds.observe(time.monotonic() - start)
+
+    # BUG-326 proactive envelope gate. Runs after the slot acquire and before any model
+    # work, in a window with no ``await`` (so the read-and-increment of _inflight_work is
+    # atomic on the single event loop and cannot race other admissions). The semaphore
+    # already caps holders at the AIMD effective limit; this additionally caps the SUM of
+    # their batch sizes. Shed only when other work is already in flight — a lone request
+    # is always admitted so the gate never starves it (its size is bounded separately by
+    # EMBEDDING_MAX_BATCH_TEXTS). The shed gives the slot back, so it does not leak a
+    # permit or interfere with AIMD's parked permits.
+    if (
+        _inflight_work > 0
+        and _inflight_work + work_units > EMBEDDING_SAFE_INFLIGHT_TEXTS
+    ):
+        _inference_semaphore.release()
+        embedding_backpressure_total.labels(action="shed").inc()
+        logger.warning(
+            "embedding_admission_over_envelope",
+            extra={
+                "inflight_work": _inflight_work,
+                "work_units": work_units,
+                "envelope": EMBEDDING_SAFE_INFLIGHT_TEXTS,
+            },
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="embedding_admission_over_envelope",
+            headers={"Retry-After": str(EMBEDDING_RETRY_AFTER)},
+        )
+
+    _inflight_work += work_units
     embedding_inflight.inc()
+    embedding_inflight_work.set(_inflight_work)
     # M1 (BUG-324): release the slot EXACTLY ONCE and ONLY when the executor thread truly
     # completes. A client disconnect raises asyncio.CancelledError (a BaseException) out of
     # the await below; releasing in the request-coroutine ``finally`` would free the
@@ -276,7 +408,10 @@ async def run_inference_async(operation):
     loop = asyncio.get_running_loop()
 
     def _release_slot():
+        global _inflight_work
+        _inflight_work -= work_units
         embedding_inflight.dec()
+        embedding_inflight_work.set(_inflight_work)
         _inference_semaphore.release()
 
     # If submit() raises (executor shutdown -> RuntimeError; or BrokenThreadPool after a
@@ -586,7 +721,9 @@ def load_models():
     en_name = MODEL_NAMES["en"]
     logger.info("model_loading", extra={"model": en_name, "key": "en"})
     start_load = time.time()
-    MODEL_REGISTRY["en"] = TextEmbedding(en_name, threads=EMBEDDING_INFERENCE_THREADS)
+    MODEL_REGISTRY["en"] = TextEmbedding(
+        en_name, threads=EMBEDDING_INFERENCE_THREADS, enable_cpu_mem_arena=False
+    )
     load_duration = time.time() - start_load
     logger.info(
         "model_loaded",
@@ -603,7 +740,7 @@ def load_models():
         logger.info("model_loading", extra={"model": code_name, "key": "code"})
         start_load = time.time()
         MODEL_REGISTRY["code"] = TextEmbedding(
-            code_name, threads=EMBEDDING_INFERENCE_THREADS
+            code_name, threads=EMBEDDING_INFERENCE_THREADS, enable_cpu_mem_arena=False
         )
         load_duration = time.time() - start_load
         logger.info(
@@ -757,16 +894,23 @@ async def health():
     healthcheck. This handler does only trivial in-memory work, so running it on the
     loop is safe.
 
-    TD-553 (don't restart a draining service): readiness is tied to ``model_loaded``,
+    BUG-321 (don't restart a draining service): readiness is tied to ``model_loaded``,
     NOT to load or memory pressure. Under the AIMD drain mode (effective concurrency
     collapsed toward 1) the models stay loaded, so this returns 200 "healthy" — a
     pressured-but-functioning service is never marked unhealthy and is not restarted.
     Because the handler runs on the loop and does no inference, it stays responsive
     within the healthcheck timeout even when every inference slot is occupied.
+
+    TD-553: The 503-on-aliased-fallback gate below implements oversight TD-553.
     """
     model_loaded = all(m is not None for m in MODEL_REGISTRY.values())
+    code_aliased_to_en = MODEL_REGISTRY.get("code") is MODEL_REGISTRY.get("en")
     response = HealthResponse(
-        status="healthy" if model_loaded else "loading",
+        status=(
+            "healthy"
+            if (model_loaded and not code_aliased_to_en)
+            else ("loading" if not model_loaded else "degraded")
+        ),
         model_loaded=model_loaded,
         model=MODEL_NAMES["en"],  # KEPT: backward compat for existing monitors
         models=list(MODEL_NAMES.values()),  # NEW: list both models
@@ -775,7 +919,7 @@ async def health():
         sparse_models=list(SPARSE_REGISTRY.keys()),
         late_models=list(LATE_REGISTRY.keys()),
     )
-    if not model_loaded:
+    if not model_loaded or code_aliased_to_en:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(
@@ -798,7 +942,9 @@ async def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
     _enforce_payload_limits(request.texts)
 
     model = MODEL_REGISTRY[request.model]
-    embeddings = await run_inference_async(lambda: list(model.embed(request.texts)))
+    embeddings = await run_inference_async(
+        lambda: list(model.embed(request.texts)), work_units=len(request.texts)
+    )
     return EmbedDenseResponse(
         embeddings=[e.tolist() for e in embeddings],
         model=MODEL_NAMES[request.model],
@@ -844,7 +990,9 @@ async def embed_chunked(request: EmbedWithOffsetsRequest):
 
     if not request.chunk_offsets:
         # No offsets — embed whole document as single vector
-        embeddings = await run_inference_async(lambda: list(model.embed([document])))
+        embeddings = await run_inference_async(
+            lambda: list(model.embed([document])), work_units=1
+        )
         return EmbedResponse(
             embeddings=[e.tolist() for e in embeddings],
             model=MODEL_NAMES["en"],
@@ -860,7 +1008,9 @@ async def embed_chunked(request: EmbedWithOffsetsRequest):
         chunk_texts.append(document[start:end])
     _enforce_payload_limits(chunk_texts)
 
-    embeddings = await run_inference_async(lambda: list(model.embed(chunk_texts)))
+    embeddings = await run_inference_async(
+        lambda: list(model.embed(chunk_texts)), work_units=len(chunk_texts)
+    )
     return EmbedResponse(
         embeddings=[e.tolist() for e in embeddings],
         model=MODEL_NAMES["en"],
@@ -877,7 +1027,9 @@ async def embed_sparse(request: EmbedSparseRequest):
         raise HTTPException(status_code=503, detail="BM25 model not loaded")
     _enforce_payload_limits(request.texts)
     model = SPARSE_REGISTRY["bm25"]
-    results = await run_inference_async(lambda: list(model.embed(request.texts)))
+    results = await run_inference_async(
+        lambda: list(model.embed(request.texts)), work_units=len(request.texts)
+    )
     return EmbedSparseResponse(
         embeddings=[
             SparseEmbeddingResult(indices=r.indices.tolist(), values=r.values.tolist())
@@ -899,7 +1051,9 @@ async def embed_late(request: EmbedLateRequest):
         )
     _enforce_payload_limits(request.texts)
     model = LATE_REGISTRY["colbert"]
-    results = await run_inference_async(lambda: list(model.embed(request.texts)))
+    results = await run_inference_async(
+        lambda: list(model.embed(request.texts)), work_units=len(request.texts)
+    )
     return EmbedLateResponse(
         embeddings=[LateEmbeddingResult(embeddings=r.tolist()) for r in results],
         model="colbert-ir/colbertv2.0",
