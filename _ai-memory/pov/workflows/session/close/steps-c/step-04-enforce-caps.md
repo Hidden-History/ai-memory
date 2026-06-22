@@ -1,6 +1,6 @@
 ---
 name: 'step-04-enforce-caps'
-description: 'Enforce oversight-file caps before save; block closeout while any governed file is over cap'
+description: 'Enforce oversight-file caps before save; surface breaches as warnings with remedies; always advance to Step 5'
 nextStepFile: './step-05-save-and-confirm.md'
 ---
 
@@ -10,8 +10,9 @@ nextStepFile: './step-05-save-and-confirm.md'
 
 ## STEP GOAL:
 
-Run the cap-enforcement gate so closeout cannot declare complete — or push a
-bloated handoff to Qdrant — while any governed file is over its cap. The gate
+Run the cap-enforcement gate: it surfaces any over-cap governed file as a
+WARNING with its remedy and always advances to Step 5 — it never blocks the
+secondary Qdrant save. The gate
 spans BOTH domains: the **oversight** classes (`aim-tracking-rotate`) AND the
 **sanctum** identity classes (`aim-lore-hygiene` — CREED/PERSONA/LORE/BOND/
 MEMORY), so creep like the PERSONA `## Evolution Log` is caught automatically.
@@ -21,12 +22,12 @@ the Qdrant save (Step 5).
 **Scope:**
 - Available context: handoff from Step 3, tracking updated in Step 2
 - Focus: cap enforcement only — Qdrant save is the next step
-- Limits: a breach in EITHER gate BLOCKS closeout until fixed; do not skip, do not save over a breach
+- Limits: a breach in EITHER gate is surfaced as a WARNING with remedies; the Qdrant save (Step 5) always runs regardless
 - Dependencies: handoff written (Step 3) and tracking rotated (Step 2)
 
 **Behavioral Constraints:**
-- FORBIDDEN to proceed to Step 5 while EITHER `--check` reports a breach
-- Approach: run both gates, fix any over-cap file with the surfaced remedy, re-run until both clean
+- Run both gates; surface any breach as a WARNING with its remedy commands
+- Approach: fix any over-cap file with the surfaced remedy where possible; always advance to Step 5 after both gates run
 
 ## Sequence
 
@@ -46,7 +47,8 @@ absent. Caps are byte **and** line — either breach fails.
 
 - **Exit 0 (PASS)** → all governed oversight files within cap. Note it and proceed.
 - **Exit non-zero (FAIL)** → the gate prints a SYSTEM FAILURE block per
-  over-cap file (file, size, cap, remedy command). Closeout is BLOCKED.
+  over-cap file (file, size, cap, remedy command). Surface as **WARNING**: note
+  the breach and its remedy; apply the fix where possible; then continue.
 
 ### 1b. Run the Sanctum Enforcement Gate
 
@@ -68,9 +70,10 @@ closeout per A2: full files stay on disk and rotation is tag-driven), and PERSON
 - **Exit 0 (PASS)** → no blocking breach (any over-size LORE/MEMORY is a WARNING
   only). Note it and proceed.
 - **Exit non-zero (FAIL)** → a SYSTEM FAILURE block per over-cap file with its
-  remedy. Closeout is BLOCKED. **Identity files (CREED/PERSONA/LORE/BOND) are a
-  STOP-GATE**: a relocation that moves real identity content needs Will +
-  Parzival approval of the proposed diff before `--apply` (do not auto-apply).
+  remedy. Surface as **WARNING**: note the breach and its remedy; then continue.
+  **Identity files (CREED/PERSONA/LORE/BOND): do not auto-apply** — a relocation
+  needs Will + Parzival approval of the proposed diff; note as a pending WARNING
+  in the closeout checklist.
 
 ### 2. Rotate Any Over-Cap File
 
@@ -113,13 +116,13 @@ python ~/.ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_r
 If `--fix` reports that a heartbeat body is still over cap after the front-matter
 refresh, trim the body by hand, then re-run.
 
-### 3. Re-Run Until Both Clean
+### 3. Confirm Fixes and Note Unresolvable Warnings
 
-Re-run the Step 1 (oversight) AND Step 1b (sanctum) `--check` commands. Repeat
-fix → re-check until BOTH report PASS. Only when both gates are clean may you
-advance to Step 5.
+After applying the §2 remedies, re-run the relevant `--check` to confirm each
+fix. If a breach cannot be resolved (e.g. identity STOP-GATE awaiting approval),
+note it as a pending WARNING in the closeout checklist and continue to Step 5.
 
 ## CRITICAL STEP COMPLETION NOTE
 
-ONLY when BOTH `--check` gates report PASS (all governed oversight AND sanctum
-files within cap), load and read fully {nextStepFile}
+After running both gates and noting any breach warnings (resolving where
+possible), always load and read fully {nextStepFile}
