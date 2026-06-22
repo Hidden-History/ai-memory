@@ -586,7 +586,9 @@ def load_models():
     en_name = MODEL_NAMES["en"]
     logger.info("model_loading", extra={"model": en_name, "key": "en"})
     start_load = time.time()
-    MODEL_REGISTRY["en"] = TextEmbedding(en_name, threads=EMBEDDING_INFERENCE_THREADS)
+    MODEL_REGISTRY["en"] = TextEmbedding(
+        en_name, threads=EMBEDDING_INFERENCE_THREADS, enable_cpu_mem_arena=False
+    )
     load_duration = time.time() - start_load
     logger.info(
         "model_loaded",
@@ -603,7 +605,7 @@ def load_models():
         logger.info("model_loading", extra={"model": code_name, "key": "code"})
         start_load = time.time()
         MODEL_REGISTRY["code"] = TextEmbedding(
-            code_name, threads=EMBEDDING_INFERENCE_THREADS
+            code_name, threads=EMBEDDING_INFERENCE_THREADS, enable_cpu_mem_arena=False
         )
         load_duration = time.time() - start_load
         logger.info(
@@ -757,16 +759,23 @@ async def health():
     healthcheck. This handler does only trivial in-memory work, so running it on the
     loop is safe.
 
-    TD-553 (don't restart a draining service): readiness is tied to ``model_loaded``,
+    BUG-321 (don't restart a draining service): readiness is tied to ``model_loaded``,
     NOT to load or memory pressure. Under the AIMD drain mode (effective concurrency
     collapsed toward 1) the models stay loaded, so this returns 200 "healthy" — a
     pressured-but-functioning service is never marked unhealthy and is not restarted.
     Because the handler runs on the loop and does no inference, it stays responsive
     within the healthcheck timeout even when every inference slot is occupied.
+
+    TD-553: The 503-on-aliased-fallback gate below implements oversight TD-553.
     """
     model_loaded = all(m is not None for m in MODEL_REGISTRY.values())
+    code_aliased_to_en = MODEL_REGISTRY.get("code") is MODEL_REGISTRY.get("en")
     response = HealthResponse(
-        status="healthy" if model_loaded else "loading",
+        status=(
+            "healthy"
+            if (model_loaded and not code_aliased_to_en)
+            else ("loading" if not model_loaded else "degraded")
+        ),
         model_loaded=model_loaded,
         model=MODEL_NAMES["en"],  # KEPT: backward compat for existing monitors
         models=list(MODEL_NAMES.values()),  # NEW: list both models
@@ -775,7 +784,7 @@ async def health():
         sparse_models=list(SPARSE_REGISTRY.keys()),
         late_models=list(LATE_REGISTRY.keys()),
     )
-    if not model_loaded:
+    if not model_loaded or code_aliased_to_en:
         from fastapi.responses import JSONResponse
 
         return JSONResponse(

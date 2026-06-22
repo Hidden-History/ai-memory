@@ -757,3 +757,80 @@ def test_blind_hold_at_one_logs_once_per_state_entry(caplog):
 
     blind_logs = asyncio.run(_drive())
     assert len(blind_logs) == 1
+
+
+# --- BUG-324: enable_cpu_mem_arena=False on both TextEmbedding constructors ---
+
+
+def test_text_embedding_constructors_disable_cpu_mem_arena():
+    """Both TextEmbedding constructors pass enable_cpu_mem_arena=False (BUG-324).
+
+    Bypasses _load_service() so the spy TextEmbedding is not overwritten by
+    _install_fake_fastembed() during module load.
+    """
+    call_kwargs = []
+
+    class _SpyDenseModel(_StubDenseModel):
+        def __init__(self, *args, **kwargs):
+            call_kwargs.append(dict(kwargs))
+            super().__init__(*args, **kwargs)
+
+    spy_fastembed = ModuleType("fastembed")
+    spy_fastembed.TextEmbedding = _SpyDenseModel
+    spy_fastembed.SparseTextEmbedding = _StubSparseModel
+    spy_fastembed.LateInteractionTextEmbedding = _StubLateModel
+    sys.modules["fastembed"] = spy_fastembed
+
+    os.environ["EMBEDDING_MAX_CONCURRENCY"] = "4"
+    sys.modules.pop("embedding_main_under_test", None)
+    spec = importlib.util.spec_from_file_location(
+        "embedding_main_under_test", _MAIN_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # load_models() must call TextEmbedding for both "en" and "code" at startup.
+    assert (
+        len(call_kwargs) >= 2
+    ), f"Expected ≥2 TextEmbedding calls, got {len(call_kwargs)}"
+    for i, kwargs in enumerate(call_kwargs):
+        assert (
+            kwargs.get("enable_cpu_mem_arena") is False
+        ), f"TextEmbedding call {i} must pass enable_cpu_mem_arena=False; got {kwargs}"
+    # Confirm the module loaded cleanly (both registry keys present)
+    assert "en" in module.MODEL_REGISTRY
+    assert "code" in module.MODEL_REGISTRY
+
+
+# --- TD-553: /health aliased-fallback detection ---
+
+
+def test_health_both_models_loaded_returns_200():
+    """Both models loaded and distinct → /health returns HTTP 200 (BUG-289 / TD-553)."""
+    service = _load_service(4)
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "healthy"
+    assert resp.json()["model_loaded"] is True
+
+
+def test_health_code_aliased_to_en_returns_503():
+    """Code model aliased to en model (fallback) → /health returns HTTP 503 (TD-553)."""
+    service = _load_service(4)
+    # Simulate aliased fallback: code model failed to load, registry entry aliased to en
+    service.MODEL_REGISTRY["code"] = service.MODEL_REGISTRY["en"]
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "degraded"
+
+
+def test_health_model_none_returns_503():
+    """Any model None → /health returns HTTP 503 (existing BUG-289 case)."""
+    service = _load_service(4)
+    service.MODEL_REGISTRY["code"] = None
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "loading"
