@@ -218,6 +218,81 @@ class TestDetectErrorIndicators:
         assert self.detect("Hello World", 0) is False
         assert self.detect("Build complete.\n3 files processed.", 0) is False
 
+    def test_bug325_benign_substring_on_success_not_detected(self):
+        """BUG-325: benign output merely *containing* an error-shaped substring
+        on a successful command (exit 0) must NOT be captured."""
+        benign_exit0 = [
+            # grep -n match whose content contains the phrase mid-line — this
+            # genuinely fired pre-fix (bare substring match). (Replaces the
+            # original "utils.sh:15:log_error() {" case: `log_error` was a
+            # mis-cited trigger in the BUG-325 report — it never matched any
+            # predicate, so that case was inert both pre- and post-fix.)
+            "lib/io.sh:42:  msg=no such file or directory",
+            # grep -n match where the phrase is benign source content
+            'install.sh:88:    test -f "$f" || echo "no such file or directory"',
+            # bare grep returning a quoted string literal
+            '    msg = "no such file or directory"',
+            '    echo "no such file or directory" >&2',
+            # phrase buried mid-line as documentation/content
+            "README.md:12:set perms or you get permission denied here",
+        ]
+        for output in benign_exit0:
+            assert self.detect(output, 0) is False, f"False positive on: {output!r}"
+            assert self.detect(output, None) is False, f"False positive on: {output!r}"
+
+    def test_bug325_genuine_os_errors_still_detected(self):
+        """BUG-325: genuine OS/shell errors must still be captured — via the
+        non-zero exit code AND, when the exit code is unavailable, via the
+        actual end-of-line diagnostic shape."""
+        # Real diagnostic lines (phrase as the line's diagnostic) — exit unknown
+        assert self.detect("cat: missing.txt: No such file or directory", None) is True
+        assert (
+            self.detect("ls: cannot access x: No such file or directory", None) is True
+        )
+        assert self.detect("rm: cannot remove 'x': Permission denied", None) is True
+        # bash command-not-found diagnostic on a reported-zero exit
+        assert self.detect("bash: foobar: command not found", 0) is True
+        # Non-zero exit code is always an error regardless of text shape
+        assert self.detect("install.sh:88: no such file or directory", 1) is True
+
+    def test_bug325_stderr_midline_diagnostic_detected(self):
+        """BUG-325 F1: genuine OS/shell diagnostics arrive on stderr. A weak
+        phrase anywhere on a stderr line is a real error even when the exit code
+        is unavailable (newer Claude Code may omit `exitCode`) and the phrase is
+        NOT at end-of-line — the false-negative the fix-r1 stderr signal closes."""
+        # syntax error mid-line, exit code absent — dropped before the fix
+        assert (
+            self.detect(
+                "bash: line 1: syntax error near unexpected token `('",
+                None,
+                is_stderr=True,
+            )
+            is True
+        )
+        # weak phrase mid-line on stderr, exit code absent
+        assert (
+            self.detect(
+                "cp: cannot stat 'x': No such file or directory — aborting",
+                None,
+                is_stderr=True,
+            )
+            is True
+        )
+
+    def test_bug325_stdout_grep_without_line_number_not_detected(self):
+        """BUG-325 F2: a grep match WITHOUT -n (bare `filename:` prefix, no line
+        number) whose content ends with a weak phrase must NOT be captured on a
+        successful command (stdout, exit 0). This fired pre-fix-r1."""
+        assert (
+            self.detect(
+                "./README.md:see the docs if you get no such file or directory",
+                0,
+                is_stderr=False,
+            )
+            is False
+        )
+        assert self.detect("./notes.txt:permission denied", 0, is_stderr=False) is False
+
 
 class TestHookExitCodes:
     """H-4: All hooks must exit 0 on failure (§1.2 Principle 4)."""
