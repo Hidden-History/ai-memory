@@ -586,7 +586,9 @@ def load_models():
     en_name = MODEL_NAMES["en"]
     logger.info("model_loading", extra={"model": en_name, "key": "en"})
     start_load = time.time()
-    MODEL_REGISTRY["en"] = TextEmbedding(en_name, threads=EMBEDDING_INFERENCE_THREADS)
+    MODEL_REGISTRY["en"] = TextEmbedding(
+        en_name, threads=EMBEDDING_INFERENCE_THREADS, enable_cpu_mem_arena=False
+    )
     load_duration = time.time() - start_load
     logger.info(
         "model_loaded",
@@ -603,7 +605,7 @@ def load_models():
         logger.info("model_loading", extra={"model": code_name, "key": "code"})
         start_load = time.time()
         MODEL_REGISTRY["code"] = TextEmbedding(
-            code_name, threads=EMBEDDING_INFERENCE_THREADS
+            code_name, threads=EMBEDDING_INFERENCE_THREADS, enable_cpu_mem_arena=False
         )
         load_duration = time.time() - start_load
         logger.info(

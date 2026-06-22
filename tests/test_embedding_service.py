@@ -759,6 +759,49 @@ def test_blind_hold_at_one_logs_once_per_state_entry(caplog):
     assert len(blind_logs) == 1
 
 
+# --- BUG-324: enable_cpu_mem_arena=False on both TextEmbedding constructors ---
+
+
+def test_text_embedding_constructors_disable_cpu_mem_arena():
+    """Both TextEmbedding constructors pass enable_cpu_mem_arena=False (BUG-324).
+
+    Bypasses _load_service() so the spy TextEmbedding is not overwritten by
+    _install_fake_fastembed() during module load.
+    """
+    call_kwargs = []
+
+    class _SpyDenseModel(_StubDenseModel):
+        def __init__(self, *args, **kwargs):
+            call_kwargs.append(dict(kwargs))
+            super().__init__(*args, **kwargs)
+
+    spy_fastembed = ModuleType("fastembed")
+    spy_fastembed.TextEmbedding = _SpyDenseModel
+    spy_fastembed.SparseTextEmbedding = _StubSparseModel
+    spy_fastembed.LateInteractionTextEmbedding = _StubLateModel
+    sys.modules["fastembed"] = spy_fastembed
+
+    os.environ["EMBEDDING_MAX_CONCURRENCY"] = "4"
+    sys.modules.pop("embedding_main_under_test", None)
+    spec = importlib.util.spec_from_file_location(
+        "embedding_main_under_test", _MAIN_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # load_models() must call TextEmbedding for both "en" and "code" at startup.
+    assert (
+        len(call_kwargs) >= 2
+    ), f"Expected ≥2 TextEmbedding calls, got {len(call_kwargs)}"
+    for i, kwargs in enumerate(call_kwargs):
+        assert (
+            kwargs.get("enable_cpu_mem_arena") is False
+        ), f"TextEmbedding call {i} must pass enable_cpu_mem_arena=False; got {kwargs}"
+    # Confirm the module loaded cleanly (both registry keys present)
+    assert "en" in module.MODEL_REGISTRY
+    assert "code" in module.MODEL_REGISTRY
+
+
 # --- TD-553: /health aliased-fallback detection ---
 
 

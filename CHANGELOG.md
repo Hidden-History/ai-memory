@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Embedding service CPU memory arena disabled (BUG-324)** — both `TextEmbedding` constructors now pass `enable_cpu_mem_arena=False`, disabling the onnxruntime BFC arena that retains mmap'd regions and never returns them to the OS. A controlled A/B measured a 3.8× reduction in retained memory (5289 → 1381 MiB) with no further accumulation under load. The 6 GiB container cap is retained as headroom for the transient inference peak (~4.3 GiB), which does return after the run.
 - **Embedding service `/health` aliased-fallback detection (TD-553 / BUG-289)** — the `health()` endpoint now returns HTTP 503 when the code model has fallen back to the English model alias (both registry entries point to the same object), not only when a model entry is `None`. The response body `status` field reflects `"degraded"` in this case. Compose `depends_on: condition: service_healthy` now correctly gates on genuine dual-model readiness; consumers no longer receive a false-healthy signal when the code model is degraded.
 
 ## [2.8.0] - 2026-06-21
