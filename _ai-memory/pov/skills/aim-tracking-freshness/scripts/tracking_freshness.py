@@ -100,7 +100,7 @@ _SEV_ALIASES: dict[str, str] = {
 _SEV_KNOWN: frozenset[str] = frozenset(["CRITICAL", "HIGH", "MEDIUM", "LOW"])
 
 # Title: explicit **Title**: field (used by records with generic headings, e.g. BUG-047 group).
-_TITLE_FIELD_RE = re.compile(r"^\*\*Title:?\*\*:?\s*(.+)$", re.MULTILINE)
+_TITLE_FIELD_RE = re.compile(r"^\*\*Title:?\*\*:?[^\S\n]*([^:\n][^\n]*)$", re.MULTILINE)
 
 # H1 or H2 headings; companion regex strips the ID prefix.
 # ID prefix formats confirmed in live tree:
@@ -292,8 +292,10 @@ def _de_slugify(filename: str) -> str:
     """Convert a slug filename to a readable title (last-resort fallback).
 
     Returns the slug portion of the filename as a title-cased phrase, or an
-    empty string when the filename has no slug (e.g. ``BUG-001.md``).  An
-    empty return signals that ``extract_title`` should not echo the bare ID.
+    empty string when the filename has no slug (e.g. ``BUG-001.md``).  May
+    also return a whitespace-only string for degenerate slugs (e.g.
+    ``BUG-001--.md``); callers should test ``slug.strip()`` to guard against
+    visually blank results.
 
     Examples:
         ``BUG-047-installer-fails-with-spaces-in-path.md``
@@ -318,8 +320,8 @@ def extract_title(text: str, filename: str) -> str:
        Headings that resolve to noise tokens (``Bug Report``,
        ``Root Cause Analysis``, ``Investigation Report``) are skipped.
     3. De-slugified filename (``BUG-047-installer-fails-…`` → readable words).
-       Returns empty string for slug-less files (``BUG-001.md``) to avoid
-       echoing the bare ID as a title.
+       Falls back to the bare stem (``BUG-001``) for slug-less files so the
+       return value is never empty.
     """
     # 1. Explicit **Title**: field
     m = _TITLE_FIELD_RE.search(text)
@@ -336,8 +338,13 @@ def extract_title(text: str, filename: str) -> str:
         if stripped and not _GENERIC_HEADING_RE.match(stripped):
             return stripped
 
-    # 3. De-slugify filename as last resort (returns "" for slug-less filenames)
-    return _de_slugify(filename)
+    # 3. De-slugify filename as last resort; for slug-less bare-ID files
+    #    (e.g. BUG-001.md) fall back to the stem (e.g. "BUG-001") so no
+    #    INDEX Title cell is ever blank.
+    slug = _de_slugify(filename)
+    if slug.strip():
+        return slug
+    return Path(filename).stem
 
 
 # ---------------------------------------------------------------------------

@@ -811,3 +811,120 @@ class TestExtractEvidenceTokensVersions:
         tokens = tf.extract_evidence_tokens(text, "001", "bug")
         assert "versions" in tokens
         assert tokens["versions"] == set()
+
+
+# ---------------------------------------------------------------------------
+# extract_title — blank-title fix (BUG-B6)
+# ---------------------------------------------------------------------------
+
+
+class TestExtractTitle:
+    """Unit tests for extract_title() — verifies the blank-title fix (BUG-B6)."""
+
+    # --- stem fallback: bare-ID files ---
+
+    def test_bare_id_bug_file_returns_stem_not_empty(self) -> None:
+        """BUG-001.md with no extractable title returns 'BUG-001', never ''."""
+        result = tf.extract_title("**Status**: OPEN\n", "BUG-001.md")
+        assert result != "", "extract_title must never return empty string"
+        assert result == "BUG-001"
+
+    def test_bare_id_td_file_returns_stem_not_empty(self) -> None:
+        """TECH-DEBT-042.md with no extractable title returns 'TECH-DEBT-042', never ''."""
+        result = tf.extract_title("**Status**: OPEN\n", "TECH-DEBT-042.md")
+        assert result != "", "extract_title must never return empty string"
+        assert result == "TECH-DEBT-042"
+
+    def test_generic_h1_bug_report_bare_id_falls_back_to_stem(self) -> None:
+        """Generic H1 'Bug Report' on a bare-ID file → stem fallback."""
+        text = "# Bug Report\n\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "BUG-007.md")
+        assert result == "BUG-007"
+
+    def test_generic_h1_rca_bare_id_falls_back_to_stem(self) -> None:
+        """Generic H1 'Root Cause Analysis' on a bare-ID TD file → stem fallback.
+
+        Distinct from the Bug Report case: exercises a different _GENERIC_HEADING_RE
+        token and a TECH-DEBT stem, confirming generic-heading suppression across
+        record kinds.
+        """
+        text = "# Root Cause Analysis\n\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "TECH-DEBT-042.md")
+        assert result == "TECH-DEBT-042"
+
+    def test_whitespace_only_slug_falls_back_to_stem(self) -> None:
+        """Degenerate slug (BUG-001--.md → ' ') must not produce a blank cell.
+
+        _de_slugify('BUG-001--.md') → ' ' (truthy).  Before the slug.strip()
+        fix, extract_title returned that space and rendered a blank Title cell.
+        After the fix it falls through to the stem fallback.
+        """
+        result = tf.extract_title("**Status**: OPEN\n", "BUG-001--.md")
+        assert result.strip() != "", "whitespace-only slug must not render a blank cell"
+        assert result == "BUG-001--"
+
+    # --- higher-priority paths: heading and explicit Title field ---
+
+    def test_slug_ful_file_returns_slug_not_stem(self) -> None:
+        """Slug-ful filename still returns de-slugified words, not the stem."""
+        result = tf.extract_title("**Status**: OPEN\n", "BUG-047-installer-fails.md")
+        assert result == "Installer Fails"
+
+    def test_explicit_title_field_wins_over_fallback(self) -> None:
+        """A non-empty **Title**: field always wins, regardless of filename."""
+        text = "**Title**: Memory Leak In Cache\n\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "BUG-001.md")
+        assert result == "Memory Leak In Cache"
+
+    def test_h1_heading_wins_over_fallback(self) -> None:
+        """A non-generic H1 always wins over the filename fallback."""
+        text = "# BUG-002: Crash On Startup\n\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "BUG-002.md")
+        assert result == "Crash On Startup"
+
+    def test_h2_heading_wins_over_fallback(self) -> None:
+        """H2 non-generic heading is extracted correctly (ID prefix stripped)."""
+        text = "## BUG-003: Real Title\n\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "BUG-003.md")
+        assert result == "Real Title"
+
+    # --- _TITLE_FIELD_RE newline-span fix ---
+
+    def test_empty_title_field_before_heading_does_not_capture_heading(self) -> None:
+        """**Title**: on its own line must NOT capture the next heading line.
+
+        Before the [^\\S\\n]* fix, \\s* spanned the newline and (.+) captured
+        '# Some Heading'.  After the fix the field is empty → falls through to
+        step 2 which returns 'Some Heading' (H1 prefix stripped).
+        """
+        text = "**Title**:\n# Some Heading\n\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "BUG-047-some-heading.md")
+        # Must NOT start with '#' (the pre-fix symptom) and must equal step-2 result
+        assert not result.startswith("#"), (
+            f"Title must not include Markdown heading marker. Got: {result!r}"
+        )
+        assert result == "Some Heading"
+
+    def test_empty_title_field_before_status_does_not_capture_status(self) -> None:
+        """**Title**: on its own line must NOT capture the following **Status**: line.
+
+        Falls through to step 3 (slug/stem fallback).
+        """
+        text = "**Title**:\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "BUG-001.md")
+        assert result != "**Status**: OPEN", (
+            "Empty **Title**: must not capture the following **Status** line"
+        )
+        assert result == "BUG-001"
+
+    def test_empty_title_field_at_eof_falls_through(self) -> None:
+        """**Title**: with nothing after it (EOF) falls through to stem fallback."""
+        text = "**Title**:\n"
+        result = tf.extract_title(text, "BUG-001.md")
+        assert result == "BUG-001"
+
+    def test_title_field_same_line_value_still_extracted(self) -> None:
+        """Regression guard: **Title**: Real Title (same line) still returns 'Real Title'."""
+        text = "**Title**: Real Title\n\n**Status**: OPEN\n"
+        result = tf.extract_title(text, "BUG-001.md")
+        assert result == "Real Title"
