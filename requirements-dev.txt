@@ -34,7 +34,7 @@ ruamel.yaml==0.19.1
 
 # Configuration management (Story 7.4)
 pydantic==2.12.5
-pydantic-settings==2.13.1
+pydantic-settings==2.14.2
 
 # YAML parsing (required by tests/unit/test_sops_encryption.py)
 PyYAML==6.0.3
