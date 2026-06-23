@@ -102,21 +102,35 @@ def main():
         # Passing --registry bypasses the engine's internal git rev-parse call
         # (BP-032 non-git TTL fallback: the 5a per-install cache handles
         # component re-check cadence without any git dependency).
-        result = subprocess.run(
-            [
-                "bash",
-                run_with_env,
-                engine_script,
-                "run",
-                "--shadow",
-                "--json",
-                "--registry",
-                str(registry_path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    "bash",
+                    run_with_env,
+                    engine_script,
+                    "run",
+                    "--shadow",
+                    "--json",
+                    "--registry",
+                    str(registry_path),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+        except subprocess.TimeoutExpired:
+            # Previously swallowed silently (the documented "|| true"): the drift
+            # channel then produced zero findings forever on large/slow projects.
+            # Surface a visible, non-fatal signal instead. The engine's own
+            # wall-time/file-count budgets (F-SOT-3) should keep it under this
+            # cap; a timeout here means a budget needs tuning.
+            print(
+                "[ai-memory] SOT: drift scan timed out (exceeded the hook cap) "
+                "— skipped this session. Tune AI_MEMORY_SOT_* budgets if this "
+                "persists.",
+                file=sys.stderr,
+            )
+            sys.exit(0)
 
         if result.returncode == 0 and result.stdout.strip():
             try:
@@ -133,6 +147,16 @@ def main():
                     print(
                         f"[ai-memory] SOT: {', '.join(parts)} detected — "
                         "run aim-sot detect-propose to review.",
+                        file=sys.stderr,
+                    )
+                # Budget-truncation: a full-project walk hit its budget, so the
+                # findings above are incomplete. Never silent — say so.
+                if data.get("budget_truncated"):
+                    print(
+                        "[ai-memory] SOT: drift scan budget-truncated (large/slow "
+                        "project) — results incomplete this session. Tune "
+                        "AI_MEMORY_SOT_* budgets or narrow the registry exclude "
+                        "set.",
                         file=sys.stderr,
                     )
             except (json.JSONDecodeError, KeyError, TypeError):

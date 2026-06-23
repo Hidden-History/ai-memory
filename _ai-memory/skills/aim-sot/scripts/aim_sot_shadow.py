@@ -39,6 +39,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +63,43 @@ SETUP_VERSION = "2.8.0"
 # (R-1): the engine compares the stored digest_version before treating a digest
 # mismatch as drift.
 DIGEST_VERSION = "v1"
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a positive float from the environment, falling back to ``default``.
+
+    A blank, non-numeric, or non-positive value yields the default so a typo
+    never silently disables the budget.  ``0`` is treated as "use default" for
+    this reason (an explicit disable is intentionally not offered here — the
+    digest budget is a safety guard, not an opt-out).
+    """
+    raw = os.environ.get(name, "")
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val > 0 else default
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive int from the environment, falling back to ``default``."""
+    raw = os.environ.get(name, "")
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val > 0 else default
+
+
+# Wall-time + file-count budget for the whole-project tree-digest (F-SOT-3).
+# The [CL] Stop hook caps the engine subprocess at ~20s; an unbounded digest of
+# a large/slow-fs project (measured 80.7s / 9,846 files on /mnt/e) blows that
+# cap and the hook silently times out, so the drift channel produces zero
+# findings forever.  These defaults keep a typical project well under the hook
+# cap while bounding the pathological case to a *signaled* truncation rather
+# than a hang.  Override per-project via the environment.
+_DIGEST_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DIGEST_MAX_SECONDS", 10.0)
+_DIGEST_MAX_FILES = _env_int("AI_MEMORY_SOT_DIGEST_MAX_FILES", 20000)
 
 
 def _safe_id(project_id: str) -> str:
@@ -165,14 +203,25 @@ def file_sha256(path: Path, chunk: int = 1 << 20) -> str:
 @dataclass
 class TreeDigest:
     """Result of :func:`tree_digest`: the versioned digest plus the symlinks
-    skipped (recorded per BP-039 — symlink policy is *skip*, made explicit)."""
+    skipped (recorded per BP-039 — symlink policy is *skip*, made explicit).
+
+    ``truncated`` is True when the walk hit the wall-time or file-count budget
+    (F-SOT-3); the ``digest`` is then a partial sentinel that callers must NOT
+    treat as drift or store as a baseline."""
 
     digest: str
     skipped_symlinks: list[str]
     file_count: int
+    truncated: bool = False
 
 
-def tree_digest(root: Path, excludes=DEFAULT_EXCLUDES) -> TreeDigest:
+def tree_digest(
+    root: Path,
+    excludes=DEFAULT_EXCLUDES,
+    *,
+    max_files: int | None = None,
+    max_seconds: float | None = None,
+) -> TreeDigest:
     """BP-039 sorted-per-file-SHA-256 hash-of-hashes over ``root``.
 
     Deterministic across walk-order, machine, and clone/restore:
@@ -184,9 +233,21 @@ def tree_digest(root: Path, excludes=DEFAULT_EXCLUDES) -> TreeDigest:
       - ``DIGEST_VERSION`` prefix so the algorithm can evolve (R-1 re-baseline).
 
     Excludes are applied to the relpath before the file set is frozen.
+
+    The walk is bounded by ``max_files`` and ``max_seconds`` (F-SOT-3); ``None``
+    uses the module defaults (env-overridable).  On budget exceed the walk stops
+    early and the result carries ``truncated=True`` with a partial digest the
+    caller must discard (never compared as drift, never stored as a baseline).
     """
+    if max_files is None:
+        max_files = _DIGEST_MAX_FILES
+    if max_seconds is None:
+        max_seconds = _DIGEST_MAX_SECONDS
+    deadline = time.monotonic() + max_seconds if max_seconds > 0 else None
+
     lines: list[str] = []
     skipped: list[str] = []
+    truncated = False
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune excluded directories in-place so we never descend into them.
         kept = []
@@ -197,6 +258,12 @@ def tree_digest(root: Path, excludes=DEFAULT_EXCLUDES) -> TreeDigest:
             kept.append(d)
         dirnames[:] = kept
         for name in filenames:
+            # Budget gate BEFORE the per-file IO (sha256 dominates wall-time).
+            if (max_files > 0 and len(lines) >= max_files) or (
+                deadline is not None and time.monotonic() > deadline
+            ):
+                truncated = True
+                break
             full = Path(dirpath) / name
             rel = os.path.relpath(full, root).replace(os.sep, "/")
             if path_excluded(rel, excludes):
@@ -212,12 +279,17 @@ def tree_digest(root: Path, excludes=DEFAULT_EXCLUDES) -> TreeDigest:
                 # every machine where it is unreadable).
                 continue
             lines.append(f"{digest}  {rel}\n")
+        if truncated:
+            break
     summary = "".join(sorted(lines))
     full_digest = (
         DIGEST_VERSION + ":" + hashlib.sha256(summary.encode("utf-8")).hexdigest()
     )
     return TreeDigest(
-        digest=full_digest, skipped_symlinks=sorted(skipped), file_count=len(lines)
+        digest=full_digest,
+        skipped_symlinks=sorted(skipped),
+        file_count=len(lines),
+        truncated=truncated,
     )
 
 
@@ -883,6 +955,7 @@ def run_shadow_pass(
         "digest_changed": False,
         "findings": findings,
         "docs_stale": 0,
+        "digest_truncated": False,
     }
 
     if not git_available():
@@ -904,6 +977,24 @@ def run_shadow_pass(
         td = tree_digest(project_dir, excludes)
     except Exception as exc:  # pragma: no cover - defensive
         findings.append(error_finding(f"tree-digest error: {exc}", "tree-digest"))
+        return summary
+
+    # Budget-truncated digest is a partial sentinel (F-SOT-3): it must never be
+    # compared as drift or stored as a baseline (a later complete run would read
+    # it as a false re-baseline).  Emit a visible non-fatal signal and leave the
+    # stored baseline untouched for the next session.
+    if td.truncated:
+        findings.append(
+            friction_finding(
+                "tree-digest exceeded its budget (large/slow project) — drift "
+                "scan incomplete this session; baseline left unchanged. Tune "
+                "AI_MEMORY_SOT_DIGEST_MAX_SECONDS / AI_MEMORY_SOT_DIGEST_MAX_FILES "
+                "or narrow the registry exclude set.",
+                where="tree-digest",
+                severity="LOW",
+            )
+        )
+        summary["digest_truncated"] = True
         return summary
 
     prior_digest = drift_state.get("project_digest", "")
