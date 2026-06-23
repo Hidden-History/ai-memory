@@ -47,6 +47,15 @@ detect-secrets>=1.4.0
 # Security scanning - Layer 3 NER-based PII detection (SPEC-009)
 # en_core_web_sm model downloaded in install.sh post-install step
 spacy>=3.8.0,<4.0.0
+# BUG-328: pin the full spaCy→typer→click chain to prevent re-break on future resolves.
+# typer is the middle link: spaCy CLI depends on it, typer depends on click.
+# Unpinned typer could resolve to a version with a pathological click requirement.
+# Mirrors docker/github-sync/requirements.txt (BUG-328).
+typer>=0.12.0,<1.0.0
+# spaCy imports click at package load; without an explicit pin the
+# classifier-worker image can resolve without click and `import spacy`
+# raises ModuleNotFoundError, silently degrading the scanner to L1+L2.
+click>=8.2.1,<9.0.0
 
 # Cron schedule parsing for evaluator-scheduler daemon (S-16.5, DEC-110)
 croniter>=2.0.0,<7.0.0
