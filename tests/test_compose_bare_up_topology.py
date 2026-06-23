@@ -883,3 +883,37 @@ class TestTd583DirModes:
         config_d_mode = int(config_d_line.split()[0])
         assert config_d_mode >= 755, f"BP-162 regression: {out}"
         assert "644 /etc/clickhouse-server/config.d/retention.xml" in out
+
+
+# ---------------------------------------------------------------------------
+# F-ADV-1 — evaluator-scheduler must carry LANGFUSE_ENABLED
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluatorSchedulerLangfuseEnv:
+    """Regression guard: evaluator-scheduler env block must include LANGFUSE_ENABLED.
+
+    F-ADV-1 (PM #361): LANGFUSE_ENABLED was absent from the evaluator-scheduler
+    explicit environment: allow-list. Inside the container
+    ``os.environ.get("LANGFUSE_ENABLED", "false")`` therefore returned "false",
+    so ``is_langfuse_enabled()`` was False and ``_register_langfuse_shutdown()``
+    early-returned without registering the bounded TD-698 atexit drain.
+    Mirrors the trace-flush-worker pattern (``LANGFUSE_ENABLED=true`` hardcoded
+    — both services run exclusively inside the langfuse profile).
+    """
+
+    @pytest.fixture(scope="class")
+    def langfuse_cfg(self):
+        """Parsed docker/docker-compose.langfuse.yml source."""
+        with open(DOCKER_COMPOSE_LANGFUSE_PATH) as fh:
+            return yaml.safe_load(fh)
+
+    def test_evaluator_scheduler_env_includes_langfuse_enabled(self, langfuse_cfg):
+        """evaluator-scheduler environment: block must carry LANGFUSE_ENABLED."""
+        svc = langfuse_cfg["services"]["evaluator-scheduler"]
+        env_keys = _env_block_keys(svc)
+        assert "LANGFUSE_ENABLED" in env_keys, (
+            "evaluator-scheduler: LANGFUSE_ENABLED missing from environment: allow-list; "
+            "os.environ.get('LANGFUSE_ENABLED','false') returns 'false' inside the "
+            "container and the bounded atexit drain is never registered (F-ADV-1)"
+        )
