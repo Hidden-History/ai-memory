@@ -131,6 +131,26 @@ _compose() {
 }
 
 # =============================================================================
+# _warn_cached_fallback — Loud, per-service stale-image warning (TD-723)
+# Each source-baked service is built independently so one build failure does
+# not abort the others. When a build fails the service keeps running its
+# CACHED image (preserves #220's restart-stays-up resilience), but a stale
+# critical service (e.g. embedding) must be impossible to miss in the output.
+# Args: the names of the services that fell back to their cached image.
+# =============================================================================
+_warn_cached_fallback() {
+    local _svc
+    log_warning "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    for _svc in "$@"; do
+        log_warning "⚠ ${_svc} NOT rebuilt — running CACHED (stale) image"
+    done
+    log_warning "Baked source/dependencies for the service(s) above did NOT"
+    log_warning "deploy. Inspect the build error above, then re-run 'stack.sh"
+    log_warning "restart' once fixed."
+    log_warning "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# =============================================================================
 # ENVIRONMENT LOADING
 # Sources .env to pick up LANGFUSE_ENABLED, GITHUB_TOKEN, etc.
 # Uses a targeted grep to avoid sourcing comments or invalid lines.
@@ -263,24 +283,36 @@ cmd_start() {
     # and built only when github sync is enabled (mirrors the `up` gating below).
     # Each profiled service needs its --profile flag to be visible to `build`.
     local -a SOURCE_BAKE_SERVICES=(embedding classifier-worker)
-    local -a _monitoring_source_profile=()
     if [[ "${MONITORING_ENABLED}" != "false" ]]; then
         SOURCE_BAKE_SERVICES+=(monitoring-api)
-        _monitoring_source_profile=(--profile monitoring)
     fi
-    local -a _github_source_profile=()
     if [[ "${GITHUB_SYNC_ENABLED}" == "true" && -n "${GITHUB_TOKEN:-}" ]]; then
         SOURCE_BAKE_SERVICES+=(github-sync)
-        _github_source_profile=(--profile github)
     fi
     step "Step 1b/2 — Rebuilding python-source baked services (${SOURCE_BAKE_SERVICES[*]})"
-    if ! _compose \
-            -f "${COMPOSE_CORE}" \
-            "${_monitoring_source_profile[@]}" \
-            "${_github_source_profile[@]}" \
-            build "${SOURCE_BAKE_SERVICES[@]}"; then
-        log_warning "Python-source rebuild failed — continuing with cached images. Inspect:"
-        log_warning "  docker compose -f ${COMPOSE_CORE} ${_monitoring_source_profile[*]} ${_github_source_profile[*]} build ${SOURCE_BAKE_SERVICES[*]}"
+    # TD-723: build each service INDEPENDENTLY so one service's build failure
+    # (e.g. BUG-328 github-sync) does NOT abort the rest — the prior single
+    # combined `build` meant a sibling failure silently skipped embedding's
+    # rebuild. A failed build still falls back to that one service's cached
+    # image and the restart continues (#220 resilience preserved). Each
+    # profiled service needs its own --profile flag to be visible to `build`.
+    local -a _cached_fallback=()
+    local _svc
+    for _svc in "${SOURCE_BAKE_SERVICES[@]}"; do
+        local -a _svc_profile=()
+        case "${_svc}" in
+            monitoring-api) _svc_profile=(--profile monitoring) ;;
+            github-sync)    _svc_profile=(--profile github) ;;
+        esac
+        if ! _compose \
+                -f "${COMPOSE_CORE}" \
+                "${_svc_profile[@]}" \
+                build "${_svc}"; then
+            _cached_fallback+=("${_svc}")
+        fi
+    done
+    if [[ "${#_cached_fallback[@]}" -gt 0 ]]; then
+        _warn_cached_fallback "${_cached_fallback[@]}"
     fi
 
     # ── Step 1: Core stack ────────────────────────────────────────────────────
@@ -335,13 +367,22 @@ cmd_start() {
             # --profile langfuse is required to make these services visible to
             # `build`.
             local -a SOURCE_BAKE_SERVICES_LANGFUSE=(evaluator-scheduler trace-flush-worker)
-            if ! _compose \
-                    -f "${COMPOSE_CORE}" \
-                    -f "${COMPOSE_LANGFUSE}" \
-                    --profile langfuse \
-                    build "${SOURCE_BAKE_SERVICES_LANGFUSE[@]}"; then
-                log_warning "Langfuse python-source rebuild failed — continuing with cached images. Inspect:"
-                log_warning "  docker compose -f ${COMPOSE_CORE} -f ${COMPOSE_LANGFUSE} --profile langfuse build ${SOURCE_BAKE_SERVICES_LANGFUSE[*]}"
+            # TD-723: build each langfuse source-baked service INDEPENDENTLY so
+            # one build failure does not abort the others; a failed build falls
+            # back to that service's cached image and the restart continues.
+            local -a _cached_fallback_langfuse=()
+            local _svc_lf
+            for _svc_lf in "${SOURCE_BAKE_SERVICES_LANGFUSE[@]}"; do
+                if ! _compose \
+                        -f "${COMPOSE_CORE}" \
+                        -f "${COMPOSE_LANGFUSE}" \
+                        --profile langfuse \
+                        build "${_svc_lf}"; then
+                    _cached_fallback_langfuse+=("${_svc_lf}")
+                fi
+            done
+            if [[ "${#_cached_fallback_langfuse[@]}" -gt 0 ]]; then
+                _warn_cached_fallback "${_cached_fallback_langfuse[@]}"
             fi
 
             # NOTE: Both compose files are passed intentionally. Docker Compose merges
@@ -469,10 +510,24 @@ cmd_status() {
 
     echo ""
 
-    # Summary: running vs total
+    # Summary: running vs total.
+    # TD-723: one-shot init containers (name `*-init`, e.g. prometheus-init,
+    # langfuse-minio-init) run once and exit 0 by design. Counting their
+    # Exited (0) state as "not running" falsely reports PARTIAL on an otherwise
+    # healthy stack. Exclude successfully-completed init containers from both
+    # counts. An init container that exited NON-zero is NOT excluded, so a
+    # genuine init failure still surfaces in the running/total tally.
     local running=0 total=0
-    running="$(docker ps    --filter "name=${CONTAINER_PREFIX}" --format "{{.Names}}" 2>/dev/null | wc -l)"
-    total="$(  docker ps -a --filter "name=${CONTAINER_PREFIX}" --format "{{.Names}}" 2>/dev/null | wc -l)"
+    local _name _status
+    while IFS=$'\t' read -r _name _status; do
+        [[ -z "${_name}" ]] && continue
+        if [[ "${_name}" == *-init && "${_status}" == "Exited (0)"* ]]; then
+            continue
+        fi
+        total=$((total + 1))
+        [[ "${_status}" == Up* ]] && running=$((running + 1))
+    done < <(docker ps -a --filter "name=${CONTAINER_PREFIX}" \
+        --format "{{.Names}}"$'\t'"{{.Status}}" 2>/dev/null)
 
     if   [[ "${total}"   -eq 0 ]]; then
         log_info    "Stack: NOT DEPLOYED (run 'stack.sh start' to launch)"
