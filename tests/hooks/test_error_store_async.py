@@ -88,6 +88,47 @@ class TestFormatErrorContent:
         assert "[error_pattern]" in result
 
 
+class TestBuildRecoverablePayload:
+    """L5: _build_recoverable_payload yields a guard-passing, faithful record.
+
+    The raw error_context is rejected by the queue guard (no recognised
+    memory-data key) and would rot unrecoverably; the rebuilt direct payload
+    reconstructs what the main store path would have written and drains via
+    process_retry_queue's format-1 handler.
+    """
+
+    def test_payload_is_faithful_to_main_store_path(self, error_context):
+        """content/type/group_id/session_id mirror the main (Qdrant-up) store path."""
+        with patch.object(esav, "resolve_project_id", return_value="myorg-myrepo"):
+            payload = esav._build_recoverable_payload(error_context)
+
+        assert payload["content"] == esav.format_error_content(error_context)
+        assert payload["type"] == "error_pattern"
+        assert payload["group_id"] == "myorg-myrepo"
+        assert payload["session_id"] == error_context["session_id"]
+
+    def test_payload_passes_queue_guard(self, error_context):
+        """The rebuilt payload is accepted by the real queue guard (raw context isn't)."""
+        from memory.queue import _is_memory_payload
+
+        with patch.object(esav, "resolve_project_id", return_value="myorg-myrepo"):
+            payload = esav._build_recoverable_payload(error_context)
+
+        assert _is_memory_payload(payload) is True
+        # The raw error_context the hook used to enqueue would be rejected.
+        assert _is_memory_payload(error_context) is False
+
+    def test_group_id_falls_back_when_resolution_fails(self, error_context):
+        """A ValueError from resolve_project_id degrades to the 'unknown' sentinel."""
+        with patch.object(
+            esav, "resolve_project_id", side_effect=ValueError("undetectable")
+        ):
+            payload = esav._build_recoverable_payload(error_context)
+
+        assert payload["group_id"] == "unknown"
+        assert payload["content"] == esav.format_error_content(error_context)
+
+
 class TestErrorStoreAsync:
     """Tests for error_store_async.store_error_pattern_async."""
 

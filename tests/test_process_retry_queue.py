@@ -338,3 +338,87 @@ class TestDeadLetterQueue:
         queue.mark_failed.assert_called_once_with("transient-1")
         queue.dequeue.assert_not_called()
         assert not dlq_path.exists()
+
+
+class TestL5RecoverableForms:
+    """L5: the two capture hooks now enqueue drainable forms on a Qdrant outage.
+
+    store_async wraps the raw event as {"hook_input": ...} (drains via format-2);
+    error_store_async enqueues a direct {"content", "type", "group_id",
+    "session_id"} record (drains via format-1). The raw flat event each hook used
+    to enqueue is still "Unknown payload format" — proving why the wrap was
+    necessary.
+    """
+
+    def test_store_async_hook_input_wrapper_drains_via_format2(self, monkeypatch):
+        """A {"hook_input": <PostToolUse event>} entry stores the extracted content."""
+        mod = _load_module(monkeypatch)
+        sys.modules["memory.project"].resolve_project_id.return_value = (
+            "resolved-project"
+        )
+        storage = MagicMock()
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m1"}
+
+        entry = {
+            "id": "h1",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "hook_input": {
+                    "tool_name": "Edit",
+                    "tool_input": {
+                        "file_path": "foo.py",
+                        "new_string": "def hello():\n    return 1\n",
+                    },
+                    "session_id": "sess-1",
+                    "cwd": "/repo",
+                }
+            },
+        }
+
+        ok, msg = mod.process_entry(entry, storage, dry_run=False)
+
+        assert ok, msg
+        kwargs = storage.store_memory.call_args.kwargs
+        assert kwargs["content"] == "def hello():\n    return 1\n"
+        assert kwargs["group_id"] == "resolved-project"
+        assert kwargs["memory_type"] == "implementation"
+        assert kwargs["session_id"] == "sess-1"
+
+    def test_error_store_direct_payload_drains_via_format1(self, monkeypatch):
+        """A direct error-store payload stores its content/type/group_id/session_id."""
+        mod = _load_module(monkeypatch)
+        storage = MagicMock()
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m2"}
+
+        entry = {
+            "id": "e1",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "content": "[error_pattern]\nCommand: pytest\nError: boom",
+                "type": "error_pattern",
+                "group_id": "myorg-myrepo",
+                "session_id": "sess-2",
+            },
+        }
+
+        ok, msg = mod.process_entry(entry, storage, dry_run=False)
+
+        assert ok, msg
+        kwargs = storage.store_memory.call_args.kwargs
+        assert kwargs["content"].startswith("[error_pattern]")
+        assert kwargs["group_id"] == "myorg-myrepo"
+        assert kwargs["memory_type"] == "error_pattern"
+        assert kwargs["session_id"] == "sess-2"
+
+    def test_raw_flat_event_is_unknown_format(self, monkeypatch):
+        """The raw flat event the hooks used to enqueue is undrainable (Unknown format)."""
+        mod = _load_module(monkeypatch)
+        storage = MagicMock()
+
+        ok, msg = mod.process_entry(_unknown_format_entry("flat-1"), storage, False)
+
+        assert ok is False
+        assert "Unknown payload format" in msg
+        storage.store_memory.assert_not_called()
