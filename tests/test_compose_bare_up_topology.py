@@ -909,11 +909,30 @@ class TestEvaluatorSchedulerLangfuseEnv:
             return yaml.safe_load(fh)
 
     def test_evaluator_scheduler_env_includes_langfuse_enabled(self, langfuse_cfg):
-        """evaluator-scheduler environment: block must carry LANGFUSE_ENABLED."""
+        """evaluator-scheduler environment: block must carry LANGFUSE_ENABLED=true."""
         svc = langfuse_cfg["services"]["evaluator-scheduler"]
         env_keys = _env_block_keys(svc)
         assert "LANGFUSE_ENABLED" in env_keys, (
             "evaluator-scheduler: LANGFUSE_ENABLED missing from environment: allow-list; "
             "os.environ.get('LANGFUSE_ENABLED','false') returns 'false' inside the "
             "container and the bounded atexit drain is never registered (F-ADV-1)"
+        )
+        # R1: assert value is "true"; LANGFUSE_ENABLED=false would silently
+        # re-break the TD-698 bounded atexit drain (F-ADV-1).
+        env = svc.get("environment") or []
+        if isinstance(env, dict):
+            langfuse_val = str(env.get("LANGFUSE_ENABLED", ""))
+        else:
+            langfuse_val = next(
+                (
+                    str(item).split("=", 1)[1]
+                    for item in env
+                    if str(item).startswith("LANGFUSE_ENABLED=")
+                ),
+                "",
+            )
+        assert langfuse_val == "true", (
+            f"evaluator-scheduler: LANGFUSE_ENABLED={langfuse_val!r}; expected 'true' — "
+            "a false value disables the bounded atexit drain registered by "
+            "_register_langfuse_shutdown() (TD-698, F-ADV-1)"
         )
