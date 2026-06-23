@@ -33,6 +33,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
@@ -62,8 +63,33 @@ except Exception:
 
 _DEFAULT_CANDIDATE_LIMIT = 20
 
-# Upper bound on directories visited during auto-discovery (throttle, F-A2-5).
-_MAX_DISCOVERY_DIRS = 5000
+
+def _env_float(name: str, default: float) -> float:
+    """Read a positive float from the environment, else ``default`` (F-SOT-3)."""
+    raw = os.environ.get(name, "")
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val > 0 else default
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive int from the environment, else ``default`` (F-SOT-3)."""
+    raw = os.environ.get(name, "")
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val > 0 else default
+
+
+# Upper bound on directories visited during auto-discovery (throttle, F-A2-5),
+# complemented by a wall-time budget (F-SOT-3) — on a slow filesystem the
+# per-directory IO dominates, so a dir-count cap alone still lets the scan blow
+# the [CL] hook's ~20s subprocess cap.  Both are env-overridable.
+_MAX_DISCOVERY_DIRS = _env_int("AI_MEMORY_SOT_DISCOVERY_MAX_DIRS", 5000)
+_DISCOVERY_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS", 6.0)
 
 _DRIFT_CACHE_DIR = (
     Path(os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")))
@@ -532,33 +558,75 @@ def _compute_component_record(
 # ---------------------------------------------------------------------------
 
 
-def _pruned_walk(root: Path, *, max_dirs: int = _MAX_DISCOVERY_DIRS):
+class _ScanBudget:
+    """Shared dir-count + wall-time budget for one auto-discovery scan (F-SOT-3).
+
+    A single instance is threaded through every ``_pruned_walk`` of a scan so
+    the wall-time clock spans the whole discovery (manifests + ADR dirs), not
+    each walk in isolation.  ``truncated`` / ``reason`` are set when a budget is
+    hit so the caller can surface a signal instead of silently under-reporting.
+    """
+
+    def __init__(
+        self,
+        max_dirs: int = _MAX_DISCOVERY_DIRS,
+        max_seconds: float = _DISCOVERY_MAX_SECONDS,
+    ) -> None:
+        self.max_dirs = max_dirs
+        self._deadline = time.monotonic() + max_seconds if max_seconds > 0 else None
+        self.truncated = False
+        self.reason: str | None = None
+
+    def exceeded(self, visited: int) -> bool:
+        """True once this walk has visited ``visited`` dirs past either budget."""
+        if self.max_dirs > 0 and visited >= self.max_dirs:
+            self.truncated = True
+            self.reason = "max_dirs"
+            return True
+        if self._deadline is not None and time.monotonic() > self._deadline:
+            self.truncated = True
+            self.reason = "wall_time"
+            return True
+        return False
+
+
+def _pruned_walk(root: Path, budget: "_ScanBudget | None" = None):
     """``os.walk`` that prunes ``_SKIP_DIRS`` in-place (so skipped trees are
-    never descended into) and caps the directory count (F-A2-5).
+    never descended into) and stops on the shared dir-count / wall-time budget
+    (F-A2-5 + F-SOT-3).
 
     Pruning during traversal — rather than ``rglob`` + post-hoc filtering —
-    avoids walking node_modules / .venv / build trees on every run; the cap
-    bounds the worst case on pathological repos.
+    avoids walking node_modules / .venv / build trees on every run; the budget
+    bounds the worst case on pathological or slow-filesystem repos.
     """
+    if budget is None:
+        budget = _ScanBudget()
     for visited, (dirpath, dirnames, filenames) in enumerate(os.walk(root)):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-        if visited >= max_dirs:
+        if budget.exceeded(visited):
             # Surface the truncation rather than silently capping discovery
-            # ("no silent caps") — components below the cap are not scanned.
+            # ("no silent caps") — components below the budget are not scanned.
+            detail = (
+                f"{budget.max_dirs} directories"
+                if budget.reason == "max_dirs"
+                else "the wall-time budget"
+            )
             print(
-                f"aim-sot: discovery scan truncated at {max_dirs} directories; "
-                "components beyond the cap were not scanned.",
+                f"aim-sot: discovery scan truncated at {detail}; "
+                "components beyond the budget were not scanned.",
                 file=sys.stderr,
             )
             return
         yield Path(dirpath), dirnames, filenames
 
 
-def _discover_manifests(project_root: Path) -> list[dict]:
+def _discover_manifests(
+    project_root: Path, budget: "_ScanBudget | None" = None
+) -> list[dict]:
     """Manifest files → boundary_type=component candidates."""
     manifest_order = sorted(_MANIFEST_FILENAMES)
     candidates: list[dict] = []
-    for dirpath, _dirnames, filenames in _pruned_walk(project_root):
+    for dirpath, _dirnames, filenames in _pruned_walk(project_root, budget):
         fileset = set(filenames)
         name = next((n for n in manifest_order if n in fileset), None)
         if name is None:
@@ -603,10 +671,12 @@ def _discover_top_dirs(project_root: Path) -> list[dict]:
     return candidates
 
 
-def _discover_adr_dirs(project_root: Path) -> list[dict]:
+def _discover_adr_dirs(
+    project_root: Path, budget: "_ScanBudget | None" = None
+) -> list[dict]:
     """ADR/decision directories → boundary_type=concern candidates."""
     candidates: list[dict] = []
-    for dirpath, _dirnames, _filenames in _pruned_walk(project_root):
+    for dirpath, _dirnames, _filenames in _pruned_walk(project_root, budget):
         if dirpath == project_root or dirpath.name not in _ADR_DIR_NAMES:
             continue
         rel = dirpath.relative_to(project_root)
@@ -624,13 +694,22 @@ def _discover_adr_dirs(project_root: Path) -> list[dict]:
     return sorted(candidates, key=lambda c: c["sot_location"])
 
 
-def _discover_candidates(project_root: Path) -> list[dict]:
-    """Orchestrate all three scanners, deduplicated and sorted by sot_location."""
+def _discover_candidates(
+    project_root: Path, budget: "_ScanBudget | None" = None
+) -> list[dict]:
+    """Orchestrate all three scanners, deduplicated and sorted by sot_location.
+
+    A shared ``_ScanBudget`` (created here if not supplied) bounds the combined
+    manifest + ADR walks by dir-count and wall-time (F-SOT-3); the caller can
+    pass its own to read ``budget.truncated`` afterwards.
+    """
+    if budget is None:
+        budget = _ScanBudget()
     seen: set[str] = set()
     all_candidates: list[dict] = []
     for c in (
-        _discover_manifests(project_root)
-        + _discover_adr_dirs(project_root)
+        _discover_manifests(project_root, budget)
+        + _discover_adr_dirs(project_root, budget)
         + _discover_top_dirs(project_root)
     ):
         loc = c["sot_location"]
@@ -1178,7 +1257,8 @@ def _run_cold_start_discovery(
         print(f"Error: could not resolve project_id: {exc}", file=sys.stderr)
         return 1
 
-    candidates = _discover_candidates(scan_root)
+    scan_budget = _ScanBudget()
+    candidates = _discover_candidates(scan_root, scan_budget)
     new_candidates = _filter_new_candidates(candidates, [])
     limit = (
         0
@@ -1196,6 +1276,7 @@ def _run_cold_start_discovery(
                     "candidate_proposals": candidate_proposals,
                     "deferred_count": deferred_count,
                     "project_id": project_id,
+                    "budget_truncated": bool(scan_budget.truncated),
                 }
             )
         )
@@ -1365,8 +1446,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
 
     # --- Auto-discovery: new candidates (skipped for non-conforming roots) ---
+    scan_budget = _ScanBudget()
     if project_root is not None:
-        candidates = _discover_candidates(project_root)
+        candidates = _discover_candidates(project_root, scan_budget)
         new_candidates = _filter_new_candidates(candidates, entries)
         limit = (
             0
@@ -1397,6 +1479,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     # flat --registry override (no conforming, scannable project root).
     findings: list[dict] = []
     docs_stale = 0
+    digest_truncated = False
     if (
         getattr(args, "shadow", False)
         and project_root is not None
@@ -1411,8 +1494,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         findings = shadow_summary.get("findings", []) + strategy_frictions
         docs_stale = shadow_summary.get("docs_stale", 0)
+        digest_truncated = bool(shadow_summary.get("digest_truncated", False))
     elif strategy_frictions:
         findings = strategy_frictions
+
+    # Budget-truncation signal (F-SOT-3): either full-project walk hit its budget
+    # → the drift/doc-drift channel is incomplete this session.  Surfaced in the
+    # JSON pipe so the [CL] hook can emit a visible, non-fatal warning instead of
+    # silently reporting zero findings.
+    budget_truncated = bool(scan_budget.truncated or digest_truncated)
 
     # Live drift rollup for the [ST] ambient surface (consult digest reads this).
     n_changed = len(drift_proposals)
@@ -1439,6 +1529,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                     "project_id": project_id,
                     "findings": findings,
                     "drift_rollup": cache["drift_rollup"],
+                    "budget_truncated": budget_truncated,
                 }
             )
         )
@@ -1450,6 +1541,13 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(
                 f"\n[ai-memory] SOT findings: {len(findings)} "
                 "(drift / doc-staleness / errors) — see --json for the pipe.",
+                file=sys.stderr,
+            )
+        if budget_truncated:
+            print(
+                "[ai-memory] SOT: drift scan hit its budget (large/slow project) "
+                "— results incomplete this run; tune AI_MEMORY_SOT_* budgets or "
+                "narrow the registry exclude set.",
                 file=sys.stderr,
             )
 

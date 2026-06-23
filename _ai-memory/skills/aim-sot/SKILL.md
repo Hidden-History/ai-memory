@@ -161,7 +161,7 @@ format, the setup sentinel, and the findings schema: [`references/drift-and-shad
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_verify.py" \
   run [--json] [--registry PATH] [--proposal PATH] \
-  [--check-urls] [--exec-drift-checks]
+  [--check-urls] [--exec-drift-checks] [--strict]
 ```
 
 ### Flags (`run`)
@@ -173,6 +173,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 | `--check-urls` | off | Activate R2 URL resolution (default: no-op; no network hit offline) |
 | `--exec-drift-checks` | off | Activate K3 drift_check execution (default: parse + PATH-exists only) |
 | `--json` | off | Machine-readable JSON output |
+| `--strict` | off | Exit non-zero (1) when the verdict is `FAIL` — for CI / pre-commit gates. `PASS` and `CONDITIONAL` still exit 0. Default (without `--strict`): always exit 0, verdict on stdout. Prefer this over parsing the default exit status — `verify run \|\| exit 1` does **not** catch a `FAIL`. |
 
 ### Verdicts (BP-024 §3.3)
 
@@ -263,6 +264,27 @@ manually from `settings.json` or re-run with `FORCE_IDE`.
 > multi-project operators.
 
 The engine also runs standalone (`detect-propose run` manually or via cron).
+
+### Drift-scan budgets (large / slow-filesystem projects)
+
+The `[CL]` pass runs two full-project walks — the BP-039 tree-digest and the
+candidate discovery scan. On a very large project (or a slow filesystem) either
+can exceed the Stop hook's ~20s subprocess cap; the engine therefore bounds both
+by wall-time and count and emits a visible `budget-truncated` signal (never a
+silent zero-findings timeout). When truncated, the digest baseline is left
+unchanged for the next run. Tune via the environment (all optional; positive
+values only — a blank/invalid value keeps the default):
+
+| Env var | Default | Bounds |
+|---------|---------|--------|
+| `AI_MEMORY_SOT_DIGEST_MAX_SECONDS` | `10.0` | tree-digest wall-time |
+| `AI_MEMORY_SOT_DIGEST_MAX_FILES` | `20000` | tree-digest file count |
+| `AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS` | `6.0` | discovery-scan wall-time |
+| `AI_MEMORY_SOT_DISCOVERY_MAX_DIRS` | `5000` | discovery-scan directory count |
+
+If you see the `budget-truncated` warning, raise the relevant budget **or**
+narrow the registry exclude set so fewer files are walked (operator-side exclude
+authoring is the durable fix; the budget is the engine guard).
 
 → Full hook-config reference (Claude Stop, Codex Stop, Cursor stop, Gemini AfterAgent, and all SessionStart variants): [`references/hook-setup.md`](references/hook-setup.md).
 

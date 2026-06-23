@@ -209,3 +209,48 @@ Config: `.gemini/settings.json` — add under `hooks.SessionStart`:
 ```
 
 Fires at Gemini session start and injects the SOT digest as `additionalContext`.
+
+---
+
+## CI / pre-commit gate (`verify --strict`)
+
+Opt-in, never auto-installed. The default `verify run` always exits 0 (the verdict is
+on stdout), so a naive `verify run || exit 1` gate **silently passes a FAIL registry**.
+Use `--strict` instead: it exits 1 on a `FAIL` verdict and 0 on `PASS` / `CONDITIONAL`,
+so a warning-only registry does not break the build.
+
+### GitHub Actions
+
+```yaml
+# .github/workflows/sot-verify.yml
+name: SOT verify
+on: [pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify .sot/registry.yaml
+        run: |
+          bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
+            "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_verify.py" \
+            run --strict
+```
+
+### pre-commit (local hook)
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: local
+    hooks:
+      - id: sot-verify
+        name: aim-sot verify (strict)
+        entry: bash -c 'bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_verify.py" run --strict'
+        language: system
+        pass_filenames: false
+        files: '^\.sot/registry\.yaml$'
+```
+
+A non-zero exit blocks the commit / fails the job only on a hard `FAIL`; review a
+`CONDITIONAL` (exit 0) before applying, per the HITL gate.
