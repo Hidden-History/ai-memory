@@ -10,7 +10,7 @@ httpx==0.28.1
 
 # Environment Configuration
 pydantic==2.12.5
-pydantic-settings==2.13.1
+pydantic-settings==2.14.2
 
 # Monitoring
 prometheus-client==0.24.1
