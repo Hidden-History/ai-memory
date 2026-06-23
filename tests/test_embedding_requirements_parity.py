@@ -58,11 +58,19 @@ def test_pydantic_settings_fleet_parity():
 
 
 def test_main_requirements_pins_click():
-    """Main requirements.txt must pin click so the classifier-worker image can
-    `import spacy` (spaCy imports click at package load) and load L3 NER —
-    regression guard for F-RT-8."""
-    pattern = re.compile(r"^click[<>=!~]", re.MULTILINE)
+    """Main requirements.txt must pin click with the >=8.2.1 floor and also pin
+    typer>=0.12.0,<1.0.0 so the classifier-worker image has the full
+    spaCy→typer→click chain — regression guard for F-RT-8 / BUG-328."""
     text = MAIN_REQS.read_text()
-    assert pattern.search(
+
+    # Assert click is pinned with at least the >=8.2.1 floor.
+    click_floor = re.compile(r"^click>=8\.2\.1", re.MULTILINE)
+    assert click_floor.search(
         text
-    ), "click pin not found in requirements.txt (F-RT-8 regression)"
+    ), "click>=8.2.1 floor not found in requirements.txt (F-RT-8 regression)"
+
+    # Assert typer is pinned to the <1.0.0 cap (full chain guard, BUG-328).
+    typer_pin = re.compile(r"^typer>=0\.12\.0,<1\.0\.0", re.MULTILINE)
+    assert typer_pin.search(
+        text
+    ), "typer>=0.12.0,<1.0.0 pin not found in requirements.txt (BUG-328 chain regression)"
