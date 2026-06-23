@@ -88,6 +88,20 @@ def test_tree_digest_default_budget_does_not_truncate_small_tree(tmp_path):
     assert td.digest.startswith("v1:")
 
 
+def test_tree_digest_default_budget_does_not_truncate_realistic_project(tmp_path):
+    """Realistic project size (300 files) never truncates under default budgets
+    (20 000-file / 10 s caps) — the default-non-truncation guarantee holds for
+    ordinary project trees, not just the 2-file smoke case."""
+    for i in range(300):
+        sub = tmp_path / f"pkg{i // 10}"
+        sub.mkdir(exist_ok=True)
+        (sub / f"module{i}.py").write_text(f"VALUE = {i}\n", encoding="utf-8")
+    td = shadow.tree_digest(tmp_path)
+    assert td.truncated is False
+    assert td.file_count == 300
+    assert td.digest.startswith("v1:")
+
+
 def test_run_shadow_pass_signals_digest_truncation(tmp_path, monkeypatch):
     """When the [CL] digest truncates, run_shadow_pass emits a finding, sets
     ``digest_truncated``, and leaves the stored baseline untouched (no false
@@ -197,6 +211,22 @@ def test_cmd_run_strict_returns_nonzero_on_fail(tmp_path):
     assert json.loads(buf.getvalue())["verdict"] == "FAIL"
 
     args_strict = SimpleNamespace(registry=str(reg), as_json=True, strict=True)
+    with redirect_stdout(io.StringIO()):
+        rc_strict = verify.cmd_run(args_strict)
+    assert rc_strict == 1
+
+
+def test_cmd_run_strict_missing_registry_exits_nonzero(tmp_path):
+    """--strict is fail-closed: no verdict produced (missing registry) exits 1.
+    Default (non-strict) path still exits 0 when no registry is found."""
+    missing = str(tmp_path / "no" / "registry.yaml")
+
+    args_default = SimpleNamespace(registry=missing, strict=False, as_json=False)
+    with redirect_stdout(io.StringIO()):
+        rc_default = verify.cmd_run(args_default)
+    assert rc_default == 0
+
+    args_strict = SimpleNamespace(registry=missing, strict=True, as_json=False)
     with redirect_stdout(io.StringIO()):
         rc_strict = verify.cmd_run(args_strict)
     assert rc_strict == 1

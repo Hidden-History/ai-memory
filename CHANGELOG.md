@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`aim-sot verify --strict` exit-on-FAIL flag for CI / pre-commit gates** — `aim_sot_verify.py run` always exits 0 by default (the verdict is on stdout), so a naive `verify run || exit 1` gate silently passed a `FAIL` registry. The new `--strict` flag exits non-zero (1) on a `FAIL` verdict while still exiting 0 on `PASS` / `CONDITIONAL`, so a warning-only registry does not break the build. `references/hook-setup.md` documents copy-paste GitHub Actions and pre-commit snippets that use `--strict`.
+- **`aim-sot verify --strict` is now fail-closed on a missing or unloadable registry** — previously `--strict` exited 0 when no registry was found (no verdict could be produced), so a CI gate using `--strict` read green on a broken or absent registry. `--strict` now exits 1 whenever no verdict can be produced (missing / unreadable / YAML-parse-failure registry); the default (non-strict) path is unchanged (still exits 0 with a "No registry found" message).
 
 ### Fixed
 

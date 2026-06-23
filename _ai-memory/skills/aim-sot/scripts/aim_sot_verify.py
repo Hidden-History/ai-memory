@@ -28,7 +28,8 @@ Exit codes (default): 0 = all paths including FAIL verdicts (FAIL and
                 verdict);
             1 = fatal system error (schema file unreadable, proposal file
                 unreadable, etc.).
-With --strict: a FAIL verdict (including an S3 YAML-parse FAIL) exits 1;
+With --strict: exits 1 on a FAIL verdict (including an S3 YAML-parse FAIL)
+            OR when no verdict can be produced (missing / unloadable registry);
             PASS and CONDITIONAL still exit 0. Prefer this over parsing the
             default exit status — `verify run || exit 1` does NOT catch a FAIL.
 
@@ -1026,7 +1027,7 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
     if registry_path is None or not registry_path.exists():
         loc = f" at {registry_path}" if registry_path else ""
         print(f"No registry found{loc}. Run aim-sot detect-propose to create one.")
-        return 0
+        return 1 if strict else 0  # --strict is fail-closed: no verdict = exit 1
 
     # --- S3: YAML parse (before any other check) ---
     try:
@@ -1179,9 +1180,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--strict",
         action="store_true",
         dest="strict",
-        help="Exit non-zero (1) when the verdict is FAIL — for CI/pre-commit "
-        "gates (default: always exit 0; CONDITIONAL/PASS exit 0 even with "
-        "--strict)",
+        help="Exit non-zero (1) on a FAIL verdict or when no verdict can be "
+        "produced (missing/unloadable registry) — for CI/pre-commit gates "
+        "(default: always exit 0; CONDITIONAL/PASS exit 0 even with --strict)",
     )
 
     return parser
