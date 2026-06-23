@@ -121,6 +121,7 @@ services:
       - EMBEDDING_MAX_WAITERS=${EMBEDDING_MAX_WAITERS:-64}
       - EMBEDDING_RETRY_AFTER=${EMBEDDING_RETRY_AFTER:-5}
       - EMBEDDING_MAX_BATCH_TEXTS=${EMBEDDING_MAX_BATCH_TEXTS:-256}
+      - EMBEDDING_SAFE_INFLIGHT_TEXTS=${EMBEDDING_SAFE_INFLIGHT_TEXTS:-48}
       - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-1000000}
       # BUG-324 Phase 2: memory-aware AIMD self-throttle (the OOM-loop fix). The
       # controller reads cgroup-v2 memory signals and collapses effective concurrency
