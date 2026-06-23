@@ -1,13 +1,13 @@
-"""GC-08: Structural contract test — aim-sot authoring guidance.
+"""GC-08: Structural contract test - aim-sot authoring guidance.
 
 Asserts the structural integrity of the C/D authoring layer:
 - SKILL.md contains ## Authoring with the 4 named rubric booleans (D1-D4) inline (BP-034 T2).
 - references/authoring-guide.md covers all 7 project types and documents the emit gate.
 - references/grading-exemplars.md covers all 3 verdict bands (PASS, WEAK, FAIL).
 
-Behavioral grading against the golden set is Parzival's verify step — not in scope here.
+Behavioral grading against the golden set is Parzival's verify step - not in scope here.
 
-Run targeted only (BUG-008 — do not run the full suite):
+Run targeted only (BUG-008 - do not run the full suite):
     pytest tests/test_gc08_authoring_guidance.py
 """
 
