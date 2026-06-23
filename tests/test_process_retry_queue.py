@@ -191,3 +191,150 @@ class TestExtractGroupId:
     def test_unknown_format_returns_none(self, monkeypatch):
         mod = _load_module(monkeypatch)
         assert mod.extract_group_id({"memory_data": {"mystery": 1}}) is None
+
+
+class TestIsPermanentFailure:
+    """_is_permanent_failure marks Unknown payload format as non-retryable."""
+
+    def test_unknown_payload_format_is_permanent(self, monkeypatch):
+        mod = _load_module(monkeypatch)
+        assert (
+            mod._is_permanent_failure("Unknown payload format: ['tool_name']") is True
+        )
+
+    def test_transient_error_is_not_permanent(self, monkeypatch):
+        mod = _load_module(monkeypatch)
+        assert (
+            mod._is_permanent_failure("Storage error: ConnectionRefusedError: ...")
+            is False
+        )
+
+    def test_empty_message_is_not_permanent(self, monkeypatch):
+        mod = _load_module(monkeypatch)
+        assert mod._is_permanent_failure("") is False
+
+
+def _unknown_format_entry(entry_id: str) -> dict:
+    """A queue entry whose memory_data has no recognised key — Unknown payload format."""
+    return {
+        "id": entry_id,
+        "retry_count": 0,
+        "max_retries": 3,
+        "memory_data": {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "x.py"},
+            "session_id": "s1",
+            "cwd": "/tmp",
+        },
+    }
+
+
+def _exhausted_entry(entry_id: str, group_id: str) -> dict:
+    """A direct-format entry that has exhausted its retry budget."""
+    return {
+        "id": entry_id,
+        "retry_count": 2,  # retry_count >= max_retries - 1 (2 >= 2)
+        "max_retries": 3,
+        "memory_data": {
+            "content": "x" * 50,
+            "type": "implementation",
+            "group_id": group_id,
+        },
+    }
+
+
+class TestDeadLetterQueue:
+    """Entries dead-letter immediately on Unknown payload format; or on retry exhaustion."""
+
+    def test_unknown_payload_format_dead_lettered_immediately(
+        self, monkeypatch, tmp_path
+    ):
+        """An entry with no recognised payload key is moved to DLQ on first attempt."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        entry = _unknown_format_entry("dlq-test-1")
+        queue, _storage = _wire_queue_storage(mod, [entry])
+
+        stats = mod.process_queue()
+
+        # Entry must be dead-lettered, not retried
+        assert stats["moved_to_dlq"] == 1
+        assert stats["failed"] == 1
+        queue.dequeue.assert_called_once_with("dlq-test-1")
+        queue.mark_failed.assert_not_called()
+
+        # DLQ file must contain the entry
+        assert dlq_path.exists()
+        dlq_lines = dlq_path.read_text().strip().splitlines()
+        assert len(dlq_lines) == 1
+        dlq_entry = __import__("json").loads(dlq_lines[0])
+        assert dlq_entry["id"] == "dlq-test-1"
+        assert "moved_to_dlq_at" in dlq_entry
+
+    def test_exhausted_entry_dead_lettered_on_last_retry(self, monkeypatch, tmp_path):
+        """An entry at retry_count == max_retries-1 is moved to DLQ after failure."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        entry = _exhausted_entry("dlq-test-2", "proj-a")
+        # storage.store_memory raises to force a failure
+        queue, storage = _wire_queue_storage(mod, [entry])
+        storage.store_memory.return_value = {"status": "error"}
+
+        # process_entry returns (False, ...) via the "Unknown status" branch
+        # — good enough to trigger the exhaustion path
+        stats = mod.process_queue()
+
+        assert stats["moved_to_dlq"] == 1
+        queue.dequeue.assert_called_once_with("dlq-test-2")
+        queue.mark_failed.assert_not_called()
+
+    def test_happy_path_entry_not_dead_lettered(self, monkeypatch, tmp_path):
+        """A valid entry that stores successfully is dequeued — never touches DLQ."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        entry = _direct_entry("happy-1", "proj-a")
+        queue, storage = _wire_queue_storage(mod, [entry])
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m1"}
+
+        stats = mod.process_queue()
+
+        assert stats["success"] == 1
+        assert stats["moved_to_dlq"] == 0
+        queue.dequeue.assert_called_once_with("happy-1")
+        queue.mark_failed.assert_not_called()
+        assert not dlq_path.exists()
+
+    def test_transient_failure_increments_retry_not_dlq(self, monkeypatch, tmp_path):
+        """A transient failure on a non-exhausted entry increments retry_count, not DLQ."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        # retry_count=0 (first attempt), failure will be transient (storage returns error)
+        entry = {
+            "id": "transient-1",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "content": "x" * 50,
+                "type": "implementation",
+                "group_id": "g",
+            },
+        }
+        queue, storage = _wire_queue_storage(mod, [entry])
+        storage.store_memory.return_value = {
+            "status": "error"
+        }  # not stored, not "stored"
+
+        stats = mod.process_queue()
+
+        assert stats["moved_to_dlq"] == 0
+        queue.mark_failed.assert_called_once_with("transient-1")
+        queue.dequeue.assert_not_called()
+        assert not dlq_path.exists()

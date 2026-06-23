@@ -53,8 +53,21 @@ from memory.storage import MemoryStorage
 
 logger = setup_hook_logging("ai_memory.retry_processor")
 
-# Dead letter queue for items that exceed max retries
+# Dead letter queue for items that exceed max retries or are permanently unparseable
 DLQ_FILE = Path(INSTALL_DIR) / "queue" / "retry_queue_dlq.jsonl"
+
+# Substrings in a process_entry failure message that mark an entry as permanently
+# unparseable — no amount of retrying will fix these.  Dead-letter on first encounter.
+_PERMANENT_FAILURE_MARKERS: frozenset = frozenset({"Unknown payload format"})
+
+
+def _is_permanent_failure(message: str) -> bool:
+    """Return True when *message* indicates a permanently-undrainable entry.
+
+    Such entries are dead-lettered on the first failure instead of cycling
+    through exponential backoff (which would not help).
+    """
+    return any(marker in message for marker in _PERMANENT_FAILURE_MARKERS)
 
 
 def get_collection_for_type(memory_type: str) -> str:
@@ -291,7 +304,6 @@ def process_queue(
         entry_id = entry.get("id", "unknown")
         retry_count = entry.get("retry_count", 0)
         max_retries = entry.get("max_retries", 3)
-        failure_reason = entry.get("failure_reason", "unknown")
 
         stats["processed"] += 1
 
@@ -322,12 +334,22 @@ def process_queue(
                 )
 
                 if not dry_run:
-                    if retry_count >= max_retries - 1:
-                        # Move to DLQ
+                    permanent = _is_permanent_failure(message)
+                    exhausted = retry_count >= max_retries - 1
+                    if permanent or exhausted:
+                        # Dead-letter immediately for permanently-unparseable entries
+                        # (e.g. raw hook event payloads — no retry will help), or
+                        # after normal retry exhaustion for transient failures.
+                        dlq_reason = (
+                            "permanent_failure" if permanent else "retries_exhausted"
+                        )
                         move_to_dlq(entry)
                         queue.dequeue(entry_id)
                         stats["moved_to_dlq"] += 1
-                        logger.info("moved_to_dlq", extra={"entry_id": entry_id})
+                        logger.info(
+                            "moved_to_dlq",
+                            extra={"entry_id": entry_id, "dlq_reason": dlq_reason},
+                        )
                     else:
                         queue.mark_failed(entry_id)
 
