@@ -622,22 +622,22 @@ TD723_CORE_SOURCE_SERVICES = ["embedding", "classifier-worker"]
 TD723_LANGFUSE_SOURCE_SERVICES = ["evaluator-scheduler", "trace-flush-worker"]
 
 
-def _source_bake_build_block(text, build_array):
-    """Return the `if ! _compose ... build "${build_array[@]}"` invocation text.
+def _per_service_loop_body(text, loop_var, array_var):
+    """Return the text of the per-service for-loop that iterates *array_var*.
 
-    Spans from the nearest `if ! _compose` preceding the build call down to and
-    including the `build "${build_array[@]}"` line. Lets tests assert that a
-    --profile flag and its build call co-occur in the SAME invocation without
-    requiring them on adjacent lines (LOW-5: decoupled from the brittle
-    exact-adjacency regex that broke if any flag was inserted between them).
+    Finds `for <loop_var> in "${<array_var>[@]}"; do ... done` and returns the
+    full match. Returns None if not found.
     """
-    m = re.search(r'build\s+"\$\{' + re.escape(build_array) + r'\[@\]\}"', text)
-    if not m:
-        return None
-    starts = list(re.finditer(r"if ! _compose", text[: m.start()]))
-    if not starts:
-        return None
-    return text[starts[-1].start() : m.end()]
+    m = re.search(
+        r"for\s+"
+        + re.escape(loop_var)
+        + r'\s+in\s+"\$\{'
+        + re.escape(array_var)
+        + r'\[@\]\}".*?done',
+        text,
+        re.DOTALL,
+    )
+    return m.group(0) if m else None
 
 
 class TestStackShSourceBakeRebuild:
@@ -664,27 +664,45 @@ class TestStackShSourceBakeRebuild:
         return STACK_SH_PATH.read_text(encoding="utf-8")
 
     def test_core_source_bake_cached_build_present(self, stack_sh_text):
-        """Core python-source services must be built via a CACHED build
-        (the build call must NOT carry --no-cache)."""
+        """Core python-source services must be rebuilt via a per-service CACHED
+        build loop (one `build` invocation per service, NOT a single batched call,
+        NOT --no-cache). TD-723 redesigned from batched to per-service for-loop so
+        one build failure does not abort siblings."""
         assert re.search(
-            r'build\s+"\$\{SOURCE_BAKE_SERVICES\[@\]\}"',
+            r'for _svc in "\$\{SOURCE_BAKE_SERVICES\[@\]\}"',
             stack_sh_text,
-        ), "stack.sh must build SOURCE_BAKE_SERVICES (cached) before core up (TD-723)"
-        assert not re.search(
-            r'--no-cache\s+"\$\{SOURCE_BAKE_SERVICES\[@\]\}"',
-            stack_sh_text,
-        ), "core python-source build must be CACHED, not --no-cache (TD-723)"
+        ), "stack.sh must iterate SOURCE_BAKE_SERVICES in a per-service for-loop (TD-723)"
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
+        assert (
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert (
+            'build "${_svc}"' in loop
+        ), 'core per-service loop must invoke `build "${_svc}"` per service (TD-723)'
+        assert (
+            "--no-cache" not in loop
+        ), "core per-service build must be CACHED, not --no-cache (TD-723)"
 
     def test_langfuse_source_bake_cached_build_present(self, stack_sh_text):
-        """Langfuse python-source services must be built via a CACHED build."""
+        """Langfuse python-source services must be rebuilt via a per-service CACHED
+        build loop (one `build` invocation per service via `_svc_lf`, NOT batched,
+        NOT --no-cache). TD-723 per-service loop design (mirrors core)."""
         assert re.search(
-            r'build\s+"\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}"',
+            r'for _svc_lf in "\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}"',
             stack_sh_text,
-        ), "stack.sh must build SOURCE_BAKE_SERVICES_LANGFUSE (cached) before langfuse up (TD-723)"
-        assert not re.search(
-            r'--no-cache\s+"\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}"',
-            stack_sh_text,
-        ), "langfuse python-source build must be CACHED, not --no-cache (TD-723)"
+        ), "stack.sh must iterate SOURCE_BAKE_SERVICES_LANGFUSE in a per-service for-loop (TD-723)"
+        loop = _per_service_loop_body(
+            stack_sh_text, "_svc_lf", "SOURCE_BAKE_SERVICES_LANGFUSE"
+        )
+        assert (
+            loop is not None
+        ), "langfuse per-service source-bake for-loop not found (TD-723)"
+        assert (
+            'build "${_svc_lf}"' in loop
+        ), 'langfuse per-service loop must invoke `build "${_svc_lf}"` per service (TD-723)'
+        assert (
+            "--no-cache" not in loop
+        ), "langfuse per-service source-bake build must be CACHED, not --no-cache (TD-723)"
 
     @pytest.mark.parametrize("service", TD723_CORE_SOURCE_SERVICES)
     def test_core_service_in_source_bake_array(self, stack_sh_text, service):
@@ -706,24 +724,34 @@ class TestStackShSourceBakeRebuild:
         ), f"'{service}' must be in the SOURCE_BAKE_SERVICES_LANGFUSE array (TD-723)"
 
     def test_core_build_is_profile_monitoring_aware(self, stack_sh_text):
-        """monitoring-api is behind --profile monitoring; the core source build
-        must expand _monitoring_source_profile so the flag reaches the build
-        when monitoring is enabled. Asserts co-occurrence within the same
-        `if ! _compose` block, NOT line-adjacency (LOW-5)."""
-        block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES")
-        assert block is not None, "core source-bake build invocation not found (TD-723)"
-        assert '"${_monitoring_source_profile[@]}"' in block, (
-            'core source build must expand "${_monitoring_source_profile[@]}" so '
-            "--profile monitoring reaches the build invocation when monitoring is "
-            "enabled (TD-723)"
+        """monitoring-api is behind --profile monitoring; the core per-service
+        for-loop must assign _svc_profile=(--profile monitoring) via the case arm
+        so the flag reaches the monitoring-api build invocation. Asserts the case
+        arm and the build-call's _svc_profile expansion co-exist in the loop body
+        (TD-723 per-service loop design — supersedes batched _monitoring_source_profile).
+        """
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
+        assert (
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert re.search(
+            r"monitoring-api\)\s+_svc_profile=\(--profile monitoring\)",
+            loop,
+        ), (
+            "core source-bake loop case arm must set "
+            "_svc_profile=(--profile monitoring) for monitoring-api (TD-723)"
+        )
+        assert '"${_svc_profile[@]}"' in loop, (
+            'core source-bake build invocation must expand "${_svc_profile[@]}" '
+            "so --profile monitoring reaches monitoring-api build (TD-723)"
         )
 
     def test_monitoring_api_build_conditionally_gated(self, stack_sh_text):
-        """monitoring-api is behind --profile monitoring and only started when
-        MONITORING_ENABLED != 'false' (default ON, mirrors the `up` gating),
-        so the core source build must append monitoring-api (and set
-        _monitoring_source_profile) under that SAME condition — not build it
-        unconditionally (TD-723)."""
+        """monitoring-api is gated on MONITORING_ENABLED != 'false' (default ON,
+        mirrors the `up` gating). The gate appends it to SOURCE_BAKE_SERVICES so
+        the per-service loop builds it conditionally. The --profile monitoring flag
+        is delivered via the loop's case arm, NOT by a pre-loop variable set in the
+        gate (TD-723 per-service loop redesign)."""
         gates = [
             m.group(1)
             for m in re.finditer(
@@ -742,25 +770,25 @@ class TestStackShSourceBakeRebuild:
             "monitoring-api must be appended to the core source-bake set inside "
             "the monitoring gate (TD-723)"
         )
-        assert "_monitoring_source_profile=(--profile monitoring)" in gate, (
-            "the monitoring gate must set _monitoring_source_profile to "
-            "--profile monitoring so monitoring-api is visible to the build (TD-723)"
-        )
-        # Assert the profile variable is wired into the build invocation
-        build_block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES")
+        # --profile monitoring is applied via case arm in the for-loop, not in the gate
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
         assert (
-            build_block is not None
-        ), "core source-bake build invocation not found (TD-723)"
-        assert '"${_monitoring_source_profile[@]}"' in build_block, (
-            '"${_monitoring_source_profile[@]}" must appear in the core source '
-            "build invocation so --profile monitoring is wired in (TD-723)"
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert re.search(
+            r"monitoring-api\)\s+_svc_profile=\(--profile monitoring\)",
+            loop,
+        ), (
+            "the for-loop case arm must set _svc_profile=(--profile monitoring) "
+            "for monitoring-api so --profile monitoring reaches its build (TD-723)"
         )
 
     def test_github_sync_build_conditionally_gated(self, stack_sh_text):
-        """github-sync is behind --profile github and is only started when
-        GITHUB_SYNC_ENABLED=true AND GITHUB_TOKEN is set, so the core source
-        build must append github-sync (and --profile github) under that SAME
-        condition — not build it unconditionally (TD-723)."""
+        """github-sync is gated on GITHUB_SYNC_ENABLED=true AND GITHUB_TOKEN set
+        (mirrors the `up` gating). The gate appends it to SOURCE_BAKE_SERVICES so
+        the per-service loop builds it conditionally. The --profile github flag is
+        delivered via the loop's case arm, NOT by a pre-loop variable in the gate
+        (TD-723 per-service loop redesign)."""
         gates = [
             m.group(1)
             for m in re.finditer(
@@ -780,31 +808,37 @@ class TestStackShSourceBakeRebuild:
             "github-sync must be appended to the core source-bake set inside the "
             "github gate (TD-723)"
         )
-        assert "--profile github" in gate, (
-            "the github gate must also enable --profile github for the source "
-            "build so github-sync is visible (TD-723)"
-        )
-        # Assert the profile variable expansion is wired into the build invocation
-        build_block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES")
+        # --profile github is applied via case arm in the for-loop, not in the gate
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
         assert (
-            build_block is not None
-        ), "core source-bake build invocation not found (TD-723)"
-        assert '"${_github_source_profile[@]}"' in build_block, (
-            '"${_github_source_profile[@]}" must appear in the core source build '
-            "invocation so --profile github is wired in, not just set (TD-723)"
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert re.search(
+            r"github-sync\)\s+_svc_profile=\(--profile github\)",
+            loop,
+        ), (
+            "the for-loop case arm must set _svc_profile=(--profile github) "
+            "for github-sync so --profile github reaches its build (TD-723)"
         )
 
     def test_langfuse_build_is_profile_langfuse_aware(self, stack_sh_text):
-        """langfuse services are behind --profile langfuse; the build invocation
-        must carry --profile langfuse. Asserts co-occurrence within the same
-        `if ! _compose` block, NOT line-adjacency (LOW-5)."""
-        block = _source_bake_build_block(stack_sh_text, "SOURCE_BAKE_SERVICES_LANGFUSE")
+        """langfuse services are behind --profile langfuse; each iteration of the
+        per-service langfuse for-loop must carry --profile langfuse hardcoded so
+        every langfuse service build receives the flag (TD-723 per-service loop
+        design — no case arm needed since all langfuse services share the same profile).
+        """
+        loop = _per_service_loop_body(
+            stack_sh_text, "_svc_lf", "SOURCE_BAKE_SERVICES_LANGFUSE"
+        )
         assert (
-            block is not None
-        ), "langfuse source-bake build invocation not found (TD-723)"
+            loop is not None
+        ), "langfuse per-service source-bake for-loop not found (TD-723)"
         assert (
-            "--profile langfuse" in block
-        ), "langfuse source build must pass --profile langfuse (TD-723)"
+            "--profile langfuse" in loop
+        ), "each langfuse per-service build must carry --profile langfuse (TD-723)"
+        assert (
+            'build "${_svc_lf}"' in loop
+        ), "each langfuse per-service build must target the individual service (TD-723)"
 
 
 # ---------------------------------------------------------------------------
