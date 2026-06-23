@@ -191,3 +191,234 @@ class TestExtractGroupId:
     def test_unknown_format_returns_none(self, monkeypatch):
         mod = _load_module(monkeypatch)
         assert mod.extract_group_id({"memory_data": {"mystery": 1}}) is None
+
+
+class TestIsPermanentFailure:
+    """_is_permanent_failure marks Unknown payload format as non-retryable."""
+
+    def test_unknown_payload_format_is_permanent(self, monkeypatch):
+        mod = _load_module(monkeypatch)
+        assert (
+            mod._is_permanent_failure("Unknown payload format: ['tool_name']") is True
+        )
+
+    def test_transient_error_is_not_permanent(self, monkeypatch):
+        mod = _load_module(monkeypatch)
+        assert (
+            mod._is_permanent_failure("Storage error: ConnectionRefusedError: ...")
+            is False
+        )
+
+    def test_empty_message_is_not_permanent(self, monkeypatch):
+        mod = _load_module(monkeypatch)
+        assert mod._is_permanent_failure("") is False
+
+
+def _unknown_format_entry(entry_id: str) -> dict:
+    """A queue entry whose memory_data has no recognised key — Unknown payload format."""
+    return {
+        "id": entry_id,
+        "retry_count": 0,
+        "max_retries": 3,
+        "memory_data": {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "x.py"},
+            "session_id": "s1",
+            "cwd": "/tmp",
+        },
+    }
+
+
+def _exhausted_entry(entry_id: str, group_id: str) -> dict:
+    """A direct-format entry that has exhausted its retry budget."""
+    return {
+        "id": entry_id,
+        "retry_count": 2,  # retry_count >= max_retries - 1 (2 >= 2)
+        "max_retries": 3,
+        "memory_data": {
+            "content": "x" * 50,
+            "type": "implementation",
+            "group_id": group_id,
+        },
+    }
+
+
+class TestDeadLetterQueue:
+    """Entries dead-letter immediately on Unknown payload format; or on retry exhaustion."""
+
+    def test_unknown_payload_format_dead_lettered_immediately(
+        self, monkeypatch, tmp_path
+    ):
+        """An entry with no recognised payload key is moved to DLQ on first attempt."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        entry = _unknown_format_entry("dlq-test-1")
+        queue, _storage = _wire_queue_storage(mod, [entry])
+
+        stats = mod.process_queue()
+
+        # Entry must be dead-lettered, not retried
+        assert stats["moved_to_dlq"] == 1
+        assert stats["failed"] == 1
+        queue.dequeue.assert_called_once_with("dlq-test-1")
+        queue.mark_failed.assert_not_called()
+
+        # DLQ file must contain the entry
+        assert dlq_path.exists()
+        dlq_lines = dlq_path.read_text().strip().splitlines()
+        assert len(dlq_lines) == 1
+        dlq_entry = __import__("json").loads(dlq_lines[0])
+        assert dlq_entry["id"] == "dlq-test-1"
+        assert "moved_to_dlq_at" in dlq_entry
+
+    def test_exhausted_entry_dead_lettered_on_last_retry(self, monkeypatch, tmp_path):
+        """An entry at retry_count == max_retries-1 is moved to DLQ after failure."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        entry = _exhausted_entry("dlq-test-2", "proj-a")
+        # storage.store_memory raises to force a failure
+        queue, storage = _wire_queue_storage(mod, [entry])
+        storage.store_memory.return_value = {"status": "error"}
+
+        # process_entry returns (False, ...) via the "Unknown status" branch
+        # — good enough to trigger the exhaustion path
+        stats = mod.process_queue()
+
+        assert stats["moved_to_dlq"] == 1
+        queue.dequeue.assert_called_once_with("dlq-test-2")
+        queue.mark_failed.assert_not_called()
+
+    def test_happy_path_entry_not_dead_lettered(self, monkeypatch, tmp_path):
+        """A valid entry that stores successfully is dequeued — never touches DLQ."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        entry = _direct_entry("happy-1", "proj-a")
+        queue, storage = _wire_queue_storage(mod, [entry])
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m1"}
+
+        stats = mod.process_queue()
+
+        assert stats["success"] == 1
+        assert stats["moved_to_dlq"] == 0
+        queue.dequeue.assert_called_once_with("happy-1")
+        queue.mark_failed.assert_not_called()
+        assert not dlq_path.exists()
+
+    def test_transient_failure_increments_retry_not_dlq(self, monkeypatch, tmp_path):
+        """A transient failure on a non-exhausted entry increments retry_count, not DLQ."""
+        mod = _load_module(monkeypatch)
+        dlq_path = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq_path)
+
+        # retry_count=0 (first attempt), failure will be transient (storage returns error)
+        entry = {
+            "id": "transient-1",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "content": "x" * 50,
+                "type": "implementation",
+                "group_id": "g",
+            },
+        }
+        queue, storage = _wire_queue_storage(mod, [entry])
+        storage.store_memory.return_value = {
+            "status": "error"
+        }  # not stored, not "stored"
+
+        stats = mod.process_queue()
+
+        assert stats["moved_to_dlq"] == 0
+        queue.mark_failed.assert_called_once_with("transient-1")
+        queue.dequeue.assert_not_called()
+        assert not dlq_path.exists()
+
+
+class TestL5RecoverableForms:
+    """L5: the two capture hooks now enqueue drainable forms on a Qdrant outage.
+
+    store_async wraps the raw event as {"hook_input": ...} (drains via format-2);
+    error_store_async enqueues a direct {"content", "type", "group_id",
+    "session_id"} record (drains via format-1). The raw flat event each hook used
+    to enqueue is still "Unknown payload format" — proving why the wrap was
+    necessary.
+    """
+
+    def test_store_async_hook_input_wrapper_drains_via_format2(self, monkeypatch):
+        """A {"hook_input": <PostToolUse event>} entry stores the extracted content."""
+        mod = _load_module(monkeypatch)
+        sys.modules["memory.project"].resolve_project_id.return_value = (
+            "resolved-project"
+        )
+        storage = MagicMock()
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m1"}
+
+        entry = {
+            "id": "h1",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "hook_input": {
+                    "tool_name": "Edit",
+                    "tool_input": {
+                        "file_path": "foo.py",
+                        "new_string": "def hello():\n    return 1\n",
+                    },
+                    "session_id": "sess-1",
+                    "cwd": "/repo",
+                }
+            },
+        }
+
+        ok, msg = mod.process_entry(entry, storage, dry_run=False)
+
+        assert ok, msg
+        kwargs = storage.store_memory.call_args.kwargs
+        assert kwargs["content"] == "def hello():\n    return 1\n"
+        assert kwargs["group_id"] == "resolved-project"
+        assert kwargs["memory_type"] == "implementation"
+        assert kwargs["session_id"] == "sess-1"
+
+    def test_error_store_direct_payload_drains_via_format1(self, monkeypatch):
+        """A direct error-store payload stores its content/type/group_id/session_id."""
+        mod = _load_module(monkeypatch)
+        storage = MagicMock()
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m2"}
+
+        entry = {
+            "id": "e1",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "content": "[error_pattern]\nCommand: pytest\nError: boom",
+                "type": "error_pattern",
+                "group_id": "myorg-myrepo",
+                "session_id": "sess-2",
+            },
+        }
+
+        ok, msg = mod.process_entry(entry, storage, dry_run=False)
+
+        assert ok, msg
+        kwargs = storage.store_memory.call_args.kwargs
+        assert kwargs["content"].startswith("[error_pattern]")
+        assert kwargs["group_id"] == "myorg-myrepo"
+        assert kwargs["memory_type"] == "error_pattern"
+        assert kwargs["session_id"] == "sess-2"
+
+    def test_raw_flat_event_is_unknown_format(self, monkeypatch):
+        """The raw flat event the hooks used to enqueue is undrainable (Unknown format)."""
+        mod = _load_module(monkeypatch)
+        storage = MagicMock()
+
+        ok, msg = mod.process_entry(_unknown_format_entry("flat-1"), storage, False)
+
+        assert ok is False
+        assert "Unknown payload format" in msg
+        storage.store_memory.assert_not_called()

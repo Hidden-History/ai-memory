@@ -27,6 +27,8 @@ from src.memory.queue import (
     MemoryQueue,
     QueueEntry,
     _acquire_lock_with_timeout,
+    _is_memory_payload,
+    queue_operation,
 )
 
 
@@ -543,3 +545,108 @@ class TestLockTimeout:
                 pytest.raises(LockTimeoutError),
             ):
                 queue.dequeue(queue_id)
+
+
+class TestIsMemoryPayload:
+    """Unit tests for the _is_memory_payload helper."""
+
+    def test_content_key_accepted(self):
+        """Direct format with 'content' key is a valid memory record."""
+        assert _is_memory_payload({"content": "hello", "group_id": "proj"}) is True
+
+    def test_hook_input_key_accepted(self):
+        """Hook-input wrapper format is a valid memory record."""
+        assert _is_memory_payload({"hook_input": {"tool_name": "Edit"}}) is True
+
+    def test_payload_key_accepted(self):
+        """Payload wrapper format is a valid memory record."""
+        assert _is_memory_payload({"payload": {"content": "x", "metadata": {}}}) is True
+
+    def test_raw_post_tool_use_event_rejected(self):
+        """Raw PostToolUse hook event (tool_name/tool_input/session_id/cwd) is not a memory record."""
+        raw_event = {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "foo.py", "new_string": "x"},
+            "session_id": "abc123",
+            "cwd": "/home/user/project",
+        }
+        assert _is_memory_payload(raw_event) is False
+
+    def test_raw_stop_event_rejected(self):
+        """Raw Stop hook event lacks any memory-data key."""
+        raw_event = {
+            "session_id": "abc123",
+            "stop_hook_active": True,
+            "reason": "completed",
+        }
+        assert _is_memory_payload(raw_event) is False
+
+    def test_empty_dict_rejected(self):
+        """Empty dict is not a memory record."""
+        assert _is_memory_payload({}) is False
+
+
+class TestEnqueueGuard:
+    """MemoryQueue.enqueue() rejects non-memory payloads; accepts valid records."""
+
+    @pytest.fixture
+    def queue(self, tmp_path):
+        return MemoryQueue(queue_path=str(tmp_path / "q.jsonl"))
+
+    def test_enqueue_rejects_raw_hook_event(self, queue):
+        """Raw PostToolUse event raises ValueError — never written to queue file."""
+        raw_event = {
+            "tool_name": "Write",
+            "tool_input": {"file_path": "x.py", "content": "pass"},
+            "session_id": "s1",
+            "cwd": "/tmp",
+        }
+        with pytest.raises(ValueError, match="not a memory-data record"):
+            queue.enqueue(raw_event, "qdrant_unavailable")
+
+        # Queue file must remain empty
+        entries = queue._read_all()
+        assert entries == []
+
+    def test_enqueue_accepts_direct_format(self, queue):
+        """Direct format (content key) is accepted without error."""
+        entry_id = queue.enqueue(
+            {"content": "hello", "group_id": "proj", "type": "implementation"},
+            "qdrant_unavailable",
+        )
+        assert isinstance(entry_id, str)
+        assert queue._read_all()[0]["memory_data"]["content"] == "hello"
+
+    def test_enqueue_accepts_hook_input_wrapper(self, queue):
+        """Hook-input wrapper format is accepted."""
+        entry_id = queue.enqueue(
+            {"hook_input": {"tool_name": "Edit", "cwd": "/x"}},
+            "timeout",
+        )
+        assert isinstance(entry_id, str)
+
+    def test_enqueue_accepts_payload_wrapper(self, queue):
+        """Payload wrapper format is accepted."""
+        entry_id = queue.enqueue(
+            {"payload": {"content": "data", "metadata": {"group_id": "g"}}},
+            "embedding_failed",
+        )
+        assert isinstance(entry_id, str)
+
+    def test_queue_operation_returns_false_for_rejected_payload(self, tmp_path):
+        """queue_operation() returns False (graceful degradation) when guard rejects."""
+        with patch("src.memory.queue.QUEUE_FILE", tmp_path / "q.jsonl"):
+            result = queue_operation(
+                {"tool_name": "Edit", "session_id": "s1"},
+                "qdrant_unavailable",
+            )
+        assert result is False
+
+    def test_queue_operation_returns_true_for_valid_payload(self, tmp_path):
+        """queue_operation() returns True for a valid memory-data record."""
+        with patch("src.memory.queue.QUEUE_FILE", tmp_path / "q.jsonl"):
+            result = queue_operation(
+                {"content": "store this", "group_id": "proj"},
+                "qdrant_unavailable",
+            )
+        assert result is True
