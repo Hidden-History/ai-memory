@@ -37,3 +37,5 @@ detect-secrets>=1.4.0
 # Layer 3: SpaCy NER for person name detection
 # Note: en_core_web_sm model downloaded in Dockerfile build step
 spacy>=3.8.0,<4.0.0
+# BUG-328: pin click — spacy CLI (typer) import fails without it on fresh build
+click>=8.0.0,<9.0.0
