@@ -145,8 +145,8 @@ _warn_cached_fallback() {
         log_warning "⚠ ${_svc} NOT rebuilt — running CACHED (stale) image"
     done
     log_warning "Baked source/dependencies for the service(s) above did NOT"
-    log_warning "deploy. Inspect the build error above, then re-run 'stack.sh"
-    log_warning "restart' once fixed."
+    log_warning "deploy. Inspect the build error above, then re-run:"
+    log_warning "  stack.sh restart"
     log_warning "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
@@ -301,8 +301,10 @@ cmd_start() {
     for _svc in "${SOURCE_BAKE_SERVICES[@]}"; do
         local -a _svc_profile=()
         case "${_svc}" in
-            monitoring-api) _svc_profile=(--profile monitoring) ;;
-            github-sync)    _svc_profile=(--profile github) ;;
+            monitoring-api)          _svc_profile=(--profile monitoring) ;;
+            github-sync)             _svc_profile=(--profile github) ;;
+            embedding|classifier-worker) _svc_profile=() ;;  # intentionally profile-less
+            *) log_warning "stack.sh: source-baked service '${_svc}' has no --profile mapping in cmd_start — building without a profile; add a case arm if it is profile-gated" ;;
         esac
         if ! _compose \
                 -f "${COMPOSE_CORE}" \
