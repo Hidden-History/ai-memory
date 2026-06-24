@@ -54,6 +54,8 @@ WebSearch: "[topic] best practices <current year>"
 WebSearch: "[topic] official documentation <current year>"
 ```
 
+(Substitute the actual current year for `<current year>` in these queries.)
+
 Prioritize results published within the last ~6 months relative to today.
 
 ### Source Prioritization
