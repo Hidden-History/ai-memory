@@ -283,6 +283,17 @@ def test_first_breath_marker_scoped_to_owner():
     assert not lc.first_breath_marker("# Bond\n\n## Working Style\n\nfast.\n")
 
 
+def test_first_breath_marker_real_name_with_surviving_seed():
+    # The fill workflow appended a real owner Name but left the seed line in
+    # ## Owner. A real Name alongside a surviving seed line must NOT re-trigger
+    # First Breath (TD-737 false-positive case).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\nRole: founder.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert not lc.first_breath_marker(bond)
+
+
 def test_resolve_paths_substitutes_root(workspace: Path):
     paths = lc.resolve_paths(workspace)
     assert paths["sanctum_path"] == workspace / "_ai-memory/sanctum"

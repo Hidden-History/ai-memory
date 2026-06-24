@@ -260,22 +260,45 @@ def _tail_entries(section_text: str, budget_bytes: int) -> tuple[str, int]:
     return body, dropped
 
 
+def _owner_needs_first_breath(owner_block: str) -> bool:
+    """True when BOND's ``## Owner`` Name field still needs First Breath.
+
+    Combined rule (TD-737): the Owner needs First Breath iff the
+    ``**Name:** {user_name}`` placeholder token is still present, OR no real
+    Name value has been filled in *and* the ``_Filled during First Breath`` seed
+    line survives. A real Name alongside a surviving seed line must NOT
+    re-trigger -- gating on the seed string alone false-positives in that case.
+    """
+    if "**Name:** {user_name}" in owner_block:
+        return True
+    has_real_name = False
+    for line in owner_block.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("**Name:**"):
+            value = stripped[len("**Name:**") :].strip()
+            if value and value != "{user_name}":
+                has_real_name = True
+                break
+    return not has_real_name and "_Filled during First Breath" in owner_block
+
+
 def first_breath_marker(bond_text: str) -> bool:
-    """True when BOND.md's ``## Owner`` section still carries the scaffold marker.
+    """True when BOND.md's ``## Owner`` section still needs First Breath.
 
     A cheap marker-scan (NOT a full Tier-B load): activation reads only this
-    signal from BOND.md. The marker ``_Filled during First Breath`` seeds both
-    ``## Owner`` and ``## Working Style`` while BOND is unfilled, so a full-document
-    substring match would fire on scaffold prose surviving in *any* section (e.g.
-    an unfilled Working Style) even after the owner is known -- a destructive
-    re-First-Breath false positive. The scan is scoped to the ``## Owner`` block,
-    since establishing the owner is exactly what First Breath does; a BOND with no
-    ``## Owner`` section returns False (fail-safe: never re-trigger First Breath).
+    signal from BOND.md. The scan is scoped to the ``## Owner`` block, since
+    establishing the owner is exactly what First Breath does. The check gates on
+    the Owner *Name* field (placeholder vs real value) via the combined rule in
+    ``_owner_needs_first_breath``, NOT on bare presence of the
+    ``_Filled during First Breath`` seed string -- a surviving seed line
+    alongside real Name content must NOT re-trigger a destructive
+    re-First-Breath (TD-737). A BOND with no ``## Owner`` section returns False
+    (fail-safe: never re-trigger First Breath).
     """
     _, sections = split_h2(bond_text)
     for title, block in sections:
         if title == "Owner":
-            return "_Filled during First Breath" in block
+            return _owner_needs_first_breath(block)
     return False
 
 
