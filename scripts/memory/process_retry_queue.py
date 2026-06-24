@@ -146,11 +146,29 @@ def process_entry(
 
         cwd = hook_input.get("cwd", "/")
         group_id = resolve_project_id(cwd)
-        memory_type = "implementation"
         session_id = hook_input.get("session_id", "retry")
         source_hook = "PostToolUse"
         file_path = tool_input.get("file_path", "")
-        collection = COLLECTION_CODE_PATTERNS
+
+        # Mirror live capture path: apply ImplementationFilter before extraction
+        # (store_async.py applies this before extract_patterns; parity prevents
+        # persisting content the live path would have discarded)
+        from memory.filters import ImplementationFilter
+
+        if not ImplementationFilter().should_store(file_path, content, tool_name):
+            return True, f"filtered: ImplementationFilter rejected {file_path!r}"
+
+        # Mirror live capture path: enrich content via extract_patterns (Story 2.3)
+        # so the drained record is content-identical to what the live path would store
+        from memory.extraction import extract_patterns
+
+        patterns = extract_patterns(content, file_path)
+        if patterns is None:
+            return True, "no patterns extracted; skipping (mirrors live path)"
+
+        content = patterns["content"]
+        memory_type = "implementation"
+        collection = get_collection_for_type(memory_type)
 
     elif "payload" in memory_data:
         # Payload wrapper format
