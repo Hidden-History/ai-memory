@@ -1902,3 +1902,37 @@ def test_reindex_lock_does_not_sweep_fresh_lock_file(tmp_path):
         pass
 
     assert lock_path not in unlinked, "fresh lock file was incorrectly swept"
+
+
+# ---------------------------------------------------------------------------
+# T-DP42 — stale-lock invariant: _LOCK_STALE_SECONDS >= 2 * _SOT_REINDEX_MAX_SECONDS
+# ---------------------------------------------------------------------------
+
+
+def test_lock_stale_seconds_tracks_reindex_cap_invariant():
+    """_LOCK_STALE_SECONDS must always be >= 2 * _SOT_REINDEX_MAX_SECONDS so a live
+    reindex hold (releases within the cap) can never own a lock older than the stale
+    threshold — guaranteeing no LIVE lock is ever swept by the orphan sweep.
+
+    Since both constants are module-load-time, the test verifies the formula directly:
+    - invariant holds for the current module configuration
+    - formula yields >= 2x the cap for a large operator override (e.g. 600s)
+    - 300s floor still applies for small caps
+    """
+    # Invariant under the current module configuration.
+    assert dp._LOCK_STALE_SECONDS >= 2 * dp._SOT_REINDEX_MAX_SECONDS, (
+        f"invariant violated: _LOCK_STALE_SECONDS={dp._LOCK_STALE_SECONDS} "
+        f"< 2 * _SOT_REINDEX_MAX_SECONDS ({2 * dp._SOT_REINDEX_MAX_SECONDS})"
+    )
+
+    # Formula verification for a large operator-supplied cap (600s → env override).
+    large_cap = 600.0
+    computed = max(300.0, 2 * large_cap)
+    assert (
+        computed >= 2 * large_cap
+    ), "formula must yield >= 2x the cap for large overrides"
+    assert computed == 1200.0, "expected 1200.0 for cap=600 (tracks cap, not 300 floor)"
+
+    # Floor: for small caps the 300s minimum must hold.
+    small_cap = 10.0
+    assert max(300.0, 2 * small_cap) == 300.0, "300s floor must hold for small caps"

@@ -93,9 +93,10 @@ _DISCOVERY_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS", 6.0)
 # Wall-time cap for the per-entry reindex loop (F-RT5-GAP-1 / F-SOT-2); mirrors
 # _DISCOVERY_MAX_SECONDS.  0 → treated as default per _env_float convention.
 _SOT_REINDEX_MAX_SECONDS = _env_float("AI_MEMORY_SOT_REINDEX_MAX_SECONDS", 30.0)
-# Reindex lock files older than this are presumed orphaned (flock self-heals on
-# process death; the surviving .lock file is cosmetic) and swept before acquire.
-_LOCK_STALE_SECONDS = 300.0
+# Stale-lock threshold: always >= 2x the reindex cap so a live holder (which
+# releases within _SOT_REINDEX_MAX_SECONDS) can never own a lock older than this
+# window.  The 300s floor preserves safe behaviour for the default cap (30s).
+_LOCK_STALE_SECONDS = max(300.0, 2 * _SOT_REINDEX_MAX_SECONDS)
 
 _DRIFT_CACHE_DIR = (
     Path(os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")))
@@ -948,7 +949,11 @@ def _reindex_lock(project_id: str):
         safe_id = project_id.replace("/", "__")
         lock_path = _DRIFT_CACHE_DIR / f"sot_reindex_{safe_id}.lock"
         # Sweep orphaned lock files (R2 / F-SOT-2): flock self-heals on process
-        # death, so a .lock file this old is cosmetic — remove it before acquiring.
+        # death, so a surviving .lock is cosmetic for that crash/exit case.  For
+        # a live holder, the max()-derived _LOCK_STALE_SECONDS invariant
+        # (= max(300, 2 * _SOT_REINDEX_MAX_SECONDS)) ensures any reindex still
+        # running — it releases within _SOT_REINDEX_MAX_SECONDS — can never own
+        # a lock older than this threshold, so no LIVE lock is ever swept.
         try:
             if (
                 lock_path.exists()
