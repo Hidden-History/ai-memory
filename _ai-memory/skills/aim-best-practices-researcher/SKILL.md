@@ -38,7 +38,7 @@ results = search_memories(
 
 ```bash
 # Phase 4: Store findings
-scripts/memory/run-with-env.sh store_best_practice.py \
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" store_best_practice.py \
     --content "Best practice description" \
     --session-id "current-session" \
     --domain "python" \
@@ -87,7 +87,7 @@ Without this step, research is lost and BUG-048 occurs.
 
 ```bash
 # MANDATORY - Run this command to store findings
-scripts/memory/run-with-env.sh store_best_practice.py \
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" store_best_practice.py \
     --content "YOUR_FINDING_CONTENT_HERE" \
     --session-id "YOUR_SESSION_ID" \
     --domain "YOUR_DOMAIN" \

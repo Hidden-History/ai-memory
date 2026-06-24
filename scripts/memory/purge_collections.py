@@ -41,6 +41,7 @@ from memory.config import (
     get_config,
 )
 from memory.metrics_push import push_skill_metrics_async
+from memory.project import resolve_project_id
 from memory.qdrant_client import get_qdrant_client
 
 ALL_COLLECTIONS = [
@@ -235,7 +236,19 @@ def main() -> int:
             return 1
         collections = [args.collection]
 
-    group_id = os.environ.get("AI_MEMORY_GROUP_ID") or Path.cwd().name
+    # Resolve scope through the one shared resolver (BUG-314) so a default purge
+    # targets the canonical project id everywhere else uses, instead of the raw
+    # cwd basename (wrong case → wrong scope, TD-714). The legacy
+    # AI_MEMORY_GROUP_ID env is preserved as an explicit override; empty/unset is
+    # treated as unset and resolution falls through to AI_MEMORY_PROJECT_ID /
+    # marker / git remote. Fail loud rather than purge an unintended scope.
+    try:
+        group_id = resolve_project_id(
+            os.getcwd(), explicit=os.environ.get("AI_MEMORY_GROUP_ID")
+        )
+    except ValueError as e:
+        print(f"Error: Cannot resolve project scope for purge: {e}")
+        return 1
 
     try:
         client = get_qdrant_client(config)

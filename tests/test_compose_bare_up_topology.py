@@ -601,6 +601,247 @@ class TestStackShImageBakeRebuild:
 
 
 # ---------------------------------------------------------------------------
+# TD-723 — stack.sh cmd_start python-source CACHED rebuild assertions
+# ---------------------------------------------------------------------------
+
+# Python-source baked services rebuilt by stack.sh cmd_start (TD-723).
+#
+# Two source-delivery classes both require the CACHED rebuild:
+#   • baked-src — COPY python source into the image with NO src volume mount, so
+#     a source change deploys ONLY via a rebuild: embedding, monitoring-api,
+#     github-sync (core); trace-flush-worker (langfuse).
+#   • baked-deps, src volume-mounted — COPY requirements.txt + pip-install but
+#     volume-mount ../src:/app/src:ro, so src changes deploy via the mount but a
+#     requirements.txt change (the PM #353 'No module named openai' class) still
+#     needs a rebuild: classifier-worker (core); evaluator-scheduler (langfuse).
+#
+# Unconditional core members (always built). monitoring-api is gated on
+# MONITORING_ENABLED and github-sync on GITHUB_SYNC_ENABLED+GITHUB_TOKEN;
+# both are asserted separately by their respective gating tests.
+TD723_CORE_SOURCE_SERVICES = ["embedding", "classifier-worker"]
+TD723_LANGFUSE_SOURCE_SERVICES = ["evaluator-scheduler", "trace-flush-worker"]
+
+
+def _per_service_loop_body(text, loop_var, array_var):
+    """Return the text of the per-service for-loop that iterates *array_var*.
+
+    Finds `for <loop_var> in "${<array_var>[@]}"; do ... done` and returns the
+    full match. Returns None if not found.
+    """
+    m = re.search(
+        r"for\s+"
+        + re.escape(loop_var)
+        + r'\s+in\s+"\$\{'
+        + re.escape(array_var)
+        + r'\[@\]\}".*?done',
+        text,
+        re.DOTALL,
+    )
+    return m.group(0) if m else None
+
+
+class TestStackShSourceBakeRebuild:
+    """Verify stack.sh cmd_start contains a CACHED compose build for the
+    python-source baked services.
+
+    TD-723: embedding, classifier-worker, monitoring-api (conditional on
+    MONITORING_ENABLED), and github-sync (conditional on GITHUB_SYNC_ENABLED +
+    GITHUB_TOKEN) in core; evaluator-scheduler and trace-flush-worker in langfuse.
+    compose caches each service's built image; `compose up -d` reuses the cached
+    image even when a baked change shipped, so a release deploys stale silently.
+    The fix adds a CACHED `build` (NOT --no-cache, so only changed layers are
+    invalidated) before each `up -d --wait`. The rebuild redeploys baked changes
+    — baked src for the baked-src services, and baked pip dependencies
+    (requirements.txt) for all of them.
+
+    These must be CACHED builds — adding them to the --no-cache IMAGE_BAKE
+    arrays would re-bake embedding ONNX models / re-run github-sync's spacy
+    download on every restart.
+    """
+
+    @pytest.fixture(scope="class")
+    def stack_sh_text(self):
+        return STACK_SH_PATH.read_text(encoding="utf-8")
+
+    def test_core_source_bake_cached_build_present(self, stack_sh_text):
+        """Core python-source services must be rebuilt via a per-service CACHED
+        build loop (one `build` invocation per service, NOT a single batched call,
+        NOT --no-cache). TD-723 redesigned from batched to per-service for-loop so
+        one build failure does not abort siblings."""
+        assert re.search(
+            r'for _svc in "\$\{SOURCE_BAKE_SERVICES\[@\]\}"',
+            stack_sh_text,
+        ), "stack.sh must iterate SOURCE_BAKE_SERVICES in a per-service for-loop (TD-723)"
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
+        assert (
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert (
+            'build "${_svc}"' in loop
+        ), 'core per-service loop must invoke `build "${_svc}"` per service (TD-723)'
+        assert (
+            "--no-cache" not in loop
+        ), "core per-service build must be CACHED, not --no-cache (TD-723)"
+
+    def test_langfuse_source_bake_cached_build_present(self, stack_sh_text):
+        """Langfuse python-source services must be rebuilt via a per-service CACHED
+        build loop (one `build` invocation per service via `_svc_lf`, NOT batched,
+        NOT --no-cache). TD-723 per-service loop design (mirrors core)."""
+        assert re.search(
+            r'for _svc_lf in "\$\{SOURCE_BAKE_SERVICES_LANGFUSE\[@\]\}"',
+            stack_sh_text,
+        ), "stack.sh must iterate SOURCE_BAKE_SERVICES_LANGFUSE in a per-service for-loop (TD-723)"
+        loop = _per_service_loop_body(
+            stack_sh_text, "_svc_lf", "SOURCE_BAKE_SERVICES_LANGFUSE"
+        )
+        assert (
+            loop is not None
+        ), "langfuse per-service source-bake for-loop not found (TD-723)"
+        assert (
+            'build "${_svc_lf}"' in loop
+        ), 'langfuse per-service loop must invoke `build "${_svc_lf}"` per service (TD-723)'
+        assert (
+            "--no-cache" not in loop
+        ), "langfuse per-service source-bake build must be CACHED, not --no-cache (TD-723)"
+
+    @pytest.mark.parametrize("service", TD723_CORE_SOURCE_SERVICES)
+    def test_core_service_in_source_bake_array(self, stack_sh_text, service):
+        """Each unconditional core python-source service must appear in the core
+        array initializer (github-sync is gated — see the gating test)."""
+        assert re.search(
+            r"SOURCE_BAKE_SERVICES=\([^)]*\b" + re.escape(service) + r"\b[^)]*\)",
+            stack_sh_text,
+        ), f"'{service}' must be in the core SOURCE_BAKE_SERVICES array (TD-723)"
+
+    @pytest.mark.parametrize("service", TD723_LANGFUSE_SOURCE_SERVICES)
+    def test_langfuse_service_in_source_bake_array(self, stack_sh_text, service):
+        """Each langfuse python-source service must appear in the langfuse array."""
+        assert re.search(
+            r"SOURCE_BAKE_SERVICES_LANGFUSE=\([^)]*\b"
+            + re.escape(service)
+            + r"\b[^)]*\)",
+            stack_sh_text,
+        ), f"'{service}' must be in the SOURCE_BAKE_SERVICES_LANGFUSE array (TD-723)"
+
+    def test_core_build_is_profile_monitoring_aware(self, stack_sh_text):
+        """monitoring-api is behind --profile monitoring; the core per-service
+        for-loop must assign _svc_profile=(--profile monitoring) via the case arm
+        so the flag reaches the monitoring-api build invocation. Asserts the case
+        arm and the build-call's _svc_profile expansion co-exist in the loop body
+        (TD-723 per-service loop design — supersedes batched _monitoring_source_profile).
+        """
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
+        assert (
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert re.search(
+            r"monitoring-api\)\s+_svc_profile=\(--profile monitoring\)",
+            loop,
+        ), (
+            "core source-bake loop case arm must set "
+            "_svc_profile=(--profile monitoring) for monitoring-api (TD-723)"
+        )
+        assert '"${_svc_profile[@]}"' in loop, (
+            'core source-bake build invocation must expand "${_svc_profile[@]}" '
+            "so --profile monitoring reaches monitoring-api build (TD-723)"
+        )
+
+    def test_monitoring_api_build_conditionally_gated(self, stack_sh_text):
+        """monitoring-api is gated on MONITORING_ENABLED != 'false' (default ON,
+        mirrors the `up` gating). The gate appends it to SOURCE_BAKE_SERVICES so
+        the per-service loop builds it conditionally. The --profile monitoring flag
+        is delivered via the loop's case arm, NOT by a pre-loop variable set in the
+        gate (TD-723 per-service loop redesign)."""
+        gates = [
+            m.group(1)
+            for m in re.finditer(
+                r'if \[\[ "\$\{MONITORING_ENABLED\}" != "false" \]\]; then(.*?)\n    fi',
+                stack_sh_text,
+                re.DOTALL,
+            )
+            if "SOURCE_BAKE_SERVICES+=" in m.group(1)
+        ]
+        assert gates, (
+            "monitoring-api must be appended to SOURCE_BAKE_SERVICES inside the "
+            "MONITORING_ENABLED gate (TD-723)"
+        )
+        gate = gates[0]
+        assert "SOURCE_BAKE_SERVICES+=(monitoring-api)" in gate, (
+            "monitoring-api must be appended to the core source-bake set inside "
+            "the monitoring gate (TD-723)"
+        )
+        # --profile monitoring is applied via case arm in the for-loop, not in the gate
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
+        assert (
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert re.search(
+            r"monitoring-api\)\s+_svc_profile=\(--profile monitoring\)",
+            loop,
+        ), (
+            "the for-loop case arm must set _svc_profile=(--profile monitoring) "
+            "for monitoring-api so --profile monitoring reaches its build (TD-723)"
+        )
+
+    def test_github_sync_build_conditionally_gated(self, stack_sh_text):
+        """github-sync is gated on GITHUB_SYNC_ENABLED=true AND GITHUB_TOKEN set
+        (mirrors the `up` gating). The gate appends it to SOURCE_BAKE_SERVICES so
+        the per-service loop builds it conditionally. The --profile github flag is
+        delivered via the loop's case arm, NOT by a pre-loop variable in the gate
+        (TD-723 per-service loop redesign)."""
+        gates = [
+            m.group(1)
+            for m in re.finditer(
+                r'if \[\[ "\$\{GITHUB_SYNC_ENABLED\}" == "true" '
+                r'&& -n "\$\{GITHUB_TOKEN:-\}" \]\]; then(.*?)\n    fi',
+                stack_sh_text,
+                re.DOTALL,
+            )
+            if "SOURCE_BAKE_SERVICES+=" in m.group(1)
+        ]
+        assert gates, (
+            "github-sync must be appended to SOURCE_BAKE_SERVICES inside the "
+            "GITHUB_SYNC_ENABLED + GITHUB_TOKEN gate (TD-723)"
+        )
+        gate = gates[0]
+        assert "SOURCE_BAKE_SERVICES+=(github-sync)" in gate, (
+            "github-sync must be appended to the core source-bake set inside the "
+            "github gate (TD-723)"
+        )
+        # --profile github is applied via case arm in the for-loop, not in the gate
+        loop = _per_service_loop_body(stack_sh_text, "_svc", "SOURCE_BAKE_SERVICES")
+        assert (
+            loop is not None
+        ), "core per-service source-bake for-loop not found (TD-723)"
+        assert re.search(
+            r"github-sync\)\s+_svc_profile=\(--profile github\)",
+            loop,
+        ), (
+            "the for-loop case arm must set _svc_profile=(--profile github) "
+            "for github-sync so --profile github reaches its build (TD-723)"
+        )
+
+    def test_langfuse_build_is_profile_langfuse_aware(self, stack_sh_text):
+        """langfuse services are behind --profile langfuse; each iteration of the
+        per-service langfuse for-loop must carry --profile langfuse hardcoded so
+        every langfuse service build receives the flag (TD-723 per-service loop
+        design — no case arm needed since all langfuse services share the same profile).
+        """
+        loop = _per_service_loop_body(
+            stack_sh_text, "_svc_lf", "SOURCE_BAKE_SERVICES_LANGFUSE"
+        )
+        assert (
+            loop is not None
+        ), "langfuse per-service source-bake for-loop not found (TD-723)"
+        assert (
+            "--profile langfuse" in loop
+        ), "each langfuse per-service build must carry --profile langfuse (TD-723)"
+        assert (
+            'build "${_svc_lf}"' in loop
+        ), "each langfuse per-service build must target the individual service (TD-723)"
+
+
+# ---------------------------------------------------------------------------
 # BP-162 Layer 2 — built-image parent-dir mode assertions
 # ---------------------------------------------------------------------------
 
@@ -676,3 +917,56 @@ class TestTd583DirModes:
         config_d_mode = int(config_d_line.split()[0])
         assert config_d_mode >= 755, f"BP-162 regression: {out}"
         assert "644 /etc/clickhouse-server/config.d/retention.xml" in out
+
+
+# ---------------------------------------------------------------------------
+# F-ADV-1 — evaluator-scheduler must carry LANGFUSE_ENABLED
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluatorSchedulerLangfuseEnv:
+    """Regression guard: evaluator-scheduler env block must include LANGFUSE_ENABLED.
+
+    F-ADV-1 (PM #361): LANGFUSE_ENABLED was absent from the evaluator-scheduler
+    explicit environment: allow-list. Inside the container
+    ``os.environ.get("LANGFUSE_ENABLED", "false")`` therefore returned "false",
+    so ``is_langfuse_enabled()`` was False and ``_register_langfuse_shutdown()``
+    early-returned without registering the bounded TD-698 atexit drain.
+    Mirrors the trace-flush-worker pattern (``LANGFUSE_ENABLED=true`` hardcoded
+    — both services run exclusively inside the langfuse profile).
+    """
+
+    @pytest.fixture(scope="class")
+    def langfuse_cfg(self):
+        """Parsed docker/docker-compose.langfuse.yml source."""
+        with open(DOCKER_COMPOSE_LANGFUSE_PATH) as fh:
+            return yaml.safe_load(fh)
+
+    def test_evaluator_scheduler_env_includes_langfuse_enabled(self, langfuse_cfg):
+        """evaluator-scheduler environment: block must carry LANGFUSE_ENABLED=true."""
+        svc = langfuse_cfg["services"]["evaluator-scheduler"]
+        env_keys = _env_block_keys(svc)
+        assert "LANGFUSE_ENABLED" in env_keys, (
+            "evaluator-scheduler: LANGFUSE_ENABLED missing from environment: allow-list; "
+            "os.environ.get('LANGFUSE_ENABLED','false') returns 'false' inside the "
+            "container and the bounded atexit drain is never registered (F-ADV-1)"
+        )
+        # R1: assert value is "true"; LANGFUSE_ENABLED=false would silently
+        # re-break the TD-698 bounded atexit drain (F-ADV-1).
+        env = svc.get("environment") or []
+        if isinstance(env, dict):
+            langfuse_val = str(env.get("LANGFUSE_ENABLED", ""))
+        else:
+            langfuse_val = next(
+                (
+                    str(item).split("=", 1)[1]
+                    for item in env
+                    if str(item).startswith("LANGFUSE_ENABLED=")
+                ),
+                "",
+            )
+        assert langfuse_val == "true", (
+            f"evaluator-scheduler: LANGFUSE_ENABLED={langfuse_val!r}; expected 'true' — "
+            "a false value disables the bounded atexit drain registered by "
+            "_register_langfuse_shutdown() (TD-698, F-ADV-1)"
+        )

@@ -43,6 +43,28 @@ from pathlib import Path
 
 logger = logging.getLogger("ai_memory.queue")
 
+# Top-level keys that identify a dict as a memory-data record accepted by the
+# retry queue.  At least one must be present.
+#
+#   "content"    — direct format: {"content": "...", "group_id": "...", ...}
+#   "hook_input" — hook-input wrapper: {"hook_input": {...claude event...}}
+#   "payload"    — payload wrapper:    {"payload": {"content": ..., "metadata": ...}}
+#
+# Raw Claude hook events (PostToolUse, Stop, error-hook stdin) carry
+# tool_name/tool_input/session_id/cwd instead and must NOT enter the queue.
+_MEMORY_PAYLOAD_KEYS: frozenset = frozenset({"content", "hook_input", "payload"})
+
+
+def _is_memory_payload(data: dict) -> bool:
+    """Return True if *data* contains at least one recognised memory-data key.
+
+    Rejects raw Claude hook events that cannot be drained by process_retry_queue.
+    Conservative: a dict that happens to have "content" is accepted even if it
+    turns out to be malformed — that is caught at drain time, not at enqueue.
+    """
+    return bool(_MEMORY_PAYLOAD_KEYS & data.keys())
+
+
 # Import metrics for Prometheus instrumentation (Story 6.1, AC 6.1.3)
 try:
     from .metrics import queue_size
@@ -239,6 +261,11 @@ class MemoryQueue:
     ) -> str:
         """Add memory operation to queue.
 
+        Rejects raw hook event payloads (PostToolUse, Stop, error-hook stdin)
+        that lack any recognised memory-data key and would fail every drain
+        attempt with "Unknown payload format".  Legitimate memory records
+        (direct, hook-input-wrapper, or payload-wrapper format) are accepted.
+
         Args:
             memory_data: Complete memory data dict for store_memory()
             failure_reason: Error code (QDRANT_UNAVAILABLE, EMBEDDING_TIMEOUT)
@@ -247,7 +274,23 @@ class MemoryQueue:
 
         Returns:
             str: Queue entry ID (UUID v4)
+
+        Raises:
+            ValueError: When *memory_data* is not a recognisable memory-data record.
         """
+        if not _is_memory_payload(memory_data):
+            logger.warning(
+                "enqueue_rejected_non_memory_payload",
+                extra={
+                    "failure_reason": failure_reason,
+                    "keys_present": sorted(memory_data.keys()),
+                },
+            )
+            raise ValueError(
+                f"enqueue rejected: not a memory-data record "
+                f"(keys: {sorted(memory_data.keys())})"
+            )
+
         now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         # For immediate retry, set next_retry_at to now (past is also valid)

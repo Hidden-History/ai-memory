@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -76,7 +76,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
@@ -103,7 +103,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           files: coverage.xml
           fail_ci_if_error: false
@@ -131,7 +131,7 @@ jobs:
         # Health check via Python step below (preferred over bash /dev/tcp for maintainability)
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -203,7 +203,7 @@ jobs:
       contains(github.event.pull_request.title, '[e2e]')
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # TD-626: when this PR/push changes the embedding image's own sources, the
       # prebuilt GHCR image is stale against the change under test, so the "Start Docker
@@ -212,7 +212,7 @@ jobs:
       # (memory.metrics — imported by docker/embedding/main.py).
       - name: Detect embedding-relevant changes
         id: embedding-changes
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             embedding:
@@ -224,7 +224,7 @@ jobs:
       # ai-memory-embedding package is private. GITHUB_TOKEN carries packages:read for
       # the same-repo image (see job-level permissions above).
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

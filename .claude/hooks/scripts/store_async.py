@@ -839,7 +839,9 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
             extra={"error": str(e), "error_type": type(e).__name__},
         )
         # AC 2.1.2: Queue on response handling failure
-        queue_operation(hook_input, "response_error")
+        # L5: wrap as {"hook_input": ...} so the queue guard accepts it and
+        # process_retry_queue drains it via the format-2 (hook_input) handler.
+        queue_operation({"hook_input": hook_input}, "response_error")
 
     except UnexpectedResponse as e:
         # AC 2.1.2: Handle HTTP errors
@@ -848,19 +850,19 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
             extra={"error": str(e), "error_type": type(e).__name__},
         )
         # AC 2.1.2: Queue on unexpected response
-        queue_operation(hook_input, "unexpected_response")
+        queue_operation({"hook_input": hook_input}, "unexpected_response")
 
     except ConnectionRefusedError as e:
         # Qdrant service unavailable
         logger.error("qdrant_unavailable", extra={"error": str(e)})
         # AC 2.1.2: Queue on connection failure
-        queue_operation(hook_input, "qdrant_unavailable")
+        queue_operation({"hook_input": hook_input}, "qdrant_unavailable")
 
     except RuntimeError as e:
         # AC 2.1.2: Handle closed client instances
         if "closed" in str(e).lower():
             logger.error("qdrant_client_closed", extra={"error": str(e)})
-            queue_operation(hook_input, "client_closed")
+            queue_operation({"hook_input": hook_input}, "client_closed")
         else:
             raise  # Re-raise if not client-related
 
@@ -887,7 +889,7 @@ async def store_memory_async(hook_input: dict[str, Any]) -> None:
             ).inc()
 
         # AC 2.1.2: Queue on any failure
-        queue_operation(hook_input, "unexpected_error")
+        queue_operation({"hook_input": hook_input}, "unexpected_error")
 
     finally:
         # Clean up client connection
@@ -922,7 +924,7 @@ async def main_async() -> int:
         logger.error("storage_timeout", extra={"timeout_seconds": get_hook_timeout()})
         # Queue for retry
         try:
-            queue_operation(hook_input, "timeout")
+            queue_operation({"hook_input": hook_input}, "timeout")
         except Exception:
             pass
         return 1

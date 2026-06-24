@@ -106,6 +106,7 @@ def main():
                 run_with_env,
                 engine_script,
                 "run",
+                "--shadow",
                 "--json",
                 "--registry",
                 str(registry_path),

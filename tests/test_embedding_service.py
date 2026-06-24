@@ -141,6 +141,7 @@ def _restore_global_state():
         "EMBEDDING_MAX_WAITERS",
         "EMBEDDING_RETRY_AFTER",
         "EMBEDDING_INFERENCE_THREADS",
+        "EMBEDDING_SAFE_INFLIGHT_TEXTS",
     )
     saved_modules = {k: sys.modules.get(k) for k in module_keys}
     saved_env = {k: os.environ.get(k) for k in env_keys}
@@ -412,6 +413,242 @@ def test_backpressure_waits_without_shedding_under_designed_load():
     # Backpressure engaged (callers were made to wait) but NOTHING was shed.
     assert _backpressure_count(service, "shed") - before_shed == 0
     assert _backpressure_count(service, "waited") - before_waited > 0
+
+
+# --- BUG-326: proactive in-flight-work admission envelope ---
+
+
+def test_admission_envelope_sheds_over_envelope_concurrent_work():
+    """Once work is in flight, a request that would push the concurrent in-flight work
+    over EMBEDDING_SAFE_INFLIGHT_TEXTS is shed (503 + Retry-After); a request that fits is
+    admitted (BUG-326). The semaphore cap is not the binding constraint here — the
+    work-envelope is.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        gate = threading.Event()
+
+        def _blocking_op():
+            gate.wait(timeout=10)  # hold the slot so _inflight_work stays at 30
+            return ["held"]
+
+        # Hold one in-flight request of 30 work-units; wait until it is counted.
+        holder = asyncio.create_task(
+            service.run_inference_async(_blocking_op, work_units=30)
+        )
+        while service._inflight_work < 30:
+            await asyncio.sleep(0)
+
+        # Over-envelope: 30 + 20 = 50 > 40 -> shed.
+        before_shed = _backpressure_count(service, "shed")
+        with pytest.raises(HTTPException) as over:
+            await service.run_inference_async(lambda: ["x"], work_units=20)
+        shed_delta = _backpressure_count(service, "shed") - before_shed
+
+        # Under-envelope: 30 + 10 = 40, not over -> admitted.
+        fit = await service.run_inference_async(lambda: ["y"], work_units=10)
+
+        gate.set()
+        await holder
+        # BUG-327: all in-flight work unwinds to zero — neither the shed nor the
+        # admitted requests leak a work-unit (the slot release is callback-driven, so
+        # yield until the threadsafe release has run).
+        for _ in range(1000):
+            if service._inflight_work == 0:
+                break
+            await asyncio.sleep(0)
+        assert service._inflight_work == 0
+        return over.value, shed_delta, fit
+
+    err, shed_delta, fit = asyncio.run(_drive())
+    assert err.status_code == 503
+    assert err.detail == "embedding_admission_over_envelope"
+    assert err.headers["Retry-After"] == str(service.EMBEDDING_RETRY_AFTER)
+    assert shed_delta == 1
+    assert fit == ["y"]
+
+
+def test_admission_envelope_admits_lone_request_within_envelope():
+    """The lone-request ADMIT (deadlock prevention) is preserved for batches <= the
+    envelope: an idle request whose work_units fits is admitted (BUG-326/327).
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        # 40 == envelope, service idle -> admitted (not shed, not 413).
+        return await service.run_inference_async(lambda: ["solo"], work_units=40)
+
+    assert asyncio.run(_drive()) == ["solo"]
+
+
+def test_lone_request_over_envelope_returns_permanent_413():
+    """BUG-327 root fix: a LONE request whose own batch exceeds the envelope is rejected
+    with a PERMANENT 413 (not a retryable 503), even when the service is idle — the
+    belt-and-suspenders behind the now-sub-batching clients. No slot/work is consumed.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        before_inflight_work = service._inflight_work
+        with pytest.raises(HTTPException) as exc:
+            # 100 > 40 envelope, idle -> permanent 413 (the BUG-326 lone-any-size ADMIT is
+            # intentionally superseded for over-envelope batches).
+            await service.run_inference_async(lambda: ["x"], work_units=100)
+        # No Retry-After header: it is not retryable.
+        assert "Retry-After" not in (exc.value.headers or {})
+        # The reject happens before slot acquisition -> no work counted, slot free.
+        assert service._inflight_work == before_inflight_work == 0
+        assert not service._inference_semaphore.locked()
+        return exc.value
+
+    err = asyncio.run(_drive())
+    assert err.status_code == 413
+
+
+def test_subbatched_legit_traffic_never_413s():
+    """A stream of requests each <= the envelope (the contract clients now honor) is never
+    413'd — proving the belt-and-suspenders never fires on legitimate sub-batched traffic.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        results = []
+        for size in (1, 40, 12, 40, 7):  # all <= envelope
+            results.append(
+                await service.run_inference_async(lambda: ["ok"], work_units=size)
+            )
+        return results
+
+    assert asyncio.run(_drive()) == [["ok"]] * 5
+
+
+def test_admission_envelope_enforced_on_http_path_with_production_batches():
+    """End-to-end on the real /embed/dense path with production-shaped (~2KB/text)
+    batches: while a 30-text request is in flight, a concurrent 20-text request (30 + 20
+    = 50 > 40 envelope) is shed with the over-envelope 503. Proves work_units is wired
+    from the actual request batch size (BUG-326).
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        gate = threading.Event()
+        entered = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        class _GatedModel:
+            name = "gated-stub"
+
+            def embed(self, embed_texts):
+                loop.call_soon_threadsafe(entered.set)
+                gate.wait(timeout=10)  # hold the slot while the second request arrives
+                return [np.full(768, 0.1, dtype=np.float32) for _ in embed_texts]
+
+        service.MODEL_REGISTRY["en"] = _GatedModel()
+
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
+            held = _production_shaped_batch(count=30)  # 30 in-flight work-units
+            holder = asyncio.create_task(
+                client.post("/embed/dense", json={"texts": held, "model": "en"})
+            )
+            await entered.wait()  # the 30-text request is now in flight (counted)
+
+            over = await client.post(
+                "/embed/dense",
+                json={"texts": _production_shaped_batch(count=20), "model": "en"},
+            )
+
+            gate.set()
+            holder_resp = await holder
+            # BUG-327: in-flight work fully unwinds after the e2e exchange.
+            for _ in range(1000):
+                if service._inflight_work == 0:
+                    break
+                await asyncio.sleep(0)
+            assert service._inflight_work == 0
+            return over.status_code, over.json().get("detail"), holder_resp.status_code
+
+    status, detail, holder_status = asyncio.run(_drive())
+    assert status == 503
+    assert detail == "embedding_admission_over_envelope"
+    assert holder_status == 200
+
+
+def test_inflight_envelope_default_matches_client_default():
+    """BUG-327: EMBEDDING_SAFE_INFLIGHT_TEXTS (embedding service, docker/embedding/main.py)
+    and _embedding_inflight_envelope() (storage client, src/memory/storage.py) are separate
+    deploy units that cannot share a runtime import, so their DEFAULTS must be kept in
+    lockstep by hand. Fail loudly here if one is re-pegged without the other — otherwise the
+    envelope contract breaks silently (clients would sub-batch to a different size than the
+    server enforces).
+    """
+    os.environ.pop("EMBEDDING_SAFE_INFLIGHT_TEXTS", None)
+    service = _load_service(4)
+    from src.memory.storage import _embedding_inflight_envelope
+
+    client_default = _embedding_inflight_envelope()
+    assert client_default == service.EMBEDDING_SAFE_INFLIGHT_TEXTS
+
+
+def test_over_envelope_batch_returns_permanent_413_on_http_path():
+    """End-to-end on the real /embed/dense ASGI path: a single batch larger than the
+    in-flight-work envelope earns a PERMANENT 413 (no Retry-After), proving the
+    work_units=len(texts) contract and the 413 gate are wired at the endpoint — not only
+    via a direct run_inference_async call. The batch (50) stays well under
+    EMBEDDING_MAX_BATCH_TEXTS (256), so the envelope 413 (not the payload-limit 413) is the
+    one exercised.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
+            resp = await client.post(
+                "/embed/dense",
+                json={"texts": _production_shaped_batch(count=50), "model": "en"},
+            )
+            return resp.status_code, resp.json().get("detail"), dict(resp.headers)
+
+    status, detail, headers = asyncio.run(_drive())
+    assert status == 413
+    assert "memory envelope" in detail  # envelope gate, not the payload-limit guard
+    assert "retry-after" not in {k.lower() for k in headers}  # permanent, not retryable
+
+
+def test_over_envelope_413_is_endpoint_agnostic():
+    """BUG-327: the over-envelope 413 is a server-wide gate (it lives in
+    run_inference_async), so it fires identically on a NON-dense endpoint. Drives the real
+    /embed/sparse ASGI path (BM25, loaded by default — no COLBERT needed) with an
+    over-envelope batch and asserts the same permanent 413.
+    """
+    service = _load_service(4)
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 40
+
+    async def _drive():
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
+            resp = await client.post(
+                "/embed/sparse",
+                json={"texts": _production_shaped_batch(count=50)},
+            )
+            return resp.status_code, dict(resp.headers)
+
+    status, headers = asyncio.run(_drive())
+    assert status == 413
+    assert "retry-after" not in {k.lower() for k in headers}
 
 
 # --- Phase 2: cgroup-v2 reader + memory-aware AIMD self-throttle ---
@@ -709,6 +946,9 @@ def test_submit_failure_releases_slot_and_returns_503():
         assert not sem.locked(), "slot leaked after submit() failure"
         assert sem._value == 1
         assert service.embedding_inflight._value.get() == before_inflight
+        # BUG-327: the inline release on submit() failure also unwinds in-flight work
+        # (incremented just before submit) back to zero — no work-unit leak.
+        assert service._inflight_work == 0
 
     asyncio.run(_drive())
 
@@ -757,3 +997,80 @@ def test_blind_hold_at_one_logs_once_per_state_entry(caplog):
 
     blind_logs = asyncio.run(_drive())
     assert len(blind_logs) == 1
+
+
+# --- BUG-324: enable_cpu_mem_arena=False on both TextEmbedding constructors ---
+
+
+def test_text_embedding_constructors_disable_cpu_mem_arena():
+    """Both TextEmbedding constructors pass enable_cpu_mem_arena=False (BUG-324).
+
+    Bypasses _load_service() so the spy TextEmbedding is not overwritten by
+    _install_fake_fastembed() during module load.
+    """
+    call_kwargs = []
+
+    class _SpyDenseModel(_StubDenseModel):
+        def __init__(self, *args, **kwargs):
+            call_kwargs.append(dict(kwargs))
+            super().__init__(*args, **kwargs)
+
+    spy_fastembed = ModuleType("fastembed")
+    spy_fastembed.TextEmbedding = _SpyDenseModel
+    spy_fastembed.SparseTextEmbedding = _StubSparseModel
+    spy_fastembed.LateInteractionTextEmbedding = _StubLateModel
+    sys.modules["fastembed"] = spy_fastembed
+
+    os.environ["EMBEDDING_MAX_CONCURRENCY"] = "4"
+    sys.modules.pop("embedding_main_under_test", None)
+    spec = importlib.util.spec_from_file_location(
+        "embedding_main_under_test", _MAIN_PATH
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    # load_models() must call TextEmbedding for both "en" and "code" at startup.
+    assert (
+        len(call_kwargs) >= 2
+    ), f"Expected ≥2 TextEmbedding calls, got {len(call_kwargs)}"
+    for i, kwargs in enumerate(call_kwargs):
+        assert (
+            kwargs.get("enable_cpu_mem_arena") is False
+        ), f"TextEmbedding call {i} must pass enable_cpu_mem_arena=False; got {kwargs}"
+    # Confirm the module loaded cleanly (both registry keys present)
+    assert "en" in module.MODEL_REGISTRY
+    assert "code" in module.MODEL_REGISTRY
+
+
+# --- TD-553: /health aliased-fallback detection ---
+
+
+def test_health_both_models_loaded_returns_200():
+    """Both models loaded and distinct → /health returns HTTP 200 (BUG-289 / TD-553)."""
+    service = _load_service(4)
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "healthy"
+    assert resp.json()["model_loaded"] is True
+
+
+def test_health_code_aliased_to_en_returns_503():
+    """Code model aliased to en model (fallback) → /health returns HTTP 503 (TD-553)."""
+    service = _load_service(4)
+    # Simulate aliased fallback: code model failed to load, registry entry aliased to en
+    service.MODEL_REGISTRY["code"] = service.MODEL_REGISTRY["en"]
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "degraded"
+
+
+def test_health_model_none_returns_503():
+    """Any model None → /health returns HTTP 503 (existing BUG-289 case)."""
+    service = _load_service(4)
+    service.MODEL_REGISTRY["code"] = None
+    client = TestClient(service.app)
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "loading"

@@ -21,14 +21,14 @@ How Parzival activates, instructs, monitors, and closes agents -- the operationa
 
 Agent dispatch is the process by which Parzival delegates implementation work to specialized agents. Parzival does not write code or produce deliverables directly. Instead, Parzival prepares precise instructions, spawns agents as teammates, sends those instructions, monitors progress, reviews output, and either accepts or loops corrections until the work meets project requirements.
 
-There are two dispatch paths:
+There are two dispatch types, both prepared by `aim-agent-dispatch`:
 
-| Path | When to Use |
+| Dispatch Type | When to Use |
 |------|-------------|
-| **Generic dispatch** (`aim-agent-dispatch`) | The agent does not need a BMAD persona. Examples: code-reviewer, verify-implementation, skill-creator. |
-| **BMAD dispatch** (`aim-bmad-dispatch`) | The agent is a BMAD role (Analyst, PM, Architect, DEV, SM, UX Designer) and requires persona activation. |
+| **Generic dispatch** | The agent does not need a BMAD persona. Examples: code-reviewer, verify-implementation, skill-creator. |
+| **BMAD dispatch** | The agent is a BMAD role (Analyst, PM, Architect, DEV, SM, UX Designer) and requires persona activation. |
 
-Both paths converge on the same lifecycle (steps 4--9) managed by `aim-agent-lifecycle`.
+Both types converge on the same lifecycle (steps 4--9) managed by `aim-agent-lifecycle`.
 
 ---
 
@@ -38,9 +38,9 @@ The full dispatch cycle consists of nine steps, divided between dispatch (steps 
 
 | Step | Name | Owner | Description |
 |------|------|-------|-------------|
-| 1 | Prepare Instruction | `aim-agent-dispatch` or `aim-bmad-dispatch` | Build the full instruction using the template. Every requirement cites a project file. |
-| 2 | Verify Instruction | `aim-agent-dispatch` or `aim-bmad-dispatch` | Run the quality checklist. Fix any failures before proceeding. |
-| 3 | Spawn Agent | `aim-agent-dispatch` or `aim-bmad-dispatch` | Spawn the agent as a teammate using the Agent tool with `team_name`. Select model via `aim-model-dispatch`. |
+| 1 | Prepare Instruction | `aim-agent-dispatch` | Build the full instruction using the template. Every requirement cites a project file. |
+| 2 | Verify Instruction | `aim-agent-dispatch` | Run the quality checklist. Fix any failures before proceeding. |
+| 3 | Spawn Agent | `aim-agent-dispatch` | Spawn the agent as a teammate using the Agent tool with `team_name`. Select model via `aim-model-dispatch`. |
 | 4 | Send Instruction | `aim-agent-lifecycle` | Send the complete instruction via `SendMessage`. Do not abbreviate or add preamble. Wait for acknowledgment. |
 | 5 | Monitor Progress | `aim-agent-lifecycle` | Track progress. Intervene on scope breaches or unreported blockers. Relay clarifications with citations. |
 | 6 | Review Output | `aim-agent-lifecycle` | Evaluate output against DONE WHEN criteria, OUTPUT EXPECTED, cited requirements, and standards. |
@@ -280,7 +280,7 @@ These are the most frequent anti-patterns observed during agent dispatch. Each h
 |-------|------------|
 | Sending vague instruction | Always complete the full instruction template before dispatching. |
 | Combining multiple tasks in one instruction | One task per instruction -- always. |
-| Activating wrong agent | Consult `aim-bmad-dispatch` for agent role selection. |
+| Activating wrong agent | Consult `aim-agent-dispatch` for agent role selection. |
 | Accepting partial output | Review all DONE WHEN criteria before accepting. |
 | Passing raw agent output to user | Always prepare a summary in Parzival's words. Never copy-paste. |
 | Running agents without project file verification | Complete the instruction quality checklist before every dispatch. |
