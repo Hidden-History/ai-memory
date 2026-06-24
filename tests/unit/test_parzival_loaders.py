@@ -265,6 +265,24 @@ def test_first_breath_marker_and_phase():
     assert lc.current_phase("no phase here") is None
 
 
+def test_first_breath_marker_scoped_to_owner():
+    # Owner filled, scaffold prose surviving in another section (Working Style)
+    # must NOT re-trigger First Breath (the D9-F1 false positive).
+    filled = (
+        "# Bond\n\n## Owner\n\n**Name:** wb\nRole: founder.\n\n"
+        "## Working Style\n\n_Filled during First Breath and refined over time._\n"
+    )
+    assert not lc.first_breath_marker(filled)
+    # Genuinely-empty Owner (scaffold marker present) -> True.
+    empty = (
+        "# Bond\n\n## Owner\n\n**Name:** {user_name}\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert lc.first_breath_marker(empty)
+    # No ## Owner section at all -> fail-safe False (never re-First-Breath).
+    assert not lc.first_breath_marker("# Bond\n\n## Working Style\n\nfast.\n")
+
+
 def test_resolve_paths_substitutes_root(workspace: Path):
     paths = lc.resolve_paths(workspace)
     assert paths["sanctum_path"] == workspace / "_ai-memory/sanctum"

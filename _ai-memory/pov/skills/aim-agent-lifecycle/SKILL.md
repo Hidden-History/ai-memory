@@ -31,11 +31,15 @@ Max 3 correction loops -- escalate to user if unresolved.
 
 ## Step 1: Spawn Agent
 
+**Pre-spawn sentinel gate (MANDATORY -- re-run before EVERY spawn):** assert the current directory is the workspace root by confirming co-presence of `_ai-memory/`, `_bmad/`, and `oversight/` (CLAUDE.md workspace-root sentinel) -- `test -d _ai-memory && test -d _bmad && test -d oversight`. On FAIL, **ABORT the spawn** ("CWD drift -- not at workspace root; return to root before spawning") and do NOT invoke /aim-model-dispatch. CWD drifts across Bash calls, so re-run before each spawn, not once per session.
+
 Invoke /aim-model-dispatch with the dispatch plan. Model-dispatch routes to the correct tmux workflow for the provider and spawns the agent.
 
 For BMAD agents, the tmux bmad-dispatch workflow handles two-phase activation (persona command → menu detection → task instruction).
 
 For generic agents, the tmux-dispatch workflow sends the instruction directly.
+
+**Activation gate (MANDATORY before first instruction):** do NOT send the task instruction until `tmux capture-pane` shows the teammate's activation output -- BMAD persona greeting plus numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Then send the task as a SEPARATE message (one task per instruction) including an explicit "do not idle until X" plus a concrete numbered step list. If still idle after one retry of the activation command, shut down (Step 4) and spawn FRESH. Never instruct an unverified agent.
 
 **Handle clarification requests:**
 - Agent asks BEFORE starting: provide clarification with citation. Never guess.

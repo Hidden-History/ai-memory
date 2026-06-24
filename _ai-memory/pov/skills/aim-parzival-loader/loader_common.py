@@ -261,13 +261,22 @@ def _tail_entries(section_text: str, budget_bytes: int) -> tuple[str, int]:
 
 
 def first_breath_marker(bond_text: str) -> bool:
-    """True when BOND.md still carries the First-Breath scaffold marker.
+    """True when BOND.md's ``## Owner`` section still carries the scaffold marker.
 
     A cheap marker-scan (NOT a full Tier-B load): activation reads only this
-    signal from BOND.md. The marker ``_Filled during First Breath`` is present
-    under ``## Owner`` / ``## Working Style`` while BOND is unfilled.
+    signal from BOND.md. The marker ``_Filled during First Breath`` seeds both
+    ``## Owner`` and ``## Working Style`` while BOND is unfilled, so a full-document
+    substring match would fire on scaffold prose surviving in *any* section (e.g.
+    an unfilled Working Style) even after the owner is known -- a destructive
+    re-First-Breath false positive. The scan is scoped to the ``## Owner`` block,
+    since establishing the owner is exactly what First Breath does; a BOND with no
+    ``## Owner`` section returns False (fail-safe: never re-trigger First Breath).
     """
-    return "_Filled during First Breath" in bond_text
+    _, sections = split_h2(bond_text)
+    for title, block in sections:
+        if title == "Owner":
+            return "_Filled during First Breath" in block
+    return False
 
 
 def resolve_paths(project_root: Path) -> dict[str, Path]:
