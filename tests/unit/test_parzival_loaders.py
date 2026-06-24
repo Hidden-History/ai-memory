@@ -294,6 +294,17 @@ def test_first_breath_marker_real_name_with_surviving_seed():
     assert not lc.first_breath_marker(bond)
 
 
+def test_first_breath_marker_blank_name_with_surviving_seed():
+    # ## Owner with a blank/whitespace-only Name value (no real name, no
+    # {user_name} placeholder token) alongside a surviving seed line -> the
+    # owner has not been established, so First Breath IS still needed (TD-737).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:**   \nRole: founder.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert lc.first_breath_marker(bond)
+
+
 def test_resolve_paths_substitutes_root(workspace: Path):
     paths = lc.resolve_paths(workspace)
     assert paths["sanctum_path"] == workspace / "_ai-memory/sanctum"
