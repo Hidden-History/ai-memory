@@ -140,7 +140,7 @@ After the agent menu appears, what should be sent?
 Each agent menu has items with codes like `[DS]`, `[CR]`, `[CH]`, `[VD]`. Send the code.
 
 Examples:
-- Dev agent: `DS` (Dev Story)  — code review routes to `/bmad-bmm-code-review`, not a dev-agent menu code
+- Dev agent: `DS` (Dev Story) — code review routes to `/bmad-bmm-code-review`, not a dev-agent menu code
 - Tech Writer: `VD` (Validate Documentation)
 - PM: `CP` (Create PRD), `VP` (Validate PRD), `CE` (Create Epics)
 
