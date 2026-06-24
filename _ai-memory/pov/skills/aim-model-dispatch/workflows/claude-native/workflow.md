@@ -34,7 +34,7 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 **Process Rules (project-status.md):**
 - Rule 3: Fresh agents for EVERY role — never reuse across tasks
 - Rule 4: CWD must be project root (document_pipeline/) before spawn — NEVER DocIntel/
-- Rule 5: /bmad-code-review for reviews, /bmad-agent-bmm-dev for implementation only
+- Rule 5: /bmad-bmm-code-review for reviews, /bmad-agent-bmm-dev for implementation only
 - Rule 6: Dual review mandatory (Sonnet + Opus)
 - Rule 7: One story per SM dispatch — shutdown after each
 - Rule 8: Don't rush-nudge idle agents
@@ -255,7 +255,7 @@ Agent:
   model: sonnet
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-bmm-code-review"
 
 Agent:
   name: "review-opus"
@@ -263,16 +263,16 @@ Agent:
   model: opus
   mode: bypassPermissions
   run_in_background: true
-  prompt: "/bmad-agent-bmm-dev"
+  prompt: "/bmad-bmm-code-review"
 
-# After both idle, send review instructions
+# After both load, send the review instruction directly (review workflow takes it — no CR menu code)
 SendMessage:
   to: "review-sonnet"
-  message: "CR\n[review instruction]"
+  message: "[review instruction]"
 
 SendMessage:
   to: "review-opus"
-  message: "CR\n[review instruction]"
+  message: "[review instruction]"
 ```
 
 ### Multi-Track Parallel Sprint

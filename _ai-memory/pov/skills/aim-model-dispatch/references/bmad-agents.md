@@ -33,8 +33,8 @@ When the task description does not specify an agent:
 | Validate a PRD | PM | `VP` |
 | Break down features into stories | PM | `CE` |
 | Design system architecture | Architect | Use menu |
-| Write code / implement a story | DEV | `DS` |
-| Review implemented code | DEV | `CR` |
+| Write code / implement a story | DEV | `/bmad-dev-story` (or `DS`) |
+| Review implemented code | Code Review (NOT the dev agent) | `/bmad-bmm-code-review` |
 | Design user flows | UX Designer | Use menu |
 | Write or review documentation | Tech Writer | `WD` |
 | Validate documentation | Tech Writer | `VD` |
@@ -48,7 +48,7 @@ When the user specifies a direct workflow command, map it to two-phase activatio
 
 | Direct Command | Activate Agent | Menu Code |
 |---|---|---|
-| `/bmad-code-review` | `/bmad-agent-bmm-dev` | `CR` |
+| `/bmad-bmm-code-review` | (direct review workflow — no dev-agent activation) | — |
 | `/bmad-dev-story` | `/bmad-agent-bmm-dev` | `DS` |
 | `/bmad-create-prd` | `/bmad-agent-bmm-pm` | `CP` |
 | `/bmad-validate-prd` | `/bmad-agent-bmm-pm` | `VP` |

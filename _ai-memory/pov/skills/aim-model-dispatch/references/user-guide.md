@@ -282,8 +282,8 @@ All BMAD tasks use two-phase activation: first the agent persona loads, then you
 ### Code Review
 
 ```
-dispatch to ollama: Activate /bmad-agent-bmm-dev, then CR to review auth module
-send to openrouter with claude-sonnet-4-6: Activate dev agent, run CR on api/
+dispatch to ollama: /bmad-bmm-code-review to review auth module
+send to openrouter with claude-sonnet-4-6: /bmad-bmm-code-review on api/
 ```
 
 ### Implement a Story
@@ -311,7 +311,7 @@ use ollama: Activate tech-writer agent, validate the SKILL.md
 
 | Agent | Command | Use |
 |-------|---------|-----|
-| Dev | `/bmad-agent-bmm-dev` | Code, review, implementation |
+| Dev | `/bmad-agent-bmm-dev` | Code, implementation |
 | PM | `/bmad-agent-bmm-pm` | PRD, epics, planning |
 | Tech Writer | `/bmad-agent-bmm-tech-writer` | Docs, explanation |
 | Analyst | `/bmad-agent-bmm-analyst` | Research, analysis |
