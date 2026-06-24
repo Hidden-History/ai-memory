@@ -198,7 +198,9 @@ def test_run_shadow_pass_emits_error_finding_on_git_failure(tmp_path):
         patch.object(
             shadow,
             "tree_digest",
-            return_value=MagicMock(digest="v1:abc", skipped_symlinks=[], file_count=3),
+            return_value=MagicMock(
+                digest="v1:abc", skipped_symlinks=[], file_count=3, truncated=False
+            ),
         ),
         patch.object(
             shadow,
