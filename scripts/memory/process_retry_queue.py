@@ -163,7 +163,7 @@ def process_entry(
         from memory.extraction import extract_patterns
 
         patterns = extract_patterns(content, file_path)
-        if patterns is None:
+        if not patterns:
             return True, "no patterns extracted; skipping (mirrors live path)"
 
         content = patterns["content"]
