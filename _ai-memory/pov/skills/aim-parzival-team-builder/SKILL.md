@@ -11,7 +11,7 @@ context: fork
 
 **Note**: This skill is the entry point for team design. Parzival designs teams here, then executes them via the agent-dispatch workflow. Parzival activates agents himself -- the user does not run agents.
 
-> **HARD PROHIBITION**: This skill (aim-parzival-team-builder) MUST NEVER spawn or activate agents itself -- **including when it runs as `context: fork`**. It emits the dispatch plan ONLY. Parzival performs all dispatch via the agent-dispatch pipeline. A fork has no authority to launch agents; spawning from within this skill bypasses the dispatch cycle and is forbidden.
+> **HARD PROHIBITION**: This skill (aim-parzival-team-builder) MUST NEVER spawn or activate agents itself -- **including when it runs as `context: fork`**. It emits the dispatch plan ONLY. Parzival performs all dispatch via the agent-dispatch workflow. A fork has no authority to launch agents; spawning from within this skill bypasses the dispatch cycle and is forbidden.
 
 ---
 
@@ -227,4 +227,4 @@ Parzival activates all agents himself — the user does not run agents.
 **MANDATORY NEXT STEP**: After user approves the dispatch plan:
 - All agents (BMAD and generic) → /aim-agent-dispatch
 
-Pass the full dispatch plan (provider, model, agent role, bmad_agent_type, task, files, mode) to the next skill. (`bmad_agent_type` carries the specific BMAD agent type, e.g. bmm-dev, so dispatch activates the correct persona.)
+Pass the full dispatch plan (provider, model, agent role, bmad_agent_type, task, files, mode) to the next skill. (`bmad_agent_type` identifies the intended BMAD agent type, e.g. bmm-dev; formal dispatch consumption is deferred to TD-738.)
