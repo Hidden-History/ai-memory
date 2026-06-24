@@ -11,7 +11,7 @@ context: fork
 
 **Note**: This skill is the entry point for team design. Parzival designs teams here, then executes them via the agent-dispatch workflow. Parzival activates agents himself -- the user does not run agents.
 
-> **HARD PROHIBITION**: This skill (aim-parzival-team-builder) MUST NEVER spawn or activate agents itself -- **including when it runs as `context: fork`**. It emits the dispatch plan ONLY. Parzival performs all dispatch via the agent-dispatch workflow. A fork has no authority to launch agents; spawning from within this skill bypasses the dispatch cycle and is forbidden.
+> **HARD PROHIBITION**: This skill (aim-parzival-team-builder) MUST NEVER spawn or activate agents itself -- **including when it runs as `context: fork`**. It emits the dispatch plan ONLY. Parzival performs all dispatch via the agent-dispatch workflow. Even as a fork, this skill must not launch agents -- spawning from within this skill bypasses the agent-dispatch workflow and is forbidden.
 
 ---
 
