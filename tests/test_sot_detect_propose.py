@@ -48,6 +48,11 @@ Coverage:
   T-DP34 — F-ENG-4: drift-cache write cleans the partial .tmp on json.dump error
   T-DP35 — F-ENG-4: _reindex_lock releases the lock when the guarded body raises
 
+  F-RT5-GAP-1 / F-SOT-2 (reindex wall-time cap + stale-lock sweep):
+  T-DP41a — cap stops the loop + leaves remaining entries + emits visible signal
+  T-DP41b — stale lock file (> _LOCK_STALE_SECONDS) is swept before acquire
+  T-DP41c — fresh lock file (< _LOCK_STALE_SECONDS) is NOT swept
+
 All tests are hermetic (no network, tmp dirs, store mocked via injection points).
 """
 
@@ -1774,3 +1779,126 @@ def test_cold_start_message_is_bootstrap_hint_not_circular(
     assert rc == 0
     assert "Run aim-sot detect-propose to create one" not in out
     assert ".sot/registry.yaml" in out  # actionable bootstrap hint
+
+
+# ===========================================================================
+# F-RT5-GAP-1 / F-SOT-2: reindex wall-time cap + stale-lock sweep
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# T-DP41a — F-SOT-2: wall-time cap stops the loop, leaves entries, emits signal
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_wall_time_cap_stops_loop_and_emits_signal(tmp_path, capsys):
+    """Wall-time cap fires before the second entry, returns reindex_capped (ok=False
+    so registry_sha is NOT advanced and the next run retries), and emits a visible
+    stderr warning.  FAILS pre-fix (no cap exists)."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    _write_registry(
+        registry_path,
+        [
+            {"id": "core", "sot_location": "src/", "description": "Core"},
+            {"id": "docs", "sot_location": "docs/", "description": "Docs"},
+        ],
+    )
+    mock_client = MagicMock()
+    mock_client.scroll.side_effect = [([], None)]
+    mock_storage = MagicMock()
+    mock_storage.store_memory.return_value = {"status": "stored"}
+
+    # Control time.monotonic to fire the cap on the second loop check:
+    # call #1 → sets deadline=base+cap; call #2 → within deadline (first iter ok);
+    # call #3 → past deadline (second iter triggers cap).
+    _base = 1000.0
+    _calls = [0]
+
+    def _fake_monotonic():
+        _calls[0] += 1
+        if _calls[0] <= 2:
+            return _base
+        return _base + 9999.0
+
+    with (
+        patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path),
+        patch.object(dp.time, "monotonic", _fake_monotonic),
+    ):
+        result = dp._reindex_sot_entries(
+            registry_path, "proj", _qdrant_client=mock_client, _storage=mock_storage
+        )
+
+    assert result.ok is False
+    assert result.reason == "reindex_capped"
+    # Only the first entry was stored before the cap fired.
+    assert mock_storage.store_memory.call_count == 1
+    err = capsys.readouterr().err
+    assert err, "cap must emit a non-empty stderr warning"
+    assert "cap" in err.lower() or "wall-time" in err.lower()
+
+
+# ---------------------------------------------------------------------------
+# T-DP41b — F-SOT-2: stale lock file is swept before acquisition
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_lock_sweeps_stale_lock_file(tmp_path):
+    """A .lock file older than _LOCK_STALE_SECONDS is removed before _reindex_lock
+    acquires (orphaned cosmetic lock).  FAILS pre-fix (no sweep logic)."""
+    import os
+    import time as _time
+
+    lock_path = tmp_path / "sot_reindex_proj.lock"
+    lock_path.write_text("orphan", encoding="utf-8")
+    old_mtime = _time.time() - dp._LOCK_STALE_SECONDS - 1
+    os.utime(lock_path, (old_mtime, old_mtime))
+
+    unlinked = []
+    _real_unlink = Path.unlink
+
+    def _spy_unlink(self, missing_ok=False):
+        unlinked.append(self)
+        _real_unlink(self, missing_ok=missing_ok)
+
+    with (
+        patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path),
+        patch.object(Path, "unlink", _spy_unlink),
+        dp._reindex_lock("proj"),
+    ):
+        pass
+
+    assert lock_path in unlinked, "stale lock file was not swept before acquisition"
+
+
+# ---------------------------------------------------------------------------
+# T-DP41c — F-SOT-2: fresh lock file is NOT swept
+# ---------------------------------------------------------------------------
+
+
+def test_reindex_lock_does_not_sweep_fresh_lock_file(tmp_path):
+    """A .lock file newer than _LOCK_STALE_SECONDS is left alone — only genuinely
+    orphaned (old) files are swept.  FAILS pre-fix would sweep unconditionally."""
+    import os
+    import time as _time
+
+    lock_path = tmp_path / "sot_reindex_proj.lock"
+    lock_path.write_text("live", encoding="utf-8")
+    # 1 second old — well within the TTL.
+    fresh_mtime = _time.time() - 1
+    os.utime(lock_path, (fresh_mtime, fresh_mtime))
+
+    unlinked = []
+    _real_unlink = Path.unlink
+
+    def _spy_unlink(self, missing_ok=False):
+        unlinked.append(self)
+        _real_unlink(self, missing_ok=missing_ok)
+
+    with (
+        patch.object(dp, "_DRIFT_CACHE_DIR", tmp_path),
+        patch.object(Path, "unlink", _spy_unlink),
+        dp._reindex_lock("proj"),
+    ):
+        pass
+
+    assert lock_path not in unlinked, "fresh lock file was incorrectly swept"
