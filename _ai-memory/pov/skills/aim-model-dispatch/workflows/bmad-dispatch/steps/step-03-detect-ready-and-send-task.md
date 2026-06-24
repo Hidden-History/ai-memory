@@ -98,7 +98,7 @@ For `/bmad-agent-bmb-agent-builder`, "Type something" is option 5 (Build=1, Anal
 ```bash
 if [ "$MENU_STYLE" = "intent_picker" ]; then
   # Count the offset to the "Type something" option
-  # For bmad-agent-builder the literal is at option 5 → 4 Down presses
+  # For bmad-agent-bmb-agent-builder the literal is at option 5 → 4 Down presses
   DOWN_COUNT=4
 
   # Derive dynamically from pane text if possible; fall back to default
