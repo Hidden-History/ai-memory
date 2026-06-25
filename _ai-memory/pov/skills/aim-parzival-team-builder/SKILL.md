@@ -133,14 +133,14 @@ Before running the full 6-step design process, check if the work matches a prese
 
 ### Preset: Sprint Development (`sprint-dev`)
 **When**: 2-3 stories need parallel implementation with code review
-**Structure**: Parzival-coordinated — 2 DEV workers (Sonnet) + 1 DEV reviewer (Opus)
+**Structure**: 2-tier — PM Lead (Opus) → 2 DEV workers (Sonnet) + 1 DEV reviewer (Opus)
 **Workflow commands**: Workers run `/bmad-dev-story`, reviewer runs `/bmad-code-review`
 **Requires**: sprint-status.yaml, architecture doc
 **Customize**: story assignments, file ownership per story
 
 ### Preset: Story Preparation (`story-prep`)
 **When**: Multiple stories need to be created from epics in bulk
-**Structure**: 2-tier — PM Lead (Opus) → 2-3 story-creator workers (Sonnet, run `/bmad-create-story`)
+**Structure**: 2-tier — PM Lead (Opus) → 2-3 story-creation workers (Sonnet, run `/bmad-create-story`)
 **Workflow commands**: Workers run `/bmad-create-story`
 **Requires**: epics doc, sprint-status.yaml
 **Customize**: which stories to create, epic references
