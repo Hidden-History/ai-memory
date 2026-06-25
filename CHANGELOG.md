@@ -11,23 +11,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrade Instructions
 
-**This release changes source-baked worker code, so a plain `stack.sh restart` is not enough — the affected images must be explicitly rebuilt.**
+This release changes source-baked service code and pip dependencies. As of 2.8.1, `stack.sh restart` automatically rebuilds most source-baked services on the cached path (TD-723), so the normal update flow deploys them with no manual step:
 
 ```bash
 # 1. Update source + install (refreshes ~/.ai-memory and any target project)
 cd <your ai-memory clone> && git pull
 ./scripts/install.sh <project-path>
 
-# 2. Rebuild source-baked workers (NOT rebuilt by stack.sh restart — TD-723):
-cd ~/.ai-memory/docker
-docker compose build classifier-worker
-docker compose -f docker-compose.yml -f docker-compose.langfuse.yml build trace-flush-worker
-
-# 3. Restart to deploy the rebuilt images
+# 2. Restart — auto-rebuilds source-baked services on the cached path (TD-723):
+#    embedding, classifier-worker, monitoring-api, github-sync (core) +
+#    evaluator-scheduler, trace-flush-worker (langfuse)
 ~/.ai-memory/scripts/stack.sh restart
+
+# 3. If monitoring is enabled, also rebuild streamlit — it is NOT in the
+#    auto-rebuild set (tracked by TD-733), so its 2.8.1 pydantic-settings
+#    bump (F-RT-3) needs an explicit build:
+cd ~/.ai-memory/docker
+docker compose --profile monitoring build streamlit
 ```
 
-`stack.sh restart` alone does **not** rebuild `classifier-worker` or `trace-flush-worker` — the source changes in those images are silently bypassed without step 2 (TD-723).
+`stack.sh restart`'s rebuild is non-fatal on failure: a service whose build fails falls back to its cached image and the restart continues. If a source-baked worker build warns or fails, rebuild it explicitly — e.g.:
+
+```bash
+docker compose build classifier-worker
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse build trace-flush-worker
+```
 
 ### Added
 
