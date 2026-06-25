@@ -169,18 +169,18 @@ MUST spawn fresh agent for every task -- never reuse across roles or stories.
 
 | Agent | Activation Command | Description |
 |-------|-------------------|-------------|
-| Analyst | `/bmad-agent-bmm-analyst` | Research, codebase analysis, domain investigation |
-| PM (Product Manager) | `/bmad-agent-bmm-pm` | PRD creation/validation, epics and stories |
-| Architect | `/bmad-agent-bmm-architect` | System architecture design, readiness checks |
-| Developer (DEV) | `/bmad-agent-bmm-dev` | Code implementation ONLY |
-| Developer (review) | `/bmad-bmm-code-review` | Code review ONLY -- MUST use this for ALL review agents, never /bmad-agent-bmm-dev |
+| Analyst | `/bmad-agent-analyst` | Research, codebase analysis, domain investigation |
+| PM (Product Manager) | `/bmad-agent-pm` | PRD creation/validation, epics and stories |
+| Architect | `/bmad-agent-architect` | System architecture design, readiness checks |
+| Developer (DEV) | `/bmad-agent-dev` | Code implementation ONLY |
+| Developer (review) | `/bmad-code-review` | Code review ONLY -- MUST use this for ALL review agents, never /bmad-agent-dev |
 | Scrum Master (SM) | `/bmad-agent-bmm-sm` | Sprint planning, story creation, retrospectives |
 | QA Engineer | `/bmad-agent-bmm-qa` | Test planning, test execution, quality validation |
-| UX Designer | `/bmad-agent-bmm-ux-designer` | User flows, screen design, UX research |
-| Tech Writer | `/bmad-agent-bmm-tech-writer` | Documentation writing and validation |
+| UX Designer | `/bmad-agent-ux-designer` | User flows, screen design, UX research |
+| Tech Writer | `/bmad-agent-tech-writer` | Documentation writing and validation |
 | Quick Flow Solo Dev | `/bmad-agent-bmm-quick-flow-solo-dev` | Lightweight single-dev flow (analysis through implementation) |
 
-MUST use `/bmad-agent-bmm-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-bmm-code-review` for ALL review agents (never `/bmad-agent-bmm-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
+MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-code-review` for ALL review agents (never `/bmad-agent-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
 
 #### BMAD Framework Agents
 
@@ -217,16 +217,16 @@ MUST use `/bmad-agent-bmm-tech-writer` for ALL documentation tasks (writing, upd
 
 | Phase | Agent | Workflow Command |
 |-------|-------|-----------------|
-| Research | Analyst | `/bmad-bmm-market-research`, `/bmad-bmm-domain-research`, `/bmad-bmm-technical-research` |
-| Discovery | Analyst | `/bmad-bmm-create-product-brief` |
-| Discovery (or any phase) | PM | `/bmad-bmm-create-prd`, `/bmad-bmm-validate-prd`, `/bmad-bmm-edit-prd` |
-| Architecture | Architect | `/bmad-bmm-create-architecture` |
-| Architecture | PM | `/bmad-bmm-create-epics-and-stories` |
-| Architecture | Architect | `/bmad-bmm-check-implementation-readiness` |
-| Architecture | UX Designer | `/bmad-bmm-create-ux-design` |
+| Research | Analyst | `/bmad-market-research`, `/bmad-domain-research`, `/bmad-technical-research` |
+| Discovery | Analyst | `/bmad-product-brief` |
+| Discovery (or any phase) | PM | `/bmad-create-prd`, `/bmad-validate-prd`, `/bmad-edit-prd` |
+| Architecture | Architect | `/bmad-create-architecture` |
+| Architecture | PM | `/bmad-create-epics-and-stories` |
+| Architecture | Architect | `/bmad-check-implementation-readiness` |
+| Architecture | UX Designer | `/bmad-ux` |
 | Planning | SM | `/bmad-bmm-sprint-planning`, `/bmad-bmm-create-story` |
-| Execution | DEV | `/bmad-bmm-dev-story` |
-| Execution | DEV | `/bmad-bmm-code-review` |
+| Execution | DEV | `/bmad-dev-story` |
+| Execution | DEV | `/bmad-code-review` |
 | Release | SM | `/bmad-bmm-retrospective` |
 
 Set `AI_MEMORY_AGENT_ID` environment variable when spawning.

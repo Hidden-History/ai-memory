@@ -282,21 +282,21 @@ All BMAD tasks use two-phase activation: first the agent persona loads, then you
 ### Code Review
 
 ```
-dispatch to ollama: /bmad-bmm-code-review to review auth module
-send to openrouter with claude-sonnet-4-6: /bmad-bmm-code-review on api/
+dispatch to ollama: /bmad-code-review to review auth module
+send to openrouter with claude-sonnet-4-6: /bmad-code-review on api/
 ```
 
 ### Implement a Story
 
 ```
-dispatch to ollama: Activate /bmad-agent-bmm-dev, then DS for story 1.5
+dispatch to ollama: Activate /bmad-agent-dev, then DS for story 1.5
 use openrouter with openai/gpt-4o: Activate dev agent, DS story-1-6.md
 ```
 
 ### Create PRD
 
 ```
-dispatch to claude: Activate /bmad-agent-bmm-pm, then CP for notification system
+dispatch to claude: Activate /bmad-agent-pm, then CP for notification system
 send to ollama: Activate PM agent, CP to create PRD for billing
 ```
 
@@ -311,12 +311,12 @@ use ollama: Activate tech-writer agent, validate the SKILL.md
 
 | Agent | Command | Use |
 |-------|---------|-----|
-| Dev | `/bmad-agent-bmm-dev` | Code, implementation |
-| PM | `/bmad-agent-bmm-pm` | PRD, epics, planning |
-| Tech Writer | `/bmad-agent-bmm-tech-writer` | Docs, explanation |
-| Analyst | `/bmad-agent-bmm-analyst` | Research, analysis |
-| Architect | `/bmad-agent-bmm-architect` | Design, architecture |
-| UX Designer | `/bmad-agent-bmm-ux-designer` | User flow, design |
+| Dev | `/bmad-agent-dev` | Code, implementation |
+| PM | `/bmad-agent-pm` | PRD, epics, planning |
+| Tech Writer | `/bmad-agent-tech-writer` | Docs, explanation |
+| Analyst | `/bmad-agent-analyst` | Research, analysis |
+| Architect | `/bmad-agent-architect` | Design, architecture |
+| UX Designer | `/bmad-agent-ux-designer` | User flow, design |
 | Agent Builder | `/bmad-agent-bmb-agent-builder` | Create new agents |
 | Module Builder | `/bmad-agent-bmb-module-builder` | Build modules |
 | Workflow Builder | `/bmad-agent-bmb-workflow-builder` | Build workflows |
