@@ -9,7 +9,7 @@ description: 'Planning phase: review state, run retrospective, dispatch SM for s
 ## Prerequisites
 
 - Approved architecture and epics/stories from the architecture phase
-- Sprint Master agent (`bmad-agent-sm`) is available (NOT INSTALLED — 2026-04-11)
+- Sprint planning and story creation are available via direct skills (`/bmad-sprint-planning`, `/bmad-create-story`)
 - `sprint-status.yaml` is accessible for update
 - Prior sprint retrospective data is available (if this is not the first sprint)
 

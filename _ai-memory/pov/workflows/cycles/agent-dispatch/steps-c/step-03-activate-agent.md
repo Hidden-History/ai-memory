@@ -33,7 +33,7 @@ Use the appropriate agent activation command within the teammate context:
 - PM: /bmad-agent-pm
 - Architect: /bmad-agent-architect
 - UX Designer: /bmad-agent-ux-designer
-- SM: /bmad-agent-sm (NOT INSTALLED -- 2026-04-11)
+- Sprint/story/retro: direct skills /bmad-sprint-planning, /bmad-create-story, /bmad-retrospective (no SM agent in v6.9.0)
 - DEV (implementation): /bmad-agent-dev
 - DEV (code review): /bmad-code-review
 - Tech Writer: /bmad-agent-tech-writer

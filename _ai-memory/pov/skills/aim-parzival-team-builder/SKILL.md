@@ -55,7 +55,7 @@ provider: claude
 model: claude-sonnet-4-6
 agent: dev
 agent_id: dev-auth
-bmad_agent_type: bmm-dev
+bmad_agent_type: dev
 task_summary: "Implement Story 4.2 password-reset endpoint"
 files:
   - /abs/path/src/auth/reset.py
@@ -88,9 +88,9 @@ not collapse to prose.
 # Dispatch Plan v1
 provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | mistral | openai | vertex-ai | siliconflow
 model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
-agent: <role-name>                   # dev | sm | pm | architect | analyst | ux-designer | qa | tech-writer | code-reviewer | <generic>
-agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "sm-sprint-2"
-bmad_agent_type: <bmm-agent>         # intended BMAD agent type: bmm-dev | bmm-sm | bmm-pm | bmm-architect | bmm-analyst | bmm-ux-designer | bmm-qa | bmm-tech-writer | null (null for generic, non-BMAD agents)
+agent: <role-name>                   # dev | pm | architect | analyst | ux-designer | tech-writer | code-reviewer | <generic>
+agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "architect-design"
+bmad_agent_type: <agent-type>        # intended BMAD agent type: dev | pm | architect | analyst | ux-designer | tech-writer | null (null for generic, non-BMAD agents)
 task_summary: <one-line>
 files:
   - <absolute-path-1>
@@ -149,7 +149,7 @@ Before running the full 6-step design process, check if the work matches a prese
 **When**: Completed stories need automated test coverage
 **Structure**: 2-tier — Architect Lead (Opus) → 2 test workers (Sonnet, run `/bmad-qa-generate-e2e-tests`)
 **Workflow commands**: Workers run `/bmad-qa-generate-e2e-tests` — generates automated API and E2E tests for completed story implementations
-**Requires**: sprint-status.yaml, TEA module installed
+**Requires**: sprint-status.yaml, bmm + tea modules installed
 **Customize**: which stories to test, test framework
 
 ### Preset: Architecture Review (`architecture-review`)
@@ -177,7 +177,7 @@ Models: [role defaults or overrides]
 Stories/Tasks: [customized assignments]
 File Ownership: [per-worker paths]
 Workflow Commands: [per-worker commands]
-BMAD Agent Types: [per-worker bmad_agent_type, e.g. bmm-dev, bmm-sm; null for generic]
+BMAD Agent Types: [per-worker bmad_agent_type, e.g. dev, pm; null for generic]
 Requires: [prerequisites — verify they exist]
 Approve?
 ```
@@ -217,7 +217,7 @@ Store provider and model selections in the dispatch plan.
 
 ### Step 2: Team Composition
 
-1. Assign agent roles from available BMAD agents (analyst, pm, architect, dev, sm, ux-designer)
+1. Assign agent roles from available BMAD agents (analyst, pm, architect, dev, ux-designer, tech-writer)
 2. Size teams: 3-5 teammates recommended, 5-6 tasks per teammate for productive sizing
 3. **Assign agent identity**: Each agent MUST have a unique `AI_MEMORY_AGENT_ID`:
    - **Domain-named** (recommended): `dev-auth`, `dev-api`, `review-auth` -- same agent always works on same domain
@@ -250,7 +250,7 @@ A sparse NxN matrix wastes tokens on columns of "—" entries. The assignment li
 
 For each agent, prepare:
 - ROLE: Agent type and assigned identity (AI_MEMORY_AGENT_ID)
-- BMAD AGENT TYPE: Intended BMAD agent type (`bmad_agent_type`), e.g. bmm-dev; null for generic, non-BMAD agents
+- BMAD AGENT TYPE: Intended BMAD agent type (`bmad_agent_type`), e.g. dev; null for generic, non-BMAD agents
 - TASK: Specific work items with acceptance criteria
 - FILES: Owned files (absolute paths)
 - CONSTRAINTS: "DO NOT modify any files outside your SCOPE list." — do not enumerate every other agent's files; the ownership map in Step 3 is the source of truth
@@ -310,4 +310,4 @@ Parzival activates all agents himself — the user does not run agents.
 **MANDATORY NEXT STEP**: After user approves the dispatch plan:
 - All agents (BMAD and generic) → /aim-agent-dispatch
 
-Pass the full Dispatch Plan object verbatim — including exact model ID, full file list, `agent_id`, and `bmad_agent_type` (see `Dispatch Plan Schema`). Downstream skills re-emit the plan for round-trip verification. (`bmad_agent_type` identifies the intended BMAD agent type, e.g. bmm-dev; null for generic agents.)
+Pass the full Dispatch Plan object verbatim — including exact model ID, full file list, `agent_id`, and `bmad_agent_type` (see `Dispatch Plan Schema`). Downstream skills re-emit the plan for round-trip verification. (`bmad_agent_type` identifies the intended BMAD agent type, e.g. dev; null for generic agents.)

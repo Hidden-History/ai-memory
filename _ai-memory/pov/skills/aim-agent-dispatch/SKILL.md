@@ -191,7 +191,7 @@ Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
 Do NOT send any task instruction until the teammate has emitted its activation output -- the BMAD persona greeting plus its numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Verify by reading the spawn's first response (Claude-native) or `tmux capture-pane` (tmux).
 
-- Activated (greeting + menu, clean state, no prior task context) -> send the task as a SEPARATE message (one task per instruction), and include an explicit "do not idle until X" plus a concrete numbered step list. BMAD `bmm-dev`/reviewers early-idle otherwise.
+- Activated (greeting + menu, clean state, no prior task context) -> send the task as a SEPARATE message (one task per instruction), and include an explicit "do not idle until X" plus a concrete numbered step list. BMAD `bmad-agent-dev`/reviewers early-idle otherwise.
 - Not activated after one retry of the activation command -> spawn a FRESH agent. Never send an instruction to an unverified agent; check configuration if it repeats.
 
 #### B5. Dispatch Complete
