@@ -90,6 +90,13 @@ def _env_int(name: str, default: int) -> int:
 # the [CL] hook's ~20s subprocess cap.  Both are env-overridable.
 _MAX_DISCOVERY_DIRS = _env_int("AI_MEMORY_SOT_DISCOVERY_MAX_DIRS", 5000)
 _DISCOVERY_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS", 6.0)
+# Wall-time cap for the per-entry reindex loop (F-RT5-GAP-1 / F-SOT-2); mirrors
+# _DISCOVERY_MAX_SECONDS.  0 → treated as default per _env_float convention.
+_SOT_REINDEX_MAX_SECONDS = _env_float("AI_MEMORY_SOT_REINDEX_MAX_SECONDS", 30.0)
+# Stale-lock threshold: always >= 2x the reindex cap so a live holder (which
+# releases within _SOT_REINDEX_MAX_SECONDS) can never own a lock older than this
+# window.  The 300s floor preserves safe behaviour for the default cap (30s).
+_LOCK_STALE_SECONDS = max(300.0, 2 * _SOT_REINDEX_MAX_SECONDS)
 
 _DRIFT_CACHE_DIR = (
     Path(os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")))
@@ -940,8 +947,23 @@ def _reindex_lock(project_id: str):
     try:
         _DRIFT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         safe_id = project_id.replace("/", "__")
+        lock_path = _DRIFT_CACHE_DIR / f"sot_reindex_{safe_id}.lock"
+        # Sweep orphaned lock files (R2 / F-SOT-2): flock self-heals on process
+        # death, so a surviving .lock is cosmetic for that crash/exit case.  For
+        # a live holder, the max()-derived _LOCK_STALE_SECONDS invariant
+        # (= max(300, 2 * _SOT_REINDEX_MAX_SECONDS)) ensures any reindex still
+        # running — it releases within _SOT_REINDEX_MAX_SECONDS — can never own
+        # a lock older than this threshold, so no LIVE lock is ever swept.
+        try:
+            if (
+                lock_path.exists()
+                and (time.time() - lock_path.stat().st_mtime) > _LOCK_STALE_SECONDS
+            ):
+                lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         lock_fd = open(  # noqa: SIM115 — held across the yield; closed in finally
-            _DRIFT_CACHE_DIR / f"sot_reindex_{safe_id}.lock", "w", encoding="utf-8"
+            lock_path, "w", encoding="utf-8"
         )
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
     except OSError:
@@ -1074,7 +1096,20 @@ def _reindex_sot_entries(
 
             stored = 0
             rejected = 0  # writes refused by core validation (DEFECT-4)
+            _cap_fired = False  # R1 wall-time guard (F-RT5-GAP-1 / F-SOT-2)
+            _deadline = time.monotonic() + _SOT_REINDEX_MAX_SECONDS
             for content in prepared:
+                if time.monotonic() > _deadline:
+                    # Never silent: emit a visible warning, then stop.  Remaining
+                    # entries stay in the registry and are indexed next run.
+                    print(
+                        f"[aim-sot] reindex wall-time cap ({_SOT_REINDEX_MAX_SECONDS:.0f}s)"
+                        f" reached; {stored}/{len(prepared)} entries stored —"
+                        " remainder will be indexed next run.",
+                        file=sys.stderr,
+                    )
+                    _cap_fired = True
+                    break
                 try:
                     result = storage.store_memory(
                         content=content,
@@ -1099,6 +1134,10 @@ def _reindex_sot_entries(
                 except Exception:
                     pass  # per-entry failure is non-fatal
 
+            # Cap fired mid-loop: sha must NOT advance so the next run completes
+            # the reindex (F-SOT-2 / F-RT5-GAP-1).
+            if _cap_fired:
+                return ReindexResult(False, stored, "reindex_capped")
             # Delete ran but every re-store failed → the 5b cache is
             # emptied-not-restored.  Report failure so the caller does NOT advance
             # registry_sha and the rebuild retries next run rather than masking the
