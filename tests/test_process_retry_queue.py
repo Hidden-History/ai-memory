@@ -77,6 +77,14 @@ def _inject_mocks(monkeypatch):
     project_mod = types.ModuleType("memory.project")
     project_mod.resolve_project_id = MagicMock(return_value="resolved-project")
 
+    # Import real extraction/filters BEFORE replacing the memory package so they
+    # land in sys.modules and survive the fake package being installed.
+    # Both modules have no memory.* deps; safe to import from the real stack.
+    import importlib as _importlib
+
+    _real_extraction = _importlib.import_module("memory.extraction")
+    _real_filters = _importlib.import_module("memory.filters")
+
     for name, mod in [
         ("memory", mem_pkg),
         ("memory.config", cfg_mod),
@@ -85,6 +93,8 @@ def _inject_mocks(monkeypatch):
         ("memory.queue", queue_mod),
         ("memory.storage", storage_mod),
         ("memory.project", project_mod),
+        ("memory.extraction", _real_extraction),
+        ("memory.filters", _real_filters),
     ]:
         monkeypatch.setitem(sys.modules, name, mod)
 
@@ -380,7 +390,13 @@ class TestL5RecoverableForms:
 
         assert ok, msg
         kwargs = storage.store_memory.call_args.kwargs
-        assert kwargs["content"] == "def hello():\n    return 1\n"
+        # TD-728: content must be enriched by extract_patterns, not stored raw
+        from memory.extraction import extract_patterns
+
+        expected_content = extract_patterns("def hello():\n    return 1\n", "foo.py")[
+            "content"
+        ]
+        assert kwargs["content"] == expected_content
         assert kwargs["group_id"] == "resolved-project"
         assert kwargs["memory_type"] == "implementation"
         assert kwargs["session_id"] == "sess-1"
@@ -422,3 +438,131 @@ class TestL5RecoverableForms:
         assert ok is False
         assert "Unknown payload format" in msg
         storage.store_memory.assert_not_called()
+
+
+class TestFormatTwoTypeCoercion:
+    """TD-728: format-2 (hook_input) recovery uses live-path content + type reconstruction.
+
+    Before this fix the format-2 branch hardcoded memory_type="implementation" AND
+    collection=COLLECTION_CODE_PATTERNS AND stored the raw code_content instead of the
+    enriched content produced by extract_patterns().  Every bullet below verifies a
+    field the live store_async.py path would produce for the same hook_input.
+    """
+
+    def test_write_tool_field_level_fidelity(self, monkeypatch):
+        """Write tool: stored content == extract_patterns enriched, type == implementation,
+        collection derived from type (not hardcoded)."""
+        mod = _load_module(monkeypatch)
+        sys.modules["memory.project"].resolve_project_id.return_value = "proj-td728"
+        storage = MagicMock()
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m-td728"}
+
+        code = (
+            "async def fetch_user(user_id: int):\n"
+            "    db = await get_db()\n"
+            "    return await db.get(user_id)\n"
+        )
+        entry = {
+            "id": "td728-write",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "hook_input": {
+                    "tool_name": "Write",
+                    "tool_input": {"file_path": "api/users.py", "content": code},
+                    "session_id": "sess-td728",
+                    "cwd": "/myproject",
+                }
+            },
+        }
+
+        ok, msg = mod.process_entry(entry, storage)
+        assert ok, msg
+
+        from memory.extraction import extract_patterns
+
+        expected_content = extract_patterns(code, "api/users.py")["content"]
+        expected_collection = _COL_CODE  # get_collection_for_type("implementation")
+
+        call_kw = storage.store_memory.call_args.kwargs
+        assert (
+            call_kw["content"] == expected_content
+        ), "content must be enriched via extract_patterns, not stored raw"
+        assert call_kw["memory_type"] == "implementation"
+        assert call_kw["collection"] == expected_collection
+        assert call_kw["group_id"] == "proj-td728"
+        assert call_kw["session_id"] == "sess-td728"
+
+    def test_edit_tool_field_level_fidelity(self, monkeypatch):
+        """Edit tool: enriched content + correct collection via get_collection_for_type."""
+        mod = _load_module(monkeypatch)
+        sys.modules["memory.project"].resolve_project_id.return_value = "proj-edit"
+        storage = MagicMock()
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m-edit"}
+
+        new_string = (
+            "def process(data: dict) -> dict:\n"
+            "    return {k: v for k, v in data.items() if v is not None}\n"
+        )
+        entry = {
+            "id": "td728-edit",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "hook_input": {
+                    "tool_name": "Edit",
+                    "tool_input": {
+                        "file_path": "core/transform.py",
+                        "new_string": new_string,
+                    },
+                    "session_id": "sess-edit",
+                    "cwd": "/myproject",
+                }
+            },
+        }
+
+        ok, msg = mod.process_entry(entry, storage)
+        assert ok, msg
+
+        from memory.extraction import extract_patterns
+
+        expected_content = extract_patterns(new_string, "core/transform.py")["content"]
+        call_kw = storage.store_memory.call_args.kwargs
+        assert call_kw["content"] == expected_content
+        assert call_kw["memory_type"] == "implementation"
+        assert call_kw["collection"] == _COL_CODE
+
+    def test_non_implementation_format3_not_coerced_to_code_patterns(self, monkeypatch):
+        """Non-implementation: format-3 decision type lands in discussions, not code-patterns.
+
+        Proves the coercion is gone — a queued decision entry must not end up in the
+        code-patterns collection that the old format-2 hardcode would have forced it into.
+        """
+        mod = _load_module(monkeypatch)
+        storage = MagicMock()
+        storage.store_memory.return_value = {"status": "stored", "memory_id": "m-dec"}
+
+        entry = {
+            "id": "td728-decision",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "content": "Adopted event-driven architecture for the notification service.",
+                "type": "decision",
+                "group_id": "proj-arch",
+                "session_id": "sess-arch",
+                "source_hook": "manual",
+                "file_path": "",
+            },
+        }
+
+        ok, msg = mod.process_entry(entry, storage)
+        assert ok, msg
+
+        call_kw = storage.store_memory.call_args.kwargs
+        # decision → COLLECTION_DISCUSSIONS, must NOT be COLLECTION_CODE_PATTERNS
+        assert (
+            call_kw["collection"] == _COL_DISC
+        ), f"decision type must land in {_COL_DISC!r}, got {call_kw['collection']!r}"
+        assert call_kw["memory_type"] == "decision"
+        assert call_kw["group_id"] == "proj-arch"
