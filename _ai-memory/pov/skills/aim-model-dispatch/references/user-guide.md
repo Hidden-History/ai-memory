@@ -317,16 +317,6 @@ use ollama: Activate tech-writer agent, validate the SKILL.md
 | Analyst | `/bmad-agent-analyst` | Research, analysis |
 | Architect | `/bmad-agent-architect` | Design, architecture |
 | UX Designer | `/bmad-agent-ux-designer` | User flow, design |
-| Agent Builder | `/bmad-agent-bmb-agent-builder` | Create new agents |
-| Module Builder | `/bmad-agent-bmb-module-builder` | Build modules |
-| Workflow Builder | `/bmad-agent-bmb-workflow-builder` | Build workflows |
-| Brainstorming Coach | `/bmad-agent-cis-brainstorming-coach` | Ideation |
-| Creative Problem Solver | `/bmad-agent-cis-creative-problem-solver` | Problem solving |
-| Design Thinking Coach | `/bmad-agent-cis-design-thinking-coach` | Design thinking |
-| Innovation Strategist | `/bmad-agent-cis-innovation-strategist` | Innovation |
-| Presentation Master | `/bmad-agent-cis-presentation-master` | Presentations |
-| Storyteller | `/bmad-agent-cis-storyteller` | Narrative |
-| Tea | `/bmad-agent-tea-tea` | Test Architect (TEA) |
 
 ---
 

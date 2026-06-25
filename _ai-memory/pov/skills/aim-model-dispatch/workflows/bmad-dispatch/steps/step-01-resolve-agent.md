@@ -37,17 +37,6 @@ From the task description, determine which BMAD agent is needed.
 | Architect | `/bmad-agent-architect` |
 | UX Designer | `/bmad-agent-ux-designer` |
 | Tech Writer | `/bmad-agent-tech-writer` |
-| BMAD Master | `/bmad-agent-bmad-master` |
-| Agent Builder | `/bmad-agent-bmb-agent-builder` |
-| Module Builder | `/bmad-agent-bmb-module-builder` |
-| Workflow Builder | `/bmad-agent-bmb-workflow-builder` |
-| Brainstorming Coach | `/bmad-agent-cis-brainstorming-coach` |
-| Creative Problem Solver | `/bmad-agent-cis-creative-problem-solver` |
-| Design Thinking Coach | `/bmad-agent-cis-design-thinking-coach` |
-| Innovation Strategist | `/bmad-agent-cis-innovation-strategist` |
-| Presentation Master | `/bmad-agent-cis-presentation-master` |
-| Storyteller | `/bmad-agent-cis-storyteller` |
-| Test Architect (TEA) | `/bmad-agent-tea-tea` |
 
 If the task description does not specify an agent, use this selection guide:
 

@@ -174,44 +174,10 @@ MUST spawn fresh agent for every task -- never reuse across roles or stories.
 | Architect | `/bmad-agent-architect` | System architecture design, readiness checks |
 | Developer (DEV) | `/bmad-agent-dev` | Code implementation ONLY |
 | Developer (review) | `/bmad-code-review` | Code review ONLY -- MUST use this for ALL review agents, never /bmad-agent-dev |
-| Scrum Master (SM) | `/bmad-agent-bmm-sm` | Sprint planning, story creation, retrospectives |
-| QA Engineer | `/bmad-agent-bmm-qa` | Test planning, test execution, quality validation |
 | UX Designer | `/bmad-agent-ux-designer` | User flows, screen design, UX research |
 | Tech Writer | `/bmad-agent-tech-writer` | Documentation writing and validation |
-| Quick Flow Solo Dev | `/bmad-agent-bmm-quick-flow-solo-dev` | Lightweight single-dev flow (analysis through implementation) |
 
 MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-code-review` for ALL review agents (never `/bmad-agent-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
-
-#### BMAD Framework Agents
-
-| Agent | Activation Command | Description |
-|-------|-------------------|-------------|
-| BMAD Master | `/bmad-agent-bmad-master` | BMAD framework orchestration and guidance |
-
-#### Builder Agents (bmb-)
-
-| Agent | Activation Command | Description |
-|-------|-------------------|-------------|
-| Agent Builder | `/bmad-agent-bmb-agent-builder` | Build new BMAD agent definitions |
-| Module Builder | `/bmad-agent-bmb-module-builder` | Build new BMAD modules |
-| Workflow Builder | `/bmad-agent-bmb-workflow-builder` | Build new BMAD workflows |
-
-#### CIS Coaches (cis-)
-
-| Agent | Activation Command | Description |
-|-------|-------------------|-------------|
-| Brainstorming Coach | `/bmad-agent-cis-brainstorming-coach` | Facilitated brainstorming sessions |
-| Creative Problem Solver | `/bmad-agent-cis-creative-problem-solver` | Creative approaches to complex problems |
-| Design Thinking Coach | `/bmad-agent-cis-design-thinking-coach` | Design thinking methodology facilitation |
-| Innovation Strategist | `/bmad-agent-cis-innovation-strategist` | Innovation strategy and ideation |
-| Presentation Master | `/bmad-agent-cis-presentation-master` | Presentation creation and coaching |
-| Storyteller | `/bmad-agent-cis-storyteller` | Narrative crafting and storytelling |
-
-#### Test Agents (tea-)
-
-| Agent | Activation Command | Description |
-|-------|-------------------|-------------|
-| Test Architect (TEA) | `/bmad-agent-tea-tea` | Test architecture and strategy design |
 
 **Workflow commands by phase** (sent AFTER activation, when in planning mode):
 
@@ -224,10 +190,10 @@ MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updatin
 | Architecture | PM | `/bmad-create-epics-and-stories` |
 | Architecture | Architect | `/bmad-check-implementation-readiness` |
 | Architecture | UX Designer | `/bmad-ux` |
-| Planning | SM | `/bmad-bmm-sprint-planning`, `/bmad-bmm-create-story` |
+| Planning | (direct skill) | `/bmad-sprint-planning`, `/bmad-create-story` |
 | Execution | DEV | `/bmad-dev-story` |
 | Execution | DEV | `/bmad-code-review` |
-| Release | SM | `/bmad-bmm-retrospective` |
+| Release | (direct skill) | `/bmad-retrospective` |
 
 Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
