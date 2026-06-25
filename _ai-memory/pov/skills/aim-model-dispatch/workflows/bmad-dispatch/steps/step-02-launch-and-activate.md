@@ -109,7 +109,7 @@ sleep 5
 
 ```bash
 # Send the BMAD agent activation command
-# AGENT_COMMAND is from step-01, e.g., "/bmad-agent-dev"
+# AGENT_COMMAND is from step-01, e.g., "/bmad-agent-bmm-dev"
 tmux send-keys -t "$PANE_TARGET" "${AGENT_COMMAND}"
 
 # Pause 2 seconds for the TUI to render

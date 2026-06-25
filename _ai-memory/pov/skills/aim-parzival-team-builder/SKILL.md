@@ -11,34 +11,117 @@ context: fork
 
 **Note**: This skill is the entry point for team design. Parzival designs teams here, then executes them via the agent-dispatch workflow. Parzival activates agents himself -- the user does not run agents.
 
+> **HARD PROHIBITION**: This skill (aim-parzival-team-builder) MUST NEVER spawn or activate agents itself -- **including when it runs as `context: fork`**. It emits the dispatch plan ONLY. Parzival performs all dispatch via the agent-dispatch workflow. Even as a fork, this skill must not launch agents -- spawning from within this skill bypasses the agent-dispatch workflow and is forbidden.
+
 ---
 
-## Single Agent Fast Path
+## Fast Path: Single Agent
 
-When the work is a single task that does not benefit from parallelization:
+The fast path bypasses the full 6-step design process for dispatches that a
+single agent can execute without coordination. It still produces a structured
+dispatch plan and still routes through the full pipeline — ceremony is trimmed,
+the contract is not.
+
+### Trigger Criteria (ALL must hold)
+
+- **Single agent**: exactly one executor, no lead/worker split
+- **No parallelization**: no peer agents, no file-ownership partitioning
+- **Clear file ownership**: every file the agent will touch is already known at
+  dispatch time (no "will discover what to modify")
+- **Single review cycle**: at most one reviewer planned (dual review still
+  permitted — see `reviewer_plan.mode`)
+- **No cross-cutting concerns**: the task does not force interface contracts
+  with other in-flight work
+
+If any criterion fails, fall through to the full Team Design Process.
+
+### Fast Path Execution
+
 1. Collect provider and model preferences (Step 1b)
 2. Assign agent role and AI_MEMORY_AGENT_ID (Step 2.3)
 3. Prepare the context block (Step 4 format)
-4. Present compact output for approval
-5. Route to /aim-agent-dispatch (handles both BMAD and generic)
+4. Emit the compact Dispatch Plan (see `Dispatch Plan Schema` below) for approval
+5. On approval, route to `/aim-agent-dispatch` — the plan object is passed
+   verbatim to the downstream skill
 
-**Criteria for single agent path:**
-- One task, one agent, one review cycle
-- No file ownership conflicts (only one agent working)
-- No parallel coordination needed
+**No activation greeting, no menu display, no multi-step analysis narration.**
+The fast path should read like a form, not a conversation.
 
-**Compact output**: When the fast path is selected, skip ceremony. Produce only:
+### Fast Path Compact Output Example
+
+```yaml
+# Dispatch Plan v1
+provider: claude
+model: claude-sonnet-4-6
+agent: dev
+agent_id: dev-auth
+bmad_agent_type: bmm-dev
+task_summary: "Implement Story 4.2 password-reset endpoint"
+files:
+  - /abs/path/src/auth/reset.py
+  - /abs/path/tests/test_reset.py
+workspace_root: /mnt/e/projects/dev-ai-memory
+complexity: moderate
+reviewer_plan:
+  mode: single
+  models: [claude-sonnet-4-6]
+route: aim-agent-dispatch
+# Approve?
 ```
-Fast Path: Single agent
-Provider: [claude | openrouter | ollama | ...]
-Agent: [role] (AI_MEMORY_AGENT_ID: [id], Model: [model tier])
-Mode: [execution | planning]
-Task: [one-line description]
-Files: [list]
-Route: aim-agent-dispatch
-Approve?
+
+---
+
+## Dispatch Plan Schema (v1)
+
+Every team-builder invocation — fast path, preset, or full design — emits a
+**Dispatch Plan** object. Downstream skills (`aim-agent-dispatch`,
+`aim-model-dispatch`) MUST accept this object as structured data and re-emit it
+verbatim to the next skill in the chain.
+
+**Goal**: model IDs like `glm-5.1:cloud` must survive the pipeline without
+paraphrase-corruption (no `glm-5`, no "use the latest glm"). File lists must
+not collapse to prose.
+
+### Schema
+
+```yaml
+# Dispatch Plan v1
+provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | mistral | openai | vertex-ai | siliconflow
+model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
+agent: <role-name>                   # dev | sm | pm | architect | analyst | ux-designer | qa | tech-writer | code-reviewer | <generic>
+agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "sm-sprint-2"
+bmad_agent_type: <bmm-agent>         # intended BMAD agent type: bmm-dev | bmm-sm | bmm-pm | bmm-architect | bmm-analyst | bmm-ux-designer | bmm-qa | bmm-tech-writer | null (null for generic, non-BMAD agents)
+task_summary: <one-line>
+files:
+  - <absolute-path-1>
+  - <absolute-path-2>
+workspace_root: <absolute-path>      # MUST contain _ai-memory/ + _bmad/ + oversight/
+complexity: straightforward | moderate | significant | complex
+reviewer_plan:
+  mode: none | single | dual
+  models: [<reviewer-model-1>, <reviewer-model-2>]  # empty list when mode=none
+route: aim-agent-dispatch            # which dispatch skill to invoke next
 ```
-Do not produce a full activation greeting, menu display, or multi-step analysis for a single-task dispatch. The fast path should be fast.
+
+### Round-Trip Rules
+
+- **All keys always present.** Emit `null` or empty list for not-applicable
+  fields rather than omitting the key — keeps schema stable.
+- **No paraphrasing.** When passing the plan to the next skill, copy the object
+  as-is. Never reformat model IDs, never summarize file lists to "the auth
+  files", never drop `agent_id` or `bmad_agent_type`.
+- **Validation gate.** The downstream skill MUST re-emit the plan unchanged in
+  its first action. If a field is missing or malformed, STOP and request a
+  corrected plan from the caller.
+- **Source of truth.** `workspace_root` is verified by the CWD sentinel in
+  `aim-model-dispatch`. The plan is the record; the sentinel is the check.
+
+### When Full Design Is Required
+
+The full 6-step Team Design Process emits one Dispatch Plan per team member
+plus a Team Document describing the overall structure. The fast path emits a
+single plan. Presets emit a preset-specific fan-out of plans. In all cases the
+schema above applies per-agent.
 
 ---
 
@@ -51,35 +134,35 @@ Before running the full 6-step design process, check if the work matches a prese
 ### Preset: Sprint Development (`sprint-dev`)
 **When**: 2-3 stories need parallel implementation with code review
 **Structure**: 2-tier — SM Lead (Opus) → 2 DEV workers (Sonnet) + 1 DEV reviewer (Opus)
-**Workflow commands**: Workers run `/bmad-dev-story`, reviewer runs `/bmad-code-review`
+**Workflow commands**: Workers run `/bmad-bmm-dev-story`, reviewer runs `/bmad-bmm-code-review`
 **Requires**: sprint-status.yaml, architecture doc
 **Customize**: story assignments, file ownership per story
 
 ### Preset: Story Preparation (`story-prep`)
 **When**: Multiple stories need to be created from epics in bulk
 **Structure**: 2-tier — PM Lead (Opus) → 2-3 SM story creators (Sonnet)
-**Workflow commands**: Workers run `/bmad-create-story`
+**Workflow commands**: Workers run `/bmad-bmm-create-story`
 **Requires**: epics doc, sprint-status.yaml
 **Customize**: which stories to create, epic references
 
 ### Preset: Test Automation (`test-automation`)
 **When**: Completed stories need automated test coverage
 **Structure**: 2-tier — TEA Lead (Opus) → 2 QA workers (Sonnet)
-**Workflow commands**: Workers run `/bmad-qa-generate-e2e-tests` — generates automated API and E2E tests for completed story implementations
+**Workflow commands**: Workers run `/bmad-bmm-qa-generate-e2e-tests` — generates automated API and E2E tests for completed story implementations
 **Requires**: sprint-status.yaml, TEA module installed
 **Customize**: which stories to test, test framework
 
 ### Preset: Architecture Review (`architecture-review`)
 **When**: Pre-sprint architecture work with parallel research
 **Structure**: 2-tier — Architect Lead (Opus) → Analyst worker (Sonnet) + UX Designer worker (Sonnet)
-**Workflow commands**: Analyst runs `/bmad-technical-research`, UX runs `/bmad-create-ux-design`
+**Workflow commands**: Analyst runs `/bmad-bmm-technical-research`, UX runs `/bmad-bmm-create-ux-design`
 **Requires**: PRD
 **Customize**: research focus areas, UX scope
 
 ### Preset: Research (`research`)
 **When**: Phase 1 parallel research across market, domain, and technical
 **Structure**: 2-tier — Analyst Lead (Opus) → 3 Analyst workers (Sonnet)
-**Workflow commands**: `/bmad-market-research`, `/bmad-domain-research`, `/bmad-technical-research`
+**Workflow commands**: `/bmad-bmm-market-research`, `/bmad-bmm-domain-research`, `/bmad-bmm-technical-research`
 **Requires**: Nothing (recommended: project-context.md)
 **Customize**: research focus, industry, technology areas
 
@@ -94,6 +177,7 @@ Models: [role defaults or overrides]
 Stories/Tasks: [customized assignments]
 File Ownership: [per-worker paths]
 Workflow Commands: [per-worker commands]
+BMAD Agent Types: [per-worker bmad_agent_type, e.g. bmm-dev, bmm-sm; null for generic]
 Requires: [prerequisites — verify they exist]
 Approve?
 ```
@@ -166,6 +250,7 @@ A sparse NxN matrix wastes tokens on columns of "—" entries. The assignment li
 
 For each agent, prepare:
 - ROLE: Agent type and assigned identity (AI_MEMORY_AGENT_ID)
+- BMAD AGENT TYPE: Intended BMAD agent type (`bmad_agent_type`), e.g. bmm-dev; null for generic, non-BMAD agents
 - TASK: Specific work items with acceptance criteria
 - FILES: Owned files (absolute paths)
 - CONSTRAINTS: "DO NOT modify any files outside your SCOPE list." — do not enumerate every other agent's files; the ownership map in Step 3 is the source of truth
@@ -206,6 +291,7 @@ Before executing, verify:
 - Never let managers implement anything -- they orchestrate workers only
 - Never embed more than 4 worker prompts in a single manager context
 - Never allow unbounded review loops -- hard cap at 3 cycles, then escalate
+- Never spawn/activate agents from within this skill (even as a `context: fork`) -- emit the dispatch plan only; Parzival dispatches
 
 ---
 
@@ -224,4 +310,4 @@ Parzival activates all agents himself — the user does not run agents.
 **MANDATORY NEXT STEP**: After user approves the dispatch plan:
 - All agents (BMAD and generic) → /aim-agent-dispatch
 
-Pass the full dispatch plan (provider, model, agent role, task, files, mode) to the next skill.
+Pass the full Dispatch Plan object verbatim — including exact model ID, full file list, `agent_id`, and `bmad_agent_type` (see `Dispatch Plan Schema`). Downstream skills re-emit the plan for round-trip verification. (`bmad_agent_type` identifies the intended BMAD agent type, e.g. bmm-dev; null for generic agents.)

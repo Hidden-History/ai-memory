@@ -50,9 +50,13 @@ results = search_memories(
 ### Search Queries
 
 ```
-WebSearch: "[topic] best practices 2026"
-WebSearch: "[topic] official documentation 2026"
+WebSearch: "[topic] best practices <current year>"
+WebSearch: "[topic] official documentation <current year>"
 ```
+
+(Substitute the actual current year for `<current year>` in these queries.)
+
+Prioritize results published within the last ~6 months relative to today.
 
 ### Source Prioritization
 
