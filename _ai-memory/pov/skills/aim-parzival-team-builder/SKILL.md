@@ -133,21 +133,21 @@ Before running the full 6-step design process, check if the work matches a prese
 
 ### Preset: Sprint Development (`sprint-dev`)
 **When**: 2-3 stories need parallel implementation with code review
-**Structure**: 2-tier — SM Lead (Opus) → 2 DEV workers (Sonnet) + 1 DEV reviewer (Opus)
+**Structure**: Parzival-coordinated — 2 DEV workers (Sonnet) + 1 DEV reviewer (Opus)
 **Workflow commands**: Workers run `/bmad-dev-story`, reviewer runs `/bmad-code-review`
 **Requires**: sprint-status.yaml, architecture doc
 **Customize**: story assignments, file ownership per story
 
 ### Preset: Story Preparation (`story-prep`)
 **When**: Multiple stories need to be created from epics in bulk
-**Structure**: 2-tier — PM Lead (Opus) → 2-3 SM story creators (Sonnet)
+**Structure**: 2-tier — PM Lead (Opus) → 2-3 story-creator workers (Sonnet, run `/bmad-create-story`)
 **Workflow commands**: Workers run `/bmad-create-story`
 **Requires**: epics doc, sprint-status.yaml
 **Customize**: which stories to create, epic references
 
 ### Preset: Test Automation (`test-automation`)
 **When**: Completed stories need automated test coverage
-**Structure**: 2-tier — TEA Lead (Opus) → 2 QA workers (Sonnet)
+**Structure**: 2-tier — Architect Lead (Opus) → 2 test workers (Sonnet, run `/bmad-qa-generate-e2e-tests`)
 **Workflow commands**: Workers run `/bmad-qa-generate-e2e-tests` — generates automated API and E2E tests for completed story implementations
 **Requires**: sprint-status.yaml, TEA module installed
 **Customize**: which stories to test, test framework
@@ -227,7 +227,7 @@ Store provider and model selections in the dispatch plan.
    - Naming rules: domain-named agents always work the same domain/files across sessions; numbered agents are interchangeable for generic parallel work; single-instance agents use role name directly
 4. Select models per agent role:
    - Planning agents (Analyst, PM, Architect): Opus
-   - Execution agents (DEV, SM, QA, review): Sonnet
+   - Execution agents (DEV, review): Sonnet
    - Simple/high-volume tasks: Haiku
    Present defaults to user. Apply overrides if user requests.
 
