@@ -265,6 +265,46 @@ def test_first_breath_marker_and_phase():
     assert lc.current_phase("no phase here") is None
 
 
+def test_first_breath_marker_scoped_to_owner():
+    # Owner filled, scaffold prose surviving in another section (Working Style)
+    # must NOT re-trigger First Breath (the D9-F1 false positive).
+    filled = (
+        "# Bond\n\n## Owner\n\n**Name:** wb\nRole: founder.\n\n"
+        "## Working Style\n\n_Filled during First Breath and refined over time._\n"
+    )
+    assert not lc.first_breath_marker(filled)
+    # Genuinely-empty Owner (scaffold marker present) -> True.
+    empty = (
+        "# Bond\n\n## Owner\n\n**Name:** {user_name}\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert lc.first_breath_marker(empty)
+    # No ## Owner section at all -> fail-safe False (never re-First-Breath).
+    assert not lc.first_breath_marker("# Bond\n\n## Working Style\n\nfast.\n")
+
+
+def test_first_breath_marker_real_name_with_surviving_seed():
+    # The fill workflow appended a real owner Name but left the seed line in
+    # ## Owner. A real Name alongside a surviving seed line must NOT re-trigger
+    # First Breath (TD-737 false-positive case).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\nRole: founder.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert not lc.first_breath_marker(bond)
+
+
+def test_first_breath_marker_blank_name_with_surviving_seed():
+    # ## Owner with a blank/whitespace-only Name value (no real name, no
+    # {user_name} placeholder token) alongside a surviving seed line -> the
+    # owner has not been established, so First Breath IS still needed (TD-737).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:**   \nRole: founder.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert lc.first_breath_marker(bond)
+
+
 def test_resolve_paths_substitutes_root(workspace: Path):
     paths = lc.resolve_paths(workspace)
     assert paths["sanctum_path"] == workspace / "_ai-memory/sanctum"
