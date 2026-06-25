@@ -28,7 +28,7 @@ Style A — Legacy universal menu. Contains:
 - `[MH]` — Menu Help
 - `[DA]` — Dismiss Agent
 
-Style B — Custom numbered Intent picker. Contains a "Type something" option literal, typically rendered as a numbered line such as `5. Type something` or similar. The Intent picker appears in newer skills (e.g., `/bmad-agent-bmb-agent-builder`) and does NOT carry the `[MH]`/`[DA]` markers.
+Style B — Custom numbered Intent picker. Contains a "Type something" option literal, typically rendered as a numbered line such as `5. Type something` or similar. The Intent picker appears in skills that render a custom numbered menu (e.g., `Build / Analyze / … / Type something / Chat`) and does NOT carry the `[MH]`/`[DA]` markers.
 
 Detection SUCCESS = Style A matched OR Style B matched.
 
@@ -93,12 +93,12 @@ Only runs when `MENU_STYLE=intent_picker`. Skipped for legacy menus — the lega
 
 BMAD Intent pickers interpret the first non-navigation input as confirmation of the currently-highlighted option. Free-form text has no navigation prefix, so it is treated as confirmation of the wrong option. The dispatch layer must navigate to the "Type something" option first.
 
-For `/bmad-agent-bmb-agent-builder`, "Type something" is option 5 (Build=1, Analyze=2, Edit=3, Rebuild=4, Type something=5, Chat=6). Navigation is four Down presses followed by Enter.
+In a typical Style-B picker, "Type something" sits partway down the list — for example option 5 of a `Build=1, Analyze=2, Edit=3, Rebuild=4, Type something=5, Chat=6` menu, reached by four Down presses followed by Enter. The actual offset is detected dynamically (below), so this is only the fallback default.
 
 ```bash
 if [ "$MENU_STYLE" = "intent_picker" ]; then
   # Count the offset to the "Type something" option
-  # For bmad-agent-bmb-agent-builder the literal is at option 5 → 4 Down presses
+  # Fallback default: in a typical Style-B picker the literal is at option 5 → 4 Down presses
   DOWN_COUNT=4
 
   # Derive dynamically from pane text if possible; fall back to default
