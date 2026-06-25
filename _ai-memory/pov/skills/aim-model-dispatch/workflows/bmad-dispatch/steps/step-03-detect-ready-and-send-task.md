@@ -30,6 +30,8 @@ Style A — Legacy universal menu. Contains:
 
 Style B — Custom numbered Intent picker. Contains a "Type something" option literal, typically rendered as a numbered line such as `5. Type something` or similar. The Intent picker appears in skills that render a custom numbered menu (e.g., `Build / Analyze / … / Type something / Chat`) and does NOT carry the `[MH]`/`[DA]` markers.
 
+> Note: as of BMAD v6.9.0, no skill in the installed SOT presents a Style-B Intent picker (it originated in the now-removed bmb module). The Style-B detection and navigation below are retained defensively but are likely a dead branch — a candidate for future cleanup.
+
 Detection SUCCESS = Style A matched OR Style B matched.
 
 Poll the pane every 2 seconds for up to 20 seconds (10 attempts). Step-02 already waits ~10 seconds for initialization, so the menu typically appears on the first or second check:

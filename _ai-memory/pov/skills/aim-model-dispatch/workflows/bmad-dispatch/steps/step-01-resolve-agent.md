@@ -52,9 +52,6 @@ If the task description does not specify an agent, use this selection guide:
 | Design user flows | UX Designer | Use menu |
 | Write or review documentation | Tech Writer | `WD` |
 | Validate documentation | Tech Writer | `VD` |
-| Build new BMAD agents | Agent Builder | Use menu |
-| Build new BMAD modules | Module Builder | Use menu |
-| Build new BMAD workflows | Workflow Builder | Use menu |
 
 **IMPORTANT**: `/bmad-code-review` is a direct review workflow — invoke it directly; do NOT route review through dev-agent two-phase activation. Other direct workflow commands like `/bmad-dev-story` still map to their parent agent + menu code:
 

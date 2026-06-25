@@ -27,9 +27,6 @@ When the task description does not specify an agent:
 | Design user flows | UX Designer | Use menu |
 | Write or review documentation | Tech Writer | `WD` |
 | Validate documentation | Tech Writer | `VD` |
-| Build new BMAD agents | Agent Builder | Use menu |
-| Build new BMAD modules | Module Builder | Use menu |
-| Build new BMAD workflows | Workflow Builder | Use menu |
 
 ## Direct Command to Agent Mapping
 

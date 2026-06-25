@@ -36,7 +36,7 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 - Rule 4: CWD must be project root (document_pipeline/) before spawn — NEVER DocIntel/
 - Rule 5: /bmad-code-review for reviews, /bmad-agent-dev for implementation only
 - Rule 6: Dual review mandatory (Sonnet + Opus)
-- Rule 7: One story per SM dispatch — shutdown after each
+- Rule 7: One story per story-creation dispatch — shutdown after each
 - Rule 8: Don't rush-nudge idle agents
 - Rule 9: Two-phase BMAD activation (activate → wait for idle → send instruction)
 - Rule 11: ALWAYS include explicit story ID + file list in instruction

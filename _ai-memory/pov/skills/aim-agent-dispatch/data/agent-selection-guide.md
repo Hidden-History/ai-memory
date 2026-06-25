@@ -85,7 +85,9 @@ The following roles represent common capabilities. Actual agent names and activa
 
 ---
 
-### SM (Scrum Master)
+### Sprint & Story Capabilities (direct skills)
+
+**v6.9.0 note**: In BMAD v6.9.0 these are direct skills — `/bmad-sprint-planning`, `/bmad-create-story`, `/bmad-retrospective` — invoked directly, not via two-phase agent activation.
 
 **Strengths**: Sprint planning, story creation, sprint tracking, retrospectives, velocity assessment.
 
@@ -117,7 +119,9 @@ The following roles represent common capabilities. Actual agent names and activa
 
 ---
 
-### QA (Quality Assurance)
+### Test Capabilities (direct skills)
+
+**v6.9.0 note**: In BMAD v6.9.0 these are direct skills — automated test generation via `/bmad-qa-generate-e2e-tests`, and test architecture/strategy via `/bmad-tea` (with `/bmad-testarch-*`) — invoked directly, not via a dispatchable agent.
 
 **Strengths**: Test planning, test execution, regression testing, integration testing, edge case identification.
 
@@ -139,10 +143,10 @@ The following roles represent common capabilities. Actual agent names and activa
 | Init | Analyst | -- | Planning | Assess current state, no implementation |
 | Discovery | Analyst, PM | -- | Planning | Research first, then requirements |
 | Architecture | Architect, PM | Analyst | Planning | Architect designs, PM decomposes into epics |
-| Planning | SM | -- | Planning | Sprint initialization and story creation |
+| Planning | (direct skills) | -- | Planning | Sprint init/story creation via `/bmad-sprint-planning`, `/bmad-create-story` |
 | Execution | DEV | Architect (if needed) | Execution | Core loop: implement, review, fix |
-| Integration | DEV, Architect | QA | Execution | Full review pass + cohesion check |
-| Release | SM | DEV (if fixes needed) | Execution | Retrospective + documentation |
+| Integration | DEV, Architect | (test skills) | Execution | Full review pass + cohesion check; tests via `/bmad-qa-generate-e2e-tests` |
+| Release | (direct skill) | DEV (if fixes needed) | Execution | Retrospective via `/bmad-retrospective` + documentation |
 | Maintenance | DEV | Analyst (if research needed) | Execution | Bug fix or improvement implementation |
 
 ---
@@ -157,10 +161,10 @@ What type of work is this?
       |-- Research / Analysis    -> Analyst
       |-- Requirements / Scope   -> PM
       |-- Design / Architecture  -> Architect
-      |-- Sprint / Planning      -> SM
+      |-- Sprint / Planning      -> direct skills (/bmad-sprint-planning, /bmad-create-story)
       |-- Implementation / Fix   -> DEV
       |-- UI / UX Design         -> UX Designer
-      |-- Testing / QA           -> QA
+      |-- Testing / QA           -> direct skills (/bmad-qa-generate-e2e-tests, /bmad-tea)
       |
 Is the agent available in current team config?
       |
