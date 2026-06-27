@@ -17,6 +17,14 @@ RUN apt-get update && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Bake the evaluator config into the image (default EVALUATOR_CONFIG_PATH).
+# Image-bake delivery instead of a single-file bind mount, which is fragile on
+# Docker Desktop / WSL2: the single-file source is recreated as a directory on
+# host reboot -> runc "not a directory" mount error -> Exit 127 (TD-748). The
+# build context is the repo root (compose build.context: ../), so the source is
+# the repo-root evaluator_config.yaml. EVALUATOR_CONFIG_PATH can still override.
+COPY evaluator_config.yaml /app/evaluator_config.yaml
+
 # Create non-root user (security hardening 2025)
 RUN useradd -u 1001 -g users -s /usr/sbin/nologin evaluator && \
     chown -R evaluator:users /app
