@@ -78,6 +78,10 @@ def _env_file_paths(service_block: dict) -> list[str]:
 # on WSL2 / Docker Desktop: on host reboot the single-file source can be
 # recreated as a directory, yielding a runc "not a directory" mount error and
 # Exit 127 (TD-748, TD-583, BP-162). Config/code must be image-baked instead.
+#
+# This is a heuristic scoped to known config-file extensions: an extension-less
+# single-file mount cannot be distinguished from a directory by static analysis
+# and is an inherent limit of this guard (not covered).
 SINGLE_FILE_MOUNT_EXTENSIONS = (
     ".yaml",
     ".yml",
@@ -85,6 +89,14 @@ SINGLE_FILE_MOUNT_EXTENSIONS = (
     ".conf",
     ".xml",
     ".py",
+    ".toml",
+    ".ini",
+    ".env",
+    ".cfg",
+    ".properties",
+    ".pem",
+    ".crt",
+    ".key",
 )
 
 
@@ -120,17 +132,30 @@ def _single_file_bind_mounts(config: dict) -> list[str]:
 
     A volume is a single-file bind mount when its host *source* ends in a
     config/code file extension (``SINGLE_FILE_MOUNT_EXTENSIONS``). This detects
-    the whole class across both ``./``-relative and ``../``-relative forms while
-    excluding directory mounts and named volumes (neither carries such an
-    extension). Returns ``"<service>: <volume>"`` strings for any offenders.
+    the whole class across both ``./``-relative and ``../``-relative forms, in
+    both short-string (``SOURCE:TARGET[:MODE]``) and long-form dict
+    (``{type: bind, source: ..., target: ...}``) volume syntax, while excluding
+    directory mounts and named volumes (neither carries such an extension).
+    Returns ``"<service>: <volume>"`` strings for any offenders.
     """
     offenders: list[str] = []
     for service_name, service_block in (config.get("services") or {}).items():
         for volume in service_block.get("volumes") or []:
-            volume_str = str(volume)
-            source = _volume_source(volume_str).lower()
+            if isinstance(volume, dict):
+                # Long-form syntax. A named volume (type: volume) is not a host
+                # bind mount, so skip it. For bind mounts read source directly:
+                # str(dict) is brace-wrapped and would never split via
+                # _volume_source, letting a single-file long-form mount evade.
+                if volume.get("type") == "volume":
+                    continue
+                source = str(volume.get("source", "")).lower()
+                offender = f"{service_name}: {volume}"
+            else:
+                volume_str = str(volume)
+                source = _volume_source(volume_str).lower()
+                offender = f"{service_name}: {volume_str}"
             if source.endswith(SINGLE_FILE_MOUNT_EXTENSIONS):
-                offenders.append(f"{service_name}: {volume_str}")
+                offenders.append(offender)
     return offenders
 
 
@@ -411,6 +436,47 @@ class TestComposeSourceTopology:
             f"(image-bake delivery only); got: {volume_strs}"
         )
 
+    def test_evaluator_scheduler_baked_via_dockerfile(self, langfuse_config):
+        """evaluator-scheduler must bake evaluator_config.yaml via Dockerfile.
+
+        TD-748: the evaluator_config.yaml single-file bind-mount was fragile on
+        Docker Desktop / WSL2 (the single-file source recreated as a directory
+        on host reboot -> runc 'not a directory' mount error -> Exit 127). Fix
+        bakes it into the local image via docker/Dockerfile.evaluator-scheduler.
+        Catches silent removal of the COPY.
+        """
+        svc = langfuse_config["services"]["evaluator-scheduler"]
+
+        # (a) build: block points at the evaluator-scheduler Dockerfile
+        build = svc.get("build")
+        assert isinstance(
+            build, dict
+        ), f"evaluator-scheduler must declare a build: block; got: {build!r}"
+        assert (
+            build.get("context") == "../"
+        ), f"evaluator-scheduler build.context must be '../'; got: {build.get('context')!r}"
+        assert build.get("dockerfile") == "docker/Dockerfile.evaluator-scheduler", (
+            "evaluator-scheduler build.dockerfile must be "
+            "'docker/Dockerfile.evaluator-scheduler'; got: "
+            f"{build.get('dockerfile')!r}"
+        )
+
+        # (b) Dockerfile exists and (c) COPYs evaluator_config.yaml to /app
+        dockerfile_path = DOCKER_DIR / "Dockerfile.evaluator-scheduler"
+        assert dockerfile_path.exists(), (
+            "docker/Dockerfile.evaluator-scheduler must exist; not found at "
+            f"{dockerfile_path}"
+        )
+        dockerfile_text = dockerfile_path.read_text(encoding="utf-8")
+        assert re.search(
+            r"COPY\s+(?:--\S+\s+)?evaluator_config\.yaml\s+"
+            r"/app/evaluator_config\.yaml",
+            dockerfile_text,
+        ), (
+            "evaluator-scheduler Dockerfile must COPY evaluator_config.yaml to "
+            "/app/evaluator_config.yaml"
+        )
+
     def test_no_td583_single_file_bind_mounts(self, source_config, langfuse_config):
         """No single-file host bind mounts may remain in either compose file.
 
@@ -479,6 +545,52 @@ class TestSingleFileBindMountDetector:
                         "embedding_cache:/home/embedding/.cache",
                         "${AI_MEMORY_INSTALL_DIR:-${HOME}/.ai-memory}/logs:/app/logs",
                         "${AI_MEMORY_INSTALL_DIR:-.}/.audit:/app/.audit",
+                    ]
+                }
+            }
+        }
+        assert _single_file_bind_mounts(benign) == []
+
+    def test_detects_long_form_single_file_mount(self):
+        """A long-form (dict) single-file bind mount must be flagged.
+
+        ``str(dict)`` is brace-wrapped and never splits via ``_volume_source``,
+        so the detector must read the ``source`` field directly from the dict.
+        """
+        synthetic = {
+            "services": {
+                "victim": {
+                    "volumes": [
+                        {
+                            "type": "bind",
+                            "source": "../evil.yaml",
+                            "target": "/app/evil.yaml",
+                        }
+                    ]
+                }
+            }
+        }
+        offenders = _single_file_bind_mounts(synthetic)
+        assert len(offenders) == 1 and offenders[0].startswith("victim: ")
+        assert "../evil.yaml" in offenders[0]
+
+    def test_ignores_long_form_directory_and_named_volume(self):
+        """A long-form directory bind mount and a long-form named volume
+        (type: volume) must NOT be flagged."""
+        benign = {
+            "services": {
+                "svc": {
+                    "volumes": [
+                        {
+                            "type": "bind",
+                            "source": "../src",
+                            "target": "/app/src",
+                        },
+                        {
+                            "type": "volume",
+                            "source": "embedding_cache",
+                            "target": "/home/embedding/.cache",
+                        },
                     ]
                 }
             }
