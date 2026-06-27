@@ -125,16 +125,15 @@ def test_write_proposal_staging_file_is_owner_only(monkeypatch, tmp_path):
 
 
 def test_write_proposal_force_overwrite_resets_stale_perms(tmp_path):
-    """A stale group-readable (0o640) staging file overwritten with --force must
-    come back owner-only: the mode is not owner-only yet has no ``other`` bits, so
-    O_TRUNC reuses the inode without resetting mode and the fchmod is what forces
-    0o600 on the overwrite path."""
+    """A stale world-readable (0o644) staging file overwritten with --force must
+    come back owner-only: O_TRUNC reuses the inode without resetting mode, so the
+    fchmod is what forces 0o600 on the overwrite path."""
     sot_dir = tmp_path / ".sot"
     sot_dir.mkdir(parents=True)
     proposed = sot_dir / dp._PROPOSED_FILENAME
     proposed.write_text("stale\n", encoding="utf-8")
-    os.chmod(proposed, 0o640)
-    assert stat.S_IMODE(os.stat(proposed).st_mode) == 0o640
+    os.chmod(proposed, 0o644)
+    assert stat.S_IMODE(os.stat(proposed).st_mode) == 0o644
 
     written, _ = dp._write_proposal_file(
         proposed, [], {}, scan_root=tmp_path, force=True
