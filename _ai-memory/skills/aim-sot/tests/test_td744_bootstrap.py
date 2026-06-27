@@ -303,3 +303,97 @@ def test_write_proposal_file_rejects_traversal_and_symlink(tmp_path):
     link.symlink_to("registry.yaml")
     with pytest.raises(ValueError):
         dp._write_proposal_file(link, [], {}, scan_root=tmp_path, force=True)
+
+
+# (g) FIX 1 — adversarial candidate names yield a parseable draft -------------
+_HOSTILE_NAMES = ["foo: bar", "@weird", "[bracket", 'foo"bar']
+
+
+def test_format_proposal_yaml_escapes_adversarial_names():
+    """Candidate id / sot_location values straight from directory names may carry
+    YAML metacharacters; rendering via yaml.safe_dump must keep the draft
+    round-trippable through yaml.safe_load with structural values intact and
+    semantics still TODO(human)."""
+    candidates = [
+        {
+            "id": name,
+            "boundary_type": "path",
+            "sot_location": name + "/",
+            "confidence": "medium",
+            "inferred_from": "top_level_directory",
+        }
+        for name in _HOSTILE_NAMES
+    ]
+    body = dp._format_proposal_yaml(candidates, {})
+
+    data = yaml.safe_load(body)  # must not raise
+    by_loc = {e["sot_location"]: e for e in data["entries"]}
+    for name in _HOSTILE_NAMES:
+        entry = by_loc[name + "/"]
+        # Structural values intact through the escape round-trip.
+        assert entry["id"] == name
+        assert entry["boundary_type"] == "path"
+        assert entry["status"] == "proposed"
+        assert entry["added_by"] == "aim-sot bootstrap"
+        # Semantics still human-owned placeholders.
+        for field in (
+            "kind",
+            "owner",
+            "description",
+            "last_verified",
+            "provenance_note",
+        ):
+            assert entry[field].startswith("TODO(human):")
+        # confidence / inferred_from never leak into the entry body.
+        for field in ("confidence", "inferred_from"):
+            assert field not in entry
+    # confidence/inferred_from ride as comments only.
+    assert "# confidence:" in body
+
+
+def test_adversarial_candidate_dirs_produce_parseable_draft(monkeypatch, tmp_path):
+    """End-to-end: directories with adversarial names flow through discovery +
+    --write-proposal into a draft that yaml.safe_load parses cleanly (FIX 1)."""
+    _fake_memory_stack(monkeypatch, "td744-hostile")
+    # Deterministic non-git degrade for the owner-hint helper.
+    monkeypatch.setattr(dp, "_git_owner_candidates", lambda root, locs, top_n=3: {})
+    for name in _HOSTILE_NAMES:
+        (tmp_path / name).mkdir()
+
+    assert dp.cmd_run(_cold_start_args(tmp_path, write_proposal=True)) == 0
+
+    draft = (tmp_path / ".sot" / "registry.proposed.yaml").read_text(encoding="utf-8")
+    data = yaml.safe_load(draft)  # must not raise
+    by_loc = {e["sot_location"]: e for e in data["entries"]}
+    for name in _HOSTILE_NAMES:
+        entry = by_loc[name + "/"]
+        assert entry["id"] == name
+        assert entry["status"] == "proposed"
+        for field in (
+            "kind",
+            "owner",
+            "description",
+            "last_verified",
+            "provenance_note",
+        ):
+            assert entry[field].startswith("TODO(human):")
+        for field in ("confidence", "inferred_from"):
+            assert field not in entry
+
+
+# (h) FIX 5 — a symlinked .sot directory is itself rejected -------------------
+def test_write_proposal_file_rejects_symlinked_sot_dir(tmp_path):
+    """When ``.sot`` is itself a pre-existing symlink to an external dir, the
+    resolved-parent comparison would pass (both sides resolve through the link).
+    Guard 2 must reject the symlinked ``.sot`` so the draft never lands outside
+    the project (defense-in-depth)."""
+    external = tmp_path / "external"
+    external.mkdir()
+    sot_link = tmp_path / ".sot"
+    sot_link.symlink_to(external, target_is_directory=True)
+
+    target = sot_link / dp._PROPOSED_FILENAME
+    with pytest.raises(ValueError):
+        dp._write_proposal_file(target, [], {}, scan_root=tmp_path, force=True)
+    # Nothing was written through the link.
+    assert not (external / dp._PROPOSED_FILENAME).exists()
