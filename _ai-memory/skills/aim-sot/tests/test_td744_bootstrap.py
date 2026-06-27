@@ -23,6 +23,7 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 _SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
@@ -94,6 +95,12 @@ def test_write_proposal_writes_staging_file_with_todo_semantics(monkeypatch, tmp
         assert entry[field].startswith(
             "TODO(human):"
         ), f"{field} not a TODO placeholder"
+
+    # confidence + inferred_from ride as comments only — they are not registry
+    # schema fields (additionalProperties:false) and must never leak into the
+    # parsed entry body.
+    for field in ("confidence", "inferred_from"):
+        assert field not in entry, f"{field} leaked into entry body"
 
 
 # (b) -------------------------------------------------------------------------
@@ -248,3 +255,51 @@ def test_low_confidence_tier_for_nested_source_dir(monkeypatch, tmp_path):
         and c["inferred_from"] == "nested_source_directory"
         for c in low
     )
+
+
+# (f) BP-030 hardening ---------------------------------------------------------
+def test_dangling_symlink_does_not_create_committed_registry(monkeypatch, tmp_path):
+    """A pre-existing dangling ``registry.proposed.yaml -> registry.yaml`` symlink
+    must NOT be followed by cold-start --write-proposal — the committed registry
+    is never created through the link (BP-030)."""
+    _fake_memory_stack(monkeypatch, "td744-sym")
+    (tmp_path / "package.json").write_text('{"name":"x"}\n', encoding="utf-8")
+    sot_dir = tmp_path / ".sot"
+    sot_dir.mkdir(parents=True)
+    proposed = sot_dir / "registry.proposed.yaml"
+    committed = sot_dir / "registry.yaml"
+    # Planted dangling symlink (BP-030 bypass attempt).
+    proposed.symlink_to("registry.yaml")
+
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        rc = dp.cmd_run(_cold_start_args(tmp_path, write_proposal=True))
+    assert rc == 0
+    # Mirrors the repro invariant `test -f X && ! test -L X`: no regular committed
+    # registry.yaml was created by following the link.
+    assert not (
+        committed.exists() and not committed.is_symlink()
+    ), "BP-030 violated: writing through the symlink created committed registry.yaml"
+    # The planted symlink is refused, not written through.
+    assert proposed.is_symlink()
+
+
+def test_write_proposal_file_rejects_traversal_and_symlink(tmp_path):
+    """`_write_proposal_file` rejects a target resolving outside <scan_root>/.sot/
+    and a symlinked target — basename match alone is insufficient (BP-030)."""
+    sot_dir = tmp_path / ".sot"
+    sot_dir.mkdir(parents=True)
+
+    # Traversal: passes the basename check but resolves outside <scan_root>/.sot/.
+    traversal = sot_dir / ".." / dp._PROPOSED_FILENAME
+    with pytest.raises(ValueError):
+        dp._write_proposal_file(traversal, [], {}, scan_root=tmp_path, force=True)
+
+    # Symlinked target: refused even with --force (never followed).
+    link = sot_dir / dp._PROPOSED_FILENAME
+    link.symlink_to("registry.yaml")
+    with pytest.raises(ValueError):
+        dp._write_proposal_file(link, [], {}, scan_root=tmp_path, force=True)

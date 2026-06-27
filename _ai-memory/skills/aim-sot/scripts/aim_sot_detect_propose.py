@@ -947,27 +947,58 @@ def _write_proposal_file(
     candidates: list[dict],
     owner_candidates: dict[str, list[dict]],
     *,
+    scan_root: Path,
     force: bool,
 ) -> tuple[bool, str]:
     """Write the non-committed staging proposal (TD-744 Q3/Q4).
 
     Skips (returns ``written=False``) when the file already exists and ``force``
-    is False, protecting in-progress human edits (idempotency, Q3).  By
-    construction the only path ever opened for write is ``registry.proposed.yaml``
-    — the committed ``registry.yaml`` is never touched (BP-030).
+    is False, protecting in-progress human edits (idempotency, Q3).
+
+    BP-030 (defense in depth — the committed ``registry.yaml`` is never written).
+    A basename check alone is bypassable (a pre-existing ``registry.proposed.yaml``
+    symlinked to ``registry.yaml`` would be followed; a ``../registry.proposed.yaml``
+    basename also passes a name check yet writes outside ``.sot/``).  Three
+    independent guards close that:
+      1. basename guard — reject any name but ``registry.proposed.yaml``;
+      2. path confinement — the resolved parent must equal ``<scan_root>/.sot``
+         (rejects ``..`` traversal / any target escaping the SOT dir);
+      3. no-symlink-follow — refuse a pre-existing symlink at the target AND
+         open with ``O_NOFOLLOW`` so a symlink planted even at write time (TOCTOU)
+         can never be followed through to the committed registry.
     """
+    # Guard 1 — basename: never write anything but the staging draft.
     if proposed_path.name != _PROPOSED_FILENAME:
-        # Defensive: never write anything but the staging draft (BP-030).
         raise ValueError(f"refusing to write non-proposal path: {proposed_path}")
+
+    # Guard 2 — confinement: the only legal target is
+    # <scan_root>/.sot/registry.proposed.yaml.  Resolve the PARENT (the file may
+    # not exist yet) and compare against the expected .sot directory.
+    expected_dir = (scan_root / ".sot").resolve()
+    actual_dir = proposed_path.parent.resolve()
+    if actual_dir != expected_dir:
+        raise ValueError(f"refusing to write outside {expected_dir}: {proposed_path}")
+
+    # Guard 3a — refuse a pre-existing symlink at the target (never follow it).
+    if proposed_path.is_symlink():
+        raise ValueError(f"refusing to write through a symlink: {proposed_path}")
     if proposed_path.exists() and not force:
         return False, (
             f"{proposed_path} already exists — skipping to protect in-progress "
             "edits. Re-run with --force to overwrite."
         )
     proposed_path.parent.mkdir(parents=True, exist_ok=True)
-    proposed_path.write_text(
-        _format_proposal_yaml(candidates, owner_candidates), encoding="utf-8"
+    body = _format_proposal_yaml(candidates, owner_candidates)
+    # Guard 3b — O_NOFOLLOW: even if a symlink is planted between the check above
+    # and this open, the open refuses to follow it (BP-030) rather than writing
+    # through to the link target.
+    fd = os.open(
+        proposed_path,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+        0o644,
     )
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(body)
     return True, f"Wrote staging proposal: {proposed_path}"
 
 
@@ -1541,12 +1572,20 @@ def _run_cold_start_discovery(
         owner_candidates = _git_owner_candidates(
             scan_root, [c["sot_location"] for c in capped]
         )
-        proposal_written, proposal_message = _write_proposal_file(
-            proposed_path,
-            capped,
-            owner_candidates,
-            force=getattr(args, "force", False),
-        )
+        try:
+            proposal_written, proposal_message = _write_proposal_file(
+                proposed_path,
+                capped,
+                owner_candidates,
+                scan_root=scan_root,
+                force=getattr(args, "force", False),
+            )
+        except ValueError as exc:
+            # A BP-030 guard tripped (symlink / out-of-confinement target):
+            # refuse the write, surface it, leave the committed registry untouched.
+            proposal_written = False
+            proposal_message = f"aim-sot: refusing to write staging proposal: {exc}"
+            print(proposal_message, file=sys.stderr)
         proposal_path = str(proposed_path)
 
     if getattr(args, "as_json", False):
@@ -1594,6 +1633,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         # Cold-start: no registry yet → run discovery + propose (Option A,
         # DEFECT-2).  Propose-only — never writes .sot/registry.yaml.
         return _run_cold_start_discovery(registry_path, args)
+
+    # --write-proposal scaffolds only on the cold-start path; with a committed
+    # registry present it is a no-op — tell the human how to surface candidates.
+    if getattr(args, "write_proposal", False):
+        print(
+            "aim-sot: --write-proposal has no effect when a committed registry is "
+            "present; use 'detect-propose run' to surface new candidates.",
+            file=sys.stderr,
+        )
 
     # --- Derive project_id ---
     try:
