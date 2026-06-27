@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-06-25
+
+### Upgrade Instructions
+
+This release changes source-baked service code and pip dependencies. As of 2.8.1, `stack.sh restart` automatically rebuilds most source-baked services on the cached path (TD-723), so the normal update flow deploys them with no manual step:
+
+```bash
+# 1. Update source + install (refreshes ~/.ai-memory and any target project)
+cd <your ai-memory clone> && git pull
+./scripts/install.sh <project-path>
+
+# 2. Restart — auto-rebuilds source-baked services on the cached path (TD-723):
+#    embedding, classifier-worker, monitoring-api, github-sync (core) +
+#    evaluator-scheduler, trace-flush-worker (langfuse)
+~/.ai-memory/scripts/stack.sh restart
+
+# 3. If monitoring is enabled, also rebuild streamlit — it is NOT in the
+#    auto-rebuild set (tracked by TD-733), so its 2.8.1 pydantic-settings
+#    bump (F-RT-3) needs an explicit build:
+cd ~/.ai-memory/docker
+docker compose --profile monitoring build streamlit
+```
+
+`stack.sh restart`'s rebuild is non-fatal on failure: a service whose build fails falls back to its cached image and the restart continues. If a source-baked worker build warns or fails, rebuild it explicitly — e.g.:
+
+```bash
+docker compose build classifier-worker
+docker compose -f docker-compose.yml -f docker-compose.langfuse.yml --profile langfuse build trace-flush-worker
+```
+
 ### Added
 
 - **`aim-sot verify --strict` exit-on-FAIL flag for CI / pre-commit gates** — `aim_sot_verify.py run` always exits 0 by default (the verdict is on stdout), so a naive `verify run || exit 1` gate silently passed a `FAIL` registry. The new `--strict` flag exits non-zero (1) on a `FAIL` verdict while still exiting 0 on `PASS` / `CONDITIONAL`, so a warning-only registry does not break the build. `references/hook-setup.md` documents copy-paste GitHub Actions and pre-commit snippets that use `--strict`.
@@ -3290,7 +3320,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.0...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.1...HEAD
+[2.8.1]: https://github.com/Hidden-History/ai-memory/compare/v2.8.0...v2.8.1
 [2.8.0]: https://github.com/Hidden-History/ai-memory/compare/v2.7.0...v2.8.0
 [2.4.2]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...v2.4.2
 [2.4.1]: https://github.com/Hidden-History/ai-memory/compare/v2.4.0...v2.4.1
