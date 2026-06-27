@@ -18,6 +18,8 @@ Run targeted only:
 
 import importlib.util
 import json
+import os
+import stat
 import sys
 import types
 from pathlib import Path
@@ -101,6 +103,20 @@ def test_write_proposal_writes_staging_file_with_todo_semantics(monkeypatch, tmp
     # parsed entry body.
     for field in ("confidence", "inferred_from"):
         assert field not in entry, f"{field} leaked into entry body"
+
+
+def test_write_proposal_staging_file_is_owner_only(monkeypatch, tmp_path):
+    """Staging draft is created owner-only (0o600), never world/group readable
+    (CodeQL py/overly-permissive-file-permissions)."""
+    _fake_memory_stack(monkeypatch, "td744-perms")
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+
+    rc = dp.cmd_run(_cold_start_args(tmp_path, write_proposal=True))
+    assert rc == 0
+
+    proposed = tmp_path / ".sot" / "registry.proposed.yaml"
+    assert proposed.exists(), "staging proposal not written"
+    assert stat.S_IMODE(os.stat(proposed).st_mode) == 0o600
 
 
 # (b) -------------------------------------------------------------------------

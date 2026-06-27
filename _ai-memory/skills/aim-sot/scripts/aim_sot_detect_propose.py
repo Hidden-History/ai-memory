@@ -1056,7 +1056,7 @@ def _write_proposal_file(
     fd = os.open(
         proposed_path,
         os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-        0o644,
+        0o600,
     )
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(body)
