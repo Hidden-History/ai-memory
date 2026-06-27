@@ -17,7 +17,21 @@ RUN apt-get update && \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Create non-root user (security hardening 2025)
+# Bake the evaluator config into the image (default EVALUATOR_CONFIG_PATH).
+# Image-bake delivery instead of a single-file bind mount, which is fragile on
+# Docker Desktop / WSL2: the single-file source is recreated as a directory on
+# host reboot -> runc "not a directory" mount error -> Exit 127 (TD-748). The
+# build context is the repo root (compose build.context: ../), so the source is
+# the repo-root evaluator_config.yaml. EVALUATOR_CONFIG_PATH can still override.
+# The source file is mode 0644 in git (preserved by COPY), so the baked file is
+# world-readable (the "other" read bit) and is therefore readable regardless of
+# the runtime uid — compose overrides the user to uid-1000 via
+# user: ${UID:-1000}:${GID:-1000}, not the uid-1001 baked below.
+COPY evaluator_config.yaml /app/evaluator_config.yaml
+
+# Create non-root user (security hardening 2025). The chown is a general
+# hardening step; it is NOT what makes the baked config readable (the 0644
+# "other" read bit above already covers any runtime uid).
 RUN useradd -u 1001 -g users -s /usr/sbin/nologin evaluator && \
     chown -R evaluator:users /app
 
