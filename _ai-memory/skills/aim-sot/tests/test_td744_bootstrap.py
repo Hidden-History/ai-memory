@@ -111,11 +111,34 @@ def test_write_proposal_staging_file_is_owner_only(monkeypatch, tmp_path):
     _fake_memory_stack(monkeypatch, "td744-perms")
     (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
 
-    rc = dp.cmd_run(_cold_start_args(tmp_path, write_proposal=True))
+    # Pin umask so the == 0o600 assertion can't be umask-flaky.
+    old_umask = os.umask(0o022)
+    try:
+        rc = dp.cmd_run(_cold_start_args(tmp_path, write_proposal=True))
+    finally:
+        os.umask(old_umask)
     assert rc == 0
 
     proposed = tmp_path / ".sot" / "registry.proposed.yaml"
     assert proposed.exists(), "staging proposal not written"
+    assert stat.S_IMODE(os.stat(proposed).st_mode) == 0o600
+
+
+def test_write_proposal_force_overwrite_resets_stale_perms(tmp_path):
+    """A stale pre-fix 0o644 staging file overwritten with --force must come back
+    owner-only: O_TRUNC reuses the inode without resetting mode, so the fchmod is
+    what forces 0o600 on the overwrite path."""
+    sot_dir = tmp_path / ".sot"
+    sot_dir.mkdir(parents=True)
+    proposed = sot_dir / dp._PROPOSED_FILENAME
+    proposed.write_text("stale\n", encoding="utf-8")
+    os.chmod(proposed, 0o644)
+    assert stat.S_IMODE(os.stat(proposed).st_mode) == 0o644
+
+    written, _ = dp._write_proposal_file(
+        proposed, [], {}, scan_root=tmp_path, force=True
+    )
+    assert written
     assert stat.S_IMODE(os.stat(proposed).st_mode) == 0o600
 
 

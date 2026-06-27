@@ -1058,6 +1058,10 @@ def _write_proposal_file(
         os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
         0o600,
     )
+    # O_TRUNC reuses an existing inode without resetting its mode, so a stale
+    # pre-fix 0o644 file overwritten with --force would keep 0o644 — force
+    # owner-only perms on both the create and overwrite paths.
+    os.fchmod(fd, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
         fh.write(body)
     return True, f"Wrote staging proposal: {proposed_path}"
