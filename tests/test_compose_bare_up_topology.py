@@ -97,6 +97,10 @@ SINGLE_FILE_MOUNT_EXTENSIONS = (
     ".pem",
     ".crt",
     ".key",
+    ".template",
+    ".sh",
+    ".sql",
+    ".cnf",
 )
 
 
@@ -477,6 +481,13 @@ class TestComposeSourceTopology:
             "/app/evaluator_config.yaml"
         )
 
+        # (d) the regression class: no config bind-mount in volumes:
+        volumes = svc.get("volumes") or []
+        volume_strs = [str(v) for v in volumes]
+        assert not any(
+            "evaluator_config.yaml" in v for v in volume_strs
+        ), "evaluator_config.yaml must be image-baked, not bind-mounted"
+
     def test_no_td583_single_file_bind_mounts(self, source_config, langfuse_config):
         """No single-file host bind mounts may remain in either compose file.
 
@@ -550,6 +561,38 @@ class TestSingleFileBindMountDetector:
             }
         }
         assert _single_file_bind_mounts(benign) == []
+
+    def test_detects_template_single_file_mount_short_and_long_form(self):
+        """A ``.template`` single-file mount must be flagged in both forms.
+
+        The original TD-583 sites included web.yml.template and
+        prometheus.yml.template; ``.template`` must stay in the extension set so
+        those reintroduced as single-file bind mounts (short-form string OR
+        long-form dict) are caught.
+        """
+        short_form = {
+            "services": {"victim": {"volumes": ["../web.yml.template:/app/web.yml:ro"]}}
+        }
+        assert _single_file_bind_mounts(short_form) == [
+            "victim: ../web.yml.template:/app/web.yml:ro"
+        ]
+
+        long_form = {
+            "services": {
+                "victim": {
+                    "volumes": [
+                        {
+                            "type": "bind",
+                            "source": "../prometheus.yml.template",
+                            "target": "/etc/prometheus/prometheus.yml",
+                        }
+                    ]
+                }
+            }
+        }
+        offenders = _single_file_bind_mounts(long_form)
+        assert len(offenders) == 1 and offenders[0].startswith("victim: ")
+        assert "../prometheus.yml.template" in offenders[0]
 
     def test_detects_long_form_single_file_mount(self):
         """A long-form (dict) single-file bind mount must be flagged.

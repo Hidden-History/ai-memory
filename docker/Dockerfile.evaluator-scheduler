@@ -23,10 +23,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # host reboot -> runc "not a directory" mount error -> Exit 127 (TD-748). The
 # build context is the repo root (compose build.context: ../), so the source is
 # the repo-root evaluator_config.yaml. EVALUATOR_CONFIG_PATH can still override.
-# COPY applies the default 0644 mode, so the baked file is world-readable (the
-# "other" read bit) and is therefore readable regardless of the runtime uid —
-# compose overrides the user to uid-1000 via user: ${UID:-1000}:${GID:-1000},
-# not the uid-1001 baked below.
+# The source file is mode 0644 in git (preserved by COPY), so the baked file is
+# world-readable (the "other" read bit) and is therefore readable regardless of
+# the runtime uid — compose overrides the user to uid-1000 via
+# user: ${UID:-1000}:${GID:-1000}, not the uid-1001 baked below.
 COPY evaluator_config.yaml /app/evaluator_config.yaml
 
 # Create non-root user (security hardening 2025). The chown is a general
