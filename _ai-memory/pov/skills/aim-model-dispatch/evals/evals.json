@@ -5,7 +5,7 @@
       "id": 1,
       "name": "bmad-review-openrouter",
       "prompt": "dispatch a code review to openrouter for the file .claude/skills/model-dispatch/scripts/install.sh — use the cheapest model available. Report what the review finds.",
-      "expected_output": "Agent reads the skill, identifies this as a BMAD task, follows bmad-dispatch workflow (not tmux-dispatch), routes code review to the /bmad-bmm-code-review workflow (NOT dev-agent activation), determines OpenRouter backend, presents model options, and dispatches the review workflow in a tmux pane.",
+      "expected_output": "Agent reads the skill, identifies this as a BMAD task, follows bmad-dispatch workflow (not tmux-dispatch), routes code review to the /bmad-code-review workflow (NOT dev-agent activation), determines OpenRouter backend, presents model options, and dispatches the review workflow in a tmux pane.",
       "files": [],
       "assertions": [
         {
@@ -17,11 +17,11 @@
           "type": "workflow_loading"
         },
         {
-          "text": "Agent routed code review to the /bmad-bmm-code-review workflow (NOT /bmad-agent-bmm-dev activation)",
+          "text": "Agent routed code review to the /bmad-code-review workflow (NOT /bmad-agent-dev activation)",
           "type": "agent_resolution"
         },
         {
-          "text": "Agent invoked /bmad-bmm-code-review directly (no CR menu code, no dev-agent two-phase activation)",
+          "text": "Agent invoked /bmad-code-review directly (no CR menu code, no dev-agent two-phase activation)",
           "type": "review_routing"
         },
         {
@@ -50,7 +50,7 @@
           "type": "workflow_routing"
         },
         {
-          "text": "Agent resolved the correct BMAD agent: PM agent with activation command /bmad-agent-bmm-pm",
+          "text": "Agent resolved the correct BMAD agent: PM agent with activation command /bmad-agent-pm",
           "type": "agent_resolution"
         },
         {
@@ -83,7 +83,7 @@
           "type": "workflow_routing"
         },
         {
-          "text": "Agent resolved the correct BMAD agent: Analyst with activation command /bmad-agent-bmm-analyst",
+          "text": "Agent resolved the correct BMAD agent: Analyst with activation command /bmad-agent-analyst",
           "type": "agent_resolution"
         },
         {
