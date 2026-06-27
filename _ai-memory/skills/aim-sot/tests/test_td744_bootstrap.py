@@ -351,6 +351,27 @@ def test_format_proposal_yaml_escapes_adversarial_names():
     assert "# confidence:" in body
 
 
+def test_owner_candidate_with_embedded_newline_keeps_draft_parseable():
+    """An owner_candidates location (dir-derived) or git hint carrying an embedded
+    newline must not split its advisory ``#`` comment line into uncommented YAML;
+    control-char sanitization keeps the draft round-trippable via yaml.safe_load."""
+    candidates = [
+        {
+            "id": "svc",
+            "boundary_type": "path",
+            "sot_location": "svc/",
+            "confidence": "medium",
+            "inferred_from": "top_level_directory",
+        }
+    ]
+    owner_candidates = {"ev\nil": [{"name": "a\nb", "commits": 3}]}
+    body = dp._format_proposal_yaml(candidates, owner_candidates)
+
+    yaml.safe_load(body)  # must not raise (ScannerError before sanitization)
+    # Newline collapsed to a space; the hint stays on one commented line.
+    assert "#   ev il: a b (3)" in body
+
+
 def test_adversarial_candidate_dirs_produce_parseable_draft(monkeypatch, tmp_path):
     """End-to-end: directories with adversarial names flow through discovery +
     --write-proposal into a draft that yaml.safe_load parses cleanly (FIX 1)."""

@@ -907,8 +907,11 @@ def _format_proposal_yaml(
     hand-built ``key: value`` lines so that arbitrary ``id`` / ``sot_location``
     values — which originate from on-disk directory names and may legally contain
     YAML metacharacters (``foo: bar``, ``@weird``, ``[bracket``, ``foo"bar``) —
-    are correctly quoted/escaped and the draft always round-trips through
-    ``yaml.safe_load``.
+    are correctly quoted/escaped. Entry bodies are therefore rendered via
+    ``yaml.safe_dump`` and always parse; the advisory ``owner_candidates``
+    comment lines are control-char-sanitized (so an embedded newline in a
+    location or hint can never break a ``#`` line out into uncommented YAML),
+    so the full draft round-trips through ``yaml.safe_load``.
     """
     lines: list[str] = [
         "# .sot/registry.proposed.yaml — STAGING PROPOSAL (NOT the committed registry)",
@@ -933,11 +936,19 @@ def _format_proposal_yaml(
         lines.append(
             "# The human decides; these are written into NO field (BP-029/BP-030)."
         )
+
+        # Comment lines are hand-built (not yaml.safe_dump), so a control char
+        # (e.g. an embedded newline in a dir-derived loc or a git hint) would
+        # split the `#` line and leak uncommented YAML. Replace any non-printable
+        # char with a space before interpolating.
+        def _comment_safe(s: str) -> str:
+            return "".join(c if c.isprintable() else " " for c in s)
+
         for loc in sorted(owner_candidates):
             hint = ", ".join(
                 f"{c['name']} ({c['commits']})" for c in owner_candidates[loc]
             )
-            lines.append(f"#   {loc}: {hint}")
+            lines.append(f"#   {_comment_safe(loc)}: {_comment_safe(hint)}")
     lines.append("")
     lines.append('schema_version: "1.0"')
     lines.append("")
