@@ -46,8 +46,7 @@ Layer 2 — Phase Workflows (loaded per phase)
 
 Layer 3 — Dispatch Skills (loaded on-demand during agent work)
   aim-parzival-team-builder — Team design and parallelization (presets, fast path, token optimization)
-  aim-agent-dispatch        — Generic agent instruction + activation
-  aim-bmad-dispatch         — BMAD agent selection + persona activation
+  aim-agent-dispatch        — Generic + BMAD agent instruction, selection, and activation
   aim-agent-lifecycle       — Shared lifecycle: send, monitor, review, accept/loop, shutdown
 
 Layer 4 — Model & Provider Selection (loaded on-demand)
@@ -81,23 +80,25 @@ Layer 4 — Model & Provider Selection (loaded on-demand)
 
 ---
 
-### aim-bmad-dispatch
+### aim-agent-dispatch
 
-**Purpose**: Select the correct BMAD agent, determine activation method, and manage the dispatch.
+**Purpose**: Prepare instructions and activate agents — both generic (non-BMAD) workers and BMAD roles. BMAD agent selection and persona activation are handled within this skill.
 
-**When used**: Task requires a BMAD agent role (Analyst, PM, Architect, DEV, SM, UX Designer).
+**When used**: Any agent dispatch — a generic worker (code-reviewer, verify-implementation, skill-creator) or a BMAD role (Analyst, PM, Architect, DEV, SM, UX Designer).
 
 **What it does**:
-- Selects the correct agent using the Quick Selection Matrix and agent-selection-guide
-- Determines **dispatch mode**:
+- Determines dispatch type (generic vs BMAD) and routes accordingly
+- Prepares the full instruction using the **instruction template** with 8 sections: TASK, CONTEXT, REQUIREMENTS, SCOPE (IN/OUT), OUTPUT EXPECTED, DONE WHEN, STANDARDS, BLOCKERS
+- Verifies instruction quality: complete, unambiguous, scoped, cited (references project files), measurable
+- For BMAD roles, selects the correct agent using the Quick Selection Matrix and agent-selection-guide, then determines **dispatch mode**:
   - **Execution mode**: one-shot instruction (DEV implementing, DEV reviewing, SM creating stories)
   - **Planning mode**: interactive relay protocol (PM creating PRD, Architect designing, Analyst researching)
-- Spawns agent as teammate in parallel (Agent tool with team_name)
+- Spawns agent as **teammate in parallel** (Agent tool with team_name)
 - Activates BMAD persona with the correct command (e.g., `/bmad-agent-bmm-dev`)
 - For planning mode, follows the **Relay Protocol**: agent asks questions, Parzival researches answers from project files, presents recommendations with confidence levels to user, relays confirmed answers back to agent
 - For non-Claude providers, delegates terminal launch to the model-dispatch skill
 
-**Activation commands**:
+**BMAD activation commands**:
 
 | Agent | Command | Planning Mode Workflows |
 |-------|---------|------------------------|
@@ -108,25 +109,10 @@ Layer 4 — Model & Provider Selection (loaded on-demand)
 | SM | /bmad-agent-bmm-sm | /bmad-bmm-sprint-planning, /bmad-bmm-create-story |
 | UX Designer | /bmad-agent-bmm-ux-designer | /bmad-bmm-create-ux-design |
 
-**Key constraint**: DC-08 — Analyst research MUST precede PM when input is thin.
-
----
-
-### aim-agent-dispatch
-
-**Purpose**: Prepare instructions and activate generic agents (non-BMAD).
-
-**When used**: Task requires a generic agent (code-reviewer, verify-implementation, skill-creator, or any non-BMAD worker).
-
-**What it does**:
-- Prepares the full instruction using the **instruction template** with 8 sections: TASK, CONTEXT, REQUIREMENTS, SCOPE (IN/OUT), OUTPUT EXPECTED, DONE WHEN, STANDARDS, BLOCKERS
-- Verifies instruction quality: complete, unambiguous, scoped, cited (references project files), measurable
-- Spawns agent as **teammate in parallel** (Agent tool with team_name)
-- For non-Claude providers, delegates terminal launch to the model-dispatch skill
-
 **Key constraints**:
 - EC-02: MUST use instruction template for every dispatch
 - GC-11: Every requirement must cite a project file, every DONE WHEN must be objectively measurable
+- DC-08: Analyst research MUST precede PM when input is thin
 
 ---
 
@@ -156,7 +142,7 @@ Layer 4 — Model & Provider Selection (loaded on-demand)
 
 **Purpose**: Select the appropriate model tier for each agent based on task complexity and role.
 
-**When used**: Called by aim-agent-dispatch and aim-bmad-dispatch before agent activation.
+**When used**: Called by aim-agent-dispatch before agent activation.
 
 **What it does**:
 - Assesses task complexity (Straightforward / Moderate / Significant / Complex)
@@ -244,7 +230,7 @@ Additional providers can be added: deepseek, groq, cerebras, mistral, openai, ve
 
 ### New Skills (4)
 - `aim-agent-dispatch` — Generic agent instruction prep + activation (Layer 3a)
-- `aim-bmad-dispatch` — BMAD agent selection + activation commands (Layer 3b)
+- BMAD dispatch — BMAD agent selection + activation commands (Layer 3b); later unified into `aim-agent-dispatch`
 - `aim-agent-lifecycle` — Shared lifecycle: send, monitor, review, accept/loop, shutdown, summary (Layer 3 shared)
 - `aim-model-dispatch` — Model selection criteria by complexity and role (Layer 4)
 
@@ -254,7 +240,7 @@ Additional providers can be added: deepseek, groq, cerebras, mistral, openai, ve
 - `aim-parzival-team-builder` — significantly enhanced (+ presets, fast path, token optimization), name kept
 
 ### Added in 2.1.1
-- Planning mode + Relay Protocol in aim-bmad-dispatch
+- Planning mode + Relay Protocol in the BMAD dispatch path (now part of aim-agent-dispatch)
 - Workflow commands table (maps phases to BMAD slash commands)
 - 5 team presets in aim-parzival-team-builder (sprint-dev, story-prep, test-automation, architecture-review, research)
 - Compact output formats (fast path, assignment lists, no prompt duplication)
@@ -267,7 +253,7 @@ Additional providers can be added: deepseek, groq, cerebras, mistral, openai, ve
 - `agent-correction.md` -> `aim-agent-lifecycle/templates/`
 - `team-prompt-2tier.template.md` -> `aim-parzival-team-builder/templates/`
 - `team-prompt-3tier.template.md` -> `aim-parzival-team-builder/templates/`
-- `agent-selection-guide.md` -> `aim-bmad-dispatch/data/`
+- `agent-selection-guide.md` -> `aim-agent-dispatch/data/`
 
 ### Deleted
 - `session/team-prompt/` workflow (7 files) — superseded by aim-parzival-team-builder skill
@@ -315,7 +301,6 @@ ls _ai-memory/pov/workflows/session/team-prompt/ 2>/dev/null
 
 # New skills should exist
 ls .claude/skills/aim-agent-dispatch/SKILL.md
-ls .claude/skills/aim-bmad-dispatch/SKILL.md
 ls .claude/skills/aim-agent-lifecycle/SKILL.md
 ls .claude/skills/aim-model-dispatch/SKILL.md
 ls .claude/skills/aim-parzival-team-builder/SKILL.md

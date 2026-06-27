@@ -18,6 +18,19 @@
       "items": {
         "$ref": "#/definitions/entry"
       }
+    },
+    "exclude": {
+      "type": "array",
+      "description": "Optional gitignore-style glob patterns committed alongside the registry (BP-039). Extends the engine's default exclude set so the identical file set is digested on every machine when computing directory tree-digests. Patterns are matched on the POSIX relative path.",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "docowners": {
+      "type": "string",
+      "description": "Optional path (relative to the project root) to the DOCOWNERS doc↔code mapping file (BP-042 Pattern A). Defaults to '.sot/DOCOWNERS'. A pointer only; the file is consumed solely by the aim-sot engine for doc-drift correlation.",
+      "minLength": 1
     }
   },
   "definitions": {
@@ -151,6 +164,17 @@
           "type": "string",
           "description": "Optional shell command or script path to verify this boundary is still accurate. Human-configured; the engine runs it but does not auto-generate or overwrite it.",
           "minLength": 1
+        },
+        "drift_strategy": {
+          "type": "string",
+          "description": "Optional override for how this boundary's drift digest is computed. Enum-selected built-in (NEVER a shell string): 'content-digest' (sha256 of a file), 'tree-digest' (BP-039 sorted-per-file-sha256 of a directory), 'git-tree-hash' (git's native tree hash, opt-in accelerator), 'git-ahead-behind' (ref boundaries), 'temporal' (date-only fallback). Defaults by boundary shape when absent (file -> content-digest, directory -> tree-digest). A change to this value re-baselines the entry; it never executes a shell command (verify S4 rejects any non-enum value).",
+          "enum": [
+            "content-digest",
+            "tree-digest",
+            "git-tree-hash",
+            "git-ahead-behind",
+            "temporal"
+          ]
         }
       }
     }

@@ -61,6 +61,11 @@ Compile each field from the loaded context:
 - Tech-Debt: N open / M closed
 - If an INDEX was missing, note that here instead of counts
 
+**SOT Drift** (aim-sot ambient surface — the `[ST]` channel; only when `<project-root>/.sot/registry.yaml` exists):
+- Read-only digest: `bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_consult.py" digest --json --registry <project-root>/.sot/registry.yaml`
+- Surface the one-line rollup from the output: `drift: <clean> clean, <stale> stale, <unverified> unverified, <changed> changed, <docs_stale> docs-stale` (the `changed` / `docs-stale` counts come from `drift_rollup`)
+- If no `.sot/registry.yaml` exists, surface the one-line G3 bootstrap nudge instead ("no SOT registry — run `aim-sot detect-propose` to start tracking") — do not fabricate counts
+
 **Continuation Point**:
 - Where work should resume based on handoff "Next Steps" or current task status
 

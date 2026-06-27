@@ -561,3 +561,68 @@ class TestWriteRegeneration:
         second_text = (bugs_dir / "INDEX.md").read_text(encoding="utf-8")
 
         assert first_text == second_text
+
+    def test_write_bare_id_records_produce_non_blank_title_cells(
+        self, tmp_path: Path
+    ) -> None:
+        """Bare-ID records (BUG-001.md, TECH-DEBT-042.md) render non-blank Title cells.
+
+        Regression test for the blank-title bug (BUG-B6): when extract_title()
+        previously returned "" for slug-less files the INDEX Title cell was empty.
+        After the fix the stem (e.g. 'BUG-001') is used as fallback.
+
+        Both records are OPEN so they appear in the Open section which uses a
+        5-column format:  | ID | Sev | Title | Status | Link |
+        Title is cells[3].  The Closed section uses 4 columns (Title = cells[2]);
+        this test deliberately uses only OPEN records to stay in the 5-column format.
+        """
+        oversight, bugs_dir, td_dir = _make_oversight(tmp_path)
+        # Bare-ID bug with a generic heading — no usable title in content
+        (bugs_dir / "BUG-001.md").write_text(
+            "# Bug Report\n\n**Status**: OPEN\n**Severity**: HIGH\n",
+            encoding="utf-8",
+        )
+        # Bare-ID TD with no heading at all
+        (td_dir / "TECH-DEBT-042.md").write_text(
+            "**Status**: OPEN\n",
+            encoding="utf-8",
+        )
+
+        result = _run(oversight, "--write")
+        assert result.returncode == 0, (
+            f"--write should succeed.\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+        bugs_index = (bugs_dir / "INDEX.md").read_text(encoding="utf-8")
+        assert "| BUG-001 |" in bugs_index, "BUG-001 row must appear in bugs INDEX"
+        for line in bugs_index.splitlines():
+            if "| BUG-001 |" in line:
+                cells = [c.strip() for c in line.split("|")]
+                # Open section: | ID | Sev | Title | Status | Link |
+                # cells: ['', ID, Sev, Title, Status, Link, ''] → Title at index 3
+                assert len(cells) >= 6, (
+                    f"Expected 5-column Open-section row, got {len(cells)-2} cols. "
+                    f"Row: {line!r}"
+                )
+                title_cell = cells[3]
+                assert title_cell == "BUG-001", (
+                    f"BUG-001 Title cell must equal 'BUG-001'. Got: {title_cell!r}. "
+                    f"Row: {line!r}"
+                )
+
+        td_index = (td_dir / "INDEX.md").read_text(encoding="utf-8")
+        assert "| TECH-DEBT-042 |" in td_index, "TECH-DEBT-042 row must appear in TD INDEX"
+        for line in td_index.splitlines():
+            if "| TECH-DEBT-042 |" in line:
+                cells = [c.strip() for c in line.split("|")]
+                # Open section: | ID | Sev | Title | Status | Link |
+                # cells: ['', ID, Sev, Title, Status, Link, ''] → Title at index 3
+                assert len(cells) >= 6, (
+                    f"Expected 5-column Open-section row, got {len(cells)-2} cols. "
+                    f"Row: {line!r}"
+                )
+                title_cell = cells[3]
+                assert title_cell == "TECH-DEBT-042", (
+                    f"TECH-DEBT-042 Title cell must equal 'TECH-DEBT-042'. "
+                    f"Got: {title_cell!r}. Row: {line!r}"
+                )

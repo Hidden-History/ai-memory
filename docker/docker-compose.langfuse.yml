@@ -371,6 +371,7 @@ services:
       - ../evaluator_config.yaml:/app/evaluator_config.yaml:ro
       - ${AI_MEMORY_INSTALL_DIR:-.}/.audit:/app/.audit
     environment:
+      - LANGFUSE_ENABLED=true
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:?Run langfuse_setup.sh first to generate API keys}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:?Run langfuse_setup.sh first to generate API keys}
       # Use internal service name for container-to-container communication
@@ -388,11 +389,18 @@ services:
       # NOTE: EVALUATOR_PROVIDER and EVALUATOR_MODEL are NOT set here —
       # they are read from evaluator_config.yaml (evaluator_model section)
       - PYTHONPATH=/app/src
+      # Set install dir — MemoryConfig rejects HOME=/ (uid 1000 run); /app is writable (TD-712)
+      - AI_MEMORY_INSTALL_DIR=/app
       - AI_MEMORY_LOG_LEVEL=${AI_MEMORY_LOG_LEVEL:-INFO}
     depends_on:
       langfuse-web:
         condition: service_healthy
     restart: unless-stopped
+    # Run as host user so the bind-mounted .audit dir (host-owned, default
+    # 1000:1000) is writable. The image bakes a uid 1001 user, which cannot
+    # write the host-owned .audit/logs mount (TD-712). Matches the github-sync
+    # pattern for services that write to host-mounted .audit directories.
+    user: "${UID:-1000}:${GID:-1000}"
     read_only: true
     tmpfs:
       - /tmp

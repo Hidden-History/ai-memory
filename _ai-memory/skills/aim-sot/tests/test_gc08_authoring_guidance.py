@@ -1,15 +1,16 @@
-"""GC-08: Structural contract test — aim-sot authoring guidance.
+"""GC-08: Structural contract test - aim-sot authoring guidance.
 
 Asserts the structural integrity of the C/D authoring layer:
-- SKILL.md contains ## Authoring with the 4 named rubric booleans (D1–D4) inline (BP-034 T2).
+- SKILL.md contains ## Authoring with the 4 named rubric booleans (D1-D4) inline (BP-034 T2).
 - references/authoring-guide.md covers all 7 project types and documents the emit gate.
 - references/grading-exemplars.md covers all 3 verdict bands (PASS, WEAK, FAIL).
 
-Behavioral grading against the golden set is Parzival's verify step — not in scope here.
+Behavioral grading against the golden set is Parzival's verify step - not in scope here.
 
-Run targeted only (BUG-008 — do not run the full suite):
+Run targeted only (BUG-008 - do not run the full suite):
     pytest tests/test_gc08_authoring_guidance.py
 """
+
 import re
 from pathlib import Path
 
@@ -35,8 +36,12 @@ def test_skill_md_rubric_exposes_four_named_booleans():
 def test_skill_md_references_both_guide_files():
     """SKILL.md ## Authoring must link to both references/ files by name."""
     text = SKILL_MD.read_text()
-    assert "authoring-guide" in text, "SKILL.md missing link to references/authoring-guide.md"
-    assert "grading-exemplars" in text, "SKILL.md missing link to references/grading-exemplars.md"
+    assert (
+        "authoring-guide" in text
+    ), "SKILL.md missing link to references/authoring-guide.md"
+    assert (
+        "grading-exemplars" in text
+    ), "SKILL.md missing link to references/grading-exemplars.md"
 
 
 def test_guide_checklist_covers_seven_types():
@@ -79,17 +84,32 @@ def test_exemplars_cover_all_verdict_bands():
 def test_guide_emit_template_names_all_required_fields():
     """authoring-guide.md emit template must name all 6 required schema fields."""
     text = GUIDE.read_text()
-    required_fields = ["id", "kind", "boundary_type", "sot_location", "owner", "description"]
+    required_fields = [
+        "id",
+        "kind",
+        "boundary_type",
+        "sot_location",
+        "owner",
+        "description",
+    ]
     for field in required_fields:
-        assert field in text, f"authoring-guide.md emit template missing required field: '{field}'"
+        assert (
+            field in text
+        ), f"authoring-guide.md emit template missing required field: '{field}'"
 
 
 def test_guide_documents_both_enum_sets():
     """authoring-guide.md must document all kind and boundary_type enum values."""
     text = GUIDE.read_text()
     kind_values = [
-        "service", "library", "application", "api",
-        "data", "infrastructure", "decision", "documentation",
+        "service",
+        "library",
+        "application",
+        "api",
+        "data",
+        "infrastructure",
+        "decision",
+        "documentation",
     ]
     for v in kind_values:
         assert v in text, f"authoring-guide.md missing kind enum value: '{v}'"
@@ -107,8 +127,14 @@ def test_guide_zero_invalid_kind_tokens():
     This ensures 'links / concern' and 'cli / component' FAIL even if bare 'links' passes.
     """
     VALID_KINDS = {
-        "service", "library", "application", "api",
-        "data", "infrastructure", "decision", "documentation",
+        "service",
+        "library",
+        "application",
+        "api",
+        "data",
+        "infrastructure",
+        "decision",
+        "documentation",
     }
 
     text = GUIDE.read_text()

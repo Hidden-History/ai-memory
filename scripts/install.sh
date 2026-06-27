@@ -109,7 +109,7 @@ EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
 MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
 STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
 CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
-INSTALLER_VERSION="2.8.0"
+INSTALLER_VERSION="2.8.1"
 
 # Logging functions
 log_info() {
@@ -1583,7 +1583,8 @@ sync_installed_files() {
     # .claude/skills/ — Claude Code skills (optional)
     if [[ -d "$src_dir/.claude/skills" ]]; then
         log_debug "Copying Claude Code skills..."
-        cp -r "$src_dir/.claude/skills/"* "$dst_dir/.claude/skills/" 2>/dev/null || true
+        mkdir -p "$dst_dir/.claude/skills"
+        cp -r "$src_dir/.claude/skills/"* "$dst_dir/.claude/skills/" || log_warning "Failed to copy some Claude Code skills"
     fi
 
     # .claude/agents/ — Claude Code agents (optional)
@@ -4971,6 +4972,7 @@ write_ai_memory_skill_shim() {
 # Stale cleanup scoped to ai-memory prefixes only (R2-NF4: never delete user custom skills)
 deploy_ai_memory_skills() {
     local src="$INSTALL_DIR/.claude/skills"
+    local canonical_src="$INSTALL_DIR/_ai-memory/skills"
     if [[ ! -d "$src" ]]; then
         log_debug "No skills found in INSTALL_DIR — skipping"
         return 0
@@ -5019,15 +5021,32 @@ deploy_ai_memory_skills() {
     done
 
     # Deploy current skills
+    # Drift fix (RISK-023): non-POV aim-* skills carry a pre-committed full copy under
+    # .claude/skills/ that drifts from canonical _ai-memory/skills/. When a canonical copy
+    # exists, deploy from it (single source of truth), overwriting the stale full copy.
+    # Skills with no canonical entry (POV/Parzival full copies, pre-shim) fall back to the
+    # .claude/skills/ copy. The durable thin-shim end-state is tracked as TECH-DEBT-617.
     local skills_count=0
     for skill_dir in "$src"/*/; do
         if [[ -d "$skill_dir" ]]; then
             local skill_name
             skill_name=$(basename "$skill_dir")
             local target="$PROJECT_PATH/.claude/skills/$skill_name"
+            local copy_src="$skill_dir"
+            if [[ -d "$canonical_src/$skill_name" ]]; then
+                copy_src="$canonical_src/$skill_name/"
+                # Overwrite-not-skip: prune the stale full copy before redeploying from
+                # canonical. Guard the rm -rf — never delete an unvalidated path.
+                if [[ -n "$target" && "$target" == *"/.claude/skills/"* ]]; then
+                    rm -rf "$target"
+                else
+                    log_error "Refusing to rm -rf unexpected skill target: $target"
+                    exit 1
+                fi
+            fi
             mkdir -p "$target"
-            if compgen -G "$skill_dir"* > /dev/null 2>&1; then
-                cp -r "$skill_dir"* "$target/" 2>/dev/null || true
+            if compgen -G "$copy_src"* > /dev/null 2>&1; then
+                cp -r "$copy_src"* "$target/"
             fi
             skills_count=$((skills_count + 1))
         fi

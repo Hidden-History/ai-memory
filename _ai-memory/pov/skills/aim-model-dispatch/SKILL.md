@@ -24,7 +24,7 @@ allowed-tools: Read
 | Agent Role | Default | Override When |
 |------------|---------|---------------|
 | DEV (implementation) | Sonnet | Opus if architectural changes or complex refactoring |
-| DEV (code review) | Sonnet | Opus if reviewing architectural decisions |
+| Code review | Sonnet | Opus if reviewing architectural decisions |
 | Analyst | Sonnet | Opus if deep architectural analysis |
 | PM | Sonnet | Opus if complex domain modeling |
 | Architect | Opus | Already at highest tier |

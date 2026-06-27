@@ -49,6 +49,13 @@ def _render_digest(data: dict) -> str:
     stale = drift.get("stale", 0)
     unverified = drift.get("unverified", 0)
     drift_line = f"drift: {clean} clean, {stale} stale, {unverified} unverified"
+    # Live rollup from the [CL] detect pass (BP-040/042): N changed / M docs-stale.
+    rollup = data.get("drift_rollup")
+    if isinstance(rollup, dict):
+        drift_line += (
+            f", {rollup.get('changed', 0)} changed, "
+            f"{rollup.get('docs_stale', 0)} docs-stale"
+        )
     return "[ai-memory] SOT digest:\n" + "\n".join(lines) + "\n" + drift_line
 
 
@@ -95,10 +102,23 @@ def main():
             print(json.dumps(EMPTY_OUTPUT))
             sys.exit(0)
 
-        # Only run against SOT-enabled projects — no registry means not opted in.
+        # No registry → not yet opted in. Surface a one-line [ST] bootstrap
+        # nudge (G3) instead of staying silent, so the project can be onboarded.
         registry_path = Path(cwd) / ".sot" / "registry.yaml"
         if not registry_path.exists():
-            print(json.dumps(EMPTY_OUTPUT))
+            print(
+                json.dumps(
+                    {
+                        "hookSpecificOutput": {
+                            "systemMessage": (
+                                "[ai-memory] SOT: no .sot/registry.yaml in this "
+                                "project — run `aim-sot detect-propose` to bootstrap "
+                                "source-of-truth tracking."
+                            )
+                        }
+                    }
+                )
+            )
             sys.exit(0)
 
         # Locate run-with-env.sh wrapper and engine script via module-level INSTALL_DIR.

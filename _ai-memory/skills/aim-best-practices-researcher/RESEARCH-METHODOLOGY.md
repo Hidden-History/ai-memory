@@ -50,9 +50,13 @@ results = search_memories(
 ### Search Queries
 
 ```
-WebSearch: "[topic] best practices 2026"
-WebSearch: "[topic] official documentation 2026"
+WebSearch: "[topic] best practices <current year>"
+WebSearch: "[topic] official documentation <current year>"
 ```
+
+(Substitute the actual current year for `<current year>` in these queries.)
+
+Prioritize results published within the last ~6 months relative to today.
 
 ### Source Prioritization
 
@@ -84,7 +88,7 @@ WebSearch: "[topic] official documentation 2026"
 ## Phase 4: Store to Database
 
 ```bash
-scripts/memory/run-with-env.sh store_best_practice.py \
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" store_best_practice.py \
     --content "Concise best practice description" \
     --session-id "current-session-id" \
     --domain "topic-domain" \

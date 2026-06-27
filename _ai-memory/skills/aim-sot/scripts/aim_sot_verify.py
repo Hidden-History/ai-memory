@@ -18,12 +18,20 @@ Flags (run):
     --exec-drift-checks     Activate K3 drift_check execution (default: parse +
                             PATH-exists only; never run in trigger/propose paths)
     --json                  Machine-readable JSON output
+    --strict                Exit non-zero (1) when the verdict is FAIL — for
+                            CI/pre-commit gates. CONDITIONAL/PASS exit 0 even
+                            with --strict.
 
-Exit codes: 0 = all paths including FAIL verdicts (FAIL and CONDITIONAL exit 0
-                with the structured verdict on stdout; S3 YAML-parse failure
-                also exits 0 with a structured S3-FAIL verdict);
+Exit codes (default): 0 = all paths including FAIL verdicts (FAIL and
+                CONDITIONAL exit 0 with the structured verdict on stdout; S3
+                YAML-parse failure also exits 0 with a structured S3-FAIL
+                verdict);
             1 = fatal system error (schema file unreadable, proposal file
                 unreadable, etc.).
+With --strict: exits 1 on a FAIL verdict (including an S3 YAML-parse FAIL)
+            OR when no verdict can be produced (missing / unloadable registry);
+            PASS and CONDITIONAL still exit 0. Prefer this over parsing the
+            default exit status — `verify run || exit 1` does NOT catch a FAIL.
 
 Check taxonomy (BP-024):
     S1-S4  Schema & Structural Validity
@@ -1011,6 +1019,7 @@ def _resolve_project_id(registry_path: Path) -> str | None:
 
 
 def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
+    strict = getattr(args, "strict", False)
     sc = _load_schema_constraints()
 
     # --- Resolve registry ---
@@ -1018,7 +1027,7 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
     if registry_path is None or not registry_path.exists():
         loc = f" at {registry_path}" if registry_path else ""
         print(f"No registry found{loc}. Run aim-sot detect-propose to create one.")
-        return 0
+        return 1 if strict else 0  # --strict is fail-closed: no verdict = exit 1
 
     # --- S3: YAML parse (before any other check) ---
     try:
@@ -1027,12 +1036,12 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
             s3_fail = _fail("S3", "<registry>", "Registry YAML could not be parsed")
             v = _build_verdict([s3_fail], [], ["S3"])
             _emit_result(v, getattr(args, "as_json", False))
-            return 0
+            return _verdict_exit_code(v, strict)
     except Exception as exc:
         s3_fail = _fail("S3", "<registry>", f"Registry YAML could not be parsed: {exc}")
         v = _build_verdict([s3_fail], [], ["S3"])
         _emit_result(v, getattr(args, "as_json", False))
-        return 0
+        return _verdict_exit_code(v, strict)
 
     # --- Proposal mode: use proposed entries instead of committed registry ---
     proposal_path = getattr(args, "proposal", None)
@@ -1096,7 +1105,7 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
     # --- S3 was checked above and passed; include it in the full verdict ---
     v = _build_verdict(failures, warnings, _CHECKS_ALL)
     _emit_result(v, getattr(args, "as_json", False))
-    return 0
+    return _verdict_exit_code(v, strict)
 
 
 def _emit_result(v: dict, as_json: bool) -> None:
@@ -1104,6 +1113,16 @@ def _emit_result(v: dict, as_json: bool) -> None:
         print(json.dumps(v, indent=2))
     else:
         print(_format_human(v))
+
+
+def _verdict_exit_code(v: dict, strict: bool) -> int:
+    """Exit code for a verdict (OBS-SOT-1).
+
+    Default (strict=False): always 0 — the verdict is on stdout, exit status is
+    not an outcome signal.  With --strict: 1 when verdict==FAIL, else 0 (a
+    CONDITIONAL still exits 0 so a warning-only registry does not break a gate).
+    """
+    return 1 if (strict and v.get("verdict") == "FAIL") else 0
 
 
 # ---------------------------------------------------------------------------
@@ -1156,6 +1175,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="as_json",
         help="Machine-readable JSON output",
+    )
+    run_p.add_argument(
+        "--strict",
+        action="store_true",
+        dest="strict",
+        help="Exit non-zero (1) on a FAIL verdict or when no verdict can be "
+        "produced (missing/unloadable registry) — for CI/pre-commit gates "
+        "(default: always exit 0; CONDITIONAL/PASS exit 0 even with --strict)",
     )
 
     return parser

@@ -251,15 +251,27 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
             _log_to_activity("⏭️  PostWork skipped: Duplicate")
 
         # Metrics: Increment capture counter on success
+        # aimemory_captures_total requires labels: hook_type, status, project,
+        # collection. Omitting collection raised "Incorrect label names" on the
+        # post-store push, which surfaced as a spurious validation_failed ERROR
+        # after an otherwise-successful store (TD-715).
         if memory_captures_total:
             status = "success" if result["status"] == "stored" else "duplicate"
             memory_captures_total.labels(
-                hook_type=source_hook, status=status, project=group_id or "unknown"
+                hook_type=source_hook,
+                status=status,
+                project=group_id or "unknown",
+                collection=collection,
             ).inc()
 
         # Metrics: Increment deduplication counter if duplicate
+        # aimemory_dedup_events_total requires labels: action, collection, project.
         if result["status"] == "duplicate" and deduplication_events_total:
-            deduplication_events_total.labels(project=group_id or "unknown").inc()
+            deduplication_events_total.labels(
+                action="skipped_duplicate",
+                collection=collection,
+                project=group_id or "unknown",
+            ).inc()
 
     except QdrantUnavailable as e:
         # Qdrant service unavailable
@@ -274,6 +286,7 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
                 hook_type=metadata.get("source_hook", "workflow_post_work"),
                 status="failed",
                 project=metadata.get("group_id", "unknown"),
+                collection="unknown",
             ).inc()
 
     except ValueError as e:
@@ -307,6 +320,7 @@ async def store_memory_async(payload: dict[str, Any]) -> None:
                 hook_type=metadata.get("source_hook", "workflow_post_work"),
                 status="failed",
                 project=metadata.get("group_id", "unknown"),
+                collection="unknown",
             ).inc()
 
         # Queue on unexpected error

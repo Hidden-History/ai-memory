@@ -27,11 +27,13 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NamedTuple
@@ -39,13 +41,62 @@ from typing import NamedTuple
 import yaml
 
 # ---------------------------------------------------------------------------
+# Sibling import — the shadow-git / tree-digest / doc-drift / findings
+# substrate (TD-675).  Loaded by path so the engine works whether invoked as a
+# standalone script (hooks) or imported in tests.  Degrades gracefully: if the
+# module is absent, the directory-tree / shadow / doc-drift paths are skipped
+# and file-SOT drift detection (the pre-TD-675 behavior) is unchanged.
+# ---------------------------------------------------------------------------
+try:
+    _SHADOW_SCRIPT = Path(__file__).resolve().parent / "aim_sot_shadow.py"
+    _shadow_spec = importlib.util.spec_from_file_location(
+        "aim_sot_shadow", _SHADOW_SCRIPT
+    )
+    shadow = importlib.util.module_from_spec(_shadow_spec)
+    _shadow_spec.loader.exec_module(shadow)
+except Exception:
+    shadow = None
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 _DEFAULT_CANDIDATE_LIMIT = 20
 
-# Upper bound on directories visited during auto-discovery (throttle, F-A2-5).
-_MAX_DISCOVERY_DIRS = 5000
+
+def _env_float(name: str, default: float) -> float:
+    """Read a positive float from the environment, else ``default`` (F-SOT-3)."""
+    raw = os.environ.get(name, "")
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val > 0 else default
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive int from the environment, else ``default`` (F-SOT-3)."""
+    raw = os.environ.get(name, "")
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return val if val > 0 else default
+
+
+# Upper bound on directories visited during auto-discovery (throttle, F-A2-5),
+# complemented by a wall-time budget (F-SOT-3) — on a slow filesystem the
+# per-directory IO dominates, so a dir-count cap alone still lets the scan blow
+# the [CL] hook's ~20s subprocess cap.  Both are env-overridable.
+_MAX_DISCOVERY_DIRS = _env_int("AI_MEMORY_SOT_DISCOVERY_MAX_DIRS", 5000)
+_DISCOVERY_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS", 6.0)
+# Wall-time cap for the per-entry reindex loop (F-RT5-GAP-1 / F-SOT-2); mirrors
+# _DISCOVERY_MAX_SECONDS.  0 → treated as default per _env_float convention.
+_SOT_REINDEX_MAX_SECONDS = _env_float("AI_MEMORY_SOT_REINDEX_MAX_SECONDS", 30.0)
+# Stale-lock threshold: always >= 2x the reindex cap so a live holder (which
+# releases within _SOT_REINDEX_MAX_SECONDS) can never own a lock older than this
+# window.  The 300s floor preserves safe behaviour for the default cap (30s).
+_LOCK_STALE_SECONDS = max(300.0, 2 * _SOT_REINDEX_MAX_SECONDS)
 
 _DRIFT_CACHE_DIR = (
     Path(os.environ.get("AI_MEMORY_INSTALL_DIR", os.path.expanduser("~/.ai-memory")))
@@ -164,12 +215,12 @@ def _project_root_from_registry(registry_path: Path) -> Path | None:
 
 
 def _sha256_short(path: Path) -> str | None:
-    """sha256(file_bytes)[:8].  Returns None on read error."""
-    # TODO(aim-sot): content-hash drift (Type 2b/3/K1) covers FILE sot_locations only;
-    # directory sot_locations get location + temporal drift but no content-hash drift
-    # (sha256(file) no-ops on a dir). Future enhancement: a directory-tree digest
-    # (sorted per-file sha256) to extend hash/K1 coverage to directory components.
-    # Deferred per owner (Session 88); file-only is spec-§5-literal for now.
+    """sha256(file_bytes)[:8].  Returns None on read error or a directory.
+
+    This is the ``content-digest`` strategy for FILE sot_locations.  Directory
+    sot_locations are covered by the ``tree-digest`` strategy (BP-039) dispatched
+    via ``_compute_entry_digest`` → the shadow module; see ``select_strategy``.
+    """
     h = hashlib.sha256()
     try:
         with open(path, "rb") as fh:
@@ -178,6 +229,65 @@ def _sha256_short(path: Path) -> str | None:
     except OSError:
         return None
     return h.hexdigest()[:8]
+
+
+def _compute_entry_digest(
+    strategy: str, full_path: Path | None, excludes=None
+) -> str | None:
+    """Drift digest for an entry, dispatched by enum strategy (no shell exec).
+
+    - ``content-digest`` → ``sha256(file)[:8]`` (file SOT; behavior-preserving).
+    - ``tree-digest`` / ``git-tree-hash`` → BP-039 ``vN:`` tree digest (dir SOT).
+    - ``temporal`` / ``git-ahead-behind`` → None (those boundaries rely on the
+      temporal / ref checks, not a content digest).
+
+    ``excludes`` (the registry's committed exclude config) is applied to the
+    directory tree digest.  Returns None when the path is absent or the shadow
+    module is unavailable for a tree strategy (graceful degrade to the file-only
+    pre-TD-675 behavior).
+    """
+    if full_path is None or not full_path.exists():
+        return None
+    if strategy == "content-digest":
+        return _sha256_short(full_path)
+    if strategy in ("tree-digest", "git-tree-hash"):
+        if shadow is None:
+            return None
+        try:
+            if excludes is None:
+                return shadow.tree_digest(full_path).digest
+            return shadow.tree_digest(full_path, excludes).digest
+        except Exception:
+            return None
+    return None  # temporal / git-ahead-behind: no content digest
+
+
+def _load_registry_config(registry_path: Path) -> tuple[tuple[str, ...], str]:
+    """Read the registry's committed drift config (BP-039 exclude set + BP-042
+    DOCOWNERS pointer).  Returns ``(effective_excludes, docowners_rel)``.
+
+    ``effective_excludes`` = the shadow module's defaults extended by the
+    registry's optional top-level ``exclude:`` list; ``docowners_rel`` is the
+    optional ``docowners:`` pointer (default ``.sot/DOCOWNERS``).  Degrades to
+    sane defaults on any parse error (the drift loop already reported a bad
+    registry as a fatal error upstream).
+    """
+    default_excludes = shadow.DEFAULT_EXCLUDES if shadow is not None else ()
+    docowners_rel = ".sot/DOCOWNERS"
+    try:
+        raw = yaml.safe_load(registry_path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, OSError):
+        return tuple(default_excludes), docowners_rel
+    if not isinstance(raw, dict):
+        return tuple(default_excludes), docowners_rel
+    extra = raw.get("exclude", [])
+    excludes = tuple(default_excludes) + tuple(
+        e for e in extra if isinstance(e, str) and e
+    )
+    docs = raw.get("docowners")
+    if isinstance(docs, str) and docs:
+        docowners_rel = docs
+    return excludes, docowners_rel
 
 
 def _stat_mtime_size(path: Path) -> tuple[float | None, int | None]:
@@ -373,6 +483,8 @@ def _compute_component_record(
     loc: str,
     now_iso: str,
     human_reconfirmed: bool,
+    strategy: str = "content-digest",
+    digest_version: str = "",
 ) -> dict:
     """Build the next 5a component record per DD-B baseline rules.
 
@@ -405,11 +517,13 @@ def _compute_component_record(
             "last_verified_size": size,
             "drift_status": "missing" if loc_missing else "unverified",
             "drift_detail": detail,
+            "drift_strategy": strategy,
+            "digest_version": digest_version,
         }
 
     def _hold(status: str) -> dict:
-        # Keep the prior baseline (sha + at + mtime/size) so the proposal
-        # re-fires until resolved — do NOT advance to drifted content.
+        # Keep the prior baseline (sha + at + mtime/size + strategy) so the
+        # proposal re-fires until resolved — do NOT advance to drifted content.
         return {
             "sot_location": loc,
             "last_verified_at": prior.get("last_verified_at", now_iso),
@@ -418,6 +532,8 @@ def _compute_component_record(
             "last_verified_size": prior.get("last_verified_size"),
             "drift_status": status,
             "drift_detail": detail,
+            "drift_strategy": prior.get("drift_strategy", strategy),
+            "digest_version": prior.get("digest_version", digest_version),
         }
 
     def _advance() -> dict:
@@ -429,6 +545,8 @@ def _compute_component_record(
             "last_verified_size": size,
             "drift_status": "clean",
             "drift_detail": None,
+            "drift_strategy": strategy,
+            "digest_version": digest_version,
         }
 
     if loc_missing:
@@ -447,33 +565,75 @@ def _compute_component_record(
 # ---------------------------------------------------------------------------
 
 
-def _pruned_walk(root: Path, *, max_dirs: int = _MAX_DISCOVERY_DIRS):
+class _ScanBudget:
+    """Shared dir-count + wall-time budget for one auto-discovery scan (F-SOT-3).
+
+    A single instance is threaded through every ``_pruned_walk`` of a scan so
+    the wall-time clock spans the whole discovery (manifests + ADR dirs), not
+    each walk in isolation.  ``truncated`` / ``reason`` are set when a budget is
+    hit so the caller can surface a signal instead of silently under-reporting.
+    """
+
+    def __init__(
+        self,
+        max_dirs: int = _MAX_DISCOVERY_DIRS,
+        max_seconds: float = _DISCOVERY_MAX_SECONDS,
+    ) -> None:
+        self.max_dirs = max_dirs
+        self._deadline = time.monotonic() + max_seconds if max_seconds > 0 else None
+        self.truncated = False
+        self.reason: str | None = None
+
+    def exceeded(self, visited: int) -> bool:
+        """True once this walk has visited ``visited`` dirs past either budget."""
+        if self.max_dirs > 0 and visited >= self.max_dirs:
+            self.truncated = True
+            self.reason = "max_dirs"
+            return True
+        if self._deadline is not None and time.monotonic() > self._deadline:
+            self.truncated = True
+            self.reason = "wall_time"
+            return True
+        return False
+
+
+def _pruned_walk(root: Path, budget: "_ScanBudget | None" = None):
     """``os.walk`` that prunes ``_SKIP_DIRS`` in-place (so skipped trees are
-    never descended into) and caps the directory count (F-A2-5).
+    never descended into) and stops on the shared dir-count / wall-time budget
+    (F-A2-5 + F-SOT-3).
 
     Pruning during traversal — rather than ``rglob`` + post-hoc filtering —
-    avoids walking node_modules / .venv / build trees on every run; the cap
-    bounds the worst case on pathological repos.
+    avoids walking node_modules / .venv / build trees on every run; the budget
+    bounds the worst case on pathological or slow-filesystem repos.
     """
+    if budget is None:
+        budget = _ScanBudget()
     for visited, (dirpath, dirnames, filenames) in enumerate(os.walk(root)):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
-        if visited >= max_dirs:
+        if budget.exceeded(visited):
             # Surface the truncation rather than silently capping discovery
-            # ("no silent caps") — components below the cap are not scanned.
+            # ("no silent caps") — components below the budget are not scanned.
+            detail = (
+                f"{budget.max_dirs} directories"
+                if budget.reason == "max_dirs"
+                else "the wall-time budget"
+            )
             print(
-                f"aim-sot: discovery scan truncated at {max_dirs} directories; "
-                "components beyond the cap were not scanned.",
+                f"aim-sot: discovery scan truncated at {detail}; "
+                "components beyond the budget were not scanned.",
                 file=sys.stderr,
             )
             return
         yield Path(dirpath), dirnames, filenames
 
 
-def _discover_manifests(project_root: Path) -> list[dict]:
+def _discover_manifests(
+    project_root: Path, budget: "_ScanBudget | None" = None
+) -> list[dict]:
     """Manifest files → boundary_type=component candidates."""
     manifest_order = sorted(_MANIFEST_FILENAMES)
     candidates: list[dict] = []
-    for dirpath, _dirnames, filenames in _pruned_walk(project_root):
+    for dirpath, _dirnames, filenames in _pruned_walk(project_root, budget):
         fileset = set(filenames)
         name = next((n for n in manifest_order if n in fileset), None)
         if name is None:
@@ -518,10 +678,12 @@ def _discover_top_dirs(project_root: Path) -> list[dict]:
     return candidates
 
 
-def _discover_adr_dirs(project_root: Path) -> list[dict]:
+def _discover_adr_dirs(
+    project_root: Path, budget: "_ScanBudget | None" = None
+) -> list[dict]:
     """ADR/decision directories → boundary_type=concern candidates."""
     candidates: list[dict] = []
-    for dirpath, _dirnames, _filenames in _pruned_walk(project_root):
+    for dirpath, _dirnames, _filenames in _pruned_walk(project_root, budget):
         if dirpath == project_root or dirpath.name not in _ADR_DIR_NAMES:
             continue
         rel = dirpath.relative_to(project_root)
@@ -539,13 +701,22 @@ def _discover_adr_dirs(project_root: Path) -> list[dict]:
     return sorted(candidates, key=lambda c: c["sot_location"])
 
 
-def _discover_candidates(project_root: Path) -> list[dict]:
-    """Orchestrate all three scanners, deduplicated and sorted by sot_location."""
+def _discover_candidates(
+    project_root: Path, budget: "_ScanBudget | None" = None
+) -> list[dict]:
+    """Orchestrate all three scanners, deduplicated and sorted by sot_location.
+
+    A shared ``_ScanBudget`` (created here if not supplied) bounds the combined
+    manifest + ADR walks by dir-count and wall-time (F-SOT-3); the caller can
+    pass its own to read ``budget.truncated`` afterwards.
+    """
+    if budget is None:
+        budget = _ScanBudget()
     seen: set[str] = set()
     all_candidates: list[dict] = []
     for c in (
-        _discover_manifests(project_root)
-        + _discover_adr_dirs(project_root)
+        _discover_manifests(project_root, budget)
+        + _discover_adr_dirs(project_root, budget)
         + _discover_top_dirs(project_root)
     ):
         loc = c["sot_location"]
@@ -655,10 +826,10 @@ def _check_content_hash_drift(
 ) -> dict | None:
     """Type 2b — sha256(file)[:8] != cached last_verified_sha.
 
-    ``current_sha`` may be pre-computed by the caller (avoids a duplicate
-    file read when both 2b and Type 3 are checked in the same loop iteration).
-    Only applies to file ``sot_location``s; directory paths are no-ops by
-    design (spec §5 "sha256(file)").
+    ``current_sha`` is normally pre-computed by the caller via the strategy
+    registry (file → content-digest, directory → tree-digest; BP-039), avoiding
+    a duplicate read.  The comparison is digest-agnostic: it compares the
+    pre-computed digest against the cached baseline whatever the strategy.
     """
     loc = entry.get("sot_location", "")
     if not loc:
@@ -704,9 +875,9 @@ def _check_declaration_reality_drift(
     "mandatory human re-confirm of description/tags" (spec §5).  Consumers may
     act on ``k1_trigger`` independently of the staleness signal.
 
-    ``current_sha`` may be pre-computed by the caller (avoids a duplicate file
-    read when both 2b and Type 3 are checked in the same loop iteration).
-    Only applies to file ``sot_location``s; directory paths are no-ops by design.
+    ``current_sha`` is normally pre-computed by the caller via the strategy
+    registry (file → content-digest, directory → tree-digest; BP-039).  The
+    comparison is digest-agnostic — it works for file and directory SOT alike.
     """
     loc = entry.get("sot_location", "")
     if not loc:
@@ -776,8 +947,23 @@ def _reindex_lock(project_id: str):
     try:
         _DRIFT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         safe_id = project_id.replace("/", "__")
+        lock_path = _DRIFT_CACHE_DIR / f"sot_reindex_{safe_id}.lock"
+        # Sweep orphaned lock files (R2 / F-SOT-2): flock self-heals on process
+        # death, so a surviving .lock is cosmetic for that crash/exit case.  For
+        # a live holder, the max()-derived _LOCK_STALE_SECONDS invariant
+        # (= max(300, 2 * _SOT_REINDEX_MAX_SECONDS)) ensures any reindex still
+        # running — it releases within _SOT_REINDEX_MAX_SECONDS — can never own
+        # a lock older than this threshold, so no LIVE lock is ever swept.
+        try:
+            if (
+                lock_path.exists()
+                and (time.time() - lock_path.stat().st_mtime) > _LOCK_STALE_SECONDS
+            ):
+                lock_path.unlink(missing_ok=True)
+        except OSError:
+            pass
         lock_fd = open(  # noqa: SIM115 — held across the yield; closed in finally
-            _DRIFT_CACHE_DIR / f"sot_reindex_{safe_id}.lock", "w", encoding="utf-8"
+            lock_path, "w", encoding="utf-8"
         )
         fcntl.flock(lock_fd, fcntl.LOCK_EX)
     except OSError:
@@ -910,7 +1096,20 @@ def _reindex_sot_entries(
 
             stored = 0
             rejected = 0  # writes refused by core validation (DEFECT-4)
+            _cap_fired = False  # R1 wall-time guard (F-RT5-GAP-1 / F-SOT-2)
+            _deadline = time.monotonic() + _SOT_REINDEX_MAX_SECONDS
             for content in prepared:
+                if time.monotonic() > _deadline:
+                    # Never silent: emit a visible warning, then stop.  Remaining
+                    # entries stay in the registry and are indexed next run.
+                    print(
+                        f"[aim-sot] reindex wall-time cap ({_SOT_REINDEX_MAX_SECONDS:.0f}s)"
+                        f" reached; {stored}/{len(prepared)} entries stored —"
+                        " remainder will be indexed next run.",
+                        file=sys.stderr,
+                    )
+                    _cap_fired = True
+                    break
                 try:
                     result = storage.store_memory(
                         content=content,
@@ -935,6 +1134,10 @@ def _reindex_sot_entries(
                 except Exception:
                     pass  # per-entry failure is non-fatal
 
+            # Cap fired mid-loop: sha must NOT advance so the next run completes
+            # the reindex (F-SOT-2 / F-RT5-GAP-1).
+            if _cap_fired:
+                return ReindexResult(False, stored, "reindex_capped")
             # Delete ran but every re-store failed → the 5b cache is
             # emptied-not-restored.  Report failure so the caller does NOT advance
             # registry_sha and the rebuild retries next run rather than masking the
@@ -1093,7 +1296,8 @@ def _run_cold_start_discovery(
         print(f"Error: could not resolve project_id: {exc}", file=sys.stderr)
         return 1
 
-    candidates = _discover_candidates(scan_root)
+    scan_budget = _ScanBudget()
+    candidates = _discover_candidates(scan_root, scan_budget)
     new_candidates = _filter_new_candidates(candidates, [])
     limit = (
         0
@@ -1111,6 +1315,7 @@ def _run_cold_start_discovery(
                     "candidate_proposals": candidate_proposals,
                     "deferred_count": deferred_count,
                     "project_id": project_id,
+                    "budget_truncated": bool(scan_budget.truncated),
                 }
             )
         )
@@ -1178,6 +1383,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     project_root = _project_root_from_registry(registry_path)
     resolve_root = project_root if project_root is not None else registry_path.parent
     now_iso = datetime.now(timezone.utc).isoformat()
+    # Committed drift config (BP-039 exclude set + BP-042 DOCOWNERS pointer).
+    effective_excludes, docowners_rel = _load_registry_config(registry_path)
     # Seeded from the prior cache so throttle-skipped entries (still in the
     # registry, but TTL-skipped this run) retain their record.  Orphans — records
     # for ids no longer in the committed registry — are pruned after the drift loop
@@ -1188,6 +1395,9 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     # --- Drift detection across registry entries ---
     drift_proposals: list[dict] = []
+    strategy_frictions: list[dict] = (
+        []
+    )  # FRICTION findings for unimplemented strategies
     for entry in entries:
         eid = entry.get("id", "")
         if not eid:
@@ -1197,13 +1407,40 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         prior = cache.get("components", {}).get(eid)
 
-        # Compute file sha + stat once per entry — reused for hash/decl drift
-        # checks and the 5a component record (avoids a duplicate file read).
+        # Compute the drift digest + stat once per entry — reused for hash/decl
+        # checks and the 5a component record (avoids a duplicate read).  The
+        # digest is dispatched by the enum strategy registry (no shell exec):
+        # file → content-digest, directory → tree-digest (BP-039), overridable
+        # by a schema-validated drift_strategy field.
         loc = entry.get("sot_location", "")
         full_path = (resolve_root / loc) if loc else None
         exists = bool(full_path and full_path.exists())
-        current_sha = _sha256_short(full_path) if exists else None
+        strategy = (
+            shadow.select_strategy(entry, full_path, strategy_frictions)
+            if shadow is not None
+            else "content-digest"
+        )
+        digest_version = (
+            shadow.DIGEST_VERSION
+            if (shadow is not None and strategy in ("tree-digest", "git-tree-hash"))
+            else ""
+        )
+        current_sha = (
+            _compute_entry_digest(strategy, full_path, effective_excludes)
+            if exists
+            else None
+        )
         mtime, size = _stat_mtime_size(full_path) if exists else (None, None)
+
+        # R-1 (lead): a drift_strategy switch or a digest-version bump is a
+        # RE-BASELINE, not drift.  Default the prior strategy to the historical
+        # "content-digest" so existing file baselines are never spuriously
+        # re-based on upgrade.
+        prior_strategy = (prior or {}).get("drift_strategy", "content-digest")
+        prior_version = (prior or {}).get("digest_version", "")
+        rebaseline = bool((prior or {}).get("last_verified_sha")) and (
+            prior_strategy != strategy or prior_version != digest_version
+        )
 
         drifts: list[dict] = []
         loc_drift = _check_location_drift(entry, resolve_root)
@@ -1212,16 +1449,20 @@ def cmd_run(args: argparse.Namespace) -> int:
         temp_drift = _check_temporal_staleness(entry)
         if temp_drift:
             drifts.append(temp_drift)
-        hash_drift = _check_content_hash_drift(
-            entry, resolve_root, cache, current_sha=current_sha
-        )
-        if hash_drift:
-            drifts.append(hash_drift)
-        decl_drift = _check_declaration_reality_drift(
-            entry, resolve_root, cache, current_sha=current_sha
-        )
-        if decl_drift:
-            drifts.append(decl_drift)
+        # Skip the content-based checks on a re-baseline run (the digest is not
+        # comparable across strategies/versions); the record advances to the new
+        # baseline below.
+        if not rebaseline:
+            hash_drift = _check_content_hash_drift(
+                entry, resolve_root, cache, current_sha=current_sha
+            )
+            if hash_drift:
+                drifts.append(hash_drift)
+            decl_drift = _check_declaration_reality_drift(
+                entry, resolve_root, cache, current_sha=current_sha
+            )
+            if decl_drift:
+                drifts.append(decl_drift)
 
         if drifts:
             drift_proposals.append(_make_drift_proposal(entry, drifts))
@@ -1239,11 +1480,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             human_reconfirmed=_human_reconfirmed(
                 entry, (prior or {}).get("last_verified_at", "")
             ),
+            strategy=strategy,
+            digest_version=digest_version,
         )
 
     # --- Auto-discovery: new candidates (skipped for non-conforming roots) ---
+    scan_budget = _ScanBudget()
     if project_root is not None:
-        candidates = _discover_candidates(project_root)
+        candidates = _discover_candidates(project_root, scan_budget)
         new_candidates = _filter_new_candidates(candidates, entries)
         limit = (
             0
@@ -1266,6 +1510,49 @@ def cmd_run(args: argparse.Namespace) -> int:
     # --- Persist 5a cache ---
     cache["components"] = updated_components
     cache["generated_at"] = now_iso
+
+    # --- [CL] shadow-git + doc-drift + findings pass (settled decision #3) ---
+    # ONE BP-039 digest at Stop → if changed: shadow commit, git diff → doc-drift,
+    # findings emit.  Gated behind --shadow (the Stop hooks pass it) so the default
+    # `run` path is byte-for-byte unchanged (behavior-preserving).  Skipped for a
+    # flat --registry override (no conforming, scannable project root).
+    findings: list[dict] = []
+    docs_stale = 0
+    digest_truncated = False
+    if (
+        getattr(args, "shadow", False)
+        and project_root is not None
+        and shadow is not None
+    ):
+        shadow_summary = shadow.run_shadow_pass(
+            project_id,
+            project_root,
+            cache,
+            excludes=effective_excludes,
+            docowners_rel=docowners_rel,
+        )
+        findings = shadow_summary.get("findings", []) + strategy_frictions
+        docs_stale = shadow_summary.get("docs_stale", 0)
+        digest_truncated = bool(shadow_summary.get("digest_truncated", False))
+    elif strategy_frictions:
+        findings = strategy_frictions
+
+    # Budget-truncation signal (F-SOT-3): either full-project walk hit its budget
+    # → the drift/doc-drift channel is incomplete this session.  Surfaced in the
+    # JSON pipe so the [CL] hook can emit a visible, non-fatal warning instead of
+    # silently reporting zero findings.
+    budget_truncated = bool(scan_budget.truncated or digest_truncated)
+
+    # Live drift rollup for the [ST] ambient surface (consult digest reads this).
+    n_changed = len(drift_proposals)
+    n_clean = max(0, len(registry_ids) - n_changed)
+    cache["drift_rollup"] = {
+        "clean": n_clean,
+        "changed": n_changed,
+        "docs_stale": docs_stale,
+        "generated_at": now_iso,
+    }
+
     with contextlib.suppress(OSError):
         _write_drift_cache(project_id, cache)
 
@@ -1279,11 +1566,29 @@ def cmd_run(args: argparse.Namespace) -> int:
                     "candidate_proposals": candidate_proposals,
                     "deferred_count": deferred_count,
                     "project_id": project_id,
+                    "findings": findings,
+                    "drift_rollup": cache["drift_rollup"],
+                    "budget_truncated": budget_truncated,
                 }
             )
         )
     else:
         print(_format_human(drift_proposals, candidate_proposals, deferred_count))
+        if findings:
+            # The [CL] findings surface — the existing sot_drift_stop stderr line
+            # is absorbed here (settled decision #3): one unified emit, no double.
+            print(
+                f"\n[ai-memory] SOT findings: {len(findings)} "
+                "(drift / doc-staleness / errors) — see --json for the pipe.",
+                file=sys.stderr,
+            )
+        if budget_truncated:
+            print(
+                "[ai-memory] SOT: drift scan hit its budget (large/slow project) "
+                "— results incomplete this run; tune AI_MEMORY_SOT_* budgets or "
+                "narrow the registry exclude set.",
+                file=sys.stderr,
+            )
 
     return 0
 
@@ -1369,6 +1674,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="all",
         help="Disable candidate cap",
+    )
+    run_p.add_argument(
+        "--shadow",
+        action="store_true",
+        dest="shadow",
+        help=(
+            "Run the [CL] detect pass: BP-039 digest → BP-040 shadow-git commit "
+            "→ BP-042 doc-drift → structured findings (the Stop-hook cadence). "
+            "Off by default; the per-CLI Stop hooks pass it."
+        ),
     )
 
     reindex_p = sub.add_parser("reindex", help="Rebuild 5b derived memory cache")

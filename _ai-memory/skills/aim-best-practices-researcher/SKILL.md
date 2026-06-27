@@ -1,13 +1,13 @@
 ---
 name: aim-best-practices-researcher
-description: Research current best practices for any technology, pattern, or coding standard. Use when asking about best practices, conventions, coding standards, recommended approaches, or how should I questions. Searches local knowledge first, then web for 2024-2026 sources. Evaluates if findings warrant a reusable skill.
+description: Research current best practices for any technology, pattern, or coding standard. Use when asking about best practices, conventions, coding standards, recommended approaches, or how should I questions. Searches local knowledge first, then web for current sources (prioritizing the last ~6 months relative to today). Evaluates if findings warrant a reusable skill.
 allowed-tools: Read, Grep, Glob, WebSearch, WebFetch, Bash(python3:*), Skill
 context: fork
 ---
 
 # Best Practices Researcher
 
-Research specialist for current (2024-2026) best practices. Checks local database first, then web if needed. Stores findings and evaluates skill-worthiness.
+Research specialist for current best practices. Checks local database first, then web if needed. Stores findings and evaluates skill-worthiness.
 
 ## Quick Start
 
@@ -38,7 +38,7 @@ results = search_memories(
 
 ```bash
 # Phase 4: Store findings
-scripts/memory/run-with-env.sh store_best_practice.py \
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" store_best_practice.py \
     --content "Best practice description" \
     --session-id "current-session" \
     --domain "python" \
@@ -70,11 +70,13 @@ Query conventions collection via semantic search. Decision rules:
 
 ### Phase 2: Web Research
 
-Search for current best practices (2024-2026). Source prioritization:
+Search for current best practices, prioritizing sources published within the last ~6 months relative to today's date (flag an older source only when it remains the authoritative current standard). Source prioritization:
 1. Official documentation
 2. GitHub repositories
 3. Established tech blogs
 4. Community discussions
+
+When presenting each finding, state why it is the current gold standard and cite the source's publication recency.
 
 ### Phase 3: Save to File
 
@@ -87,7 +89,7 @@ Without this step, research is lost and BUG-048 occurs.
 
 ```bash
 # MANDATORY - Run this command to store findings
-scripts/memory/run-with-env.sh store_best_practice.py \
+"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" store_best_practice.py \
     --content "YOUR_FINDING_CONTENT_HERE" \
     --session-id "YOUR_SESSION_ID" \
     --domain "YOUR_DOMAIN" \

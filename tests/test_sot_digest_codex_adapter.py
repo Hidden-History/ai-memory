@@ -145,7 +145,7 @@ def _find_write_ops(source: str) -> list:
 
 
 def test_no_registry_emits_empty_output(adapter, tmp_path, capsys):
-    """No .sot/registry.yaml → EMPTY_OUTPUT to stdout, exit 0, engine not called."""
+    """No .sot/registry.yaml → one-line G3 bootstrap nudge, exit 0, engine not called."""
     payload = _make_payload(str(tmp_path))
     mock_run = MagicMock()
 
@@ -159,7 +159,10 @@ def test_no_registry_emits_empty_output(adapter, tmp_path, capsys):
     assert exc_info.value.code == 0
     mock_run.assert_not_called()
     out = json.loads(capsys.readouterr().out.strip())
-    assert out == EMPTY_OUTPUT
+    # G3 (TD-675): the registry-less [ST] surface is a one-line bootstrap nudge,
+    # not silence — the engine is still not invoked.
+    ctx = out["hookSpecificOutput"]["systemMessage"]
+    assert "no .sot/registry.yaml" in ctx and "detect-propose" in ctx
 
 
 # ---------------------------------------------------------------------------

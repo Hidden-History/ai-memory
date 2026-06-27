@@ -23,6 +23,9 @@ Usage:
 
     # Clear all items (dangerous)
     python3 scripts/memory/process_retry_queue.py --clear
+
+    # Drain only one project's entries (default is a global drain)
+    python3 scripts/memory/process_retry_queue.py --group-id myorg-myrepo
 """
 
 import argparse
@@ -50,8 +53,21 @@ from memory.storage import MemoryStorage
 
 logger = setup_hook_logging("ai_memory.retry_processor")
 
-# Dead letter queue for items that exceed max retries
+# Dead letter queue for items that exceed max retries or are permanently unparseable
 DLQ_FILE = Path(INSTALL_DIR) / "queue" / "retry_queue_dlq.jsonl"
+
+# Substrings in a process_entry failure message that mark an entry as permanently
+# unparseable — no amount of retrying will fix these.  Dead-letter on first encounter.
+_PERMANENT_FAILURE_MARKERS: frozenset = frozenset({"Unknown payload format"})
+
+
+def _is_permanent_failure(message: str) -> bool:
+    """Return True when *message* indicates a permanently-undrainable entry.
+
+    Such entries are dead-lettered on the first failure instead of cycling
+    through exponential backoff (which would not help).
+    """
+    return any(marker in message for marker in _PERMANENT_FAILURE_MARKERS)
 
 
 def get_collection_for_type(memory_type: str) -> str:
@@ -130,11 +146,29 @@ def process_entry(
 
         cwd = hook_input.get("cwd", "/")
         group_id = resolve_project_id(cwd)
-        memory_type = "implementation"
         session_id = hook_input.get("session_id", "retry")
         source_hook = "PostToolUse"
         file_path = tool_input.get("file_path", "")
-        collection = COLLECTION_CODE_PATTERNS
+
+        # Mirror live capture path: apply ImplementationFilter before extraction
+        # (store_async.py applies this before extract_patterns; parity prevents
+        # persisting content the live path would have discarded)
+        from memory.filters import ImplementationFilter
+
+        if not ImplementationFilter().should_store(file_path, content, tool_name):
+            return True, f"filtered: ImplementationFilter rejected {file_path!r}"
+
+        # Mirror live capture path: enrich content via extract_patterns (Story 2.3)
+        # so the drained record is content-identical to what the live path would store
+        from memory.extraction import extract_patterns
+
+        patterns = extract_patterns(content, file_path)
+        if not patterns:
+            return True, "no patterns extracted; skipping (mirrors live path)"
+
+        content = patterns["content"]
+        memory_type = "implementation"
+        collection = get_collection_for_type(memory_type)
 
     elif "payload" in memory_data:
         # Payload wrapper format
@@ -198,6 +232,27 @@ def process_entry(
         return False, f"Storage error: {type(e).__name__}: {str(e)[:100]}"
 
 
+def extract_group_id(entry: dict) -> str | None:
+    """Return the group_id an entry would be stored under.
+
+    Mirrors the per-format group_id resolution in process_entry so a scoped
+    drain (--group-id) can match an entry without storing it. Returns None when
+    the group cannot be determined (unknown payload format).
+    """
+    memory_data = entry.get("memory_data", {})
+
+    if "hook_input" in memory_data:
+        from memory.project import resolve_project_id
+
+        cwd = memory_data["hook_input"].get("cwd", "/")
+        return resolve_project_id(cwd)
+    elif "payload" in memory_data:
+        return memory_data["payload"].get("metadata", {}).get("group_id", "unknown")
+    elif "content" in memory_data:
+        return memory_data.get("group_id", "unknown")
+    return None
+
+
 def move_to_dlq(entry: dict):
     """Move exhausted entry to dead letter queue."""
     DLQ_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -206,13 +261,21 @@ def move_to_dlq(entry: dict):
         f.write(json.dumps(entry) + "\n")
 
 
-def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) -> dict:
+def process_queue(
+    force: bool = False,
+    dry_run: bool = False,
+    limit: int = 100,
+    group_id: str | None = None,
+) -> dict:
     """Process pending items in the retry queue.
 
     Args:
         force: If True, also process items that exceeded max_retries
         dry_run: If True, don't actually store or modify queue
         limit: Maximum items to process
+        group_id: If set, drain only entries belonging to this group. When
+            omitted (default) the drain is global across all groups, preserving
+            backward-compatible behavior for automated/cron callers.
 
     Returns:
         dict with processing statistics
@@ -232,6 +295,20 @@ def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) 
     # Get pending items
     pending = queue.get_pending(limit=limit, include_exhausted=force)
 
+    # Scope the drain to one group when requested (TD-713). Default (group_id
+    # None) leaves the global drain unchanged.
+    if group_id is not None:
+        before = len(pending)
+        pending = [e for e in pending if extract_group_id(e) == group_id]
+        logger.info(
+            "scoped_drain",
+            extra={
+                "group_id": group_id,
+                "matched": len(pending),
+                "skipped_other_groups": before - len(pending),
+            },
+        )
+
     if not pending:
         logger.info("queue_empty", extra={"details": "No items pending"})
         return stats
@@ -245,7 +322,6 @@ def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) 
         entry_id = entry.get("id", "unknown")
         retry_count = entry.get("retry_count", 0)
         max_retries = entry.get("max_retries", 3)
-        failure_reason = entry.get("failure_reason", "unknown")
 
         stats["processed"] += 1
 
@@ -276,12 +352,22 @@ def process_queue(force: bool = False, dry_run: bool = False, limit: int = 100) 
                 )
 
                 if not dry_run:
-                    if retry_count >= max_retries - 1:
-                        # Move to DLQ
+                    permanent = _is_permanent_failure(message)
+                    exhausted = retry_count >= max_retries - 1
+                    if permanent or exhausted:
+                        # Dead-letter immediately for permanently-unparseable entries
+                        # (e.g. raw hook event payloads — no retry will help), or
+                        # after normal retry exhaustion for transient failures.
+                        dlq_reason = (
+                            "permanent_failure" if permanent else "retries_exhausted"
+                        )
                         move_to_dlq(entry)
                         queue.dequeue(entry_id)
                         stats["moved_to_dlq"] += 1
-                        logger.info("moved_to_dlq", extra={"entry_id": entry_id})
+                        logger.info(
+                            "moved_to_dlq",
+                            extra={"entry_id": entry_id, "dlq_reason": dlq_reason},
+                        )
                     else:
                         queue.mark_failed(entry_id)
 
@@ -332,6 +418,14 @@ def main():
         "--limit", type=int, default=100, help="Maximum items to process (default: 100)"
     )
     parser.add_argument(
+        "--group-id",
+        default=None,
+        help=(
+            "Drain only entries for this group"
+            " (default: global drain across all groups)"
+        ),
+    )
+    parser.add_argument(
         "--clear", action="store_true", help="Clear all items from queue (dangerous)"
     )
     parser.add_argument(
@@ -363,7 +457,12 @@ def main():
             print("Aborted")
             return 1
 
-    stats = process_queue(force=args.force, dry_run=args.dry_run, limit=args.limit)
+    stats = process_queue(
+        force=args.force,
+        dry_run=args.dry_run,
+        limit=args.limit,
+        group_id=args.group_id,
+    )
 
     print("\nProcessing Complete:")
     print(f"  Processed: {stats['processed']}")

@@ -3,28 +3,28 @@
 # All versions pinned per ACT-003
 
 # Testing
-pytest==9.0.3
-pytest-asyncio==1.3.0
+pytest==9.1.1
+pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 pytest-mock==3.15.1
 pytest-timeout==2.4.0
 hypothesis>=6.0.0,<7.0.0
 httpx==0.28.1
-requests==2.33.1
+requests==2.34.2
 psutil==7.2.2
 
 # E2E Testing
-pytest-playwright==0.7.2
-playwright==1.58.0
+pytest-playwright==0.8.0
+playwright==1.60.0
 
 # Code Quality
-black==26.3.1
-ruff==0.15.9
+black==26.5.1
+ruff==0.15.19
 isort>=5.13.0,<9.0.0
 mypy==1.20.0
 
 # Prometheus metrics (Story 6.1)
-prometheus-client==0.24.1
+prometheus-client==0.25.0
 
 # Structured logging (Story 6.5)
 python-json-logger==4.1.0
@@ -33,8 +33,8 @@ python-json-logger==4.1.0
 ruamel.yaml==0.19.1
 
 # Configuration management (Story 7.4)
-pydantic==2.12.5
-pydantic-settings==2.13.1
+pydantic==2.13.4
+pydantic-settings==2.14.2
 
 # YAML parsing (required by tests/unit/test_sops_encryption.py)
 PyYAML==6.0.3

@@ -168,6 +168,30 @@ def format_error_content(error_context: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _build_recoverable_payload(error_context: dict[str, Any]) -> dict[str, Any]:
+    """Build a direct (format-1) queue payload that process_retry_queue can drain.
+
+    The raw ``error_context`` is not a recognised memory-data record, so the
+    queue guard would reject it and the outage-time capture would be lost. This
+    reconstructs the same record the main (Qdrant-up) store path would have
+    written — formatted content, the ``error_pattern`` type, the resolved
+    group_id, and the session_id — so the entry drains via the format-1
+    ("content" key) handler. group_id mirrors the main path's
+    ``resolve_project_id`` resolution, falling back to "unknown" (the same
+    sentinel process_retry_queue uses) if detection fails.
+    """
+    try:
+        group_id = resolve_project_id(error_context.get("cwd", ""))
+    except ValueError:
+        group_id = "unknown"
+    return {
+        "content": format_error_content(error_context),
+        "type": "error_pattern",
+        "group_id": group_id,
+        "session_id": error_context.get("session_id", ""),
+    }
+
+
 async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
     """Store error pattern to Qdrant.
 
@@ -711,7 +735,9 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "qdrant_response_error",
             extra={"error": str(e), "error_type": type(e).__name__},
         )
-        queue_operation(error_context, "response_error")
+        # L5: enqueue a drainable direct payload (raw error_context is rejected
+        # by the queue guard and would rot unrecoverably).
+        queue_operation(_build_recoverable_payload(error_context), "response_error")
 
     except UnexpectedResponse as e:
         log_to_activity("📥 ErrorPattern queued: Qdrant unavailable", INSTALL_DIR)
@@ -719,17 +745,19 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
             "qdrant_unexpected_response",
             extra={"error": str(e), "error_type": type(e).__name__},
         )
-        queue_operation(error_context, "unexpected_response")
+        queue_operation(
+            _build_recoverable_payload(error_context), "unexpected_response"
+        )
 
     except ConnectionRefusedError as e:
         log_to_activity("📥 ErrorPattern queued: Qdrant unavailable", INSTALL_DIR)
         logger.error("qdrant_unavailable", extra={"error": str(e)})
-        queue_operation(error_context, "qdrant_unavailable")
+        queue_operation(_build_recoverable_payload(error_context), "qdrant_unavailable")
 
     except RuntimeError as e:
         if "closed" in str(e).lower():
             logger.error("qdrant_client_closed", extra={"error": str(e)})
-            queue_operation(error_context, "client_closed")
+            queue_operation(_build_recoverable_payload(error_context), "client_closed")
         else:
             raise
 
@@ -765,7 +793,7 @@ async def store_error_pattern_async(error_context: dict[str, Any]) -> None:
                 count=1,
             )
 
-        queue_operation(error_context, "unexpected_error")
+        queue_operation(_build_recoverable_payload(error_context), "unexpected_error")
 
     finally:
         # Clean up client connection
@@ -800,7 +828,7 @@ async def main_async() -> int:
     except asyncio.TimeoutError:
         logger.error("storage_timeout", extra={"timeout_seconds": get_hook_timeout()})
         try:
-            queue_operation(error_context, "timeout")
+            queue_operation(_build_recoverable_payload(error_context), "timeout")
         except Exception:
             pass
         return 0  # Hooks must always exit 0 (§1.2 Principle 4)

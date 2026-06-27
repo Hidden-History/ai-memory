@@ -37,17 +37,6 @@ From the task description, determine which BMAD agent is needed.
 | Architect | `/bmad-agent-architect` |
 | UX Designer | `/bmad-agent-ux-designer` |
 | Tech Writer | `/bmad-agent-tech-writer` |
-| BMAD Master | `/bmad-agent-bmad-master` |
-| Agent Builder | `/bmad-agent-bmb-agent-builder` |
-| Module Builder | `/bmad-agent-bmb-module-builder` |
-| Workflow Builder | `/bmad-agent-bmb-workflow-builder` |
-| Brainstorming Coach | `/bmad-agent-cis-brainstorming-coach` |
-| Creative Problem Solver | `/bmad-agent-cis-creative-problem-solver` |
-| Design Thinking Coach | `/bmad-agent-cis-design-thinking-coach` |
-| Innovation Strategist | `/bmad-agent-cis-innovation-strategist` |
-| Presentation Master | `/bmad-agent-cis-presentation-master` |
-| Storyteller | `/bmad-agent-cis-storyteller` |
-| Test Architect (TEA) | `/bmad-agent-tea-tea` |
 
 If the task description does not specify an agent, use this selection guide:
 
@@ -58,26 +47,23 @@ If the task description does not specify an agent, use this selection guide:
 | Validate a PRD | PM | `VP` |
 | Break down features into stories | PM | `CE` |
 | Design system architecture | Architect | Use menu |
-| Write code / implement a story | DEV | `DS` |
-| Review implemented code | DEV | `CR` |
+| Write code / implement a story | DEV | `/bmad-dev-story` (or `DS`) |
+| Review implemented code | Code Review (NOT the dev agent) | `/bmad-code-review` |
 | Design user flows | UX Designer | Use menu |
 | Write or review documentation | Tech Writer | `WD` |
 | Validate documentation | Tech Writer | `VD` |
-| Build new BMAD agents | Agent Builder | Use menu |
-| Build new BMAD modules | Module Builder | Use menu |
-| Build new BMAD workflows | Workflow Builder | Use menu |
 
-**IMPORTANT**: Even if the user specifies a direct workflow command like `/bmad-code-review` or `/bmad-dev-story`, you MUST still use two-phase activation. Map the direct command to its parent agent + menu code:
+**IMPORTANT**: `/bmad-code-review` is a direct review workflow — invoke it directly; do NOT route review through dev-agent two-phase activation. Other direct workflow commands like `/bmad-dev-story` still map to their parent agent + menu code:
 
 | Direct Command | Activate Agent | Menu Code |
 |---|---|---|
-| `/bmad-code-review` | `/bmad-agent-dev` | `CR` |
+| `/bmad-code-review` | (direct review workflow — no dev-agent activation) | — |
 | `/bmad-dev-story` | `/bmad-agent-dev` | `DS` |
 | `/bmad-create-prd` | `/bmad-agent-pm` | `CP` |
 | `/bmad-validate-prd` | `/bmad-agent-pm` | `VP` |
 | `/bmad-create-epics-and-stories` | `/bmad-agent-pm` | `CE` |
 | `/bmad-create-architecture` | `/bmad-agent-architect` | Use menu |
-| `/bmad-create-ux-design` | `/bmad-agent-ux-designer` | Use menu |
+| `/bmad-ux` | `/bmad-agent-ux-designer` | Use menu |
 
 ### 2. Determine Backend
 
@@ -140,7 +126,7 @@ After the agent menu appears, what should be sent?
 Each agent menu has items with codes like `[DS]`, `[CR]`, `[CH]`, `[VD]`. Send the code.
 
 Examples:
-- Dev agent: `DS` (Dev Story), `CR` (Code Review)
+- Dev agent: `DS` (Dev Story) — code review routes to `/bmad-code-review`, not a dev-agent menu code
 - Tech Writer: `VD` (Validate Documentation)
 - PM: `CP` (Create PRD), `VP` (Validate PRD), `CE` (Create Epics)
 
