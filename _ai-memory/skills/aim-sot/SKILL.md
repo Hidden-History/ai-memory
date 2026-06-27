@@ -56,7 +56,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ```bash
 bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh" \
   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_detect_propose.py" \
-  run [--json] [--registry PATH] [--limit N] [--all]
+  run [--json] [--registry PATH] [--limit N] [--all] [--write-proposal] [--force]
 ```
 
 ```bash
@@ -77,16 +77,59 @@ Bootstrapping a new project:
 
 1. **Discover** — run `detect-propose run` (optionally `--all` to lift the cap). The
    scan roots at the project root, or the current working directory when no registry
-   is present, and prints discovered candidates.
+   is present, and prints discovered candidates. Add **`--write-proposal`** to also
+   scaffold a ready-to-edit staging draft (see below).
 2. **Author** — for each candidate you keep, apply the [**Authoring**](#authoring) loop
    (categorize by type → propose entries → write each description to the D1–D4 rubric →
    fix any FAIL before emit); assemble the results into a new `.sot/registry.yaml`
-   starting from `templates/registry.yaml.template`.
+   starting from `templates/registry.yaml.template` (or from the `--write-proposal`
+   draft).
 3. **Verify** — run `aim-sot verify` to gate the registry through the 16-check taxonomy.
 4. **Approve** — apply after a clean verdict + human approval (HITL).
 
 Discovery is still **propose-only** with no registry: candidates go to stdout and the
-registry is never created or written.
+committed registry is never created or written.
+
+#### `--write-proposal` — scaffold a staging draft (TD-744)
+
+`detect-propose run --write-proposal` writes a **non-committed** staging file
+`.sot/registry.proposed.yaml` from the discovered candidates, so you edit a
+schema-shaped draft instead of transcribing a stdout list by hand. It fires **only
+on a registry-less project** (the entry point that already runs cold-start
+discovery); when a committed `.sot/registry.yaml` exists the registry-present drift
+path takes over and `--write-proposal` does nothing.
+
+- **What it fills.** Structural fields are written as real values (`boundary_type`,
+  `sot_location`, `status: proposed`, `added_by: "aim-sot bootstrap"`). Every
+  human-owned semantic field is an explicit `TODO(human): …` placeholder
+  (`kind`, `owner`, `description`, `last_verified`, `provenance_note`) — **never
+  auto-filled (BP-029)**. Each entry's `confidence` + mandatory `inferred_from` ride
+  as advisory comments above it (they are not registry-schema fields).
+- **Promotion = approval.** The engine writes a *draft*, never the SoT. You fill the
+  `TODO(human)` fields, prune candidates, then **rename** the draft to
+  `.sot/registry.yaml`, commit it, and run `aim-sot verify`. That promotion + commit
+  is the human approval (BP-030). Recommend git-ignoring `.sot/registry.proposed.yaml`.
+- **Idempotency.** A second run **skips** an existing draft (to protect in-progress
+  edits) and says so; pass **`--force`** to overwrite. The committed registry is never
+  written under any path (BP-030 invariant).
+- **Owner candidates (advisory).** When the project is a git repo, the draft carries
+  an `owner_candidates` advisory comment block — the top-3 committers per
+  `sot_location` from `git log`, as a hint for authoring `owner` by hand. It is
+  **never** written into the `owner` field, and **degrades silently** (block omitted)
+  on a non-git project.
+
+#### Confidence tiers (TD-744 Q5)
+
+Candidates carry an ordinal `confidence` triage label paired with `inferred_from`:
+
+| Tier | Signal | Example `inferred_from` |
+|------|--------|-------------------------|
+| `high` | the project *declares* the unit | a manifest filename, `adr_directory` |
+| `medium` | structural heuristic (a top-level folder) | `top_level_directory` |
+| `low` | weak/ambiguous (nested source dir, no manifest) | `nested_source_directory` |
+
+The label is **review-triage priority only** — it is never an auto-approve gate and
+never licenses auto-filling semantics; even a `high` candidate needs human authoring.
 
 ### Flags (`run`)
 
@@ -96,6 +139,8 @@ registry is never created or written.
 | `--all` | off | Disable cap — surface all new candidates |
 | `--json` | off | Machine-readable JSON output |
 | `--registry PATH` | (git root) | Override registry path |
+| `--write-proposal` | off | Registry-less project only: scaffold a non-committed `.sot/registry.proposed.yaml` staging draft (structural fields filled, semantic fields `TODO(human)`). Never writes the committed registry. See [First run — bootstrap from zero](#first-run--bootstrap-from-zero). |
+| `--force` | off | With `--write-proposal`, overwrite an existing draft (default: skip to protect in-progress edits). |
 | `--shadow` | off | Run the `[CL]` detect pass — BP-039 digest → BP-040 shadow-git commit → BP-042 doc-drift → structured `findings`. The Stop hooks pass it; see [Drift strategies, shadow git & doc-drift](#drift-strategies-shadow-git--doc-drift). |
 
 ### Output — drift proposals
