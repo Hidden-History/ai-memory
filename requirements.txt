@@ -12,7 +12,7 @@ pydantic==2.13.4
 pydantic-settings==2.14.2
 
 # Logging
-structlog>=24.0.0,<26.0.0
+structlog>=24.0.0,<27.0.0
 
 # Monitoring (optional but included in core)
 prometheus-client==0.25.0
