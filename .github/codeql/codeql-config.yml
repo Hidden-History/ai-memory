@@ -34,5 +34,28 @@ queries:
 # See:
 #   - oversight/bugs/BUG-277-env-secrets-split-partial.md
 #   - oversight/tasks/pm272-wave6-bug277-fix-r4/recommendation-first.md §B
+#
+# Exclude the TD-744 SOT permission regression test from CodeQL analysis.
+#
+# Rationale (TD-744, PR #236): test_td744_bootstrap.py is a security regression
+# test for the staging-file permission fix. To prove the fix resets an
+# overwritten staging file back to owner-only (0o600), the test must first
+# deliberately create a non-owner-only staging file via os.chmod (a world-
+# readable 0o644 stale-file repro). CodeQL's `py/overly-permissive-file-
+# permissions` flags that os.chmod regardless of intent — it cannot distinguish
+# regression-test setup from a real vulnerability. Inline `# codeql` / `# lgtm`
+# markers are not honoured by github/codeql-action@v4 (legacy LGTM.com platform
+# deprecated; no inline-comment replacement), and per-query path constraints via
+# `query-filters` are also unsupported — CodeQL action v4 logs
+# `informsAboutUnsupportedPathFilters` and ignores them silently. `paths-ignore`
+# is the supported v4 mechanism for file-scoped exclusion. Acceptable coverage
+# tradeoff: test code is not shipped or executed in production, so excluding it
+# from the permission query has no real security value relative to the
+# unavoidable false-positive it generates.
+#
+# See:
+#   - TD-744 (SOT auto-bootstrap staging-file permission fix)
+#   - PR #236
 paths-ignore:
   - scripts/verify_env_split.py
+  - _ai-memory/skills/aim-sot/tests/test_td744_bootstrap.py
