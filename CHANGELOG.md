@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-06-30
+
 ### Upgrade Instructions
 
 This release image-bakes `evaluator_config.yaml` into the evaluator-scheduler (TD-748). As of v2.8.1, `stack.sh restart` auto-rebuilds source-baked services on the cached path (TD-723), so the TD-748 change deploys with the normal update flow — no manual build step required:
@@ -3365,7 +3367,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.1...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.2...HEAD
+[2.8.2]: https://github.com/Hidden-History/ai-memory/compare/v2.8.1...v2.8.2
 [2.8.1]: https://github.com/Hidden-History/ai-memory/compare/v2.8.0...v2.8.1
 [2.8.0]: https://github.com/Hidden-History/ai-memory/compare/v2.7.0...v2.8.0
 [2.4.2]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...v2.4.2
