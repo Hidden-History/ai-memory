@@ -116,8 +116,13 @@ def main():
                             "hookEventName": "SessionStart",
                             "additionalContext": (
                                 "[ai-memory] SOT: no .sot/registry.yaml in this "
-                                "project — run `aim-sot detect-propose` to bootstrap "
-                                "source-of-truth tracking."
+                                "project — run `aim-sot detect-propose run "
+                                "--write-proposal` to scaffold a ready-to-edit "
+                                ".sot/registry.proposed.yaml draft (you fill the "
+                                "TODO(human) fields, then promote it to "
+                                ".sot/registry.yaml and run aim-sot verify), or "
+                                "`aim-sot detect-propose run` to just list "
+                                "candidates."
                             ),
                         }
                     }

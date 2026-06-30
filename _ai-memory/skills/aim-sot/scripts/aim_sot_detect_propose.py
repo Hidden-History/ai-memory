@@ -33,6 +33,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import textwrap
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +63,11 @@ except Exception:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_CANDIDATE_LIMIT = 20
+
+# Hard wall-time cap for the advisory git subprocesses (registry walk + owner
+# hints).  These are best-effort hints; on a wedged/slow git they degrade
+# silently rather than hang the hook (TimeoutExpired → skip/not-available).
+_GIT_SUBPROCESS_TIMEOUT = 10.0
 
 
 def _env_float(name: str, default: float) -> float:
@@ -154,6 +160,36 @@ _ADR_DIR_NAMES: frozenset[str] = frozenset(
     {"adr", "decisions", "adrs", "decision-records"}
 )
 
+# Recognized source-container directory names.  When one is found NESTED
+# (depth >= 2) with no co-located manifest it is a weak structural signal → the
+# `low` confidence tier (TD-744 Q5).
+_SOURCE_DIR_NAMES: frozenset[str] = frozenset(
+    {
+        "src",
+        "lib",
+        "libs",
+        "app",
+        "apps",
+        "pkg",
+        "packages",
+        "cmd",
+        "internal",
+        "modules",
+        "services",
+        "components",
+    }
+)
+
+# Ordinal confidence tiers, strongest → weakest (TD-744 Q5).  The label is a
+# human-review triage priority paired with the mandatory ``inferred_from`` source;
+# it is NEVER an auto-approve gate and never licenses auto-filling semantics.
+_CONFIDENCE_TIERS: tuple[str, ...] = ("high", "medium", "low")
+
+# Non-committed staging-proposal filename written by ``--write-proposal``
+# (TD-744 Q4).  The committed registry is ``registry.yaml`` and is NEVER written
+# by this engine (BP-030); the only writable artifact is this draft.
+_PROPOSED_FILENAME = "registry.proposed.yaml"
+
 # Registry fields that must NOT be stored in the 5b cache (machine state only).
 _MACHINE_STATE_FIELDS: frozenset[str] = frozenset(
     {"last_verified_at", "last_verified_sha", "drift_status", "drift_detail"}
@@ -182,9 +218,14 @@ def _find_registry(override: str | None = None) -> Path | None:
             capture_output=True,
             text=True,
             check=True,
+            timeout=_GIT_SUBPROCESS_TIMEOUT,
         )
         return Path(result.stdout.strip()) / ".sot" / "registry.yaml"
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
         pass
 
     for parent in [Path.cwd(), *Path.cwd().parents]:
@@ -701,14 +742,51 @@ def _discover_adr_dirs(
     return sorted(candidates, key=lambda c: c["sot_location"])
 
 
+def _discover_nested_source_dirs(
+    project_root: Path, budget: "_ScanBudget | None" = None
+) -> list[dict]:
+    """Nested source-container dirs with no manifest → ``low`` candidates (Q5).
+
+    A weak structural signal: a directory whose name matches a recognized
+    source-container pattern, sits below the top level (depth >= 2), and carries
+    no co-located manifest.  Triage priority only — the human still authors all
+    semantics; ``low`` never licenses auto-approval.
+    """
+    candidates: list[dict] = []
+    for dirpath, _dirnames, filenames in _pruned_walk(project_root, budget):
+        if dirpath == project_root:
+            continue
+        rel = dirpath.relative_to(project_root)
+        if len(rel.parts) < 2:
+            continue  # top-level dirs are covered by _discover_top_dirs (medium)
+        if dirpath.name not in _SOURCE_DIR_NAMES:
+            continue
+        if _MANIFEST_FILENAMES & set(filenames):
+            continue  # a co-located manifest makes it a high-confidence component
+        loc = str(rel) + "/"
+        cid = str(rel).replace(os.sep, "-")
+        candidates.append(
+            {
+                "id": cid,
+                "boundary_type": "path",
+                "sot_location": loc,
+                "confidence": "low",
+                "inferred_from": "nested_source_directory",
+            }
+        )
+    return sorted(candidates, key=lambda c: c["sot_location"])
+
+
 def _discover_candidates(
     project_root: Path, budget: "_ScanBudget | None" = None
 ) -> list[dict]:
-    """Orchestrate all three scanners, deduplicated and sorted by sot_location.
+    """Orchestrate all scanners, deduplicated and sorted by sot_location.
 
     A shared ``_ScanBudget`` (created here if not supplied) bounds the combined
-    manifest + ADR walks by dir-count and wall-time (F-SOT-3); the caller can
-    pass its own to read ``budget.truncated`` afterwards.
+    manifest + ADR + nested-source walks by dir-count and wall-time (F-SOT-3);
+    the caller can pass its own to read ``budget.truncated`` afterwards.  Scanners
+    are concatenated strongest-first (manifest/ADR high → top-dir medium →
+    nested-source low) so dedup-by-location keeps the highest-confidence label.
     """
     if budget is None:
         budget = _ScanBudget()
@@ -718,11 +796,21 @@ def _discover_candidates(
         _discover_manifests(project_root, budget)
         + _discover_adr_dirs(project_root, budget)
         + _discover_top_dirs(project_root)
+        + _discover_nested_source_dirs(project_root, budget)
     ):
         loc = c["sot_location"]
         if loc not in seen:
             seen.add(loc)
             all_candidates.append(c)
+    # Invariant: every emitted candidate carries a known confidence tier (Q5).
+    # This is the one consumer of _CONFIDENCE_TIERS — it keeps the ordinal-tier
+    # vocabulary and the scanners' hard-coded labels from silently diverging.
+    for c in all_candidates:
+        if c["confidence"] not in _CONFIDENCE_TIERS:
+            raise ValueError(
+                f"candidate {c['id']!r} has unknown confidence "
+                f"{c['confidence']!r} (expected one of {_CONFIDENCE_TIERS})"
+            )
     return sorted(all_candidates, key=lambda c: c["sot_location"])
 
 
@@ -747,6 +835,236 @@ def _apply_cap(candidates: list[dict], limit: int) -> tuple[list[dict], int]:
     if limit <= 0 or len(candidates) <= limit:
         return list(candidates), 0
     return candidates[:limit], len(candidates) - limit
+
+
+# ---------------------------------------------------------------------------
+# Staging proposal (TD-744) — non-committed .sot/registry.proposed.yaml
+# ---------------------------------------------------------------------------
+
+
+def _git_owner_candidates(
+    project_root: Path, locations: list[str], top_n: int = 3
+) -> dict[str, list[dict]]:
+    """Advisory ``git log`` owner candidates per sot_location (TD-744 Q6).
+
+    Returns ``{sot_location: [{"name": str, "commits": int}, ...]}`` with the
+    top-N committers by commit count.  This is a FLAGGED HINT only — it is never
+    written into the ``owner`` field (BP-029/BP-030); the human remains the
+    decider.  Degrades SILENTLY to ``{}`` when the project is not a git repo or
+    git is unavailable; never raises.
+    """
+    try:
+        rev = subprocess.run(
+            ["git", "-C", str(project_root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            timeout=_GIT_SUBPROCESS_TIMEOUT,
+        )
+    except (OSError, FileNotFoundError, subprocess.TimeoutExpired):
+        return {}
+    if rev.returncode != 0 or rev.stdout.strip() != "true":
+        return {}
+
+    out: dict[str, list[dict]] = {}
+    for loc in locations:
+        try:
+            res = subprocess.run(
+                ["git", "-C", str(project_root), "log", "--format=%an", "--", loc],
+                capture_output=True,
+                text=True,
+                timeout=_GIT_SUBPROCESS_TIMEOUT,
+            )
+        except (OSError, FileNotFoundError, subprocess.TimeoutExpired):
+            # Skip this location but keep results already accumulated for earlier
+            # locations (matching the non-zero-returncode `continue` below).
+            continue
+        if res.returncode != 0:
+            continue
+        counts: dict[str, int] = {}
+        for line in res.stdout.splitlines():
+            name = line.strip()
+            if name:
+                counts[name] = counts.get(name, 0) + 1
+        if not counts:
+            continue
+        ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top_n]
+        out[loc] = [{"name": n, "commits": c} for n, c in ranked]
+    return out
+
+
+def _format_proposal_yaml(
+    candidates: list[dict], owner_candidates: dict[str, list[dict]]
+) -> str:
+    """Render the staging proposal body (TD-744 Q4).
+
+    Structural fields (``id``, ``boundary_type``, ``sot_location``, ``status``,
+    ``added_by``) are filled; every human-owned semantic field is an explicit
+    ``TODO(human):`` placeholder (BP-029); ``confidence`` + the mandatory
+    ``inferred_from`` ride as per-entry advisory comments (they are not registry
+    schema fields), as does the advisory ``owner_candidates`` block (Q6).
+
+    The entry mappings are serialized with ``yaml.safe_dump`` rather than
+    hand-built ``key: value`` lines so that arbitrary ``id`` / ``sot_location``
+    values — which originate from on-disk directory names and may legally contain
+    YAML metacharacters (``foo: bar``, ``@weird``, ``[bracket``, ``foo"bar``) —
+    are correctly quoted/escaped. Entry bodies are therefore rendered via
+    ``yaml.safe_dump`` and always parse; the advisory ``owner_candidates``
+    comment lines are control-char-sanitized (so an embedded newline in a
+    location or hint can never break a ``#`` line out into uncommented YAML),
+    so the full draft round-trips through ``yaml.safe_load``.
+    """
+    lines: list[str] = [
+        "# .sot/registry.proposed.yaml — STAGING PROPOSAL (NOT the committed registry)",
+        "#",
+        "# Generated by `aim-sot detect-propose run --write-proposal`. This is a",
+        "# NON-COMMITTED draft — the engine never writes .sot/registry.yaml (BP-030).",
+        "#",
+        "# To adopt: fill every TODO(human) field, prune candidates you don't want,",
+        "# then RENAME this file to .sot/registry.yaml and run `aim-sot verify`.",
+        "# That promotion + commit IS your approval (BP-030 human authority).",
+        "#",
+        "# Recommend git-ignoring .sot/registry.proposed.yaml (a draft, not the SoT).",
+    ]
+    if owner_candidates:
+        lines.append("#")
+        lines.append(
+            "# ── owner_candidates (ADVISORY — from `git log`, NEVER an owner value) ──"
+        )
+        lines.append(
+            "# Top committers per location, a hint to help you author `owner` by hand."
+        )
+        lines.append(
+            "# The human decides; these are written into NO field (BP-029/BP-030)."
+        )
+
+        # Comment lines are hand-built (not yaml.safe_dump), so a control char
+        # (e.g. an embedded newline in a dir-derived loc or a git hint) would
+        # split the `#` line and leak uncommented YAML. Replace any non-printable
+        # char with a space before interpolating.
+        def _comment_safe(s: str) -> str:
+            return "".join(c if c.isprintable() else " " for c in s)
+
+        for loc in sorted(owner_candidates):
+            hint = ", ".join(
+                f"{c['name']} ({c['commits']})" for c in owner_candidates[loc]
+            )
+            lines.append(f"#   {_comment_safe(loc)}: {_comment_safe(hint)}")
+    lines.append("")
+    lines.append('schema_version: "1.0"')
+    lines.append("")
+    if not candidates:
+        lines.append("entries: []")
+        return "\n".join(lines) + "\n"
+
+    lines.append("entries:")
+    for c in candidates:
+        lines.append(
+            f"  # confidence: {c['confidence']}  ·  inferred_from: {c['inferred_from']}"
+        )
+        # Structural fields carry REAL values; every semantic field is a
+        # TODO(human) STRING (BP-029).  safe_dump quotes/escapes whatever the raw
+        # id / sot_location contain, so the draft always yaml.safe_load-parses.
+        entry = {
+            "id": c["id"],
+            "kind": (
+                "TODO(human): <service|library|application|api|data"
+                "|infrastructure|decision|documentation>"
+            ),
+            "boundary_type": c["boundary_type"],
+            "sot_location": c["sot_location"],
+            "owner": "TODO(human): <owning team or person>",
+            "description": "TODO(human): <one-line summary of this boundary>",
+            "last_verified": "TODO(human): <YYYY-MM-DD a person re-confirmed this>",
+            "added_by": "aim-sot bootstrap",
+            "provenance_note": "TODO(human): <how/why this entry was added>",
+            "status": "proposed",
+        }
+        entry_yaml = yaml.safe_dump(
+            [entry],
+            sort_keys=False,
+            default_flow_style=False,
+            allow_unicode=True,
+            width=4096,
+        ).rstrip("\n")
+        # Nest the dumped list item under the 2-space `entries:` indentation.
+        lines.append(textwrap.indent(entry_yaml, "  "))
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_proposal_file(
+    proposed_path: Path,
+    candidates: list[dict],
+    owner_candidates: dict[str, list[dict]],
+    *,
+    scan_root: Path,
+    force: bool,
+) -> tuple[bool, str]:
+    """Write the non-committed staging proposal (TD-744 Q3/Q4).
+
+    Skips (returns ``written=False``) when the file already exists and ``force``
+    is False, protecting in-progress human edits (idempotency, Q3).
+
+    BP-030 (defense in depth — the committed ``registry.yaml`` is never written).
+    A basename check alone is bypassable (a pre-existing ``registry.proposed.yaml``
+    symlinked to ``registry.yaml`` would be followed; a ``../registry.proposed.yaml``
+    basename also passes a name check yet writes outside ``.sot/``).  Three
+    independent guards close that:
+      1. basename guard — reject any name but ``registry.proposed.yaml``;
+      2. path confinement — the literal ``<scan_root>/.sot`` must not itself be a
+         symlink, and the target's resolved parent must equal that directory.
+         Rejecting a symlinked ``.sot`` is load-bearing: were ``.sot`` a symlink to
+         an external dir, both sides of the resolved-parent comparison would
+         resolve through it and compare equal, letting the draft be written
+         outside the project.  With that rejection the guarantee is: the draft is
+         only ever written to a real (non-symlinked) ``<scan_root>/.sot``
+         directory, never through ``..`` traversal or a symlinked SOT dir;
+      3. no-symlink-follow — refuse a pre-existing symlink at the target AND
+         open with ``O_NOFOLLOW`` so a symlink planted even at write time (TOCTOU)
+         can never be followed through to the committed registry.
+    """
+    # Guard 1 — basename: never write anything but the staging draft.
+    if proposed_path.name != _PROPOSED_FILENAME:
+        raise ValueError(f"refusing to write non-proposal path: {proposed_path}")
+
+    # Guard 2 — confinement: the only legal target is
+    # <scan_root>/.sot/registry.proposed.yaml.  Reject a symlinked .sot first —
+    # otherwise both sides below resolve through it and compare equal, letting the
+    # draft land outside the project.  Then resolve the PARENT (the file may not
+    # exist yet) and compare against the expected .sot directory.
+    sot_dir = scan_root / ".sot"
+    if sot_dir.is_symlink():
+        raise ValueError(f"refusing to write through a symlinked .sot dir: {sot_dir}")
+    expected_dir = sot_dir.resolve()
+    actual_dir = proposed_path.parent.resolve()
+    if actual_dir != expected_dir:
+        raise ValueError(f"refusing to write outside {expected_dir}: {proposed_path}")
+
+    # Guard 3a — refuse a pre-existing symlink at the target (never follow it).
+    if proposed_path.is_symlink():
+        raise ValueError(f"refusing to write through a symlink: {proposed_path}")
+    if proposed_path.exists() and not force:
+        return False, (
+            f"{proposed_path} already exists — skipping to protect in-progress "
+            "edits. Re-run with --force to overwrite."
+        )
+    proposed_path.parent.mkdir(parents=True, exist_ok=True)
+    body = _format_proposal_yaml(candidates, owner_candidates)
+    # Guard 3b — O_NOFOLLOW: even if a symlink is planted between the check above
+    # and this open, the open refuses to follow it (BP-030) rather than writing
+    # through to the link target.
+    fd = os.open(
+        proposed_path,
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+        0o600,
+    )
+    # O_TRUNC reuses an existing inode without resetting its mode, so a stale
+    # pre-fix 0o644 file overwritten with --force would keep 0o644 — force
+    # owner-only perms on both the create and overwrite paths.
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(body)
+    return True, f"Wrote staging proposal: {proposed_path}"
 
 
 # ---------------------------------------------------------------------------
@@ -1307,6 +1625,36 @@ def _run_cold_start_discovery(
     capped, deferred_count = _apply_cap(new_candidates, limit)
     candidate_proposals = [_make_candidate_proposal(c) for c in capped]
 
+    # --write-proposal (TD-744 Q4): scaffold a non-committed staging draft from
+    # the discovered candidates.  Skips an existing draft unless --force (Q3).
+    # The committed registry is never written (BP-030).
+    proposal_written = False
+    proposal_path: str | None = None
+    proposal_message: str | None = None
+    owner_candidates: dict[str, list[dict]] = {}
+    if getattr(args, "write_proposal", False):
+        proposed_path = scan_root / ".sot" / _PROPOSED_FILENAME
+        owner_candidates = _git_owner_candidates(
+            scan_root, [c["sot_location"] for c in capped]
+        )
+        try:
+            proposal_written, proposal_message = _write_proposal_file(
+                proposed_path,
+                capped,
+                owner_candidates,
+                scan_root=scan_root,
+                force=getattr(args, "force", False),
+            )
+        except (ValueError, OSError) as exc:
+            # A BP-030 guard tripped (ValueError: symlink / out-of-confinement
+            # target) or the O_NOFOLLOW open hit a TOCTOU-planted symlink
+            # (OSError: ELOOP): refuse the write, surface it as the same graceful
+            # message, leave the committed registry untouched.
+            proposal_written = False
+            proposal_message = f"aim-sot: refusing to write staging proposal: {exc}"
+            print(proposal_message, file=sys.stderr)
+        proposal_path = str(proposed_path)
+
     if getattr(args, "as_json", False):
         print(
             json.dumps(
@@ -1316,6 +1664,9 @@ def _run_cold_start_discovery(
                     "deferred_count": deferred_count,
                     "project_id": project_id,
                     "budget_truncated": bool(scan_budget.truncated),
+                    "proposal_written": proposal_written,
+                    "proposal_path": proposal_path,
+                    "owner_candidates": owner_candidates,
                 }
             )
         )
@@ -1325,8 +1676,19 @@ def _run_cold_start_discovery(
             "tracking. Discovered the candidates below; review them, then copy the "
             "ones you want into .sot/registry.yaml (authoring owner/description/"
             "provenance_note by hand), and run aim-sot verify to approve.\n"
+            "Tip: `--write-proposal` scaffolds a ready-to-edit "
+            ".sot/registry.proposed.yaml draft for you.\n"
         )
         print(_format_human([], candidate_proposals, deferred_count))
+        if proposal_message:
+            print("\n" + proposal_message)
+        if owner_candidates:
+            print("\nowner_candidates (advisory — from git log, never an owner value):")
+            for loc in sorted(owner_candidates):
+                hint = ", ".join(
+                    f"{c['name']} ({c['commits']})" for c in owner_candidates[loc]
+                )
+                print(f"  {loc}: {hint}")
     return 0
 
 
@@ -1338,6 +1700,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         # Cold-start: no registry yet → run discovery + propose (Option A,
         # DEFECT-2).  Propose-only — never writes .sot/registry.yaml.
         return _run_cold_start_discovery(registry_path, args)
+
+    # --write-proposal scaffolds only on the cold-start path; with a committed
+    # registry present it is a no-op — tell the human how to surface candidates.
+    if getattr(args, "write_proposal", False):
+        print(
+            "aim-sot: --write-proposal has no effect when a committed registry is "
+            "present; use 'detect-propose run' to surface new candidates.",
+            file=sys.stderr,
+        )
 
     # --- Derive project_id ---
     try:
@@ -1674,6 +2045,25 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="all",
         help="Disable candidate cap",
+    )
+    run_p.add_argument(
+        "--write-proposal",
+        action="store_true",
+        dest="write_proposal",
+        help=(
+            "On a registry-less project, scaffold a non-committed "
+            ".sot/registry.proposed.yaml staging draft (structural fields filled, "
+            "semantic fields as TODO(human)). Never writes the committed registry."
+        ),
+    )
+    run_p.add_argument(
+        "--force",
+        action="store_true",
+        dest="force",
+        help=(
+            "With --write-proposal, overwrite an existing "
+            ".sot/registry.proposed.yaml (default: skip to protect in-progress edits)."
+        ),
     )
     run_p.add_argument(
         "--shadow",

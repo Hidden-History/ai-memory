@@ -15,7 +15,29 @@
 # machine timestamps) are never stored here; they live in the per-install drift
 # cache (~/.ai-memory/drift-state/).
 #
+# Bootstrap shortcut: on a registry-less project run
+#   aim-sot detect-propose run --write-proposal
+# It scaffolds a NON-COMMITTED .sot/registry.proposed.yaml draft with the
+# structural fields filled and every human-owned field stamped as a
+# `TODO(human): ...` placeholder (see the placeholder shape below). Fill the
+# TODO(human) fields, prune candidates, then RENAME the draft to this file
+# (.sot/registry.yaml) and run `aim-sot verify` — that promotion is your
+# approval. The draft is re-run-safe: it is never overwritten without --force.
+#
 # Validate this file: aim-sot verify
+#
+# ── Placeholder shape produced by --write-proposal (structural filled,
+#    semantic fields TODO(human); replace each TODO before promoting) ──────────
+#   - id: example-bootstrapped
+#     kind: "TODO(human): <service|library|application|api|data|infrastructure|decision|documentation>"
+#     boundary_type: component        # structural — inferred by discovery
+#     sot_location: "libs/example/package.json"   # structural — inferred
+#     owner: "TODO(human): <owning team or person>"
+#     description: "TODO(human): <one-line summary of this boundary>"
+#     last_verified: "TODO(human): <YYYY-MM-DD a person re-confirmed this>"
+#     added_by: "aim-sot bootstrap"
+#     provenance_note: "TODO(human): <how/why this entry was added>"
+#     status: proposed
 
 schema_version: "1.0"
 
