@@ -368,7 +368,9 @@ services:
       - ../src:/app/src:ro
       - ../scripts:/app/scripts:ro
       - ../evaluators:/app/evaluators:ro
-      - ../evaluator_config.yaml:/app/evaluator_config.yaml:ro
+      # evaluator_config.yaml is image-baked (Dockerfile.evaluator-scheduler),
+      # not bind-mounted: single-file bind mounts are fragile on WSL2/Docker
+      # Desktop reboots (TD-748). Override at runtime via EVALUATOR_CONFIG_PATH.
       - ${AI_MEMORY_INSTALL_DIR:-.}/.audit:/app/.audit
     environment:
       - LANGFUSE_ENABLED=true
