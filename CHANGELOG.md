@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-06-30
+
+### Upgrade Instructions
+
+This release image-bakes `evaluator_config.yaml` into the evaluator-scheduler (TD-748). As of v2.8.1, `stack.sh restart` auto-rebuilds source-baked services on the cached path (TD-723), so the TD-748 change deploys with the normal update flow — no manual build step required:
+
+```bash
+# 1. Update source + install (refreshes ~/.ai-memory and any target project)
+cd <your ai-memory clone> && git pull
+./scripts/install.sh <project-path>
+
+# 2. Restart — auto-rebuilds source-baked services on the cached path (TD-723),
+#    including evaluator-scheduler (picks up the TD-748 image-bake):
+~/.ai-memory/scripts/stack.sh restart
+```
+
+If monitoring is enabled, streamlit is not in the auto-rebuild set and requires an explicit build:
+
+```bash
+cd ~/.ai-memory/docker
+docker compose --profile monitoring build streamlit
+```
+
+#### Updating from a previous version (2.8.x)
+
+- **2.8.1 → 2.8.2**: the flow above (restart-only; no manual build).
+- **2.8.0 → 2.8.2**: same restart flow. v2.8.1 introduced `stack.sh restart` auto-rebuild (TD-723), so pre-2.8.1 upgrades that required a manual `docker compose build` no longer do.
+
+### Added
+
+- **SOT auto-bootstrap staging draft (`aim-sot detect-propose run --write-proposal`, TD-744)** — scaffolds a non-committed `.sot/registry.proposed.yaml` with structural fields populated and semantic fields left as `TODO(human):` placeholders for human review before promotion. The committed `.sot/registry.yaml` is never engine-written (BP-030).
+
+### Changed
+
+- **`evaluator_config.yaml` image-baked into the evaluator-scheduler (TD-748)** — the config is now `COPY`'d in `Dockerfile.evaluator-scheduler` instead of mounted as a single-file bind mount; `EVALUATOR_CONFIG_PATH` overrides the baked path when a custom location is needed.
+- **CodeQL `paths-ignore` extended for the SOT permission regression test** — the test deliberately creates a non-owner-only file to verify the permission fix, which `py/overly-permissive-file-permissions` flags regardless of intent; the test path is now excluded in `.github/codeql/codeql-config.yml`.
+
+### Fixed
+
+- **Evaluator-scheduler `Exit 127` on Docker Desktop / WSL2 reboot resolved by image-bake (TD-748)** — the single-file bind mount for `evaluator_config.yaml` was recreated as a directory on host reboot, causing runc to error "not a directory" and the scheduler to exit 127 at startup; image-baking the config eliminates the bind-mount path entirely.
+- **SOT staging-file permissions hardened to `0o600` (CodeQL HIGH `py/overly-permissive-file-permissions`)** — `--write-proposal` now opens the staging file with `0o600` and applies `fchmod` on the `--force` overwrite path.
+
+### Security
+
+- `urllib3` 2.6.3 → 2.7.0 (#137).
+- pip minor/patch dependency group including the fastapi group, resolving `starlette` to 0.50.0 (#225).
+
 ## [2.8.1] - 2026-06-25
 
 ### Upgrade Instructions
@@ -3320,7 +3367,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.1...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.2...HEAD
+[2.8.2]: https://github.com/Hidden-History/ai-memory/compare/v2.8.1...v2.8.2
 [2.8.1]: https://github.com/Hidden-History/ai-memory/compare/v2.8.0...v2.8.1
 [2.8.0]: https://github.com/Hidden-History/ai-memory/compare/v2.7.0...v2.8.0
 [2.4.2]: https://github.com/Hidden-History/ai-memory/compare/v2.4.1...v2.4.2
