@@ -972,6 +972,7 @@ def _run_cmd_real_cache(
     args.as_json = True
     args.all = False
     args.limit = 20
+    args.no_reindex = False
     with (
         _inject_project_id(project_id),
         patch.object(dp, "_DRIFT_CACHE_DIR", cache_dir),
@@ -1671,6 +1672,7 @@ def test_cmd_reindex_validation_rejection_exits_nonzero(tmp_path, capsys):
     _write_registry(registry_path, [{"id": "core", "sot_location": "src/"}])
     args = MagicMock()
     args.registry = str(registry_path)
+    args.no_reindex = False
     with (
         _inject_project_id("proj"),
         patch.object(
@@ -1693,6 +1695,7 @@ def test_cmd_reindex_store_unreachable_stays_graceful(tmp_path, capsys):
     _write_registry(registry_path, [{"id": "core", "sot_location": "src/"}])
     args = MagicMock()
     args.registry = str(registry_path)
+    args.no_reindex = False
     with (
         _inject_project_id("proj"),
         patch.object(
