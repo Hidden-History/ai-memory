@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped dependency constraints: `structlog` `<26.0.0` → `<27.0.0` (resolves 26.1.0), `pytest-randomly` `<4.0.0` → `<5.0.0` (resolves 4.1.0), `click` `>=8.2.1` → `>=8.4.1`, `typer` `>=0.12.0` → `>=0.26.7`, `actions/cache` `v5` → `v6` (CI-only).
+- Bumped `fastapi` `0.128.0` → `0.138.0`, which resolves `starlette` `0.50.0` → `1.3.1`, clearing 5 open starlette Dependabot advisories. `ruff` and the streamlit `structlog` constraint updated to match.
+
 ## [2.8.2] - 2026-06-30
 
 ### Upgrade Instructions
