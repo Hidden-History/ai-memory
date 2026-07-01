@@ -3,7 +3,7 @@
 # All versions pinned per ACT-003
 
 # Core FastAPI dependencies
-fastapi[standard]==0.128.0
+fastapi[standard]==0.138.0
 pydantic==2.12.5
 pydantic-settings==2.14.2
 
