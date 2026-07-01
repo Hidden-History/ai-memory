@@ -41,6 +41,6 @@ spacy>=3.8.0,<4.0.0
 # typer is the middle link: spacy CLI depends on it, typer depends on click.
 # Unpinned typer could resolve to a version with a pathological click requirement.
 # Working resolution verified at typer ~0.26.x; <1.0.0 caps before the API-break boundary.
-typer>=0.12.0,<1.0.0
+typer>=0.26.7,<1.0.0
 # click floor tightened from 8.0.0 → 8.2.1 (effective transitive minimum: typer 0.26.x requires >=8.2.1)
-click>=8.2.1,<9.0.0
+click>=8.4.1,<9.0.0
