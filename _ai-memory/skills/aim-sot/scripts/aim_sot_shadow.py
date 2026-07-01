@@ -32,6 +32,7 @@ Safety rails (non-negotiable, design §8):
 """
 
 import contextlib
+import fcntl
 import fnmatch
 import hashlib
 import json
@@ -53,6 +54,8 @@ _INSTALL_DIR = Path(
 )
 _SHADOW_GIT_ROOT = _INSTALL_DIR / "sot-git"
 _SETUP_DIR = _INSTALL_DIR / "sot-setup"
+# Per-file hash cache lives beside the engine's 5a drift-state (BP-027 / BP-048).
+_DRIFT_STATE_DIR = _INSTALL_DIR / "drift-state"
 
 # Versions — bump SETUP_VERSION when setup does something new; bump
 # SCHEMA_VERSION when the sentinel JSON shape changes (BP-041 Q3).
@@ -97,8 +100,11 @@ def _env_int(name: str, default: int) -> int:
 # cap and the hook silently times out, so the drift channel produces zero
 # findings forever.  These defaults keep a typical project well under the hook
 # cap while bounding the pathological case to a *signaled* truncation rather
-# than a hang.  Override per-project via the environment.
-_DIGEST_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DIGEST_MAX_SECONDS", 10.0)
+# than a hang.  The 18s wall-time sits just under the hook cap: with the BP-048
+# warm cache + scandir stat-fold a large-dir warm run now completes (measured
+# well below 18s) instead of truncating, while the cap still guards a cold or
+# pathological run.  Override per-project via the environment.
+_DIGEST_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DIGEST_MAX_SECONDS", 18.0)
 _DIGEST_MAX_FILES = _env_int("AI_MEMORY_SOT_DIGEST_MAX_FILES", 20000)
 
 
@@ -200,6 +206,230 @@ def file_sha256(path: Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
+# ---------------------------------------------------------------------------
+# BP-048 — incremental per-file hash cache (accelerator ONLY, never authority)
+# ---------------------------------------------------------------------------
+
+# Per-entry hash-algorithm version.  Bump when the content hash changes (e.g.
+# SHA-256 → BLAKE3) so every stale entry is silently treated as a miss.
+FILE_HASH_CACHE_VERSION = "1"
+
+# Racy-clean guard (BP-048): a cache hit is trusted only when the file was last
+# modified at least this long ago, so a same-second overwrite (WSL2/9p has 1s
+# mtime resolution) can never be mistaken for "unchanged".  2s is safe for 1s
+# granularity — ccache's proven horizon.
+_FRESHNESS_HORIZON_NS = 2_000_000_000  # 2 seconds in nanoseconds
+
+# Reserved scope for the whole-project digest (``run_shadow_pass``).  The
+# double-underscore sentinel is deliberately a token no SOT ``entry_id`` can be,
+# so a per-entry cache — even for an entry literally named ``tree`` — never
+# collides with the whole-project cache and prunes it (LOW-1).
+_WHOLE_TREE_SCOPE = "__whole_tree__"
+
+
+def file_hash_cache_path(project_id: str, scope: str = _WHOLE_TREE_SCOPE) -> Path:
+    """Return the per-file hash cache path for ``(project_id, scope)``.
+
+    The cache is machine-local and co-located with the engine's 5a drift-state
+    (BP-027 layout):
+    ``~/.ai-memory/drift-state/sot_file_hash_<id>__<scope>__<tag>.json``.  Its
+    ``.lock`` sibling guards the read-modify-write.
+
+    ``scope`` isolates independent digest roots into separate cache files.  This
+    is REQUIRED for correctness: :func:`tree_digest` prunes its cache to the
+    file set of the root it walked, so two different roots (e.g. the whole
+    project vs. a single directory SOT entry) sharing one cache would each prune
+    away the other's entries.  ``run_shadow_pass`` uses the reserved
+    :data:`_WHOLE_TREE_SCOPE`; the per-entry drift path passes the entry id.
+
+    The ``<id>``/``<scope>`` stem is human-readable only: both are flattened with
+    ``/`` → ``__``, so ``("a/b", "c")`` and ``("a", "b/c")`` would share the stem
+    ``a__b__c``.  A NUL-delimited ``<tag>`` digest of the *raw*
+    ``(project_id, scope)`` pair disambiguates them, so distinct pairs never
+    collide on one file.
+
+    Args:
+        project_id: The active project id.
+        scope: A token identifying the digest root (default
+            :data:`_WHOLE_TREE_SCOPE` for the whole-project digest; use the entry
+            id for a per-entry digest).
+
+    Returns:
+        The absolute path to this project+scope per-file hash cache JSON file.
+    """
+    stem = f"{_safe_id(project_id)}__{_safe_id(scope)}"
+    tag = hashlib.sha256(f"{project_id}\x00{scope}".encode()).hexdigest()[:8]
+    return _DRIFT_STATE_DIR / f"sot_file_hash_{stem}__{tag}.json"
+
+
+def exclude_epoch(excludes) -> str:
+    """Return the invalidation epoch for an exclude set (BP-048).
+
+    A change to the exclude patterns changes which files are in the tree, so
+    every cached hash must be discarded.  Hashing the sorted patterns yields a
+    stable epoch that flips the whole cache stale on any exclude-config change.
+
+    Args:
+        excludes: The exclude globs the tree digest is computed with.
+
+    Returns:
+        The SHA-256 hex digest of the newline-joined, sorted patterns.
+    """
+    joined = "\n".join(sorted(str(p) for p in excludes))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
+
+def load_file_hash_cache(
+    project_id: str, excludes=DEFAULT_EXCLUDES, scope: str = _WHOLE_TREE_SCOPE
+) -> dict:
+    """Load the per-file hash cache for a project+scope, failing open (BP-048).
+
+    Callable standalone (not only inside :func:`run_shadow_pass`) so the
+    per-entry drift path can accelerate a directory digest.  The cache is always
+    safe to discard: a missing, corrupt, version-mismatched, or
+    epoch-mismatched file yields a fresh empty cache, so a cold start simply
+    re-hashes everything.  The epoch is derived from ``excludes``, which MUST
+    match the ``excludes`` later passed to :func:`tree_digest`.
+
+    Args:
+        project_id: The active project id.
+        excludes: The exclude set the digest will use (drives the epoch).
+        scope: The digest-root scope (see :func:`file_hash_cache_path`).
+
+    Returns:
+        A cache dict ``{"v", "epoch", "files": {rel: entry}}`` — freshly empty
+        when the on-disk cache is absent, unreadable, or stale.
+    """
+    epoch = exclude_epoch(excludes)
+    empty = {"v": FILE_HASH_CACHE_VERSION, "epoch": epoch, "files": {}}
+    cache_path = file_hash_cache_path(project_id, scope)
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return empty
+    if (
+        not isinstance(data, dict)
+        or data.get("v") != FILE_HASH_CACHE_VERSION
+        or data.get("epoch") != epoch
+        or not isinstance(data.get("files"), dict)
+    ):
+        return empty
+    return data
+
+
+def save_file_hash_cache(
+    project_id: str, cache: dict, scope: str = _WHOLE_TREE_SCOPE
+) -> None:
+    """Persist the per-file hash cache atomically under a ``flock`` (BP-048).
+
+    Follows the BP-027 atomic-write pattern (temp file → ``flush`` → ``fsync`` →
+    ``os.replace``) so an interrupted write never leaves corrupt JSON.  The
+    read-modify-write is serialized with a stdlib :func:`fcntl.flock` advisory
+    lock — the exact mechanism the 5a drift cache uses, so no third-party
+    dependency is required (the cache is rebuildable, so a lock that cannot be
+    acquired fails open rather than blocking the hot path).
+
+    Args:
+        project_id: The active project id.
+        cache: The cache dict to persist.
+        scope: The digest-root scope (see :func:`file_hash_cache_path`).
+    """
+    cache_path = file_hash_cache_path(project_id, scope)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = None
+    try:
+        lock_fd = open(  # noqa: SIM115 — held across the write, closed in finally
+            str(cache_path) + ".lock", "w", encoding="utf-8"
+        )
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    except OSError:
+        if lock_fd is not None:
+            lock_fd.close()
+            lock_fd = None
+    try:
+        tmp_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=cache_path.parent,
+                delete=False,
+                suffix=".tmp",
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+                json.dump(cache, tmp)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.replace(tmp_path, cache_path)
+        except Exception:
+            if tmp_path is not None:
+                with contextlib.suppress(OSError):
+                    tmp_path.unlink(missing_ok=True)
+            raise
+    finally:
+        if lock_fd is not None:
+            with contextlib.suppress(OSError):
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
+
+
+def get_file_hash(rel: str, full: Path, cache: dict, st=None) -> str:
+    """Return the SHA-256 of ``full``, reusing a cached hash when unchanged.
+
+    The ``(mtime_ns, size)`` pre-filter (BP-048) skips the file read when a
+    cached entry matches and the file is older than the freshness horizon;
+    otherwise the content is re-hashed and the entry refreshed.  Inode/device are
+    deliberately omitted — unreliable on the WSL2/9p mount.  The returned hash is
+    identical to a bare :func:`file_sha256`, so the cache never alters the digest.
+
+    Args:
+        rel: POSIX relpath key for the file within the tree.
+        full: Absolute path to the file to hash.
+        cache: The cache dict; its ``"files"`` map is updated in place on a miss.
+        st: A pre-fetched ``stat_result`` (e.g. the ``os.scandir`` entry's stat)
+            to avoid a redundant syscall on the WSL2/9p hot path; ``None`` stats
+            ``full`` here.  For a regular file ``lstat`` and ``stat`` agree, so a
+            ``follow_symlinks=False`` entry stat is a valid key source.
+
+    Returns:
+        The hex SHA-256 of the file's current content.
+    """
+    if st is None:
+        st = os.stat(full)
+    mtime_ns = st.st_mtime_ns
+    size = st.st_size
+    aged = (time.time_ns() - mtime_ns) >= _FRESHNESS_HORIZON_NS
+    entry = cache["files"].get(rel)
+    if (
+        entry is not None
+        and entry.get("v") == FILE_HASH_CACHE_VERSION
+        and aged  # racy-clean retrieval guard
+        and entry.get("mtime") == mtime_ns
+        and entry.get("size") == size
+    ):
+        return entry["sha256"]
+    sha256 = file_sha256(full)
+    # STORE guard (FIX-S1): persist an entry ONLY when the file is already older
+    # than the freshness horizon, so a NATURAL forward write (which advances the
+    # mtime to ~now) can never reproduce a stored, already-aged mtime — a
+    # same-second overwrite therefore cannot surface a stale hash.  Caveat: a
+    # timestamp-*preserving* restore (``tar -x``, ``rsync -a``, an ``os.utime``
+    # rewind) can stamp an old mtime onto new content and produce a stale hit;
+    # that is the inherent limit of the ccache-style (mtime, size) horizon,
+    # accepted here.  Too-fresh files (age < horizon) — including any with a
+    # future or perpetually-"now" mtime — stay uncached and are re-hashed every
+    # run (a perf residual only; the returned hash is always the true content
+    # hash, so the digest stays exact).
+    if aged:
+        cache["files"][rel] = {
+            "v": FILE_HASH_CACHE_VERSION,
+            "mtime": mtime_ns,
+            "size": size,
+            "sha256": sha256,
+        }
+    return sha256
+
+
 @dataclass
 class TreeDigest:
     """Result of :func:`tree_digest`: the versioned digest plus the symlinks
@@ -221,6 +451,7 @@ def tree_digest(
     *,
     max_files: int | None = None,
     max_seconds: float | None = None,
+    cache: dict | None = None,
 ) -> TreeDigest:
     """BP-039 sorted-per-file-SHA-256 hash-of-hashes over ``root``.
 
@@ -238,6 +469,18 @@ def tree_digest(
     uses the module defaults (env-overridable).  On budget exceed the walk stops
     early and the result carries ``truncated=True`` with a partial digest the
     caller must discard (never compared as drift, never stored as a baseline).
+
+    When ``cache`` is provided (a dict from :func:`load_file_hash_cache`), each
+    file's hash is resolved through :func:`get_file_hash` so unchanged files skip
+    the read (BP-048).  The cache is a pure accelerator: the resulting digest is
+    byte-identical to a cache-free run.  Entries for files no longer present are
+    pruned after a complete (non-truncated) walk.
+
+    The traversal uses :func:`os.scandir` (not :func:`os.walk`) so the single
+    per-entry syscall it already makes serves double duty: ``is_symlink`` is read
+    from the cached ``d_type`` and the entry's own ``stat`` feeds the cache key —
+    folding away the redundant ``lstat`` + ``stat`` the ``os.walk`` form incurred
+    on every file (the dominant cost on the WSL2/9p hot path).
     """
     if max_files is None:
         max_files = _DIGEST_MAX_FILES
@@ -247,40 +490,75 @@ def tree_digest(
 
     lines: list[str] = []
     skipped: list[str] = []
+    seen_rels: set[str] = set()
     truncated = False
-    for dirpath, dirnames, filenames in os.walk(root):
-        # Prune excluded directories in-place so we never descend into them.
-        kept = []
-        for d in dirnames:
-            drel = os.path.relpath(os.path.join(dirpath, d), root).replace(os.sep, "/")
-            if path_excluded(drel + "/", excludes):
-                continue
-            kept.append(d)
-        dirnames[:] = kept
-        for name in filenames:
-            # Budget gate BEFORE the per-file IO (sha256 dominates wall-time).
-            if (max_files > 0 and len(lines) >= max_files) or (
-                deadline is not None and time.monotonic() > deadline
-            ):
-                truncated = True
-                break
-            full = Path(dirpath) / name
-            rel = os.path.relpath(full, root).replace(os.sep, "/")
-            if path_excluded(rel, excludes):
-                continue
-            if full.is_symlink():
-                skipped.append(rel)
-                continue
-            try:
-                digest = file_sha256(full)
-            except OSError:
-                # Unreadable regular file: skip but do not abort the whole
-                # digest — record nothing for it (deterministic: same skip on
-                # every machine where it is unreadable).
-                continue
-            lines.append(f"{digest}  {rel}\n")
-        if truncated:
-            break
+    # Explicit LIFO stack over os.scandir; symlinked directories are never
+    # descended (mirrors os.walk followlinks=False) and excluded dirs are pruned
+    # before descent so their subtrees are never read.
+    stack: list[str] = [str(root)]
+    while stack and not truncated:
+        current = stack.pop()
+        try:
+            scan = os.scandir(current)
+        except OSError:
+            continue  # unreadable dir: skip (deterministic, same on every machine)
+        subdirs: list[str] = []
+        with scan:
+            for entry in scan:
+                rel = os.path.relpath(entry.path, root).replace(os.sep, "/")
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=True)
+                except OSError:
+                    is_dir = False
+                if is_dir:
+                    # Directory or symlink-to-directory: never a digest entry.
+                    try:
+                        if entry.is_symlink():
+                            continue  # do not follow (followlinks=False parity)
+                    except OSError:
+                        continue
+                    if path_excluded(rel + "/", excludes):
+                        continue  # pruned — do not descend
+                    subdirs.append(entry.path)
+                    continue
+                # Regular file, symlink-to-file, or broken symlink.
+                # Budget gate BEFORE the per-file IO (sha256 dominates wall-time).
+                if (max_files > 0 and len(lines) >= max_files) or (
+                    deadline is not None and time.monotonic() > deadline
+                ):
+                    truncated = True
+                    break
+                if path_excluded(rel, excludes):
+                    continue
+                try:
+                    if entry.is_symlink():
+                        skipped.append(rel)
+                        continue
+                except OSError:
+                    continue
+                full = Path(entry.path)
+                try:
+                    if cache is not None:
+                        # Reuse the entry's stat as the cache key — no extra
+                        # syscall (lstat == stat for a non-symlink regular file).
+                        digest = get_file_hash(
+                            rel, full, cache, entry.stat(follow_symlinks=False)
+                        )
+                    else:
+                        digest = file_sha256(full)
+                except OSError:
+                    # Unreadable regular file: skip but do not abort the whole
+                    # digest — record nothing for it (deterministic: same skip on
+                    # every machine where it is unreadable).
+                    continue
+                lines.append(f"{digest}  {rel}\n")
+                if cache is not None:
+                    seen_rels.add(rel)
+        stack.extend(subdirs)
+    # Prune deleted-file entries only after a complete walk; a truncated walk has
+    # an incomplete file set and must not drop live entries (BP-048).
+    if cache is not None and not truncated:
+        cache["files"] = {k: v for k, v in cache["files"].items() if k in seen_rels}
     summary = "".join(sorted(lines))
     full_digest = (
         DIGEST_VERSION + ":" + hashlib.sha256(summary.encode("utf-8")).hexdigest()
@@ -972,12 +1250,28 @@ def run_shadow_pass(
         findings.append(error_finding(f"setup error: {exc}", "setup"))
         return summary
 
-    # LAYER 1 — one BP-039 digest of the project tree.
+    # LAYER 1 — one BP-039 digest of the project tree, accelerated by the BP-048
+    # per-file hash cache.  The cache is a pure accelerator: load failures degrade
+    # to a cache-free (cold) digest with identical output.
+    cache = None
     try:
-        td = tree_digest(project_dir, excludes)
+        cache = load_file_hash_cache(project_id, excludes)
+    except Exception:  # pragma: no cover - defensive; cache is optional
+        cache = None
+    try:
+        td = tree_digest(project_dir, excludes, cache=cache)
     except Exception as exc:  # pragma: no cover - defensive
         findings.append(error_finding(f"tree-digest error: {exc}", "tree-digest"))
         return summary
+    # Persist the cache even on a truncated walk (FIX-S3): a truncated run still
+    # computed real, correct per-file hashes for the files it reached — those are
+    # valid entries, so persisting them lets repeated truncated runs incrementally
+    # warm the cache until one completes (the bootstrap path for large/slow trees).
+    # tree_digest itself gates the deleted-entry PRUNE on a complete walk, and the
+    # partial *digest* is never stored as a baseline (guarded below).  Never fatal.
+    if cache is not None:
+        with contextlib.suppress(Exception):
+            save_file_hash_cache(project_id, cache)
 
     # Budget-truncated digest is a partial sentinel (F-SOT-3): it must never be
     # compared as drift or stored as a baseline (a later complete run would read
