@@ -118,7 +118,7 @@ dev = [
     # fastapi pinned to match the shipped image (docker/embedding/requirements.txt:
     # fastapi[standard]==0.138.0); only the framework + TestClient are needed here, not
     # the [standard] server stack. httpx is required by fastapi.testclient.TestClient.
-    "fastapi==0.128.0",
+    "fastapi==0.138.0",
     "httpx>=0.27,<1.0",
 ]
 
