@@ -6,7 +6,7 @@ nextStepFile: './step-05-save-and-confirm.md'
 
 # Step 4: Enforce Oversight-File Caps
 
-**Progress: Step 4 of 5** — Next: Save and Confirm
+**Progress: Step 4 of 6** — Next: Save and Confirm
 
 ## STEP GOAL:
 
