@@ -19,7 +19,7 @@ prometheus-client==0.24.1
 tenacity==9.1.4
 
 # Langfuse observability (Wave 3, PLAN-011)
-langfuse>=4.7.0,<4.8.0
+langfuse>=4.7.0,<4.11.0
 
 # Required by memory module import chain (memory/__init__.py)
 # BUG-086: memory/__init__.py unconditionally imports async_sdk_wrapper (anthropic)

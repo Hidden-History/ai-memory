@@ -71,7 +71,7 @@ dependencies = [
 [project.optional-dependencies]
 observability = [
     # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
-    "langfuse>=4.7.0,<4.8.0",
+    "langfuse>=4.7.0,<4.11.0",
     # OpenAI SDK for the evaluator LLM-as-judge provider (BUG-316) — used by
     # evaluator/provider.py for the ollama (default), openrouter, openai, and
     # custom OpenAI-compatible provider paths.
@@ -109,7 +109,7 @@ dev = [
     # YAML parsing (required by tests/unit/test_sops_encryption.py)
     "PyYAML>=6.0,<7.0",
     # Include observability deps so CI has langfuse for tests
-    "langfuse>=4.7.0,<4.8.0",
+    "langfuse>=4.7.0,<4.11.0",
     # Evaluator provider SDK so CI can exercise the openai import path (BUG-316)
     "openai>=1.99.1,<3.0.0",
     # Streamlit dashboard (CI validation of docker/streamlit/app.py)

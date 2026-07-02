@@ -66,7 +66,7 @@ croniter>=2.0.0,<7.0.0
 openai==2.38.0
 
 # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
-langfuse>=4.7.0,<4.8.0
+langfuse>=4.7.0,<4.11.0
 
 # Auto-instrumentation for Anthropic SDK calls (SPEC-020 §6)
 opentelemetry-instrumentation-anthropic>=0.1,<1.0.0
