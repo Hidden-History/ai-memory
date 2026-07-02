@@ -295,8 +295,14 @@ def _compute_entry_digest(
     *,
     project_id: str | None = None,
     entry_id: str | None = None,
-) -> str | None:
+) -> tuple[str | None, bool]:
     """Drift digest for an entry, dispatched by enum strategy (no shell exec).
+
+    Returns ``(digest, truncated)``.  ``truncated`` is True only when a directory
+    tree digest hit its wall-time / file-count budget (F-SOT-3): the digest is
+    then a *partial* sentinel the caller must never compare as drift or store as a
+    baseline (a later complete run would read it as a false re-baseline).  File and
+    temporal strategies never truncate → ``truncated`` is always False for them.
 
     - ``content-digest`` → ``sha256(file)[:8]`` (file SOT; behavior-preserving).
     - ``tree-digest`` / ``git-tree-hash`` → BP-039 ``vN:`` tree digest (dir SOT).
@@ -316,16 +322,17 @@ def _compute_entry_digest(
     the cache epoch).  The cache is accelerator-only: any load/save failure
     degrades to a correct, byte-identical cold digest.
 
-    Returns None when the path is absent or the shadow module is unavailable for a
-    tree strategy (graceful degrade to the file-only pre-TD-675 behavior).
+    Returns ``(None, False)`` when the path is absent or the shadow module is
+    unavailable for a tree strategy (graceful degrade to the file-only pre-TD-675
+    behavior).
     """
     if full_path is None or not full_path.exists():
-        return None
+        return None, False
     if strategy == "content-digest":
-        return _sha256_short(full_path)
+        return _sha256_short(full_path), False
     if strategy in ("tree-digest", "git-tree-hash"):
         if shadow is None:
-            return None
+            return None, False
         eff_excludes = excludes if excludes is not None else shadow.DEFAULT_EXCLUDES
         # Cache only with a real per-entry scope; never fall back to scope="tree"
         # (that is run_shadow_pass's cache — a collision would prune it).
@@ -339,14 +346,14 @@ def _compute_entry_digest(
             except Exception:
                 cache = None
         try:
-            digest = shadow.tree_digest(full_path, eff_excludes, cache=cache).digest
+            td = shadow.tree_digest(full_path, eff_excludes, cache=cache)
         except Exception:
-            return None
+            return None, False
         if use_cache and cache is not None:
             with contextlib.suppress(Exception):
                 shadow.save_file_hash_cache(project_id, cache, scope=entry_id)
-        return digest
-    return None  # temporal / git-ahead-behind: no content digest
+        return td.digest, td.truncated
+    return None, False  # temporal / git-ahead-behind: no content digest
 
 
 def _load_registry_config(registry_path: Path) -> tuple[tuple[str, ...], str]:
@@ -747,6 +754,7 @@ def _compute_component_record(
     human_reconfirmed: bool,
     strategy: str = "content-digest",
     digest_version: str = "",
+    digest_truncated: bool = False,
 ) -> dict:
     """Build the next 5a component record per DD-B baseline rules.
 
@@ -757,6 +765,12 @@ def _compute_component_record(
     - drift detected                      → HOLD the prior baseline (sha + at +
       mtime/size unchanged) so the proposal re-fires until resolved.
     - clean                               → advance baseline to current.
+
+    ``digest_truncated`` marks ``current_sha`` as a partial tree-digest sentinel
+    (F-SOT-3): it must never be advanced into the baseline (a later complete walk
+    would read it as a false re-baseline).  The prior baseline is carried forward
+    unchanged (or a cold-start entry is left unverified with no baseline) so the
+    next complete walk establishes the real digest.
     """
     loc_missing = any(d.get("drift_type") == "location" for d in drifts)
     detail = [d["drift_type"] for d in drifts] if drifts else None
@@ -774,7 +788,10 @@ def _compute_component_record(
         return {
             "sot_location": loc,
             "last_verified_at": now_iso,
-            "last_verified_sha": current_sha or "",
+            # F-SOT-3: a truncated tree digest is a partial sentinel — never store
+            # it as a baseline. Leave no baseline (unverified) so the next complete
+            # walk establishes the real one.
+            "last_verified_sha": "" if digest_truncated else (current_sha or ""),
             "last_verified_mtime": mtime,
             "last_verified_size": size,
             "drift_status": "missing" if loc_missing else "unverified",
@@ -815,6 +832,11 @@ def _compute_component_record(
         # A missing artifact can never be 'clean' — hold, even if a human just
         # bumped last_verified (they cannot re-confirm a file that is gone).
         return _hold("missing")
+    if digest_truncated:
+        # F-SOT-3: the digest is a partial sentinel this run — never advance the
+        # baseline to it. Hold the prior baseline so a later complete walk
+        # re-verifies; reflect any independent (location/temporal) drift.
+        return _hold("drifted" if drifts else prior.get("drift_status", "unverified"))
     if human_reconfirmed:
         return _advance()
     if drifts:
@@ -2160,6 +2182,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     strategy_frictions: list[dict] = (
         []
     )  # FRICTION findings for unimplemented strategies
+    # F-SOT-3: True if any per-boundary tree digest truncated this run (folded into
+    # budget_truncated below); frictions surface the incomplete boundaries.
+    boundary_digest_truncated = False
+    boundary_digest_frictions: list[dict] = []
     for entry in entries:
         eid = entry.get("id", "")
         if not eid:
@@ -2193,7 +2219,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         # the worst case sums across N directory entries; the warm cache keeps
         # each entry cheap, and an invocation-wide deadline is a deferred
         # follow-up (out of this round), not wired here.
-        current_sha = (
+        current_sha, entry_truncated = (
             _compute_entry_digest(
                 strategy,
                 full_path,
@@ -2202,8 +2228,24 @@ def cmd_run(args: argparse.Namespace) -> int:
                 entry_id=eid,
             )
             if exists
-            else None
+            else (None, False)
         )
+        if entry_truncated:
+            # F-SOT-3: this boundary's tree digest hit its budget — current_sha is a
+            # PARTIAL sentinel. Aggregate the truncation and surface it; the digest
+            # is neither compared as drift (below) nor stored as a baseline (record).
+            boundary_digest_truncated = True
+            boundary_digest_frictions.append(
+                shadow.friction_finding(
+                    f"tree-digest for boundary '{eid}' exceeded its budget "
+                    "(large/slow directory) — drift scan incomplete this session; "
+                    "baseline left unchanged. Tune AI_MEMORY_SOT_DIGEST_MAX_SECONDS "
+                    "/ AI_MEMORY_SOT_DIGEST_MAX_FILES or narrow the registry exclude "
+                    "set.",
+                    where="tree-digest",
+                    severity="LOW",
+                )
+            )
         mtime, size = _stat_mtime_size(full_path) if exists else (None, None)
 
         # R-1 (lead): a drift_strategy switch or a digest-version bump is a
@@ -2224,9 +2266,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         if temp_drift:
             drifts.append(temp_drift)
         # Skip the content-based checks on a re-baseline run (the digest is not
-        # comparable across strategies/versions); the record advances to the new
-        # baseline below.
-        if not rebaseline:
+        # comparable across strategies/versions) or on a truncated tree digest
+        # (F-SOT-3: current_sha is partial — comparing it would report false drift);
+        # the record advances / holds below.
+        if not rebaseline and not entry_truncated:
             hash_drift = _check_content_hash_drift(
                 entry, resolve_root, cache, current_sha=current_sha
             )
@@ -2256,6 +2299,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             ),
             strategy=strategy,
             digest_version=digest_version,
+            digest_truncated=entry_truncated,
         )
 
     # --- R1 discovery cadence gate (BP-047 hot/cold split) ---
@@ -2337,7 +2381,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         findings = shadow_summary.get("findings", []) + strategy_frictions
         docs_stale = shadow_summary.get("docs_stale", 0)
-        digest_truncated = bool(shadow_summary.get("digest_truncated", False))
+        digest_truncated = digest_truncated or bool(
+            shadow_summary.get("digest_truncated", False)
+        )
     elif strategy_frictions:
         findings = strategy_frictions
 
@@ -2347,11 +2393,19 @@ def cmd_run(args: argparse.Namespace) -> int:
     if size_finding is not None:
         findings = [*findings, size_finding]
 
-    # Budget-truncation signal (F-SOT-3): either full-project walk hit its budget
-    # → the drift/doc-drift channel is incomplete this session.  Surfaced in the
-    # JSON pipe so the [CL] hook can emit a visible, non-fatal warning instead of
-    # silently reporting zero findings.
-    budget_truncated = bool(scan_budget.truncated or digest_truncated)
+    # Per-boundary tree-digest truncation frictions (F-SOT-3) — surfaced in both
+    # the --shadow and default runs so an incomplete boundary scan is never silent.
+    if boundary_digest_frictions:
+        findings = [*findings, *boundary_digest_frictions]
+
+    # Budget-truncation signal (F-SOT-3): the discovery walk, the whole-project
+    # digest, or any per-boundary tree digest hit its budget → the drift/doc-drift
+    # channel is incomplete this session.  Surfaced in the JSON pipe so the [CL]
+    # hook can emit a visible, non-fatal warning instead of silently reporting zero
+    # findings.
+    budget_truncated = bool(
+        scan_budget.truncated or digest_truncated or boundary_digest_truncated
+    )
 
     # Live drift rollup for the [ST] ambient surface (consult digest reads this).
     n_changed = len(drift_proposals)

@@ -28,6 +28,24 @@ clone/restore: regular files only, content-only hashing, POSIX relpaths byte-sor
 symlinks skipped and recorded, a `vN:` version prefix. Excludes are applied to the
 relpath before the file set is frozen (defaults plus the registry's `exclude:` list).
 
+**Budget truncation is a partial sentinel (F-SOT-3).** A directory tree digest is
+bounded by `AI_MEMORY_SOT_DIGEST_MAX_SECONDS` / `AI_MEMORY_SOT_DIGEST_MAX_FILES`
+(see [`docs/AIM-SOT.md`](../../../../docs/AIM-SOT.md)). When a boundary's walk hits
+that budget it stops early and returns a **partial** digest flagged `truncated`. A
+truncated digest is never a valid drift signal, so the engine:
+
+- **never compares it as drift** — the content-hash and declaration checks are skipped
+  for that boundary this run (a partial digest would otherwise mismatch and report
+  false drift);
+- **never stores it as a baseline** — the prior `last_verified_sha` is carried forward
+  unchanged; a cold-start boundary (no prior baseline) is left `unverified` with no
+  baseline, so the next complete walk establishes the real digest;
+- **surfaces the truncation** — a `FRICTION` finding naming the boundary is emitted and
+  the run's `budget_truncated` flag is set, so an incomplete scan is never silent.
+
+The per-file hash cache (BP-048) is the mitigation: it warms across sessions so a
+large boundary that truncated on a cold run completes on a later warm run.
+
 ## Shadow git (BP-040)
 
 A machine-local **bare** repository at `~/.ai-memory/sot-git/<project_id>/` tracks the

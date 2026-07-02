@@ -128,10 +128,10 @@ def test_entry_digest_cache_is_byte_identical(tmp_path, monkeypatch):
     ex = dp.shadow.DEFAULT_EXCLUDES
 
     cold = dp.shadow.tree_digest(root, ex).digest
-    warm1 = dp._compute_entry_digest(
+    warm1, _ = dp._compute_entry_digest(
         "tree-digest", root, ex, project_id="p", entry_id="OV"
     )
-    warm2 = dp._compute_entry_digest(  # second run reads the populated cache
+    warm2, _ = dp._compute_entry_digest(  # second run reads the populated cache
         "tree-digest", root, ex, project_id="p", entry_id="OV"
     )
     assert warm1 == cold
@@ -148,14 +148,14 @@ def test_entry_digest_cache_scope_is_per_entry(tmp_path, monkeypatch):
     (tmp_path / "b" / "y.py").write_text("y", encoding="utf-8")
     ex = dp.shadow.DEFAULT_EXCLUDES
 
-    da = dp._compute_entry_digest(
+    da, _ = dp._compute_entry_digest(
         "tree-digest", tmp_path / "a", ex, project_id="p", entry_id="A"
     )
     dp._compute_entry_digest(
         "tree-digest", tmp_path / "b", ex, project_id="p", entry_id="B"
     )
     # Re-hash A after B: if scopes collided, B's walk would have pruned A's cache.
-    da2 = dp._compute_entry_digest(
+    da2, _ = dp._compute_entry_digest(
         "tree-digest", tmp_path / "a", ex, project_id="p", entry_id="A"
     )
     assert da == da2 == dp.shadow.tree_digest(tmp_path / "a", ex).digest
@@ -172,7 +172,7 @@ def test_entry_digest_uncached_without_ids_no_tree_scope(tmp_path, monkeypatch):
     (tmp_path / "d").mkdir()
     (tmp_path / "d" / "f.py").write_text("x", encoding="utf-8")
     ex = dp.shadow.DEFAULT_EXCLUDES
-    digest = dp._compute_entry_digest("tree-digest", tmp_path / "d", ex)
+    digest, _ = dp._compute_entry_digest("tree-digest", tmp_path / "d", ex)
     assert digest == dp.shadow.tree_digest(tmp_path / "d", ex).digest
     shadow_dir = tmp_path / "shadow-drift"
     written = list(shadow_dir.glob("sot_file_hash_*")) if shadow_dir.exists() else []

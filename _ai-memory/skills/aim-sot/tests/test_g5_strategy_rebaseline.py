@@ -62,12 +62,12 @@ def test_compute_entry_digest_dispatch(tmp_path):
     d = tmp_path / "pkg"
     d.mkdir()
     (d / "a.py").write_text("a", encoding="utf-8")
-    content = dp._compute_entry_digest("content-digest", f)
-    tree = dp._compute_entry_digest("tree-digest", d)
+    content, _ = dp._compute_entry_digest("content-digest", f)
+    tree, _ = dp._compute_entry_digest("tree-digest", d)
     assert content and len(content) == 8  # sha256(file)[:8], behavior-preserving
     assert tree.startswith("v1:")
     # temporal / git-ahead-behind: no content digest
-    assert dp._compute_entry_digest("temporal", f) is None
+    assert dp._compute_entry_digest("temporal", f)[0] is None
 
 
 # --------------------------------------------------------------------------- #

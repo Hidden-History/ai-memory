@@ -1939,3 +1939,269 @@ def test_lock_stale_seconds_tracks_reindex_cap_invariant():
     # Floor: for small caps the 300s minimum must hold.
     small_cap = 10.0
     assert max(300.0, 2 * small_cap) == 300.0, "300s floor must hold for small caps"
+
+
+# ---------------------------------------------------------------------------
+# F-G2-1 — a truncated (partial) tree digest must never be stored as a baseline
+# or compared as drift; the per-boundary truncation must reach budget_truncated
+# (F-SOT-3).  Generalized to the truncated-baseline class: strategy contract,
+# cold + warm record rules, and the end-to-end cmd_run surface.
+# ---------------------------------------------------------------------------
+
+
+def test_compute_entry_digest_returns_truncation_flag(tmp_path):
+    """_compute_entry_digest returns (digest, truncated); truncated is True only
+    when a tree digest hits its budget — never for file / absent strategies."""
+    # content-digest (file) → (sha8, False)
+    f = tmp_path / "artifact.txt"
+    f.write_text("hello", encoding="utf-8")
+    sha, trunc = dp._compute_entry_digest("content-digest", f, ())
+    assert isinstance(sha, str) and len(sha) == 8 and trunc is False
+
+    # absent path → (None, False)
+    assert dp._compute_entry_digest("content-digest", tmp_path / "missing", ()) == (
+        None,
+        False,
+    )
+
+    # tree-digest, complete walk → (vN digest, False)
+    d = tmp_path / "tree"
+    d.mkdir()
+    for i in range(3):
+        (d / f"f{i}.txt").write_text(f"c{i}", encoding="utf-8")
+    full_sha, full_trunc = dp._compute_entry_digest("tree-digest", d, ())
+    assert full_sha.startswith(dp.shadow.DIGEST_VERSION + ":") and full_trunc is False
+
+    # tree-digest, forced budget truncation → (partial digest, True), partial != full
+    with patch.object(dp.shadow, "_DIGEST_MAX_FILES", 1):
+        part_sha, part_trunc = dp._compute_entry_digest("tree-digest", d, ())
+    assert part_trunc is True
+    assert part_sha != full_sha
+
+
+def test_component_record_never_baselines_truncated_digest():
+    """A truncated partial digest is never advanced into the baseline — cold-start
+    stores no baseline; an existing baseline (clean or human-reconfirmed) is carried
+    forward.  The complete-walk path still advances (regression guard)."""
+    partial = "v1:deadbeefpartialdigest"
+    good = "v1:goodcompletebaseline00"
+    prior = {
+        "last_verified_sha": good,
+        "last_verified_at": "2026-06-01T00:00:00+00:00",
+        "last_verified_mtime": 10.0,
+        "last_verified_size": 100,
+        "drift_status": "clean",
+        "drift_strategy": "tree-digest",
+        "digest_version": "v1",
+    }
+    common = {
+        "mtime": 2.0,
+        "size": 2,
+        "loc": "bnd",
+        "now_iso": "2026-07-01T00:00:00+00:00",
+        "strategy": "tree-digest",
+        "digest_version": "v1",
+    }
+
+    # cold-start + truncated → NO baseline stored (empty sha), unverified.
+    cold = dp._compute_component_record(
+        prior=None,
+        drifts=[],
+        current_sha=partial,
+        human_reconfirmed=False,
+        digest_truncated=True,
+        **common,
+    )
+    assert cold["last_verified_sha"] == ""
+    assert cold["drift_status"] == "unverified"
+
+    # warm (prior clean) + truncated → prior baseline carried forward, not the partial.
+    warm = dp._compute_component_record(
+        prior=prior,
+        drifts=[],
+        current_sha=partial,
+        human_reconfirmed=False,
+        digest_truncated=True,
+        **common,
+    )
+    assert warm["last_verified_sha"] == good
+    assert warm["drift_status"] == "clean"
+
+    # a human re-confirm must not re-baseline to a partial digest either.
+    warm_confirm = dp._compute_component_record(
+        prior=prior,
+        drifts=[],
+        current_sha=partial,
+        human_reconfirmed=True,
+        digest_truncated=True,
+        **common,
+    )
+    assert warm_confirm["last_verified_sha"] == good
+
+    # control: a COMPLETE (non-truncated) clean run still advances the baseline.
+    advance = dp._compute_component_record(
+        prior=prior,
+        drifts=[],
+        current_sha="v1:newcompletebaseline00",
+        human_reconfirmed=False,
+        digest_truncated=False,
+        **common,
+    )
+    assert advance["last_verified_sha"] == "v1:newcompletebaseline00"
+
+
+def test_cmd_run_truncated_boundary_surfaces_and_preserves_baseline(tmp_path, capsys):
+    """End-to-end: a directory boundary whose tree digest truncates must (a) leave
+    its prior baseline intact — no false staleness_hash drift — and (b) set
+    budget_truncated + surface a friction, rather than silently store the partial."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    boundary = tmp_path / "bigdir"
+    boundary.mkdir()
+    for i in range(4):
+        (boundary / f"f{i}.txt").write_text(f"content-{i}\n", encoding="utf-8")
+    _write_registry(registry_path, [{"id": "bigdir", "sot_location": "bigdir/"}])
+
+    # Prior GOOD (complete) baseline for the boundary — the S126 warm case.
+    good_sha = dp.shadow.tree_digest(boundary, dp.shadow.DEFAULT_EXCLUDES).digest
+    seeded_cache = {
+        "schema_version": "1",
+        "project_id": "test-project",
+        "generated_at": "",
+        "registry_sha": "",  # differs from the patched _registry_sha → force_recheck
+        "components": {
+            "bigdir": {
+                "sot_location": "bigdir/",
+                "last_verified_at": _now_iso(),
+                "last_verified_sha": good_sha,
+                "drift_status": "clean",
+                "drift_strategy": "tree-digest",
+                "digest_version": dp.shadow.DIGEST_VERSION,
+            }
+        },
+    }
+
+    args = MagicMock()
+    args.registry = str(registry_path)
+    args.as_json = True
+    args.all = False
+    args.limit = 20
+    args.shadow = False  # isolate the per-boundary path from the project-level digest
+    args.drift_only = True  # skip discovery — hot path only
+    args.discover = False
+
+    with (
+        _inject_project_id("test-project"),
+        patch.object(dp, "_find_registry", return_value=registry_path),
+        patch.object(dp, "_project_root_from_registry", return_value=tmp_path),
+        patch.object(dp, "_read_drift_cache", return_value=seeded_cache),
+        patch.object(dp, "_write_drift_cache"),
+        patch.object(dp, "_registry_sha", return_value="newsha01"),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 0)
+        ),
+        patch.object(dp.shadow, "_DIGEST_MAX_FILES", 1),  # force truncation
+    ):
+        result = dp.cmd_run(args)
+
+    captured = capsys.readouterr()
+    assert result == 0
+    out = json.loads(captured.out)
+
+    # (b) the truncation is surfaced, not silent.
+    assert out["budget_truncated"] is True
+    assert any(
+        f.get("finding_type") == "FRICTION"
+        and f.get("trigger_path") == "tree-digest"
+        and "bigdir" in f.get("recommended_action", "")
+        for f in out["findings"]
+    ), "expected a per-boundary tree-digest truncation friction naming the boundary"
+
+    # (a) the prior baseline is preserved (the partial is never stored) → no false drift.
+    assert seeded_cache["components"]["bigdir"]["last_verified_sha"] == good_sha
+    hash_drifts = [
+        d
+        for p in out["drift_proposals"]
+        for d in p["drifts"]
+        if d.get("drift_type") == "staleness_hash"
+    ]
+    assert not hash_drifts, "a truncated digest must not raise a false staleness_hash"
+
+
+def test_cmd_run_mixed_truncation_isolates_the_truncated_boundary(tmp_path, capsys):
+    """F-SOT-3, multi-boundary: with two tree boundaries where ONE truncates and one
+    does not, the truncation is isolated — budget_truncated is set, exactly one
+    friction names the truncated boundary, the intact boundary baselines normally,
+    and the truncated one stores NO partial baseline."""
+    registry_path = tmp_path / ".sot" / "registry.yaml"
+    # `small` has 1 file → completes at _DIGEST_MAX_FILES=1; `big` has 4 → truncates.
+    small = tmp_path / "small"
+    small.mkdir()
+    (small / "only.txt").write_text("solo\n", encoding="utf-8")
+    big = tmp_path / "big"
+    big.mkdir()
+    for i in range(4):
+        (big / f"f{i}.txt").write_text(f"content-{i}\n", encoding="utf-8")
+    _write_registry(
+        registry_path,
+        [
+            {"id": "small", "sot_location": "small/"},
+            {"id": "big", "sot_location": "big/"},
+        ],
+    )
+
+    small_full = dp.shadow.tree_digest(small, dp.shadow.DEFAULT_EXCLUDES).digest
+    seeded_cache = {
+        "schema_version": "1",
+        "project_id": "test-project",
+        "generated_at": "",
+        "registry_sha": "",
+        "components": {},  # both cold-start
+    }
+
+    args = MagicMock()
+    args.registry = str(registry_path)
+    args.as_json = True
+    args.all = False
+    args.limit = 20
+    args.shadow = False  # isolate the per-boundary path
+    args.drift_only = True
+    args.discover = False
+
+    with (
+        _inject_project_id("test-project"),
+        patch.object(dp, "_find_registry", return_value=registry_path),
+        patch.object(dp, "_project_root_from_registry", return_value=tmp_path),
+        patch.object(dp, "_read_drift_cache", return_value=seeded_cache),
+        patch.object(dp, "_write_drift_cache"),
+        patch.object(dp, "_registry_sha", return_value="newsha01"),
+        patch.object(
+            dp, "_reindex_sot_entries", return_value=dp.ReindexResult(True, 0)
+        ),
+        patch.object(
+            dp.shadow, "_DIGEST_MAX_FILES", 1
+        ),  # small completes, big truncates
+    ):
+        result = dp.cmd_run(args)
+
+    captured = capsys.readouterr()
+    assert result == 0
+    out = json.loads(captured.out)
+
+    # budget_truncated is set by the one truncated boundary.
+    assert out["budget_truncated"] is True
+
+    # exactly ONE tree-digest friction, and it names `big` (not `small`).
+    tree_frictions = [
+        f
+        for f in out["findings"]
+        if f.get("finding_type") == "FRICTION"
+        and f.get("trigger_path") == "tree-digest"
+    ]
+    assert len(tree_frictions) == 1
+    assert "big" in tree_frictions[0]["recommended_action"]
+    assert "small" not in tree_frictions[0]["recommended_action"]
+
+    # The intact boundary baselines normally; the truncated one stores no partial.
+    comps = seeded_cache["components"]
+    assert comps["small"]["last_verified_sha"] == small_full  # complete digest stored
+    assert comps["big"]["last_verified_sha"] == ""  # partial NOT stored

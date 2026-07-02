@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **aim-sot directory drift within the Stop-hook budget** — the BP-039 directory tree digest is now accelerated by a per-file hash cache (BP-048), keyed by `(mtime_ns, size)`, so an accurate whole-directory digest completes within the Stop-hook wall-time budget instead of truncating to a partial. The cached digest is byte-identical to an uncached run (a miss recomputes the true content hash), and the budgets are tunable via `AI_MEMORY_SOT_DIGEST_MAX_SECONDS` / `AI_MEMORY_SOT_DIGEST_MAX_FILES`.
+
 ### Changed
 
 - Bumped dependency constraints: `structlog` `<26.0.0` → `<27.0.0` (resolves 26.1.0), `pytest-randomly` `<4.0.0` → `<5.0.0` (resolves 4.1.0), `click` `>=8.2.1` → `>=8.4.1`, `typer` `>=0.12.0` → `>=0.26.7`, `actions/cache` `v5` → `v6` (CI-only).
 - Bumped `fastapi` `0.128.0` → `0.138.0`, which resolves `starlette` `0.50.0` → `1.3.1`, clearing 5 open starlette Dependabot advisories. `ruff` and the streamlit `structlog` constraint updated to match.
+
+### Fixed
+
+- **aim-sot: a budget-truncated per-boundary tree digest is no longer stored as a baseline or compared as drift** — when a registered directory boundary's tree digest exceeds its budget, the partial digest is now discarded rather than persisted as `last_verified_sha`. The prior baseline is carried forward (a cold-start boundary is left unverified with no baseline), the truncation is surfaced as a friction finding, and it is aggregated into `budget_truncated`. Previously the partial was stored as the baseline, so every later complete run reported the boundary as drifted indefinitely.
 
 ## [2.8.2] - 2026-06-30
 
