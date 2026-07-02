@@ -63,7 +63,7 @@ croniter>=2.0.0,<7.0.0
 # OpenAI SDK for the evaluator LLM-as-judge provider (BUG-316).
 # Used by evaluator/provider.py for the ollama (default), openrouter, openai,
 # and custom OpenAI-compatible provider paths; baked into the evaluator-scheduler image.
-openai==1.99.1
+openai==2.38.0
 
 # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
 langfuse>=4.7.0,<4.11.0

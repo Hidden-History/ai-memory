@@ -7,7 +7,7 @@ handoffTemplate: '{project-root}/_ai-memory/pov/templates/session-handoff.templa
 
 # Step 3: Create Handoff Document
 
-**Progress: Step 3 of 5** — Next: Enforce Caps
+**Progress: Step 3 of 6** — Next: Enforce Caps
 
 ## STEP GOAL:
 

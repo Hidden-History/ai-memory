@@ -2,7 +2,7 @@
 # Last audited: 2026-04-01
 # All versions pinned per ACT-003
 
-fastapi==0.138.0
+fastapi==0.138.1
 uvicorn==0.49.0
 qdrant-client==1.18.0
 httpx==0.28.1

@@ -32,6 +32,7 @@ Maintenance is the most scope-unstable phase. Issues arrive reactively. Fixes se
 | MC-06 | CHANGELOG.md Must Be Updated for Every Approved Fix | MEDIUM |
 | MC-07 | CRITICAL and HIGH Fixes Must Have a Deployment Plan Before Closing | HIGH |
 | MC-08 | Queued Issues Are Prioritized by Severity — Always | MEDIUM |
+| MC-09 | Maintenance Work That Grows Into an Initiative Requires an Approved Plan | HIGH |
 
 ## Self-Check Schedule
 
@@ -45,6 +46,7 @@ Run this checklist after every 10 messages during Maintenance:
 - MC-06: Has CHANGELOG.md been updated for all approved fixes?
 - MC-07: Do CRITICAL/HIGH fixes have a deployment plan before closing?
 - MC-08: Are queued issues being addressed in severity order?
+- MC-09: Has any maintenance fix grown into an initiative? If so, is there an approved/active plan before I dispatch further?
 
 PLUS all 21 global constraint checks from global/constraints.md
 
@@ -62,3 +64,4 @@ IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 | MC-06: CHANGELOG.md not updated after approval | MEDIUM | Update immediately, before next session |
 | MC-07: CRITICAL/HIGH approved without deployment plan | HIGH | Create deployment plan before deployment |
 | MC-08: Lower priority work done ahead of higher priority | MEDIUM | Reorder queue, address higher priority first |
+| MC-09: Initiative-scale maintenance dispatched without an approved plan | HIGH | Halt dispatch, draft plan from PLAN_TEMPLATE.md, get approval |
