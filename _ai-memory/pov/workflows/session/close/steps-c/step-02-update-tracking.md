@@ -1,12 +1,12 @@
 ---
 name: 'step-02-update-tracking'
 description: 'Update all tracking files with session outcomes, with user confirmation for status changes'
-nextStepFile: './step-03-create-handoff.md'
+nextStepFile: './step-02b-update-plan.md'
 ---
 
 # Step 2: Update Tracking Files
 
-**Progress: Step 2 of 5** — Next: Create Handoff Document
+**Progress: Step 2 of 6** — Next: Update Active Plan
 
 ## STEP GOAL:
 
