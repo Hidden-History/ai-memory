@@ -23,9 +23,12 @@ Subcommands:
 Common flags: --root PATH (override project root), --json.
 Invoked via run-with-env.sh (the AI-memory run-with-env convention).
 Exit codes: 0 success (incl. routing messages like wiki-already-exists);
-1 usage/system error; 2 finalize refused the pointer write (a CLAUDE.md/AGENTS.md
-had malformed AI-memory markers — resolve manually and re-run). Exit 2 mirrors
-scripts/merge_agents_md.py's malformed-marker convention.
+1 system error; 2 finalize refused the pointer write (a CLAUDE.md/AGENTS.md
+had malformed AI-memory markers — resolve manually and re-run), mirroring
+scripts/merge_agents_md.py's malformed-marker convention. Exit 2 is ALSO
+argparse's own usage-error code, so a programmatic caller MUST treat the
+pointer_files_refused field in --json output — not exit 2 alone — as the
+authoritative refusal signal.
 """
 
 import argparse
@@ -297,7 +300,7 @@ def cmd_finalize(root: Path, command: str, as_json: bool) -> int:
         pc = d["pointer_files_changed"]
         pr = d["pointer_files_refused"]
         if pc:
-            print(f"  pointer     : {', '.join(pc)}")
+            print(f"  pointer     : updated {', '.join(pc)}")
         elif not pr:
             print("  pointer     : already current")
         if pr:

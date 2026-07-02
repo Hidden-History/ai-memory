@@ -87,6 +87,10 @@ Full page-structure, page-count, thin-page, and canonical-home rules:
      "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-wiki/scripts/aim_wiki.py" \
      finalize --command init [--json]
    ```
+   `finalize` exits **2** if a target `CLAUDE.md`/`AGENTS.md` has malformed
+   AI-memory markers — it refuses that file's pointer write (writing nothing to
+   it) but still records run-state. Detect a refusal via the `pointer_files_refused`
+   field in `--json`, not the exit code alone (argparse also uses 2).
 
 ### `update` — incremental maintenance
 

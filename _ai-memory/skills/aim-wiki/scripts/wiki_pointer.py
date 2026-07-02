@@ -18,9 +18,12 @@ marker block delimited by `<!-- BEGIN AI-MEMORY (managed aim-wiki) -->` …
 pair, never on the human-readable `## Project Wiki` heading, so a user's own
 same-named section is never clobbered. Content outside the markers is preserved
 verbatim, except that the UTF-8 text-mode read/write round-trip normalizes line
-endings — a CRLF (or lone-CR) source is rewritten with LF endings on any real
-change. Writes are backup-copy-first + atomic (mirrors scripts/merge_settings.py
-and scripts/merge_agents_md.py).
+endings: the universal-newlines read collapses CRLF/lone-CR to `\n`, and the
+text-mode write emits `os.linesep`. On this project's POSIX/Linux/WSL deployment
+(`os.linesep == "\n"`) that rewrites a CRLF (or lone-CR) source with LF endings on
+any real change; on a platform whose `os.linesep` differs, the written ending
+follows that platform, not necessarily LF. Writes are backup-copy-first + atomic
+(mirrors scripts/merge_settings.py and scripts/merge_agents_md.py).
 """
 
 import os

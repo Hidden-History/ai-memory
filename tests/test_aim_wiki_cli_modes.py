@@ -252,6 +252,46 @@ def test_finalize_noop_reports_already_current(capsys, git_repo):
     assert "REFUSED" not in out
 
 
+def test_finalize_mixed_changed_and_refused(capsys, git_repo):
+    """Per-file accumulation: with one valid target (needs the pointer) and one
+    carrying malformed markers, `finalize` writes the valid file
+    (`pointer_files_changed`), refuses the malformed one (`pointer_files_refused`),
+    exits 2, and in text mode renders BOTH the changed line and the REFUSED line."""
+    root, _ = git_repo
+    r = str(root)
+    aim_wiki.main(["init", "--root", r])
+    (wc.wiki_dir(root) / "quickstart.md").write_text("# hi\n", encoding="utf-8")
+
+    # CLAUDE.md valid (no markers → pointer appended); AGENTS.md malformed
+    # (a stray BEGIN with no matching END).
+    claude = root / "CLAUDE.md"
+    agents = root / "AGENTS.md"
+    claude_original = "# rules\n"
+    agents_original = f"# agents\n\n{wp.BEGIN_MARKER}\ndangling — no end marker\n"
+    claude.write_text(claude_original, encoding="utf-8")
+    agents.write_text(agents_original, encoding="utf-8")
+
+    rc, data = _json(capsys, ["finalize", "--root", r, "--command", "init", "--json"])
+    assert rc == 2, "any refused file makes finalize exit non-zero"
+    assert data["pointer_files_changed"] == ["CLAUDE.md"], "valid target written"
+    assert data["pointer_files_refused"] == ["AGENTS.md"], "malformed target refused"
+    assert data["status"] == "recorded", "wiki run-state still recorded"
+    assert "## Project Wiki" in claude.read_text(), "pointer landed in the valid file"
+    assert agents.read_text() == agents_original, "malformed file left unchanged"
+    assert list(root.glob("AGENTS.md.backup.*")) == [], "no backup on the refused file"
+
+    # Text mode renders BOTH the changed line and the REFUSED line. Reset the valid
+    # file so this run re-exercises the mixed changed+refused render (the prior run
+    # already made CLAUDE.md a no-op).
+    claude.write_text(claude_original, encoding="utf-8")
+    rc, out = _run(capsys, ["finalize", "--root", r, "--command", "init"])
+    assert rc == 2
+    assert "CLAUDE.md" in out, "changed line names the valid file"
+    assert (
+        "REFUSED" in out and "AGENTS.md" in out
+    ), "REFUSED line names the malformed file"
+
+
 def test_verify_reports_dead_citation(capsys, git_repo):
     root, _ = git_repo
     r = str(root)

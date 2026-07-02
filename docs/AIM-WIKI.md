@@ -83,7 +83,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
   finalize --command init [--json]
 ```
 
-Runs only after the human accepts the authored/refreshed wiki and the verify pass. It upserts the `## Project Wiki` pointer (below) and writes the run-state (`updatedAt`, `command`, `gitHead`, content hash) to `wiki/.last-update.json`. If `wiki/` has no authored pages yet, `finalize` refuses and writes nothing.
+Runs only after the human accepts the authored/refreshed wiki and the verify pass. It upserts the `## Project Wiki` pointer (below) and writes the run-state (`updatedAt`, `command`, `gitHead`, content hash) to `wiki/.last-update.json`. If `wiki/` has no authored pages yet, `finalize` refuses and writes nothing. If a target `CLAUDE.md`/`AGENTS.md` has malformed AI-memory markers, `finalize` refuses that file's pointer write and leaves it unchanged: the file is listed under `pointer_files_refused` in `--json`, a `REFUSED` line is printed in text output, and `finalize` exits with code **2** — while still recording the wiki run-state (see the pointer section below).
 
 ## The `## Project Wiki` pointer
 
@@ -92,7 +92,7 @@ Runs only after the human accepts the authored/refreshed wiki and the verify pas
 - **Placement**: upserted into the top-level `CLAUDE.md` and/or `AGENTS.md`, whichever already exist. If neither exists, a new `AGENTS.md` is created containing only the section. Only ever the top-level files — never a nested `CLAUDE.md`/`AGENTS.md`.
 - **Idempotency**: the section is delivered inside a managed marker pair, `<!-- BEGIN AI-MEMORY (managed aim-wiki) -->` … `<!-- END AI-MEMORY (managed aim-wiki) -->`. Idempotency keys on the marker pair, **never** on the human-readable `## Project Wiki` heading — so a user's own hand-written section with that same heading is never clobbered.
 - **Legacy migration**: a markerless `## Project Wiki` section is migrated to the marked form exactly once, and only when its body matches aim-wiki's own template verbatim — anything else is treated as user content and left untouched.
-- **Malformed markers**: any other marker state (stray, duplicate, or out-of-order BEGIN/END) is left unchanged; the engine prints a warning to stderr and writes nothing rather than risk clobbering content on an ambiguous state.
+- **Malformed markers**: any other marker state (stray, duplicate, or out-of-order BEGIN/END) is left unchanged — the engine writes nothing to that file rather than risk clobbering content on an ambiguous state. The refusal is surfaced distinctly from a no-op: the file is listed under `pointer_files_refused` in `--json`, a `pointer : REFUSED <files> …` line is printed in text output, a warning is written to stderr, and `finalize` exits with code **2** (the wiki run-state is still recorded).
 - **Write safety**: on an actual content change, the existing file is copied to a timestamped `.backup.<timestamp>` first, then the new content is written via a temp file (`tempfile.mkstemp`) and `os.replace` (atomic) — a crash mid-write cannot truncate the original. When the managed block is already present and identical, nothing is written and no backup is made.
 
 ## Staleness model
