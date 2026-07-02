@@ -36,7 +36,7 @@ def _load(name: str):
 
 wc = _load("wiki_common")
 _load("wiki_inventory")
-_load("wiki_pointer")
+wp = _load("wiki_pointer")
 _load("wiki_verify")
 aim_wiki = _load("aim_wiki")
 
@@ -200,6 +200,56 @@ def test_finalize_writes_pointer_and_state(capsys, git_repo):
     assert state["command"] == "init"
     assert state["gitHead"] == wc.git_head(root)
     assert state["contentHash"] == wc.content_hash(root)
+
+
+def test_finalize_refuses_malformed_pointer_markers(capsys, git_repo):
+    """Refusal observability: `finalize` against a CLAUDE.md with malformed
+    AI-memory markers surfaces the refusal distinctly from a no-op — a populated
+    `pointer_files_refused` (empty `pointer_files_changed`) in --json, a human
+    REFUSED line in text, exit 2, and the file left byte-for-byte unchanged."""
+    root, _ = git_repo
+    r = str(root)
+    aim_wiki.main(["init", "--root", r])
+    (wc.wiki_dir(root) / "quickstart.md").write_text("# hi\n", encoding="utf-8")
+
+    # Malformed: a stray BEGIN with no matching END.
+    claude = root / "CLAUDE.md"
+    original = f"# rules\n\n{wp.BEGIN_MARKER}\ndangling — no end marker\n"
+    claude.write_text(original, encoding="utf-8")
+
+    rc, data = _json(capsys, ["finalize", "--root", r, "--command", "init", "--json"])
+    assert rc == 2, "refused pointer write exits non-zero"
+    assert data["pointer_files_refused"] == ["CLAUDE.md"]
+    assert data["pointer_files_changed"] == [], "refusal is not a change"
+    assert data["status"] == "recorded", "wiki run-state is still recorded"
+    assert claude.read_text() == original, "malformed file left byte-for-byte unchanged"
+    assert list(root.glob("CLAUDE.md.backup.*")) == [], "no backup on refusal"
+
+    # Text path renders a REFUSED line, not 'already current'.
+    rc, out = _run(capsys, ["finalize", "--root", r, "--command", "init"])
+    assert rc == 2
+    assert "REFUSED" in out and "CLAUDE.md" in out
+    assert "already current" not in out
+
+
+def test_finalize_noop_reports_already_current(capsys, git_repo):
+    """No-op companion: once the pointer is present and identical, a re-finalize
+    is a true no-op — exit 0, empty changed/refused, and the text path still
+    reports `already current` (no false-refused regression)."""
+    root, _ = git_repo
+    r = str(root)
+    aim_wiki.main(["init", "--root", r])
+    (wc.wiki_dir(root) / "quickstart.md").write_text("# hi\n", encoding="utf-8")
+    aim_wiki.main(["finalize", "--root", r, "--command", "init"])  # writes pointer
+
+    rc, data = _json(capsys, ["finalize", "--root", r, "--command", "init", "--json"])
+    assert rc == 0
+    assert data["pointer_files_changed"] == [] and data["pointer_files_refused"] == []
+
+    rc, out = _run(capsys, ["finalize", "--root", r, "--command", "init"])
+    assert rc == 0
+    assert "already current" in out
+    assert "REFUSED" not in out
 
 
 def test_verify_reports_dead_citation(capsys, git_repo):

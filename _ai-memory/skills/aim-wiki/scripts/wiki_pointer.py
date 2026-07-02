@@ -16,9 +16,11 @@ Ownership / idempotency (BP-171 OQ-3): the pointer is delivered as a managed
 marker block delimited by `<!-- BEGIN AI-MEMORY (managed aim-wiki) -->` …
 `<!-- END AI-MEMORY (managed aim-wiki) -->`. Idempotency keys on the MARKER
 pair, never on the human-readable `## Project Wiki` heading, so a user's own
-same-named section is never clobbered. Everything outside the markers is
-preserved byte-for-byte. Writes are backup-copy-first + atomic (mirrors
-scripts/merge_settings.py and scripts/merge_agents_md.py).
+same-named section is never clobbered. Content outside the markers is preserved
+verbatim, except that the UTF-8 text-mode read/write round-trip normalizes line
+endings — a CRLF (or lone-CR) source is rewritten with LF endings on any real
+change. Writes are backup-copy-first + atomic (mirrors scripts/merge_settings.py
+and scripts/merge_agents_md.py).
 """
 
 import os
@@ -28,6 +30,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 POINTER_HEADING = "## Project Wiki"
 
@@ -65,6 +68,29 @@ _SECTION_RE = re.compile(
 )
 
 
+class MalformedMarkersError(Exception):
+    """Raised by splice_block when the managed markers are in an unsafe state.
+
+    Safe states: (0 BEGIN + 0 END) or (exactly 1 BEGIN strictly before 1 END).
+    Any other combination — stray BEGIN or END, END before BEGIN, duplicate
+    blocks — is malformed; the caller must warn and leave the file unchanged.
+    Mirrors scripts/merge_agents_md.py's MalformedMarkersError contract.
+    """
+
+
+class PointerResult(NamedTuple):
+    """Outcome of an upsert_pointer run, split by disposition.
+
+    `changed`: repo-relative paths written (created or updated). `refused`:
+    repo-relative paths left untouched because their markers were malformed —
+    an actionable failure distinct from a true no-op (both leave `changed`
+    empty), so the CLI can signal it separately.
+    """
+
+    changed: list[str]
+    refused: list[str]
+
+
 def build_block() -> str:
     """Wrap the pointer section in the stable managed-block markers."""
     return f"{BEGIN_MARKER}\n{POINTER_SECTION.strip()}\n{END_MARKER}"
@@ -90,10 +116,14 @@ def splice_block(text: str) -> str:
     - 0 BEGIN + 0 END → migrate a legacy markerless aim-wiki section once (only
       when its body matches the template), else append the managed block. A
       user-authored `## Project Wiki` section is left untouched.
-    - Any other marker state (stray, duplicate, or out-of-order) → return the
-      text unchanged; the caller writes nothing (a WARNING is printed to stderr).
+    - Any other marker state (stray, duplicate, or out-of-order) → raise
+      MalformedMarkersError; the caller warns and leaves the file unchanged.
 
     The result is idempotent: splicing an already-spliced document reproduces it.
+
+    Raises:
+        MalformedMarkersError: markers are present but not in a safe state.
+            The caller is responsible for warning and writing nothing.
     """
     block = build_block()
     n_begin = text.count(BEGIN_MARKER)
@@ -104,6 +134,13 @@ def splice_block(text: str) -> str:
         end_idx = text.find(END_MARKER)
         if end_idx > begin_idx:
             # Replace-in-place: keep bytes before BEGIN and after END untouched.
+            # Accepted residual: a document whose ONLY markers are a single
+            # balanced BEGIN…END pair (even one wrapping purely user-authored
+            # text) is indistinguishable from a stale managed block, so
+            # replace-in-place applies. Refusing would break idempotent re-run;
+            # the prior content stays backup-recoverable. Do not change this
+            # branch to refuse — that would be a regression (mirrors
+            # scripts/merge_agents_md.py's replace-in-place caveat).
             pre = text[:begin_idx]
             post = text[end_idx + len(END_MARKER) :]
             return pre + block + post
@@ -120,15 +157,14 @@ def splice_block(text: str) -> str:
         separator = "" if text.endswith("\n") else "\n"
         return text + separator + "\n" + block + "\n"
 
-    # Malformed markers: refuse and leave the file unchanged (caller writes
-    # nothing). Never risk clobbering user content on an ambiguous marker state.
-    print(
-        f"WARNING: aim-wiki managed markers are malformed "
-        f"({n_begin} BEGIN, {n_end} END; expected 0+0 or 1 BEGIN before 1 END). "
-        f"Pointer left unchanged — resolve the markers manually, then re-run.",
-        file=sys.stderr,
+    # Malformed markers: stray BEGIN or END, END before BEGIN, or duplicates.
+    # Refuse (pure; no IO) so the caller can warn, leave the file unchanged, and
+    # signal the refusal distinctly. Never risk clobbering user content on an
+    # ambiguous marker state.
+    raise MalformedMarkersError(
+        f"{n_begin} BEGIN marker(s) and {n_end} END marker(s) found "
+        f"(expected 0+0 or 1 BEGIN before 1 END)"
     )
-    return text
 
 
 def _backup_file(path: Path) -> Path:
@@ -143,13 +179,18 @@ def _backup_file(path: Path) -> Path:
     return backup_path
 
 
-def upsert_pointer(root: Path) -> list[str]:
+def upsert_pointer(root: Path) -> PointerResult:
     """Upsert the pointer into the correct top-level file(s).
 
-    Returns the repo-relative paths that were created or changed (empty when the
-    managed block is already present and identical — a true no-op: no write, no
-    backup). On change, writes are backup-copy-first then atomic (tempfile +
-    os.replace) so a crash mid-write cannot truncate the user's file.
+    Returns a PointerResult splitting the outcome per file:
+    - `changed`: paths created or updated (empty when the managed block is
+      already present and identical — a true no-op: no write, no backup).
+    - `refused`: paths left untouched because their markers were malformed
+      (a WARNING is printed to stderr; no write, no backup) — an actionable
+      failure the caller surfaces separately from a no-op.
+
+    On change, writes are backup-copy-first then atomic (tempfile + os.replace)
+    so a crash mid-write cannot truncate the user's file.
     """
     claude = root / "CLAUDE.md"
     agents = root / "AGENTS.md"
@@ -158,9 +199,23 @@ def upsert_pointer(root: Path) -> list[str]:
         targets = [agents]  # neither exists → create AGENTS.md
 
     changed: list[str] = []
+    refused: list[str] = []
     for path in targets:
         original = path.read_text(encoding="utf-8") if path.exists() else ""
-        updated = splice_block(original)
+        try:
+            updated = splice_block(original)
+        except MalformedMarkersError as exc:
+            # Refuse: leave the file byte-for-byte unchanged (no write, no
+            # backup) and record it as refused so the caller can distinguish it
+            # from a true no-op. Keep the stderr WARNING for tty/log visibility.
+            print(
+                f"WARNING: {path.name}: aim-wiki managed markers are malformed "
+                f"({exc}). Pointer left unchanged — resolve the markers "
+                f"manually, then re-run.",
+                file=sys.stderr,
+            )
+            refused.append(path.relative_to(root).as_posix())
+            continue
         if updated == original:
             continue  # true no-op: no write, no backup
         if path.exists():
@@ -178,4 +233,4 @@ def upsert_pointer(root: Path) -> list[str]:
                 os.unlink(temp_path)
             raise
         changed.append(path.relative_to(root).as_posix())
-    return changed
+    return PointerResult(changed=changed, refused=refused)

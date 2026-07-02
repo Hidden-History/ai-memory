@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bumped dependency constraints: `structlog` `<26.0.0` → `<27.0.0` (resolves 26.1.0), `pytest-randomly` `<4.0.0` → `<5.0.0` (resolves 4.1.0), `click` `>=8.2.1` → `>=8.4.1`, `typer` `>=0.12.0` → `>=0.26.7`, `actions/cache` `v5` → `v6` (CI-only).
 - Bumped `fastapi` `0.128.0` → `0.138.0`, which resolves `starlette` `0.50.0` → `1.3.1`, clearing 5 open starlette Dependabot advisories. `ruff` and the streamlit `structlog` constraint updated to match.
 
+### Fixed
+
+- **`aim-wiki finalize` now surfaces a refused pointer write distinctly from a true no-op (PR #253)** — when a top-level `CLAUDE.md`/`AGENTS.md` carries malformed AI-memory markers (stray, duplicate, or out-of-order `BEGIN`/`END`), the pointer injection is refused and the file is left byte-for-byte unchanged. Previously this was reported identically to "already current" (empty `pointer_files_changed`, exit 0), so the refusal was invisible in `--json` and non-tty capture. `finalize` now emits a distinct `pointer_files_refused` field in `--json`, a `REFUSED … resolve manually, then re-run` line in text output, and exits `2` (mirroring `scripts/merge_agents_md.py`'s malformed-marker convention); a genuine no-op still reports `already current` and exits `0`. Internally `wiki_pointer.splice_block` now raises `MalformedMarkersError` on an unsafe marker state and `upsert_pointer` returns changed/refused paths separately.
+
 ## [2.8.2] - 2026-06-30
 
 ### Upgrade Instructions

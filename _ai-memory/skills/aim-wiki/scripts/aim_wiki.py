@@ -23,7 +23,9 @@ Subcommands:
 Common flags: --root PATH (override project root), --json.
 Invoked via run-with-env.sh (the AI-memory run-with-env convention).
 Exit codes: 0 success (incl. routing messages like wiki-already-exists);
-1 usage/system error.
+1 usage/system error; 2 finalize refused the pointer write (a CLAUDE.md/AGENTS.md
+had malformed AI-memory markers — resolve manually and re-run). Exit 2 mirrors
+scripts/merge_agents_md.py's malformed-marker convention.
 """
 
 import argparse
@@ -271,7 +273,7 @@ def cmd_finalize(root: Path, command: str, as_json: bool) -> int:
         }
         _emit(data, as_json, lambda d: print(d["message"]))
         return 0
-    pointer_changed = upsert_pointer(root)
+    pointer = upsert_pointer(root)
     head = wc.git_head(root)
     state = wc.write_state(root, command, head)
     data = {
@@ -279,7 +281,11 @@ def cmd_finalize(root: Path, command: str, as_json: bool) -> int:
         "status": "recorded",
         "command": command,
         "root": str(root),
-        "pointer_files_changed": pointer_changed,
+        "pointer_files_changed": pointer.changed,
+        # Distinct machine signal: files left unwritten because their AI-memory
+        # markers were malformed. A true no-op reports [] here AND [] in
+        # pointer_files_changed; a refusal is the only case that populates this.
+        "pointer_files_refused": pointer.refused,
         "state": state,
     }
 
@@ -289,10 +295,21 @@ def cmd_finalize(root: Path, command: str, as_json: bool) -> int:
         print(f"  contentHash : {d['state']['contentHash']}")
         print(f"  updatedAt   : {d['state']['updatedAt']}")
         pc = d["pointer_files_changed"]
-        print(f"  pointer     : {', '.join(pc) if pc else 'already current'}")
+        pr = d["pointer_files_refused"]
+        if pc:
+            print(f"  pointer     : {', '.join(pc)}")
+        elif not pr:
+            print("  pointer     : already current")
+        if pr:
+            print(
+                f"  pointer     : REFUSED {', '.join(pr)} — AI-memory markers "
+                f"malformed; resolve manually, then re-run"
+            )
 
     _emit(data, as_json, _text)
-    return 0
+    # A refused pointer write is an actionable failure — exit non-zero so callers
+    # and CI don't read the run as fully clean (state is still recorded).
+    return 2 if pointer.refused else 0
 
 
 # ---------------------------------------------------------------------------

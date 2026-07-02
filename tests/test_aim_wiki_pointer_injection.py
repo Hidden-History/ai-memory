@@ -9,6 +9,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _SCRIPTS = (
     Path(__file__).resolve().parents[1]
     / "_ai-memory"
@@ -38,11 +40,12 @@ BEGIN_MARKER = _wiki_pointer.BEGIN_MARKER
 END_MARKER = _wiki_pointer.END_MARKER
 upsert_pointer = _wiki_pointer.upsert_pointer
 splice_block = _wiki_pointer.splice_block
+MalformedMarkersError = _wiki_pointer.MalformedMarkersError
 
 
 def test_creates_agents_when_neither_exists(tmp_path):
-    changed = upsert_pointer(tmp_path)
-    assert changed == ["AGENTS.md"]
+    result = upsert_pointer(tmp_path)
+    assert result.changed == ["AGENTS.md"] and result.refused == []
     assert not (tmp_path / "CLAUDE.md").exists()
     text = (tmp_path / "AGENTS.md").read_text()
     assert POINTER_HEADING in text
@@ -53,8 +56,8 @@ def test_updates_claude_when_present(tmp_path):
     (tmp_path / "CLAUDE.md").write_text(
         "# House rules\n\nBe surgical.\n", encoding="utf-8"
     )
-    changed = upsert_pointer(tmp_path)
-    assert changed == ["CLAUDE.md"]
+    result = upsert_pointer(tmp_path)
+    assert result.changed == ["CLAUDE.md"]
     text = (tmp_path / "CLAUDE.md").read_text()
     assert "Be surgical." in text, "surrounding content preserved"
     assert POINTER_HEADING in text
@@ -66,14 +69,16 @@ def test_updates_claude_when_present(tmp_path):
 def test_updates_both_when_both_present(tmp_path):
     (tmp_path / "CLAUDE.md").write_text("# c\n", encoding="utf-8")
     (tmp_path / "AGENTS.md").write_text("# a\n", encoding="utf-8")
-    changed = upsert_pointer(tmp_path)
-    assert set(changed) == {"CLAUDE.md", "AGENTS.md"}
+    result = upsert_pointer(tmp_path)
+    assert set(result.changed) == {"CLAUDE.md", "AGENTS.md"}
 
 
 def test_idempotent_second_run_no_change(tmp_path):
     upsert_pointer(tmp_path)  # creates AGENTS.md
-    changed = upsert_pointer(tmp_path)  # second run
-    assert changed == [], "re-running with an identical managed block must be a no-op"
+    result = upsert_pointer(tmp_path)  # second run
+    assert (
+        result.changed == [] and result.refused == []
+    ), "re-running with an identical managed block must be a no-op"
 
 
 # --- W1: managed-marker fences — user content is never clobbered ---
@@ -104,8 +109,8 @@ def test_replace_in_place_between_markers(tmp_path):
         f"\nkeep after.\n",
         encoding="utf-8",
     )
-    changed = upsert_pointer(tmp_path)
-    assert changed == ["AGENTS.md"]
+    result = upsert_pointer(tmp_path)
+    assert result.changed == ["AGENTS.md"]
     text = agents.read_text()
     assert text.count(BEGIN_MARKER) == 1 and text.count(END_MARKER) == 1
     assert "stale managed body" not in text, "managed body replaced"
@@ -136,7 +141,7 @@ def test_legacy_markerless_migrates_once(tmp_path):
     assert text.count(POINTER_HEADING) == 1, "migrated in place, not appended"
     assert "# Appendix" in text and "keep me." in text, "following H1 preserved"
     # markers now present → subsequent run is a true no-op
-    assert upsert_pointer(tmp_path) == []
+    assert upsert_pointer(tmp_path).changed == []
 
 
 def test_non_matching_section_not_migrated(tmp_path):
@@ -154,15 +159,69 @@ def test_non_matching_section_not_migrated(tmp_path):
     assert text.count(POINTER_HEADING) == 2
 
 
-def test_malformed_markers_left_unchanged(tmp_path):
-    """W1: an ambiguous marker state (stray BEGIN) is refused — file unchanged,
-    no write, empty return list."""
+def test_one_version_stale_legacy_body_not_migrated(tmp_path):
+    """W1(c) template-evolution footgun: `_is_legacy_managed_section` requires an
+    EXACT match to the CURRENT template, so a markerless section carrying a
+    one-version-behind aim-wiki body is treated as user content — NOT migrated
+    in place. The managed block is appended separately (two `## Project Wiki`
+    headings). Documents that changing POINTER_SECTION strands pre-existing
+    markerless sections authored by an older skill version."""
+    # A plausible prior-version body: same heading, but the trust-but-verify
+    # closing paragraph differs by one word from the current template.
+    stale_body = POINTER_SECTION.strip().replace(
+        "confirm any specific file", "verify any specific file"
+    )
+    assert stale_body != POINTER_SECTION.strip(), "fixture must differ from current"
+    claude = tmp_path / "CLAUDE.md"
+    claude.write_text("# Top\n\n" + stale_body + "\n", encoding="utf-8")
+    upsert_pointer(tmp_path)
+    text = claude.read_text()
+    assert "verify any specific file" in text, "stale user body preserved verbatim"
+    assert BEGIN_MARKER in text and END_MARKER in text, "managed block appended"
+    assert text.count(POINTER_HEADING) == 2, "not migrated — appended alongside"
+
+
+@pytest.mark.parametrize(
+    "label, body",
+    [
+        ("stray_begin", f"# a\n\n{BEGIN_MARKER}\ndangling — no end marker\n"),
+        (
+            "duplicate",
+            f"# a\n\n{BEGIN_MARKER}\none\n{END_MARKER}\n\n"
+            f"{BEGIN_MARKER}\ntwo\n{END_MARKER}\n",
+        ),
+        ("out_of_order", f"# a\n\n{END_MARKER}\nbody\n{BEGIN_MARKER}\n"),
+    ],
+)
+def test_malformed_markers_refused_and_unchanged(tmp_path, label, body):
+    """W1 + refusal observability: an ambiguous marker state (stray, duplicate,
+    or out-of-order) is refused — the file is left byte-for-byte unchanged (no
+    write, no backup) AND the refusal is signaled distinctly from a true no-op:
+    `refused` names the file while `changed` stays empty."""
     agents = tmp_path / "AGENTS.md"
-    original = f"# a\n\n{BEGIN_MARKER}\ndangling — no end marker\n"
-    agents.write_text(original, encoding="utf-8")
-    changed = upsert_pointer(tmp_path)
-    assert changed == [], "malformed markers → no change"
-    assert agents.read_text() == original, "file left byte-for-byte unchanged"
+    agents.write_text(body, encoding="utf-8")
+    result = upsert_pointer(tmp_path)
+    assert result.changed == [], f"{label}: malformed markers → nothing changed"
+    assert result.refused == ["AGENTS.md"], f"{label}: refusal signaled distinctly"
+    assert agents.read_text() == body, f"{label}: file left byte-for-byte unchanged"
+    assert (
+        list(tmp_path.glob("AGENTS.md.backup.*")) == []
+    ), f"{label}: no backup written"
+    assert list(tmp_path.glob(".AGENTS.md_*.tmp")) == [], f"{label}: no temp leftover"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        f"# a\n\n{BEGIN_MARKER}\ndangling\n",  # stray BEGIN
+        f"# a\n\n{END_MARKER}\nbody\n{BEGIN_MARKER}\n",  # END before BEGIN
+    ],
+)
+def test_splice_block_raises_on_malformed(body):
+    """splice_block is a pure refusal gate: it raises MalformedMarkersError on
+    an unsafe marker state rather than silently returning the text unchanged."""
+    with pytest.raises(MalformedMarkersError):
+        splice_block(body)
 
 
 # --- W2: atomic write + timestamped backup ---
