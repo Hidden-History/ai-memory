@@ -292,6 +292,35 @@ The installer registers a session-start digest hook and an AfterAgent drift hook
 }
 ```
 
+### Tuning the drift-scan budgets
+
+The default-on Stop-hook detect pass runs under a subprocess time cap, so the engine
+bounds each scan and **truncates gracefully** (a visible warning, never a silent
+under-report) rather than overrunning. All budgets are optional environment
+overrides; the defaults suit most projects. See also `docker/.env.example`.
+
+| Variable | Default | Bounds |
+|----------|---------|--------|
+| `AI_MEMORY_SOT_DIGEST_MAX_SECONDS` | `18.0` | Per-boundary tree-digest wall-time budget (seconds). A boundary that exceeds it yields a partial, truncated digest — carried over, never baselined (see [`references/drift-and-shadow-git.md`](../_ai-memory/skills/aim-sot/references/drift-and-shadow-git.md)). |
+| `AI_MEMORY_SOT_DIGEST_MAX_FILES` | `20000` | Per-boundary tree-digest file-count budget. |
+| `AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS` | `6.0` | Auto-discovery walk wall-time budget (seconds). |
+| `AI_MEMORY_SOT_DISCOVERY_MAX_DIRS` | `5000` | Auto-discovery walk max directories. |
+
+Discovery is split hot/cold (BP-047): the drift loop runs every session; the discovery
+walk runs only when its **R1 cadence** gate is due (or forced with `--discover`). The
+cadence is tunable:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AI_MEMORY_SOT_DISCOVERY_TTL_SECONDS` | `86400` | Re-run discovery after this age (24 h). |
+| `AI_MEMORY_SOT_DISCOVERY_SESSION_INTERVAL` | `20` | ...or after this many sessions, whichever comes first. |
+| `AI_MEMORY_SOT_DISCOVERY_NUDGE_SESSIONS` | `10` | Emit a non-blocking nudge after this many sessions with no discovery run. |
+
+Raising the budgets helps a manual `aim-sot detect-propose run` finish on a very large
+tree, but can push the default-on Stop hook past its subprocess cap. The per-file hash
+cache warms across sessions, so a large boundary that truncated cold typically completes
+on a later warm run without any tuning.
+
 ## Runtime Caches
 
 ### 5a — Per-install drift cache

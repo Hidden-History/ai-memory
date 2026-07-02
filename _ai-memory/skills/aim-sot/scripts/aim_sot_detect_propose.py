@@ -109,6 +109,22 @@ _DRIFT_CACHE_DIR = (
     / "drift-state"
 )
 
+# --- R1: hot/cold discovery cadence (BP-047) ------------------------------
+# Drift runs every session (hot path); the discovery walk (cold path) runs only
+# when the periodic gate is due — TTL elapsed OR N sessions since last run
+# (OR-logic: sparse machines trip on time, bursty ones on count).  Sentinel:
+# ~/.ai-memory/sot-discovery-state.json (see _discovery_state_path).  Env-tunable.
+_DISCOVERY_TTL_SECONDS = _env_float("AI_MEMORY_SOT_DISCOVERY_TTL_SECONDS", 86400.0)
+_DISCOVERY_SESSION_INTERVAL = _env_int("AI_MEMORY_SOT_DISCOVERY_SESSION_INTERVAL", 20)
+# Non-blocking staleness nudge after this many sessions without a discovery run.
+_DISCOVERY_NUDGE_SESSIONS = _env_int("AI_MEMORY_SOT_DISCOVERY_NUDGE_SESSIONS", 10)
+
+# --- R4: whole-tree size guard (BP-051 Policy 3) --------------------------
+# A whole-tree / broad boundary covering more than this many files (or whose
+# scan blows the hot-path budget) is flagged with a narrowing recommendation —
+# a GUARD, never a mechanism selector (the drift strategy is unchanged).
+_WHOLE_TREE_FILE_THRESHOLD = _env_int("AI_MEMORY_SOT_WHOLE_TREE_FILE_THRESHOLD", 10000)
+
 # Staleness thresholds keyed by volatility tier (days).
 _STALENESS_THRESHOLDS: dict[str, int] = {"high": 30, "medium": 90, "low": 180}
 _DEFAULT_STALENESS_TIER = "medium"
@@ -273,9 +289,20 @@ def _sha256_short(path: Path) -> str | None:
 
 
 def _compute_entry_digest(
-    strategy: str, full_path: Path | None, excludes=None
-) -> str | None:
+    strategy: str,
+    full_path: Path | None,
+    excludes=None,
+    *,
+    project_id: str | None = None,
+    entry_id: str | None = None,
+) -> tuple[str | None, bool]:
     """Drift digest for an entry, dispatched by enum strategy (no shell exec).
+
+    Returns ``(digest, truncated)``.  ``truncated`` is True only when a directory
+    tree digest hit its wall-time / file-count budget (F-SOT-3): the digest is
+    then a *partial* sentinel the caller must never compare as drift or store as a
+    baseline (a later complete run would read it as a false re-baseline).  File and
+    temporal strategies never truncate → ``truncated`` is always False for them.
 
     - ``content-digest`` → ``sha256(file)[:8]`` (file SOT; behavior-preserving).
     - ``tree-digest`` / ``git-tree-hash`` → BP-039 ``vN:`` tree digest (dir SOT).
@@ -283,24 +310,50 @@ def _compute_entry_digest(
       temporal / ref checks, not a content digest).
 
     ``excludes`` (the registry's committed exclude config) is applied to the
-    directory tree digest.  Returns None when the path is absent or the shadow
-    module is unavailable for a tree strategy (graceful degrade to the file-only
-    pre-TD-675 behavior).
+    directory tree digest.  When ``project_id`` and ``entry_id`` are given, the
+    directory digest is accelerated by the BP-048 per-file hash cache (FIX-D1):
+    warm re-hashes of an unchanged tree drop from N reads to N ``stat()``s.
+
+    **The cache scope is the ``entry_id``, and this is load-bearing**:
+    ``tree_digest`` prunes the cache to the file set of the root it just walked,
+    so two roots sharing a scope would evict each other every run — each per-entry
+    directory MUST use its own scope (``run_shadow_pass`` owns ``scope="tree"``).
+    The SAME ``excludes`` are passed to the load and the digest (excludes drives
+    the cache epoch).  The cache is accelerator-only: any load/save failure
+    degrades to a correct, byte-identical cold digest.
+
+    Returns ``(None, False)`` when the path is absent or the shadow module is
+    unavailable for a tree strategy (graceful degrade to the file-only pre-TD-675
+    behavior).
     """
     if full_path is None or not full_path.exists():
-        return None
+        return None, False
     if strategy == "content-digest":
-        return _sha256_short(full_path)
+        return _sha256_short(full_path), False
     if strategy in ("tree-digest", "git-tree-hash"):
         if shadow is None:
-            return None
+            return None, False
+        eff_excludes = excludes if excludes is not None else shadow.DEFAULT_EXCLUDES
+        # Cache only with a real per-entry scope; never fall back to scope="tree"
+        # (that is run_shadow_pass's cache — a collision would prune it).
+        use_cache = project_id is not None and bool(entry_id)
+        cache = None
+        if use_cache:
+            try:
+                cache = shadow.load_file_hash_cache(
+                    project_id, eff_excludes, scope=entry_id
+                )
+            except Exception:
+                cache = None
         try:
-            if excludes is None:
-                return shadow.tree_digest(full_path).digest
-            return shadow.tree_digest(full_path, excludes).digest
+            td = shadow.tree_digest(full_path, eff_excludes, cache=cache)
         except Exception:
-            return None
-    return None  # temporal / git-ahead-behind: no content digest
+            return None, False
+        if use_cache and cache is not None:
+            with contextlib.suppress(Exception):
+                shadow.save_file_hash_cache(project_id, cache, scope=entry_id)
+        return td.digest, td.truncated
+    return None, False  # temporal / git-ahead-behind: no content digest
 
 
 def _load_registry_config(registry_path: Path) -> tuple[tuple[str, ...], str]:
@@ -435,6 +488,181 @@ def _write_drift_cache(project_id: str, data: dict) -> None:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
 
 
+# ---------------------------------------------------------------------------
+# R1: hot/cold discovery cadence gate (BP-047)
+# ---------------------------------------------------------------------------
+
+
+def _discovery_state_path() -> Path:
+    """~/.ai-memory/sot-discovery-state.json — the BP-047 discovery sentinel.
+
+    Derived from ``_DRIFT_CACHE_DIR``'s parent (the install dir) so a test that
+    redirects ``_DRIFT_CACHE_DIR`` also redirects this sentinel — the state never
+    touches the real ~/.ai-memory during tests, matching the 5a-cache pattern.
+    """
+    return _DRIFT_CACHE_DIR.parent / "sot-discovery-state.json"
+
+
+def _read_discovery_state() -> dict:
+    """Load the discovery sentinel (project_id → {last_discovery_ts,
+    sessions_since_discovery}).  Returns {} on absence / parse error (cold start
+    → discovery due)."""
+    try:
+        data = json.loads(_discovery_state_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_discovery_state(state: dict) -> None:
+    """Persist the discovery sentinel atomically (random temp → os.replace).  Best
+    effort: a write failure degrades silently (the cadence self-heals next run).
+
+    A ``tempfile.NamedTemporaryFile`` (random suffix) — not a fixed ``.tmp`` name
+    — so racing writers never share a temp file (FIX-D4); callers serialize the
+    read-modify-write with ``_locked_discovery_state``.
+    """
+    path = _discovery_state_path()
+    tmp_path: Path | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            delete=False,
+            suffix=".tmp",
+        ) as tmp:
+            tmp_path = Path(tmp.name)
+            json.dump(state, tmp)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        os.replace(tmp_path, path)
+    except OSError:
+        if tmp_path is not None:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink(missing_ok=True)
+
+
+def _update_discovery_state(mutate) -> None:
+    """Locked read-modify-write of the discovery sentinel (FIX-D4).
+
+    ``mutate(state)`` may mutate the state dict in place; the result is persisted
+    atomically under an exclusive ``fcntl.flock`` so concurrent sessions / racing
+    Stop hooks cannot clobber ticks or interleave writes (mirrors
+    ``_write_drift_cache``'s discipline).  Best effort: if the lock file cannot be
+    created the mutation still runs unlocked, so a read-only install degrades
+    rather than crashes.  ``mutate`` must not raise (callers pass pure dict ops).
+    """
+    path = _discovery_state_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(
+            path.with_name(path.name + ".lock"), "w", encoding="utf-8"
+        ) as lock_fd:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+                state = _read_discovery_state()
+                mutate(state)
+                _write_discovery_state(state)
+            finally:
+                with contextlib.suppress(OSError):
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        return
+    except OSError:
+        pass
+    # Degraded path: no lock file (read-only install) — run unlocked, best effort.
+    state = _read_discovery_state()
+    mutate(state)
+    _write_discovery_state(state)
+
+
+def _discovery_gate(
+    project_id: str, *, force_discover: bool, drift_only: bool
+) -> tuple[bool, str | None]:
+    """Decide whether the (cold) discovery walk runs this session (BP-047).
+
+    Ticks the per-project session counter (under lock) and persists it, then
+    applies OR-logic: discovery is due when it has never run, the TTL (24 h) has
+    elapsed, OR ``_DISCOVERY_SESSION_INTERVAL`` (20) sessions have passed.
+    ``drift_only`` forces a skip (hot path only); ``force_discover``
+    (``--discover``) forces a run and bypasses the gate.  Returns
+    ``(run_discovery, nudge)`` where ``nudge`` is a non-blocking staleness line
+    once ``_DISCOVERY_NUDGE_SESSIONS`` sessions pass without a run.
+
+    The counter reset / ``last_discovery_ts`` stamp happens ONLY after a
+    successful walk (``_record_discovery_complete``) — never here — so a
+    truncated or failed discovery does not defer the next run a full TTL /
+    20 sessions though it never finished (FIX-D3).
+
+    Keeping this gate INTERNAL means the per-CLI Stop hooks need no change: they
+    still call ``detect-propose run --shadow`` and the walk is simply deferred to
+    its cadence (drift-only every run, discovery only when due).
+    """
+    result: dict = {}
+
+    def _mutate(state: dict) -> None:
+        proj = state.get(project_id) or {}
+        last_ts = float(proj.get("last_discovery_ts", 0) or 0)
+        sessions_since = int(proj.get("sessions_since_discovery", 0)) + 1  # tick
+
+        due = (
+            last_ts == 0
+            or (
+                _DISCOVERY_TTL_SECONDS > 0
+                and (time.time() - last_ts) > _DISCOVERY_TTL_SECONDS
+            )
+            or sessions_since >= _DISCOVERY_SESSION_INTERVAL
+        )
+
+        if drift_only:
+            run_discovery = False
+        elif force_discover:
+            run_discovery = True
+        else:
+            run_discovery = due
+
+        nudge: str | None = None
+        if not run_discovery and sessions_since >= _DISCOVERY_NUDGE_SESSIONS:
+            age = (
+                f"{(time.time() - last_ts) / 86400:.0f} days ago"
+                if last_ts
+                else "never"
+            )
+            nudge = (
+                f"[ai-memory] SOT discovery scan is due (last run {age}, "
+                f"{sessions_since} sessions ago). Run `aim-sot detect-propose "
+                "run --discover` to surface newly-added components."
+            )
+        # Persist the tick only (last_ts unchanged; the completed-run stamp is
+        # deferred to _record_discovery_complete after a clean walk — FIX-D3).
+        state[project_id] = {
+            "last_discovery_ts": last_ts,
+            "sessions_since_discovery": sessions_since,
+        }
+        result["run"] = run_discovery
+        result["nudge"] = nudge
+
+    _update_discovery_state(_mutate)
+    return result["run"], result["nudge"]
+
+
+def _record_discovery_complete(project_id: str) -> None:
+    """Stamp a COMPLETED discovery: ``last_discovery_ts=now`` + counter reset to 0.
+
+    Called only after a non-truncated, non-erroring discovery walk (FIX-D3) so a
+    partial scan never advances the cadence.  Locked + atomic (FIX-D4).
+    """
+
+    def _mutate(state: dict) -> None:
+        state[project_id] = {
+            "last_discovery_ts": time.time(),
+            "sessions_since_discovery": 0,
+        }
+
+    _update_discovery_state(_mutate)
+
+
 def _should_skip_component(
     entry_id: str,
     cache: dict,
@@ -526,6 +754,7 @@ def _compute_component_record(
     human_reconfirmed: bool,
     strategy: str = "content-digest",
     digest_version: str = "",
+    digest_truncated: bool = False,
 ) -> dict:
     """Build the next 5a component record per DD-B baseline rules.
 
@@ -536,6 +765,12 @@ def _compute_component_record(
     - drift detected                      → HOLD the prior baseline (sha + at +
       mtime/size unchanged) so the proposal re-fires until resolved.
     - clean                               → advance baseline to current.
+
+    ``digest_truncated`` marks ``current_sha`` as a partial tree-digest sentinel
+    (F-SOT-3): it must never be advanced into the baseline (a later complete walk
+    would read it as a false re-baseline).  The prior baseline is carried forward
+    unchanged (or a cold-start entry is left unverified with no baseline) so the
+    next complete walk establishes the real digest.
     """
     loc_missing = any(d.get("drift_type") == "location" for d in drifts)
     detail = [d["drift_type"] for d in drifts] if drifts else None
@@ -553,7 +788,10 @@ def _compute_component_record(
         return {
             "sot_location": loc,
             "last_verified_at": now_iso,
-            "last_verified_sha": current_sha or "",
+            # F-SOT-3: a truncated tree digest is a partial sentinel — never store
+            # it as a baseline. Leave no baseline (unverified) so the next complete
+            # walk establishes the real one.
+            "last_verified_sha": "" if digest_truncated else (current_sha or ""),
             "last_verified_mtime": mtime,
             "last_verified_size": size,
             "drift_status": "missing" if loc_missing else "unverified",
@@ -594,6 +832,11 @@ def _compute_component_record(
         # A missing artifact can never be 'clean' — hold, even if a human just
         # bumped last_verified (they cannot re-confirm a file that is gone).
         return _hold("missing")
+    if digest_truncated:
+        # F-SOT-3: the digest is a partial sentinel this run — never advance the
+        # baseline to it. Hold the prior baseline so a later complete walk
+        # re-verifies; reflect any independent (location/temporal) drift.
+        return _hold("drifted" if drifts else prior.get("drift_status", "unverified"))
     if human_reconfirmed:
         return _advance()
     if drifts:
@@ -638,19 +881,59 @@ class _ScanBudget:
         return False
 
 
-def _pruned_walk(root: Path, budget: "_ScanBudget | None" = None):
-    """``os.walk`` that prunes ``_SKIP_DIRS`` in-place (so skipped trees are
-    never descended into) and stops on the shared dir-count / wall-time budget
-    (F-A2-5 + F-SOT-3).
+def _walk_dir_excluded(dirpath: str, dirname: str, root: Path, excludes) -> bool:
+    """True when ``<dirpath>/<dirname>`` matches a registry ``exclude:`` entry.
+
+    Matches the POSIX-normalized relpath (never the absolute path) with a
+    trailing slash so directory semantics apply — the exact call
+    ``shadow.tree_digest`` makes, so the discovery walk and the tree-digest
+    apply IDENTICAL exclude semantics from ONE committed config (R3/BP-049).
+    A no-op when ``excludes`` is empty or the shadow module is unavailable
+    (graceful degrade to the pre-R3, ``_SKIP_DIRS``-only behavior).
+    """
+    if not excludes or shadow is None:
+        return False
+    rel = os.path.relpath(os.path.join(dirpath, dirname), root).replace(os.sep, "/")
+    return shadow.path_excluded(rel + "/", excludes)
+
+
+def _file_excluded(dirpath: str, fname: str, root: Path, excludes) -> bool:
+    """True when ``<dirpath>/<fname>`` matches a registry ``exclude:`` entry.
+
+    The FILE counterpart of :func:`_walk_dir_excluded` — matches the POSIX
+    relpath with NO trailing slash, exactly as ``shadow.tree_digest`` matches a
+    file.  Needed because ``DEFAULT_EXCLUDES`` carries file globs (``*.pyc``,
+    ``*.log``, ``.env`` …): without it the discovery walk over-counts and would
+    still propose an ``exclude:``-d manifest, diverging from the digest (FIX-D2).
+    A no-op when ``excludes`` is empty or the shadow module is unavailable.
+    """
+    if not excludes or shadow is None:
+        return False
+    rel = os.path.relpath(os.path.join(dirpath, fname), root).replace(os.sep, "/")
+    return shadow.path_excluded(rel, excludes)
+
+
+def _pruned_walk(root: Path, budget: "_ScanBudget | None" = None, excludes=()):
+    """``os.walk`` that prunes ``_SKIP_DIRS`` **and** the registry ``exclude:``
+    set in-place (so skipped trees are never descended into) and stops on the
+    shared dir-count / wall-time budget (F-A2-5 + F-SOT-3 + R3/BP-049).
 
     Pruning during traversal — rather than ``rglob`` + post-hoc filtering —
     avoids walking node_modules / .venv / build trees on every run; the budget
-    bounds the worst case on pathological or slow-filesystem repos.
+    bounds the worst case on pathological or slow-filesystem repos.  ``excludes``
+    (the registry's committed exclude config, ``effective_excludes``) drives the
+    SAME dir- AND file-level pruning as the tree-digest so discovery and digest
+    never diverge on which paths exist (BP-049 single-config two-pass; FIX-D2).
     """
     if budget is None:
         budget = _ScanBudget()
     for visited, (dirpath, dirnames, filenames) in enumerate(os.walk(root)):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in _SKIP_DIRS
+            and not _walk_dir_excluded(dirpath, d, root, excludes)
+        ]
         if budget.exceeded(visited):
             # Surface the truncation rather than silently capping discovery
             # ("no silent caps") — components below the budget are not scanned.
@@ -665,16 +948,21 @@ def _pruned_walk(root: Path, budget: "_ScanBudget | None" = None):
                 file=sys.stderr,
             )
             return
+        # File-level exclude (matches tree_digest's per-file path_excluded) so the
+        # scanners never see an excluded manifest and the count never over-counts.
+        filenames[:] = [
+            f for f in filenames if not _file_excluded(dirpath, f, root, excludes)
+        ]
         yield Path(dirpath), dirnames, filenames
 
 
 def _discover_manifests(
-    project_root: Path, budget: "_ScanBudget | None" = None
+    project_root: Path, budget: "_ScanBudget | None" = None, excludes=()
 ) -> list[dict]:
     """Manifest files → boundary_type=component candidates."""
     manifest_order = sorted(_MANIFEST_FILENAMES)
     candidates: list[dict] = []
-    for dirpath, _dirnames, filenames in _pruned_walk(project_root, budget):
+    for dirpath, _dirnames, filenames in _pruned_walk(project_root, budget, excludes):
         fileset = set(filenames)
         name = next((n for n in manifest_order if n in fileset), None)
         if name is None:
@@ -695,7 +983,7 @@ def _discover_manifests(
     return sorted(candidates, key=lambda c: c["sot_location"])
 
 
-def _discover_top_dirs(project_root: Path) -> list[dict]:
+def _discover_top_dirs(project_root: Path, excludes=()) -> list[dict]:
     """Top-level directories → boundary_type=path candidates."""
     candidates: list[dict] = []
     try:
@@ -705,6 +993,12 @@ def _discover_top_dirs(project_root: Path) -> list[dict]:
             name = entry.name
             if name in _SKIP_DIRS or name.startswith("."):
                 continue
+            if (
+                excludes
+                and shadow is not None
+                and shadow.path_excluded(name + "/", excludes)
+            ):
+                continue  # honor the registry exclude set (R3/BP-049)
             candidates.append(
                 {
                     "id": name,
@@ -720,11 +1014,11 @@ def _discover_top_dirs(project_root: Path) -> list[dict]:
 
 
 def _discover_adr_dirs(
-    project_root: Path, budget: "_ScanBudget | None" = None
+    project_root: Path, budget: "_ScanBudget | None" = None, excludes=()
 ) -> list[dict]:
     """ADR/decision directories → boundary_type=concern candidates."""
     candidates: list[dict] = []
-    for dirpath, _dirnames, _filenames in _pruned_walk(project_root, budget):
+    for dirpath, _dirnames, _filenames in _pruned_walk(project_root, budget, excludes):
         if dirpath == project_root or dirpath.name not in _ADR_DIR_NAMES:
             continue
         rel = dirpath.relative_to(project_root)
@@ -743,7 +1037,7 @@ def _discover_adr_dirs(
 
 
 def _discover_nested_source_dirs(
-    project_root: Path, budget: "_ScanBudget | None" = None
+    project_root: Path, budget: "_ScanBudget | None" = None, excludes=()
 ) -> list[dict]:
     """Nested source-container dirs with no manifest → ``low`` candidates (Q5).
 
@@ -753,7 +1047,7 @@ def _discover_nested_source_dirs(
     semantics; ``low`` never licenses auto-approval.
     """
     candidates: list[dict] = []
-    for dirpath, _dirnames, filenames in _pruned_walk(project_root, budget):
+    for dirpath, _dirnames, filenames in _pruned_walk(project_root, budget, excludes):
         if dirpath == project_root:
             continue
         rel = dirpath.relative_to(project_root)
@@ -778,7 +1072,7 @@ def _discover_nested_source_dirs(
 
 
 def _discover_candidates(
-    project_root: Path, budget: "_ScanBudget | None" = None
+    project_root: Path, budget: "_ScanBudget | None" = None, excludes=()
 ) -> list[dict]:
     """Orchestrate all scanners, deduplicated and sorted by sot_location.
 
@@ -787,21 +1081,39 @@ def _discover_candidates(
     the caller can pass its own to read ``budget.truncated`` afterwards.  Scanners
     are concatenated strongest-first (manifest/ADR high → top-dir medium →
     nested-source low) so dedup-by-location keeps the highest-confidence label.
+    ``excludes`` (the registry's committed exclude set) is threaded to every
+    walk so discovery honors the SAME config as the tree-digest (R3/BP-049).
     """
     if budget is None:
         budget = _ScanBudget()
     seen: set[str] = set()
     all_candidates: list[dict] = []
     for c in (
-        _discover_manifests(project_root, budget)
-        + _discover_adr_dirs(project_root, budget)
-        + _discover_top_dirs(project_root)
-        + _discover_nested_source_dirs(project_root, budget)
+        _discover_manifests(project_root, budget, excludes)
+        + _discover_adr_dirs(project_root, budget, excludes)
+        + _discover_top_dirs(project_root, excludes)
+        + _discover_nested_source_dirs(project_root, budget, excludes)
     ):
         loc = c["sot_location"]
         if loc not in seen:
             seen.add(loc)
             all_candidates.append(c)
+    # BP-051 Policy 1 (step 4) — whole-tree LEAF FALLBACK.  A directory with no
+    # internal manifests/components and no curated sub-areas (zero discovered
+    # candidates) is a leaf: propose ONE whole-tree entry so a structureless
+    # project is still trackable.  Never emitted for a structured repo — that
+    # would be the low-value monolithic whole-repo digest BP-051 warns against
+    # (one un-localizable "something changed" bit).
+    if not all_candidates:
+        all_candidates.append(
+            {
+                "id": "root",
+                "boundary_type": "path",
+                "sot_location": "./",
+                "confidence": "low",
+                "inferred_from": "whole_tree_fallback",
+            }
+        )
     # Invariant: every emitted candidate carries a known confidence tier (Q5).
     # This is the one consumer of _CONFIDENCE_TIERS — it keeps the ordinal-tier
     # vocabulary and the scanners' hard-coded labels from silently diverging.
@@ -812,6 +1124,96 @@ def _discover_candidates(
                 f"{c['confidence']!r} (expected one of {_CONFIDENCE_TIERS})"
             )
     return sorted(all_candidates, key=lambda c: c["sot_location"])
+
+
+def _count_files_bounded(root: Path, limit: int, excludes=()) -> int:
+    """Count regular files under ``root`` (pruning ``_SKIP_DIRS`` + the registry
+    exclude set), short-circuiting once ``limit`` is reached.
+
+    Advisory sizing for the BP-051 size guard only.  The short-circuit bounds the
+    cost so a huge flat tree cannot blow the cold path; the same exclude set as
+    the walk/digest keeps the count consistent (R3/BP-049).
+    """
+    total = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d not in _SKIP_DIRS
+            and not _walk_dir_excluded(dirpath, d, root, excludes)
+        ]
+        # File-level exclude too (matches tree_digest + _pruned_walk) so the size
+        # guard counts the SAME file set the digest would hash (FIX-D2).
+        total += sum(
+            1 for f in filenames if not _file_excluded(dirpath, f, root, excludes)
+        )
+        if total >= limit:
+            return total
+    return total
+
+
+def _size_guard_finding(
+    project_root: Path,
+    candidates: list[dict],
+    budget: "_ScanBudget",
+    excludes=(),
+) -> dict | None:
+    """BP-051 Policy 3 size guard: recommend narrowing a large, coarsely-covered
+    tree into per-directory / component sub-entries.
+
+    Fires only when the discovery scan was COMPLETE, the project has NO
+    ``component`` boundary, AND a bounded file count crosses
+    ``_WHOLE_TREE_FILE_THRESHOLD``.  A structured repo (manifests → ``component``
+    candidates) is already narrow and is never flagged.
+
+    Suppressed entirely when the discovery walk truncated: a partial candidate
+    set cannot prove "no component boundary", so firing would false-positive on a
+    large repo whose components sit below the budget (FIX-D5) — the existing
+    ``budget_truncated`` stderr line already signals that case.  This is a GUARD,
+    not a mechanism selector: it proposes a granularity change and never touches
+    the drift strategy (BP-051 Policy 2).  Returns a structured finding, or
+    ``None`` when it does not apply (including graceful-degrade when the shadow
+    finding factory is unavailable).
+    """
+    if shadow is None:
+        return None
+    if budget.truncated:
+        return None  # partial scan — cannot infer "no component" reliably (FIX-D5)
+    if any(c.get("boundary_type") == "component" for c in candidates):
+        return None  # already narrow — per-component boundaries exist
+    file_count = _count_files_bounded(
+        project_root, _WHOLE_TREE_FILE_THRESHOLD, excludes
+    )
+    if file_count < _WHOLE_TREE_FILE_THRESHOLD:
+        return None
+    # Candidate sub-boundaries the user could narrow to: the discovered top-level
+    # dirs (exclude the whole-tree fallback entry itself).
+    sub_dirs = [
+        c["sot_location"]
+        for c in candidates
+        if c.get("boundary_type") == "path" and c["sot_location"] != "./"
+    ]
+    narrow_to = (
+        "per-directory / component sub-entries (e.g. " + ", ".join(sub_dirs[:5]) + ")"
+        if sub_dirs
+        else "component sub-entries once internal manifests exist"
+    )
+    return shadow.emit_finding(
+        finding_type="SOT_ANOMALY",
+        severity="LOW",
+        doc_file="",
+        trigger_path="./",
+        trigger_commit={},
+        anchor_type="NONE",
+        recommended_action=(
+            f"Whole-tree SOT coverage spans a large tree ({file_count}+ files) with "
+            "no component boundaries; a single tree-digest yields one "
+            "un-localizable 'something changed' signal. Consider narrowing into "
+            f"{narrow_to}. (Guard only — the drift mechanism is unchanged; "
+            "BP-051 Policy 3.)"
+        ),
+        bp_id="BP-051",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1737,7 +2139,18 @@ def cmd_run(args: argparse.Namespace) -> int:
     reg_changed = bool(current_reg_sha) and current_reg_sha != cache.get(
         "registry_sha", ""
     )
-    if reg_changed:
+    # --no-reindex (FIX-D7): skip the 5b reindex so drift/discovery can be
+    # exercised with ZERO Qdrant writes (there is no env-only way to sandbox the
+    # write side).  Default OFF — behavior unchanged; when active, registry_sha is
+    # left un-advanced so a later normal run still rebuilds the derived cache.
+    no_reindex = getattr(args, "no_reindex", False)
+    if no_reindex:
+        print(
+            "[ai-memory] SOT: --no-reindex active — skipping the 5b derived-cache "
+            "reindex (no Qdrant writes this run).",
+            file=sys.stderr,
+        )
+    if reg_changed and not no_reindex:
         reindex_result = _reindex_sot_entries(registry_path, project_id)
         # Advance registry_sha only on a successful rebuild — a failed reindex
         # is retried next run rather than masked (M1).  Preserve
@@ -1769,6 +2182,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     strategy_frictions: list[dict] = (
         []
     )  # FRICTION findings for unimplemented strategies
+    # F-SOT-3: True if any per-boundary tree digest truncated this run (folded into
+    # budget_truncated below); frictions surface the incomplete boundaries.
+    boundary_digest_truncated = False
+    boundary_digest_frictions: list[dict] = []
     for entry in entries:
         eid = entry.get("id", "")
         if not eid:
@@ -1796,11 +2213,39 @@ def cmd_run(args: argparse.Namespace) -> int:
             if (shadow is not None and strategy in ("tree-digest", "git-tree-hash"))
             else ""
         )
-        current_sha = (
-            _compute_entry_digest(strategy, full_path, effective_excludes)
+        # FIX-D1: accelerate the per-entry directory digest with the BP-048
+        # per-file hash cache (scope=entry_id — see _compute_entry_digest).  Note
+        # (adv-F2): tree_digest's per-op ``max_seconds`` budget is PER ENTRY, so
+        # the worst case sums across N directory entries; the warm cache keeps
+        # each entry cheap, and an invocation-wide deadline is a deferred
+        # follow-up (out of this round), not wired here.
+        current_sha, entry_truncated = (
+            _compute_entry_digest(
+                strategy,
+                full_path,
+                effective_excludes,
+                project_id=project_id,
+                entry_id=eid,
+            )
             if exists
-            else None
+            else (None, False)
         )
+        if entry_truncated:
+            # F-SOT-3: this boundary's tree digest hit its budget — current_sha is a
+            # PARTIAL sentinel. Aggregate the truncation and surface it; the digest
+            # is neither compared as drift (below) nor stored as a baseline (record).
+            boundary_digest_truncated = True
+            boundary_digest_frictions.append(
+                shadow.friction_finding(
+                    f"tree-digest for boundary '{eid}' exceeded its budget "
+                    "(large/slow directory) — drift scan incomplete this session; "
+                    "baseline left unchanged. Tune AI_MEMORY_SOT_DIGEST_MAX_SECONDS "
+                    "/ AI_MEMORY_SOT_DIGEST_MAX_FILES or narrow the registry exclude "
+                    "set.",
+                    where="tree-digest",
+                    severity="LOW",
+                )
+            )
         mtime, size = _stat_mtime_size(full_path) if exists else (None, None)
 
         # R-1 (lead): a drift_strategy switch or a digest-version bump is a
@@ -1821,9 +2266,10 @@ def cmd_run(args: argparse.Namespace) -> int:
         if temp_drift:
             drifts.append(temp_drift)
         # Skip the content-based checks on a re-baseline run (the digest is not
-        # comparable across strategies/versions); the record advances to the new
-        # baseline below.
-        if not rebaseline:
+        # comparable across strategies/versions) or on a truncated tree digest
+        # (F-SOT-3: current_sha is partial — comparing it would report false drift);
+        # the record advances / holds below.
+        if not rebaseline and not entry_truncated:
             hash_drift = _check_content_hash_drift(
                 entry, resolve_root, cache, current_sha=current_sha
             )
@@ -1853,12 +2299,33 @@ def cmd_run(args: argparse.Namespace) -> int:
             ),
             strategy=strategy,
             digest_version=digest_version,
+            digest_truncated=entry_truncated,
+        )
+
+    # --- R1 discovery cadence gate (BP-047 hot/cold split) ---
+    # The drift loop above is the HOT path — it runs every session.  The
+    # discovery walk below is the COLD path: run it only when the internal
+    # cadence gate is due (TTL 24 h OR 20 sessions) or forced (--discover);
+    # --drift-only forces a skip.  The gate is internal so the Stop hooks need no
+    # change (they still call `run --shadow`; the walk is deferred to its
+    # cadence).  A cold sentinel (first run / tests) is always due → the default
+    # `run` output is unchanged for a registry with a due discovery.  The gate is
+    # evaluated only when the root is scannable (a flat --registry override has no
+    # conforming project root, so discovery can never run — don't tick / nudge).
+    run_discovery = False
+    discovery_nudge: str | None = None
+    if project_root is not None:
+        run_discovery, discovery_nudge = _discovery_gate(
+            project_id,
+            force_discover=getattr(args, "discover", False),
+            drift_only=getattr(args, "drift_only", False),
         )
 
     # --- Auto-discovery: new candidates (skipped for non-conforming roots) ---
     scan_budget = _ScanBudget()
-    if project_root is not None:
-        candidates = _discover_candidates(project_root, scan_budget)
+    size_finding: dict | None = None
+    if project_root is not None and run_discovery:
+        candidates = _discover_candidates(project_root, scan_budget, effective_excludes)
         new_candidates = _filter_new_candidates(candidates, entries)
         limit = (
             0
@@ -1867,6 +2334,16 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         capped, deferred_count = _apply_cap(new_candidates, limit)
         candidate_proposals = [_make_candidate_proposal(c) for c in capped]
+        # R4 size guard (BP-051 Policy 3): flag a large, coarsely-covered tree and
+        # propose narrowing.  Advisory finding only — never a mechanism change.
+        size_finding = _size_guard_finding(
+            project_root, candidates, scan_budget, effective_excludes
+        )
+        # FIX-D3: stamp the cadence only after a COMPLETE walk — a budget-truncated
+        # discovery never advances last_discovery_ts / resets the counter, so the
+        # next run still re-attempts it rather than deferring a full TTL/20 sessions.
+        if not scan_budget.truncated:
+            _record_discovery_complete(project_id)
     else:
         capped, deferred_count, candidate_proposals = [], 0, []
 
@@ -1904,15 +2381,31 @@ def cmd_run(args: argparse.Namespace) -> int:
         )
         findings = shadow_summary.get("findings", []) + strategy_frictions
         docs_stale = shadow_summary.get("docs_stale", 0)
-        digest_truncated = bool(shadow_summary.get("digest_truncated", False))
+        digest_truncated = digest_truncated or bool(
+            shadow_summary.get("digest_truncated", False)
+        )
     elif strategy_frictions:
         findings = strategy_frictions
 
-    # Budget-truncation signal (F-SOT-3): either full-project walk hit its budget
-    # → the drift/doc-drift channel is incomplete this session.  Surfaced in the
-    # JSON pipe so the [CL] hook can emit a visible, non-fatal warning instead of
-    # silently reporting zero findings.
-    budget_truncated = bool(scan_budget.truncated or digest_truncated)
+    # R4 size-guard finding (BP-051 Policy 3) — surfaced through the same findings
+    # pipe as drift / doc-staleness so a coarse whole-tree boundary is never
+    # silently un-flagged.  Present in both the --shadow and default runs.
+    if size_finding is not None:
+        findings = [*findings, size_finding]
+
+    # Per-boundary tree-digest truncation frictions (F-SOT-3) — surfaced in both
+    # the --shadow and default runs so an incomplete boundary scan is never silent.
+    if boundary_digest_frictions:
+        findings = [*findings, *boundary_digest_frictions]
+
+    # Budget-truncation signal (F-SOT-3): the discovery walk, the whole-project
+    # digest, or any per-boundary tree digest hit its budget → the drift/doc-drift
+    # channel is incomplete this session.  Surfaced in the JSON pipe so the [CL]
+    # hook can emit a visible, non-fatal warning instead of silently reporting zero
+    # findings.
+    budget_truncated = bool(
+        scan_budget.truncated or digest_truncated or boundary_digest_truncated
+    )
 
     # Live drift rollup for the [ST] ambient surface (consult digest reads this).
     n_changed = len(drift_proposals)
@@ -1961,6 +2454,11 @@ def cmd_run(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
 
+    # R1 non-blocking staleness nudge (BP-047): discovery deferred for too long.
+    # stderr in both modes — never corrupts the --json stdout pipe, never blocks.
+    if discovery_nudge:
+        print(discovery_nudge, file=sys.stderr)
+
     return 0
 
 
@@ -1971,6 +2469,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def cmd_reindex(args: argparse.Namespace) -> int:
     """Explicit 5b reindex subcommand."""
+    if getattr(args, "no_reindex", False):
+        # FIX-D7: an explicit reindex under --no-reindex is a deliberate no-op —
+        # honor the offline contract (zero Qdrant writes) rather than reindex.
+        print(
+            "[ai-memory] SOT: --no-reindex active — reindex skipped (no Qdrant "
+            "writes).",
+            file=sys.stderr,
+        )
+        return 0
     registry_path = _find_registry(getattr(args, "registry", None))
     if registry_path is None or not registry_path.exists():
         print("No registry found. Nothing to reindex.")
@@ -2075,9 +2582,45 @@ def _build_parser() -> argparse.ArgumentParser:
             "Off by default; the per-CLI Stop hooks pass it."
         ),
     )
+    # R1 hot/cold split (BP-047): the discovery walk is gated to a cadence.  These
+    # two overrides are mutually exclusive — one forces a skip, the other a run.
+    disc_group = run_p.add_mutually_exclusive_group()
+    disc_group.add_argument(
+        "--drift-only",
+        action="store_true",
+        dest="drift_only",
+        help=(
+            "Hot path only: check the registered SOT entries for drift and skip "
+            "the discovery walk entirely (BP-047)."
+        ),
+    )
+    disc_group.add_argument(
+        "--discover",
+        action="store_true",
+        dest="discover",
+        help=(
+            "Force a full discovery walk now, bypassing the periodic cadence gate "
+            "(TTL / session-count) and resetting it (BP-047)."
+        ),
+    )
+    run_p.add_argument(
+        "--no-reindex",
+        action="store_true",
+        dest="no_reindex",
+        help=(
+            "Skip the 5b derived-cache reindex so drift / discovery can be "
+            "exercised with ZERO Qdrant writes (offline / sandbox). Default off."
+        ),
+    )
 
     reindex_p = sub.add_parser("reindex", help="Rebuild 5b derived memory cache")
     reindex_p.add_argument("--registry", metavar="PATH")
+    reindex_p.add_argument(
+        "--no-reindex",
+        action="store_true",
+        dest="no_reindex",
+        help="Offline no-op: skip the reindex (zero Qdrant writes).",
+    )
 
     return parser
 

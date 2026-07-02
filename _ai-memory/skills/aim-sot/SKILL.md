@@ -142,6 +142,9 @@ never licenses auto-filling semantics; even a `high` candidate needs human autho
 | `--write-proposal` | off | Registry-less project only: scaffold a non-committed `.sot/registry.proposed.yaml` staging draft (structural fields filled, semantic fields `TODO(human)`). Never writes the committed registry. See [First run — bootstrap from zero](#first-run--bootstrap-from-zero). |
 | `--force` | off | With `--write-proposal`, overwrite an existing draft (default: skip to protect in-progress edits). |
 | `--shadow` | off | Run the `[CL]` detect pass — BP-039 digest → BP-040 shadow-git commit → BP-042 doc-drift → structured `findings`. The Stop hooks pass it; see [Drift strategies, shadow git & doc-drift](#drift-strategies-shadow-git--doc-drift). |
+| `--drift-only` | off | Hot path only: check the registered entries for drift and skip the discovery walk entirely (BP-047). Mutually exclusive with `--discover`. |
+| `--discover` | off | Force a full discovery walk now, bypassing the periodic cadence gate (TTL / session-count) and resetting it (BP-047). Mutually exclusive with `--drift-only`. |
+| `--no-reindex` | off | Skip the 5b derived-cache reindex so drift / discovery can be exercised with **zero** Qdrant writes (offline / sandbox). |
 
 ### Output — drift proposals
 
@@ -177,6 +180,35 @@ are never auto-filled — human-authored always (BP-029).**
   state; never committed.
 - **5b** (Qdrant `conventions` collection, `type=sot_entry`) — derived memory
   cache; deterministically rebuildable from the committed registry via `reindex`.
+
+#### Connect to the SOT / memory Qdrant from a scratch script
+
+To inspect the 5b collection (e.g. verify `--no-reindex` wrote nothing), use the
+project's client factory rather than constructing `QdrantClient` by hand — it
+resolves host/port, the API key, HTTPS, and the gRPC-vs-HTTP transport from config,
+avoiding the "illegal request line" / TLS `WRONG_VERSION_NUMBER` errors an ad-hoc
+client hits:
+
+```python
+import os, sys
+sys.path.insert(0, os.path.expanduser("~/.ai-memory/src"))  # the installed runtime
+from qdrant_client import models
+from memory.qdrant_client import get_qdrant_client
+
+client = get_qdrant_client(read_only=True)  # defaults to prefer_grpc=True
+count = client.count(
+    "conventions",
+    # gRPC mode requires a typed Filter, not a raw dict.
+    count_filter=models.Filter(
+        must=[
+            models.FieldCondition(
+                key="type", match=models.MatchValue(value="sot_entry")
+            )
+        ]
+    ),
+).count
+print("sot_entry records:", count)
+```
 
 ## Drift strategies, shadow git & doc-drift
 
