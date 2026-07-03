@@ -253,6 +253,68 @@ def test_engine_invoked_with_correct_args(adapter, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# T-CA12 — --no-reindex passed on the engine invocation (F-LB-2f regression)
+# ---------------------------------------------------------------------------
+
+
+def test_no_reindex_flag_passed(adapter, tmp_path):
+    """Engine invocation MUST include --no-reindex so a registry-content change
+    never triggers the unguarded 5b delete-then-replace of sot_entry rows
+    (F-LB-2). Regression pin against the 4 drift hooks drifting apart again."""
+    (tmp_path / ".sot").mkdir()
+    (tmp_path / ".sot" / "registry.yaml").write_text("entries: []\n")
+
+    payload = _make_payload(str(tmp_path))
+    captured = []
+
+    def mock_run(cmd, **kwargs):
+        captured.append(list(cmd))
+        return _engine_ok()
+
+    with (
+        pytest.raises(SystemExit),
+        patch.object(sys, "stdin", io.StringIO(payload)),
+        patch.object(adapter.subprocess, "run", side_effect=mock_run),
+    ):
+        adapter.main()
+
+    assert len(captured) == 1
+    assert (
+        "--no-reindex" in captured[0]
+    ), f"--no-reindex missing from engine invocation: {captured[0]!r}"
+
+
+# ---------------------------------------------------------------------------
+# T-CA13 — AI_MEMORY_SOT_HOOKS=off suppresses the run at runtime (F-LB-2e)
+# ---------------------------------------------------------------------------
+
+
+def test_sot_hooks_off_skips_run(adapter, tmp_path, monkeypatch):
+    """AI_MEMORY_SOT_HOOKS=off disables the adapter at runtime with no reinstall:
+    exit 0 and NO subprocess invocation, even with a valid registry (F-LB-2e)."""
+    monkeypatch.setenv("AI_MEMORY_SOT_HOOKS", "off")
+    (tmp_path / ".sot").mkdir()
+    (tmp_path / ".sot" / "registry.yaml").write_text("entries: []\n")
+
+    payload = _make_payload(str(tmp_path))
+    called = []
+
+    def mock_run(cmd, **kwargs):
+        called.append(list(cmd))
+        return _engine_ok()
+
+    with (
+        pytest.raises(SystemExit) as exc,
+        patch.object(sys, "stdin", io.StringIO(payload)),
+        patch.object(adapter.subprocess, "run", side_effect=mock_run),
+    ):
+        adapter.main()
+
+    assert exc.value.code == 0
+    assert called == [], "AI_MEMORY_SOT_HOOKS=off must suppress the engine run"
+
+
+# ---------------------------------------------------------------------------
 # T-CA04 — non-git project still runs (BP-032 non-git TTL fallback)
 # ---------------------------------------------------------------------------
 
