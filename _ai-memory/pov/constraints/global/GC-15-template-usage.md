@@ -22,11 +22,13 @@ be referenced across sessions.
 | Root cause analysis | `{oversight_path}/bugs/ROOT_CAUSE_TEMPLATE.md` |
 | Complex fix spec (>2 sub-issues or >2 files) | `{oversight_path}/specs/FIX_SPEC_TEMPLATE.md` |
 | Architectural decision record | `{oversight_path}/decisions/DECISION_TEMPLATE.md` |
-| Plan (major initiative) | `{oversight_path}/plans/PLAN_TEMPLATE.md` |
+| Per-initiative plan (living plan + checklist) | `{oversight_path}/plans/PLAN_TEMPLATE.md` |
 | System audit | `{oversight_path}/audits/AUDIT_TEMPLATE.md` |
 | Validation report | `{oversight_path}/validation/VALIDATION_TEMPLATE.md` |
 | Verification report | `{oversight_path}/verification/checklists/` (story/code/production) |
 | Fix verification | `{project-root}/_ai-memory/pov/templates/verification-fix.template.md` |
+
+> Plans are **per-initiative**: one living plan per initiative, saved as `{oversight_path}/plans/PLAN-<SLUG>-<YYYY-MM-DD>.md` from `PLAN_TEMPLATE.md`, chained to its predecessor via the `previous_plan` front-matter field. Drafting one is gated proportionately (by scope, not effort) — see EC-11 (execution) and MC-09 (maintenance).
 
 ## Applies To
 
