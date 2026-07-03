@@ -444,3 +444,32 @@ def test_event_contract_SessionStart_maps_to_canonical():
     ), f"Expected canonical 'SessionStart', got {event['hook_event_name']!r}"
     assert "SessionStart" in VALID_HOOK_EVENTS
     validate_canonical_event(event)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# T-DG13 — AI_MEMORY_SOT_HOOKS=off suppresses the run at runtime (F-LB-2e)
+# ---------------------------------------------------------------------------
+
+
+def test_sot_hooks_off_skips_run(adapter, tmp_path, monkeypatch, capsys):
+    """AI_MEMORY_SOT_HOOKS=off disables the adapter at runtime with no reinstall:
+    exit 0, EMPTY_OUTPUT on stdout, and NO subprocess invocation, even with a
+    valid registry (F-LB-2e)."""
+    monkeypatch.setenv("AI_MEMORY_SOT_HOOKS", "off")
+    (tmp_path / ".sot").mkdir()
+    (tmp_path / ".sot" / "registry.yaml").write_text("entries: []\n")
+
+    payload = _make_payload(str(tmp_path))
+    mock_run = MagicMock()
+
+    with (
+        pytest.raises(SystemExit) as exc_info,
+        patch.object(sys, "stdin", io.StringIO(payload)),
+        patch.object(adapter.subprocess, "run", mock_run),
+    ):
+        adapter.main()
+
+    assert exc_info.value.code == 0
+    mock_run.assert_not_called()
+    out = json.loads(capsys.readouterr().out.strip())
+    assert out == EMPTY_OUTPUT
