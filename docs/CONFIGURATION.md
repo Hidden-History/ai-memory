@@ -1820,6 +1820,30 @@ QDRANT_EXTERNAL_PORT=16333
 EMBEDDING_EXTERNAL_PORT=18080
 ```
 
+### Diagnostics: `aim doctor`
+
+`scripts/aim_doctor.py` verifies that installer-derived and documented config
+actually matches reality — run it any time you suspect drift, or after a
+manual edit to `docker/.env`:
+
+```bash
+python scripts/aim_doctor.py            # report only, always exits 0
+python scripts/aim_doctor.py --strict   # exits 1 if any check reports WARNING
+```
+
+Two checks:
+
+- **`tier1-compose-profiles`** — re-derives the expected `COMPOSE_PROFILES`
+  from persisted `MONITORING_ENABLED`/`GITHUB_SYNC_ENABLED` and flags a
+  mismatch (the installer wrote a stale/blank `COMPOSE_PROFILES` while
+  monitoring was nonetheless enabled).
+- **`config-delivery`** — actually runs `scripts/memory/run-with-env.sh` and
+  checks that configured values for a known set of forwarded keys
+  (`QDRANT_API_KEY`, `GITHUB_*`, `AI_MEMORY_SOT_*`) really reach the
+  subprocess environment, not just that they're present in `docker/.env`.
+
+Not yet wired into `install.sh` — run it manually post-install or on demand.
+
 ---
 
 ## 🔧 Hook Configuration
