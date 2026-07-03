@@ -795,6 +795,13 @@ def _drift_check_binaries(tokens: list[str]) -> list[str]:
     real executable of each — so a compound command is validated on its actual
     binaries (``npm``) instead of a leading builtin (``cd``) that would always
     false-flag as not-on-PATH (TD-756). Parse-only; never executes.
+
+    Operators must be space-separated (the normal, SKILL-recommended form): an
+    operator glued to a word (``cd x&&npm``) is one ``shlex`` token, so the
+    trailing binary goes unvalidated — a false-NEGATIVE only, never a false-flag.
+    We deliberately do NOT re-split post-``shlex``: after tokenizing, an unquoted
+    ``x&&npm`` is indistinguishable from a quoted ``"a && b"`` arg, so splitting
+    would risk a false-POSITIVE on quoted operators (worse than the miss).
     """
     binaries: list[str] = []
     sub: list[str] = []
