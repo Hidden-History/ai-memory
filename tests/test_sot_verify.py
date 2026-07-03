@@ -1622,3 +1622,101 @@ def test_conforming_registry_still_discovers_C1(tmp_path):
 
     c1 = [w for w in verdict["warnings"] if w["check"] == "C1"]
     assert c1, "conforming registry must still run discovery and surface C1"
+
+
+# ---------------------------------------------------------------------------
+# CI guards for TASK-096 Lane D fixes (RISK-023): the field-level tests live in
+# the skill-local suite (correct home) which CI `pytest tests/` never collects,
+# so these mirror the load-bearing behaviors into the CI-covered top-level suite.
+# One focused guard per fix; each fails if the fix is reverted.
+# ---------------------------------------------------------------------------
+
+
+# T-VF-TD749 — verify FAILs an entry with an unfilled TODO(human): sentinel,
+# including the OPTIONAL provenance_note (not in the required set).
+def test_TD749_sentinel_free_text_fails_S1(sc):
+    marker = vf._SENTINEL_MARKER
+    entry = {
+        "id": "svc",
+        "kind": "service",
+        "boundary_type": "path",
+        "sot_location": "src/",
+        "owner": f"{marker} <owning team or person>",
+        "description": "A real description.",
+        "provenance_note": f"{marker} <how/why this entry was added>",
+    }
+    failures, _ = vf._check_S1([entry], sc)
+    failed_fields = {f["detail"].split("'")[1] for f in failures}
+    assert "owner" in failed_fields
+    assert "provenance_note" in failed_fields  # optional field caught too
+    assert all(f["check"] == "S1" for f in failures)
+
+
+def test_TD749_filled_entry_passes_S1(sc):
+    entry = {
+        "id": "svc",
+        "kind": "service",
+        "boundary_type": "path",
+        "sot_location": "src/",
+        "owner": "@team",
+        "description": "A real description.",
+        "provenance_note": "Added during bootstrap.",
+    }
+    failures, _ = vf._check_S1([entry], sc)
+    assert not failures
+
+
+# T-VF-TD754 — verify --proposal returns a real verdict at cold-start (no
+# committed registry) and still FAILs a leftover sentinel (TD-749 coupling).
+def test_TD754_coldstart_proposal_returns_real_verdict(tmp_path):
+    sot = tmp_path / ".sot"
+    sot.mkdir()
+    proposal = sot / "registry.proposed.yaml"
+    proposal.write_text(
+        yaml.dump(
+            {
+                "schema_version": "1.0",
+                "entries": [
+                    {
+                        "id": "svc",
+                        "kind": "service",
+                        "boundary_type": "path",
+                        "sot_location": "svc.md",
+                        "owner": f"{vf._SENTINEL_MARKER} <owning team>",
+                        "description": "desc",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    # No committed registry.yaml exists under tmp_path/.sot.
+    args = _make_args(registry=str(sot / "registry.yaml"), proposal=str(proposal))
+    verdict = _run_cmd(args, tmp_path)
+    assert verdict["verdict"] == "FAIL"  # a real verdict, not the no-registry bail
+    s1_fields = {
+        f["detail"].split("'")[1] for f in verdict["failures"] if f["check"] == "S1"
+    }
+    assert "owner" in s1_fields  # leftover sentinel FAILed at cold-start
+
+
+# T-VF-TD756 — K3 no longer false-flags a valid compound drift_check, but a
+# genuinely-missing binary in a compound command still WARNs.
+def test_TD756_compound_drift_check_not_false_flagged():
+    import shutil
+
+    real = "sh" if shutil.which("sh") else "python3"
+    _, warnings = vf._check_K3(
+        [{"id": "e", "drift_check": f"cd website && {real} -c 'true'"}],
+        exec_drift_checks=False,
+    )
+    assert warnings == []
+
+
+def test_TD756_missing_binary_in_compound_still_warns():
+    _, warnings = vf._check_K3(
+        [{"id": "e", "drift_check": "cd website && definitely-not-real-xyz build"}],
+        exec_drift_checks=False,
+    )
+    assert len(warnings) == 1
+    assert "definitely-not-real-xyz" in warnings[0]["detail"]

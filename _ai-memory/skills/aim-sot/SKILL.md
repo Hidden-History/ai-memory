@@ -305,6 +305,12 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 
 **Soft-check rulings (wb-approved):** R2 is a strict no-op offline — URL fields do not affect the verdict without `--check-urls`. K3 never executes by default — security-safe. K1 is a deterministic hash trigger only, never a semantic judge; when no baseline exists (cold-start, baseline-loss, or project-id resolution failure) K1 emits a `skipped_no_baseline` CONDITIONAL warning — it never silently passes as if content were verified. R4 normalizes `@handle` before comparing; mismatch is always CONDITIONAL, never FAIL.
 
+**Authoring a `drift_check`:** prefer a single-binary command so K3 can PATH-resolve
+it cleanly — e.g. `npm --prefix website run build` rather than `cd website && npm run build`.
+K3 does handle the compound `cd <dir> && …` form (it resolves the first real
+executable past the `cd` builtin rather than false-flagging `cd`), but a
+single-binary command is unambiguous and portable.
+
 ### Usage — standalone audit
 
 ```bash
@@ -322,6 +328,14 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-sot/scripts/aim_sot_verify.py" \
   run --proposal /path/to/proposal.json --json
 ```
+
+**Cold-start (no committed registry yet):** `verify --proposal` works **without** a
+committed `.sot/registry.yaml` — it gates the draft on its own (the freshly
+scaffolded `.sot/registry.proposed.yaml` is the only registry that exists yet).
+Only standalone `verify` (no `--proposal`) requires a committed registry. A
+cold-start proposal is gated by the full check set, so any entry still carrying a
+`TODO(human):` placeholder in a semantic field **FAILS** — fill every `TODO(human)`
+field before applying (see **Verify — Checks**, S1).
 
 ## Stop Hook — Default-on
 
@@ -363,9 +377,17 @@ The engine also runs standalone (`detect-propose run` manually or via cron).
 The `[CL]` pass runs two full-project walks — the BP-039 tree-digest and the
 candidate discovery scan. On a very large project (or a slow filesystem) either
 can exceed the Stop hook's ~20s subprocess cap; the engine therefore bounds both
-by wall-time and count and emits a visible `budget-truncated` signal (never a
-silent zero-findings timeout). When truncated, the digest baseline is left
-unchanged for the next run. Tune via the environment (all optional; positive
+by wall-time and count and emits a **prominent** truncation warning (never a
+silent zero-findings timeout) naming the directories scanned, which budget
+tripped, and the exact env knob to raise — because directories beyond the budget
+are **missing** from the proposed registry and must not be approved as if the
+scan were complete. When truncated, the digest baseline is left unchanged for the
+next run. The discovery walk also prunes a default skip-set of generic
+build / cache / dependency / tool trees (`node_modules`, `dist`, `build`,
+`target`, `.next`, `.gradle`, `.pytest_cache`, `.cache`, `.turbo`, `.gemini`,
+`coverage`, …) so the budget is spent on real source; project-specific vendored
+trees (e.g. Go/PHP `vendor/`) are excluded via the registry `exclude:` config,
+not this hardcoded set. Tune via the environment (all optional; positive
 values only — a blank/invalid value keeps the default):
 
 | Env var | Default | Bounds |

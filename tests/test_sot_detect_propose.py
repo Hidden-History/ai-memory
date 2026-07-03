@@ -2205,3 +2205,40 @@ def test_cmd_run_mixed_truncation_isolates_the_truncated_boundary(tmp_path, caps
     comps = seeded_cache["components"]
     assert comps["small"]["last_verified_sha"] == small_full  # complete digest stored
     assert comps["big"]["last_verified_sha"] == ""  # partial NOT stored
+
+
+# ---------------------------------------------------------------------------
+# CI guard for TASK-096 Lane D (TD-753 / RISK-023): the field-level test lives
+# in the skill-local suite which CI `pytest tests/` never collects. Mirror the
+# load-bearing behavior — a truncated discovery walk emits a PROMINENT warning
+# naming the dirs scanned + which budget tripped + the exact env knob to raise
+# ("no silent caps"). Fails if the warning is downgraded or removed.
+# ---------------------------------------------------------------------------
+
+
+def test_TD753_discovery_truncation_warning_is_prominent(tmp_path, capsys):
+    for i in range(5):
+        (tmp_path / f"d{i}").mkdir()
+
+    budget = dp._ScanBudget(max_dirs=1, max_seconds=0)
+    list(dp._pruned_walk(tmp_path, budget=budget))
+
+    err = capsys.readouterr().err
+    assert "TRUNCATED" in err
+    assert "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS" in err  # the exact env knob
+    assert "directories" in err
+    assert budget.truncated and budget.reason == "max_dirs"
+
+
+def test_TD753_wall_time_truncation_names_seconds_knob(tmp_path, capsys):
+    (tmp_path / "d0").mkdir()
+
+    budget = dp._ScanBudget(max_dirs=0, max_seconds=0)
+    budget._deadline = -1.0  # force an elapsed deadline deterministically
+    budget.max_seconds = 6.0
+    list(dp._pruned_walk(tmp_path, budget=budget))
+
+    err = capsys.readouterr().err
+    assert "TRUNCATED" in err
+    assert "AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS" in err
+    assert budget.reason == "wall_time"
