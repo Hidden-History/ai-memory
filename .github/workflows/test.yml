@@ -184,6 +184,34 @@ jobs:
           QDRANT_READ_ONLY_API_KEY: ci-integration-test-key-ro
 
   # ============================================================================
+  # AIM-SOT SKILL TESTS - skill-local test suite (RISK-023)
+  # ============================================================================
+  aim-sot-skill-tests:
+    name: AIM-SOT Skill Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run aim-sot skill tests
+        run: |
+          pytest _ai-memory/skills/aim-sot/tests/ -v --tb=short
+        env:
+          CI: "true"
+
+  # ============================================================================
   # E2E TESTS - Playwright browser tests (optional, runs after integration)
   # ============================================================================
   e2e-tests:
