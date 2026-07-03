@@ -142,7 +142,7 @@ never licenses auto-filling semantics; even a `high` candidate needs human autho
 | `--write-proposal` | off | Registry-less project only: scaffold a non-committed `.sot/registry.proposed.yaml` staging draft (structural fields filled, semantic fields `TODO(human)`). Never writes the committed registry. See [First run — bootstrap from zero](#first-run--bootstrap-from-zero). |
 | `--force` | off | With `--write-proposal`, overwrite an existing draft (default: skip to protect in-progress edits). |
 | `--shadow` | off | Run the `[CL]` detect pass — BP-039 digest → BP-040 shadow-git commit → BP-042 doc-drift → structured `findings`. The Stop hooks pass it; see [Drift strategies, shadow git & doc-drift](#drift-strategies-shadow-git--doc-drift). |
-| `--drift-only` | off | Hot path only: check the registered entries for drift and skip the discovery walk entirely (BP-047). Mutually exclusive with `--discover`. |
+| `--drift-only` | off | Hot path only: check the registered entries for drift and skip the discovery walk entirely (BP-047). Mutually exclusive with `--discover`. **Does not skip the 5b reindex gate** — a registry-content change still triggers the derived-cache rebuild; only `--no-reindex` suppresses Qdrant writes. |
 | `--discover` | off | Force a full discovery walk now, bypassing the periodic cadence gate (TTL / session-count) and resetting it (BP-047). Mutually exclusive with `--drift-only`. |
 | `--no-reindex` | off | Skip the 5b derived-cache reindex so drift / discovery can be exercised with **zero** Qdrant writes (offline / sandbox). |
 
@@ -305,6 +305,12 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 
 **Soft-check rulings (wb-approved):** R2 is a strict no-op offline — URL fields do not affect the verdict without `--check-urls`. K3 never executes by default — security-safe. K1 is a deterministic hash trigger only, never a semantic judge; when no baseline exists (cold-start, baseline-loss, or project-id resolution failure) K1 emits a `skipped_no_baseline` CONDITIONAL warning — it never silently passes as if content were verified. R4 normalizes `@handle` before comparing; mismatch is always CONDITIONAL, never FAIL.
 
+**Authoring a `drift_check`:** prefer a single-binary command so K3 can PATH-resolve
+it cleanly — e.g. `npm --prefix website run build` rather than `cd website && npm run build`.
+K3 does handle the compound `cd <dir> && …` form (it resolves the first real
+executable past the `cd` builtin rather than false-flagging `cd`), but a
+single-binary command is unambiguous and portable.
+
 ### Usage — standalone audit
 
 ```bash
@@ -323,17 +329,41 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
   run --proposal /path/to/proposal.json --json
 ```
 
+**Cold-start (no committed registry yet):** `verify --proposal` works **without** a
+committed `.sot/registry.yaml` — it gates the draft on its own (the freshly
+scaffolded `.sot/registry.proposed.yaml` is the only registry that exists yet).
+Only standalone `verify` (no `--proposal`) requires a committed registry. A
+cold-start proposal is gated by the full check set, so any entry still carrying a
+`TODO(human):` placeholder in a semantic field **FAILS** — fill every `TODO(human)`
+field before applying (see **Verify — Checks**, S1).
+
 ## Stop Hook — Default-on
 
 The Claude `Stop` hook (`sot_drift_stop.py`) is **registered by default on install**
 alongside the core ai-memory hooks. It calls the engine with `--shadow`, so the Stop
 event runs the full `[CL]` detect pass (digest → shadow-git commit → doc-drift →
-findings) and surfaces a one-line `[ai-memory] SOT` summary to stderr. To opt out, set `AI_MEMORY_SOT_HOOKS=off`
-(case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before
-running `install.sh`. Note: `AI_MEMORY_SOT_HOOKS=off` prevents adding the hooks on
-install; it does **not** remove hooks already registered by a prior install (settings
-merge is append/base-wins). To disable an existing install, remove the SOT hook entries
-manually from `settings.json` or re-run with `FORCE_IDE`.
+findings) and surfaces a one-line `[ai-memory] SOT` summary to stderr. To opt out, set
+`AI_MEMORY_SOT_HOOKS=off` (case-insensitive; only `off` disables — `false`/`0`/`no`
+leave hooks on). This works two ways:
+
+- **Install-time** — set it before running `install.sh` and the drift hooks are never
+  registered (settings merge is append/base-wins, so this does **not** remove hooks a
+  prior install already registered).
+- **Runtime** — export it in the environment that launches Claude Code (your shell
+  profile, or the `env` block of `settings.local.json`). The drift hook scripts read
+  `AI_MEMORY_SOT_HOOKS` on each run and no-op when it is `off`, so an already-registered
+  drift hook can be disabled per-session **without** reinstalling or hand-editing the
+  hook entries in `settings.json`. Use `settings.local.json` (or your shell profile), not
+  the generated `settings.json` — `generate_settings.py` **regenerates** the latter's
+  `env` block on every install, so a value hand-added there is wiped on the next install.
+
+  This runtime kill-switch covers the **drift** hooks only (the Claude Stop hook and the
+  Codex/Cursor/Gemini stop adapters). The **digest** session-start hooks are not
+  runtime-gated — disable those at install time (see *Digest Session-Start Hook* below).
+
+Note: `docker/.env` is sourced only by `install.sh`, so setting the variable there
+affects install-time registration only — it is never loaded into a live Claude Code
+session, so it does not toggle the hooks at runtime.
 
 > **BP-032 reconciliation**: the original portability concern is bounded — the hooks
 > self-guard on `.sot/registry.yaml` presence (no-op in non-SOT projects), and the
@@ -347,9 +377,17 @@ The engine also runs standalone (`detect-propose run` manually or via cron).
 The `[CL]` pass runs two full-project walks — the BP-039 tree-digest and the
 candidate discovery scan. On a very large project (or a slow filesystem) either
 can exceed the Stop hook's ~20s subprocess cap; the engine therefore bounds both
-by wall-time and count and emits a visible `budget-truncated` signal (never a
-silent zero-findings timeout). When truncated, the digest baseline is left
-unchanged for the next run. Tune via the environment (all optional; positive
+by wall-time and count and emits a **prominent** truncation warning (never a
+silent zero-findings timeout) naming the directories scanned, which budget
+tripped, and the exact env knob to raise — because directories beyond the budget
+are **missing** from the proposed registry and must not be approved as if the
+scan were complete. When truncated, the digest baseline is left unchanged for the
+next run. The discovery walk also prunes a default skip-set of generic
+build / cache / dependency / tool trees (`node_modules`, `dist`, `build`,
+`target`, `.next`, `.gradle`, `.pytest_cache`, `.cache`, `.turbo`, `.gemini`,
+`coverage`, …) so the budget is spent on real source; project-specific vendored
+trees (e.g. Go/PHP `vendor/`) are excluded via the registry `exclude:` config,
+not this hardcoded set. Tune via the environment (all optional; positive
 values only — a blank/invalid value keeps the default):
 
 | Env var | Default | Bounds |
@@ -372,7 +410,9 @@ authoring is the durable fix; the budget is the engine guard).
 The Codex `Stop`, Cursor `stop`, and Gemini `AfterAgent` adapters are **registered by
 default on install** (same as the Claude Stop hook above). Set `AI_MEMORY_SOT_HOOKS=off`
 before `install.sh` to skip registration for all SOT hooks. To register only specific
-adapters, remove the unwanted entries from your hook config after install.
+adapters, remove the unwanted entries from your hook config after install. Like the
+Claude Stop hook, these drift adapters also honor `AI_MEMORY_SOT_HOOKS=off` at
+**runtime** — see *Stop Hook — Default-on* above for the durable delivery surfaces.
 
 → Per-CLI hook-config snippets (Codex Stop, Cursor stop, Gemini AfterAgent): [`references/hook-setup.md`](references/hook-setup.md).
 
@@ -389,9 +429,13 @@ the registry).
 Runtime gate: a `.sot/registry.yaml` in the project root is required (same gate as the
 drift hooks). No registry → hook exits with empty context (no-op in non-SOT projects).
 
-Disable all SOT hooks (drift + digest) by setting `AI_MEMORY_SOT_HOOKS=off`
-(case-insensitive; only `off` disables — `false`/`0`/`no` leave hooks on) before
-`install.sh`. See the Stop Hook § above for the kill-switch limitation note.
+Disable SOT hooks with `AI_MEMORY_SOT_HOOKS=off` (case-insensitive; only `off`
+disables — `false`/`0`/`no` leave hooks on). **Install-time** (set before `install.sh`)
+skips registering **all** SOT hooks — drift *and* these digest session-start hooks.
+**Runtime** (see *Stop Hook — Default-on* above for the durable delivery surfaces)
+disables the **drift** hooks only; these digest session-start hooks are **not**
+runtime-gated, so to turn off an already-installed digest hook set the variable before a
+reinstall (or remove its entry from your hook config).
 
 → Per-CLI hook-config snippets (Claude, Codex, Cursor, Gemini SessionStart): [`references/hook-setup.md`](references/hook-setup.md).
 

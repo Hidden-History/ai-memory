@@ -13,6 +13,8 @@ Run targeted only:
 
 import importlib.util
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -108,6 +110,90 @@ def test_gc_and_cap_rotate_do_not_error(env):
     shadow.shadow_commit(env.pid, env.project, "c1")
     shadow.shadow_gc(env.pid, env.project)  # must not raise
     assert shadow.cap_and_rotate(env.pid, env.project) is False  # under the caps
+
+
+# --------------------------------------------------------------------------- #
+# S3-F1 — project .gitignore folded into the shadow's info/exclude
+# --------------------------------------------------------------------------- #
+
+
+def test_gitignore_folded_into_exclude(env):
+    (env.project / ".gitignore").write_text("build-output/\n", encoding="utf-8")
+    shadow.ensure_shadow_git(env.pid, env.project)
+    excl = (shadow.shadow_git_dir(env.pid) / "info" / "exclude").read_text()
+    assert "build-output/" in excl
+    # Additive: the mandatory hardcoded list is still present.
+    assert ".git" in excl and ".sot/" in excl and ".env" in excl
+
+
+def test_no_gitignore_no_error(env):
+    assert not (env.project / ".gitignore").exists()
+    shadow.ensure_shadow_git(env.pid, env.project)  # must not raise
+    excl = (shadow.shadow_git_dir(env.pid) / "info" / "exclude").read_text()
+    assert ".git" in excl  # mandatory list still written, no crash on absent file
+
+
+def test_non_utf8_gitignore_no_error(env):
+    """A .gitignore with a stray non-UTF-8 byte (e.g. Windows-authored repo)
+    must not raise UnicodeDecodeError — the function's own contract is
+    "absent/unreadable → no lines, no error" (fix-round finding)."""
+    (env.project / ".gitignore").write_bytes(b"build-output/\n\xffbroken\n")
+    assert shadow._project_gitignore_lines(env.project) == ()
+    shadow.ensure_shadow_git(env.pid, env.project)  # must not raise
+    excl = (shadow.shadow_git_dir(env.pid) / "info" / "exclude").read_text()
+    assert ".git" in excl  # mandatory list still written, setup still succeeds
+
+
+def test_setup_version_bump_regenerates_exclude_from_gitignore(env):
+    """An already-'valid' sentinel from a prior setup_version is stale (S3-F1
+    bumped SETUP_VERSION) so an already-set-up install regenerates info/exclude
+    with the folded-in .gitignore on the next `ensure_setup`, instead of
+    staying stuck on the old hardcoded-only list."""
+    shadow.run_setup(env.pid, env.project)
+    p = shadow.sentinel_path(env.pid)
+    data = json.loads(p.read_text())
+    data["setup_version"] = "0.0.0"  # simulate a pre-S3-F1 install
+    p.write_text(json.dumps(data), encoding="utf-8")
+    assert shadow.is_setup_valid(env.pid) is False
+
+    (env.project / ".gitignore").write_text("legacy-nested-clone/\n", encoding="utf-8")
+    assert shadow.ensure_setup(env.pid, env.project) is True
+    excl = (shadow.shadow_git_dir(env.pid) / "info" / "exclude").read_text()
+    assert "legacy-nested-clone/" in excl
+
+
+# --------------------------------------------------------------------------- #
+# S3-F2 — stale index.lock self-recovery
+# --------------------------------------------------------------------------- #
+
+
+def test_stale_index_lock_is_cleared_and_add_succeeds(env):
+    shadow.ensure_shadow_git(env.pid, env.project)
+    lock_path = shadow.shadow_git_dir(env.pid) / "index.lock"
+    lock_path.write_bytes(b"")  # 0-byte lock, as left by a SIGKILLed `git add`
+    stale_mtime = time.time() - shadow._SHADOW_LOCK_STALE_SECONDS - 1
+    os.utime(lock_path, (stale_mtime, stale_mtime))
+
+    sha = shadow.shadow_commit(env.pid, env.project, "recovers")
+    assert sha  # committed normally — no permanent wedge
+    assert not lock_path.exists()
+
+
+def test_fresh_index_lock_is_not_cleared(env):
+    """A lock younger than the staleness threshold could be a live holder —
+    must NOT be swept (sweeping it could corrupt an in-flight write)."""
+    shadow.ensure_shadow_git(env.pid, env.project)
+    lock_path = shadow.shadow_git_dir(env.pid) / "index.lock"
+    lock_path.write_bytes(b"")  # fresh — mtime defaults to now
+    shadow._clear_stale_index_lock(env.pid)
+    assert lock_path.exists()  # untouched — not stale yet
+
+
+def test_shadow_add_timeout_matches_coordinated_cap():
+    """Locks in the cross-lane coordinated number (inner-add 15s < hook
+    inner-subprocess 20s < hook outer SIGALRM 25s) so an accidental edit here
+    is caught rather than silently drifting out of the safe ordering."""
+    assert shadow._SHADOW_ADD_TIMEOUT_SECONDS == 15
 
 
 # --------------------------------------------------------------------------- #

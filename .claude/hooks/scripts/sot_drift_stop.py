@@ -45,6 +45,12 @@ def _normalize_cwd(cwd: str) -> Path:
 
 def main():
     """Main entry point for Stop hook."""
+    # Runtime kill-switch (F-LB-2e): AI_MEMORY_SOT_HOOKS=off disables the hook at
+    # runtime — no reinstall needed. Mirrors the install-time gate in
+    # generate_settings.py so the two agree.
+    if os.environ.get("AI_MEMORY_SOT_HOOKS", "on").lower() == "off":
+        sys.exit(0)
+
     # Install global self-termination timeout (signal.alarm best practice).
     # Skipped in test environments to prevent SIGALRM leaks across tests.
     if not os.environ.get("PYTEST_CURRENT_TEST"):
@@ -102,6 +108,11 @@ def main():
         # Passing --registry bypasses the engine's internal git rev-parse call
         # (BP-032 non-git TTL fallback: the 5a per-install cache handles
         # component re-check cadence without any git dependency).
+        # --no-reindex (F-LB-2): drift hooks need drift/discovery only, NOT the
+        # 5b derived-cache rebuild. Without it, every registry-content change
+        # triggers an unguarded delete-then-replace of all sot_entry rows. The
+        # flag leaves registry_sha un-advanced, so a deliberate reindex still
+        # self-heals the cache.
         try:
             result = subprocess.run(
                 [
@@ -113,6 +124,7 @@ def main():
                     "--json",
                     "--registry",
                     str(registry_path),
+                    "--no-reindex",
                 ],
                 capture_output=True,
                 text=True,

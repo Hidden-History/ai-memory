@@ -57,6 +57,21 @@ if [ -f "$ENV_FILE" ] || [ -f "$SECRETS_FILE" ]; then
     load_env_var "GITHUB_BRANCH"
     load_env_var "GITHUB_TOKEN"
     load_env_var "GITHUB_SYNC_ENABLED"
+    # F-D1-1: forward the aim-sot engine's AI_MEMORY_SOT_* budget family. The
+    # engine reads these via os.environ (aim_sot_detect_propose.py / _shadow.py)
+    # with safe defaults, but operator/hook scripts run on the HOST, so unless
+    # they are exported here the documented tuning surface in docker/.env is
+    # inert. Forward the whole namespace by prefix (future-proof: new SOT knobs
+    # auto-forward — no per-key list to drift out of sync). Each key still goes
+    # through load_env_var, preserving secrets-first + empty-skip. The anchored
+    # prefix never matches AI_MEMORY_PROJECT_ID (BUG-314 exclusion above stays
+    # intact) nor commented '# AI_MEMORY_SOT_...' example lines.
+    for sot_env_file in "$SECRETS_FILE" "$ENV_FILE"; do
+        [ -f "$sot_env_file" ] || continue
+        while IFS= read -r sot_key; do
+            load_env_var "$sot_key"
+        done < <(grep -oE '^AI_MEMORY_SOT_[A-Z_]+=' "$sot_env_file" | cut -d= -f1 | sort -u)
+    done
 else
     echo "Warning: $ENV_FILE and $SECRETS_FILE not found, running without API key"
 fi
