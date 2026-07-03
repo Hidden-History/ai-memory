@@ -77,14 +77,31 @@ def _write_stub_forwarder(install_dir: Path, forwarded_keys: list[str]) -> Path:
 
 
 def _forwarded_keys_from_script(script_path: Path) -> set[str]:
-    """Parse ``load_env_var "KEY"`` calls out of a run-with-env.sh-shaped script.
+    """Parse the forwarded key set out of a run-with-env.sh-shaped script.
 
     Used to compute the *actual current* forwarded set from a live copy of the
     script, so a test can assert against ground truth instead of a hardcoded
     verdict that would break the moment the script's forwarding list changes.
+
+    Recognizes two forwarding forms:
+    - literal ``load_env_var "KEY"`` calls, and
+    - PR #256's dynamic ``AI_MEMORY_SOT_*`` prefix-forward loop, which reads
+      the whole namespace from the env file (``grep -oE
+      '^AI_MEMORY_SOT_[A-Z_]+='`` piped into ``load_env_var "$sot_key"``).
+      When that construct is present, every ``AI_MEMORY_SOT_*`` key in
+      DELIVERY_MANIFEST is treated as forwarded.
     """
     text = script_path.read_text(encoding="utf-8")
-    return set(re.findall(r'load_env_var\s+"([A-Z0-9_]+)"', text))
+    forwarded = set(re.findall(r'load_env_var\s+"([A-Z0-9_]+)"', text))
+    prefix_forward = (
+        "grep -oE '^AI_MEMORY_SOT_[A-Z_]+='" in text
+        or 'load_env_var "$sot_key"' in text
+    )
+    if prefix_forward:
+        forwarded |= {
+            k for k in doctor.DELIVERY_MANIFEST if k.startswith("AI_MEMORY_SOT_")
+        }
+    return forwarded
 
 
 # ---------------------------------------------------------------------------
@@ -205,10 +222,11 @@ def test_delivery_against_real_run_with_env_script(tmp_path):
     not just a test double.
 
     State-agnostic by design (E-FIX-2): the expected verdict is derived from
-    the live script's own ``load_env_var`` calls, not hardcoded. At the time
-    this test was written, PR #256 (which adds AI_MEMORY_SOT_* forwarding) had
-    not merged, so this reproduced a live WARNING — but the assertion holds
-    either way, so the suite does not break the moment #256 lands.
+    the live script's own forwarding, not hardcoded. The oracle recognizes both
+    forwarding forms — literal ``load_env_var "KEY"`` calls and PR #256's
+    dynamic ``AI_MEMORY_SOT_*`` prefix-forward loop — so it tracks the real
+    forwarder whether or not #256's SOT forwarding is present. Post-#256 the
+    full manifest is forwarded, so this now takes the PASS branch.
     """
     install_dir = _install_skeleton(tmp_path)
     real_script = REPO_ROOT / "scripts" / "memory" / "run-with-env.sh"
