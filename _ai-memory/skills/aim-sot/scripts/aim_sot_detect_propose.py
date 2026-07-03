@@ -99,6 +99,12 @@ _DISCOVERY_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS", 6.0)
 # Wall-time cap for the per-entry reindex loop (F-RT5-GAP-1 / F-SOT-2); mirrors
 # _DISCOVERY_MAX_SECONDS.  0 → treated as default per _env_float convention.
 _SOT_REINDEX_MAX_SECONDS = _env_float("AI_MEMORY_SOT_REINDEX_MAX_SECONDS", 30.0)
+# Placeholder marker every un-filled semantic field carries in a proposed
+# registry (BP-029).  Single source of truth for the sentinel string: the
+# proposal producer (`_format_proposal_yaml`) builds every TODO field from it and
+# the verifier (`aim_sot_verify._check_S1`) fails any entry still carrying it, so
+# producer and verifier can never drift on the literal (TD-749).
+SENTINEL_MARKER = "TODO(human):"
 # Stale-lock threshold: always >= 2x the reindex cap so a live holder (which
 # releases within _SOT_REINDEX_MAX_SECONDS) can never own a lock older than this
 # window.  The 300s floor preserves safe behaviour for the default cap (30s).
@@ -152,22 +158,48 @@ _MANIFEST_FILENAMES: frozenset[str] = frozenset(
     }
 )
 
-# Top-level directory names to skip during discovery.
+# Directory names to skip during discovery.  Pruned in-place so an excluded tree
+# is never descended into — the wall-time budget is then spent on real source
+# dirs, not vendored / build / tool output (TD-753).  These are GENERIC,
+# language-agnostic junk-tree names only; project-specific trees belong in the
+# registry `exclude:` config, not here.
 _SKIP_DIRS: frozenset[str] = frozenset(
     {
+        # VCS / forge / editor / AI-tool metadata
         ".git",
         ".github",
         ".claude",
+        ".gemini",
+        ".cursor",
+        ".hg",
+        ".svn",
+        # dependency trees (vendored trees like Go/PHP `vendor/` are intentionally
+        # left to the registry `exclude:` config, not hardcoded here — R3/BP-049)
         "node_modules",
+        "bower_components",
+        # Python caches / envs
         "__pycache__",
         ".venv",
         "venv",
         ".tox",
         ".mypy_cache",
         ".ruff_cache",
+        ".pytest_cache",
+        # build / compile output
         "dist",
         "build",
         ".eggs",
+        "target",
+        ".next",
+        ".nuxt",
+        ".svelte-kit",
+        ".gradle",
+        # tool caches / coverage / IaC state
+        ".cache",
+        ".parcel-cache",
+        ".turbo",
+        "coverage",
+        ".terraform",
     }
 )
 
@@ -864,6 +896,7 @@ class _ScanBudget:
         max_seconds: float = _DISCOVERY_MAX_SECONDS,
     ) -> None:
         self.max_dirs = max_dirs
+        self.max_seconds = max_seconds
         self._deadline = time.monotonic() + max_seconds if max_seconds > 0 else None
         self.truncated = False
         self.reason: str | None = None
@@ -935,16 +968,24 @@ def _pruned_walk(root: Path, budget: "_ScanBudget | None" = None, excludes=()):
             and not _walk_dir_excluded(dirpath, d, root, excludes)
         ]
         if budget.exceeded(visited):
-            # Surface the truncation rather than silently capping discovery
-            # ("no silent caps") — components below the budget are not scanned.
-            detail = (
-                f"{budget.max_dirs} directories"
-                if budget.reason == "max_dirs"
-                else "the wall-time budget"
-            )
+            # Surface the truncation prominently rather than silently capping
+            # discovery ("no silent caps — log what was dropped") — components
+            # below the budget are missing from the proposed registry, so the
+            # human must know the scan was INCOMPLETE and which knob raises it
+            # (TD-753).
+            if budget.reason == "max_dirs":
+                limit_desc = f"the {budget.max_dirs}-directory cap"
+                knob = "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS"
+            else:
+                limit_desc = f"the {budget.max_seconds:g}s wall-time budget"
+                knob = "AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS"
             print(
-                f"aim-sot: discovery scan truncated at {detail}; "
-                "components beyond the budget were not scanned.",
+                f"aim-sot: WARNING — discovery scan TRUNCATED at {limit_desc} "
+                f"after visiting {visited} directories; directories beyond the "
+                "budget were NOT scanned and their boundaries are MISSING from "
+                f"the proposed registry. Raise the limit via ${knob} (or narrow "
+                "the tree with a .sot exclude: config) and re-run before "
+                "approving the registry.",
                 file=sys.stderr,
             )
             return
@@ -1369,16 +1410,18 @@ def _format_proposal_yaml(
         entry = {
             "id": c["id"],
             "kind": (
-                "TODO(human): <service|library|application|api|data"
+                f"{SENTINEL_MARKER} <service|library|application|api|data"
                 "|infrastructure|decision|documentation>"
             ),
             "boundary_type": c["boundary_type"],
             "sot_location": c["sot_location"],
-            "owner": "TODO(human): <owning team or person>",
-            "description": "TODO(human): <one-line summary of this boundary>",
-            "last_verified": "TODO(human): <YYYY-MM-DD a person re-confirmed this>",
+            "owner": f"{SENTINEL_MARKER} <owning team or person>",
+            "description": f"{SENTINEL_MARKER} <one-line summary of this boundary>",
+            "last_verified": (
+                f"{SENTINEL_MARKER} <YYYY-MM-DD a person re-confirmed this>"
+            ),
             "added_by": "aim-sot bootstrap",
-            "provenance_note": "TODO(human): <how/why this entry was added>",
+            "provenance_note": f"{SENTINEL_MARKER} <how/why this entry was added>",
             "status": "proposed",
         }
         entry_yaml = yaml.safe_dump(

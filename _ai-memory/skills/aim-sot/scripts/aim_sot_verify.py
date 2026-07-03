@@ -73,6 +73,9 @@ _read_drift_cache = _dp._read_drift_cache
 _discover_candidates = _dp._discover_candidates
 _filter_new_candidates = _dp._filter_new_candidates
 _DRIFT_CACHE_DIR = _dp._DRIFT_CACHE_DIR
+# TD-749: single source of the promote-sentinel literal — S1 fails any entry
+# whose free-text field still carries it (producer emits it from the SAME const).
+_SENTINEL_MARKER = _dp.SENTINEL_MARKER
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -302,6 +305,14 @@ def _check_S1(entries: list[dict], sc: dict) -> tuple[list[dict], list[dict]]:
     failures: list[dict] = []
     required = sc["entry_required"]
     str_fields = sc["entry_str_fields"]
+    # TD-749: free-text fields carry the promote sentinel until a human fills
+    # them.  The sentinel satisfies minLength (it is a non-empty string) so the
+    # required/type/non-empty checks above pass it through — a partially-filled
+    # promote verifies clean.  Scan every free-text (non-enum) string field
+    # PRESENT on the entry — not just the required set, so an unfilled optional
+    # field like `provenance_note` is caught too — and fail any that still carry
+    # the marker.  Enum fields are owned by S4; a sentinel there fails S4 anyway.
+    free_text_fields = sorted(str_fields - set(sc["entry_enums"]))
 
     for entry in entries:
         eid = entry.get("id", "<missing>")
@@ -313,6 +324,17 @@ def _check_S1(entries: list[dict], sc: dict) -> tuple[list[dict], list[dict]]:
                 failures.append(_fail("S1", eid, f"Field '{field}' must be a string"))
             elif field in str_fields and isinstance(val, str) and not val.strip():
                 failures.append(_fail("S1", eid, f"Field '{field}' must be non-empty"))
+        for field in free_text_fields:
+            val = entry.get(field)
+            if isinstance(val, str) and _SENTINEL_MARKER in val:
+                failures.append(
+                    _fail(
+                        "S1",
+                        eid,
+                        f"Field '{field}' still contains an unfilled "
+                        f"'{_SENTINEL_MARKER}' placeholder — fill it before promote",
+                    )
+                )
 
     return failures, []
 
@@ -742,6 +764,50 @@ def _check_K2(entries: list[dict]) -> tuple[list[dict], list[dict]]:
 # K3 — Drift-check command executable (parse-only by default; never execute)
 # ---------------------------------------------------------------------------
 
+# Shell operators that separate sub-commands and shell builtins that shutil.which
+# can never resolve — used to find the real executable(s) of a compound
+# drift_check so `cd site && npm run build` resolves `npm`, not `cd` (TD-756).
+_SHELL_OPERATORS: frozenset[str] = frozenset({"&&", "||", ";", "|", "&"})
+_SHELL_BUILTINS: frozenset[str] = frozenset(
+    {"cd", "pushd", "popd", "export", "set", "unset", "source", ".", ":"}
+)
+
+
+def _leading_binary(sub: list[str]) -> "str | None":
+    """First real executable token of one sub-command.
+
+    Skips leading ``VAR=val`` env-assignments; returns None when the sub-command
+    leads with a shell builtin (nothing on PATH to resolve) or is empty.
+    """
+    for tok in sub:
+        if "=" in tok and tok.split("=", 1)[0].isidentifier():
+            continue  # env-assignment prefix (e.g. FOO=bar cmd …)
+        if tok in _SHELL_BUILTINS:
+            return None  # builtin-led sub-command — not a PATH lookup
+        return tok
+    return None
+
+
+def _drift_check_binaries(tokens: list[str]) -> list[str]:
+    """Executable-position tokens of a (possibly compound) drift_check.
+
+    Splits ``tokens`` on shell operators into sub-commands and returns the first
+    real executable of each — so a compound command is validated on its actual
+    binaries (``npm``) instead of a leading builtin (``cd``) that would always
+    false-flag as not-on-PATH (TD-756). Parse-only; never executes.
+    """
+    binaries: list[str] = []
+    sub: list[str] = []
+    for tok in [*tokens, ";"]:  # trailing sentinel flushes the last sub-command
+        if tok in _SHELL_OPERATORS:
+            b = _leading_binary(sub)
+            if b is not None:
+                binaries.append(b)
+            sub = []
+        else:
+            sub.append(tok)
+    return binaries
+
 
 def _check_K3(
     entries: list[dict],
@@ -775,12 +841,21 @@ def _check_K3(
         if not tokens:
             continue
 
-        binary = tokens[0]
-        if shutil.which(binary) is None:
-            warnings.append(_warn("K3", eid, f"Binary '{binary}' not found on PATH"))
-            continue  # skip execution attempt if binary absent
+        # Resolve the real executable(s) — skipping shell builtins / env
+        # assignments in a compound command so `cd x && npm …` checks `npm`, not
+        # `cd` (TD-756).  An empty result means the command is only builtins
+        # (e.g. bare `cd x`) — nothing to PATH-resolve, so do not false-flag.
+        resolved = _drift_check_binaries(tokens)
+        if not resolved:
+            continue
+        missing = next((b for b in resolved if shutil.which(b) is None), None)
+        if missing is not None:
+            warnings.append(_warn("K3", eid, f"Binary '{missing}' not found on PATH"))
+            continue  # skip execution attempt if any binary absent
 
-        if exec_drift_checks:
+        # Execution (opt-in) can only run a single simple command without a shell;
+        # a compound command is already validated by the PATH resolution above.
+        if exec_drift_checks and len(resolved) == 1 and resolved[0] == tokens[0]:
             try:
                 result = subprocess.run(
                     tokens,
@@ -1018,39 +1093,65 @@ def _resolve_project_id(registry_path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def _root_from_proposal(proposal_path: Path) -> "Path | None":
+    """Project root for a conforming ``<root>/.sot/<proposal>.yaml``, else None.
+
+    Mirrors :func:`_project_root_from_registry`: a proposal file outside a
+    ``.sot/`` directory has no safely-derivable root (a blind ``parent.parent``
+    could land on ``/`` and trigger an unbounded discovery scan, DEFECT-FV-1), so
+    return None and let the caller skip discovery while still resolving declared
+    paths against the proposal file's own directory (TD-754).
+    """
+    if proposal_path.parent.name == ".sot":
+        return proposal_path.parent.parent
+    return None
+
+
 def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
     strict = getattr(args, "strict", False)
     sc = _load_schema_constraints()
 
-    # --- Resolve registry ---
+    # --- Resolve registry (may be absent at cold-start) ---
     registry_path = _find_registry(getattr(args, "registry", None))
-    if registry_path is None or not registry_path.exists():
+    registry_exists = registry_path is not None and registry_path.exists()
+    proposal_path = getattr(args, "proposal", None)
+
+    # Standalone `verify` (no --proposal) requires a committed registry. A
+    # cold-start `verify --proposal <draft>` is valid WITHOUT one — a freshly
+    # scaffolded registry.proposed.yaml is the only registry that exists yet
+    # (`--write-proposal` is a no-op once a committed registry exists), and it
+    # must still be gated (TD-749 sentinels included) (TD-754).
+    if not registry_exists and proposal_path is None:
         loc = f" at {registry_path}" if registry_path else ""
         print(f"No registry found{loc}. Run aim-sot detect-propose to create one.")
         return 1 if strict else 0  # --strict is fail-closed: no verdict = exit 1
 
-    # --- S3: YAML parse (before any other check) ---
-    try:
-        entries, ec = _load_registry_entries(registry_path)
-        if ec != 0:
-            s3_fail = _fail("S3", "<registry>", "Registry YAML could not be parsed")
+    # --- S3: YAML parse of the committed registry (when one exists) ---
+    if registry_exists:
+        try:
+            entries, ec = _load_registry_entries(registry_path)
+            if ec != 0:
+                s3_fail = _fail("S3", "<registry>", "Registry YAML could not be parsed")
+                v = _build_verdict([s3_fail], [], ["S3"])
+                _emit_result(v, getattr(args, "as_json", False))
+                return _verdict_exit_code(v, strict)
+        except Exception as exc:
+            s3_fail = _fail(
+                "S3", "<registry>", f"Registry YAML could not be parsed: {exc}"
+            )
             v = _build_verdict([s3_fail], [], ["S3"])
             _emit_result(v, getattr(args, "as_json", False))
             return _verdict_exit_code(v, strict)
-    except Exception as exc:
-        s3_fail = _fail("S3", "<registry>", f"Registry YAML could not be parsed: {exc}")
-        v = _build_verdict([s3_fail], [], ["S3"])
-        _emit_result(v, getattr(args, "as_json", False))
-        return _verdict_exit_code(v, strict)
+    else:
+        entries = []  # cold-start proposal: no committed registry to seed from
 
     # --- Proposal mode: use proposed entries instead of committed registry ---
-    proposal_path = getattr(args, "proposal", None)
     if proposal_path is not None:
         verify_entries, ec = _load_proposal(Path(proposal_path))
         if ec != 0:
             return 1
         # Seed S2/K4 with committed IDs/locations so proposed entries can't
-        # collide with a committed entry (BP-024 S2/K4).
+        # collide with a committed entry (BP-024 S2/K4). Empty at cold-start.
         existing_ids: set[str] | None = {
             e.get("id", "") for e in entries if e.get("id")
         }
@@ -1068,13 +1169,33 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
     # A conforming registry (<root>/.sot/registry.yaml) yields a project root we
     # can safely scan; a flat --registry override yields None — resolve declared
     # locations relative to the registry's directory so a validation gate emits a
-    # verdict rather than tracebacking on the None root.
-    project_root = _project_root_from_registry(registry_path)
-    resolve_root = project_root if project_root is not None else registry_path.parent
+    # verdict rather than tracebacking on the None root. At cold-start (no
+    # committed registry) derive the root from the proposal file's location so
+    # R1/R4 path checks resolve against the real tree; a non-conforming proposal
+    # path yields None → discovery is skipped (no unbounded scan) while declared
+    # paths still resolve against the proposal's own directory (TD-754).
+    if registry_exists:
+        project_root = _project_root_from_registry(registry_path)
+        resolve_root = (
+            project_root if project_root is not None else registry_path.parent
+        )
+        id_anchor = registry_path
+    else:
+        project_root = _root_from_proposal(Path(proposal_path))
+        resolve_root = (
+            project_root if project_root is not None else Path(proposal_path).parent
+        )
+        # Anchor project-id resolution at <root>/.sot/ so it matches the derived
+        # root (parent.parent), not the raw proposal file's location.
+        id_anchor = (
+            project_root / ".sot" / "registry.yaml"
+            if project_root is not None
+            else Path(proposal_path)
+        )
 
     # --- K1: load 5a drift cache. A missing baseline surfaces CONDITIONAL (not a
     #     silent PASS); --project-id lets CI/teammates supply the id explicitly. ---
-    project_id = getattr(args, "project_id", None) or _resolve_project_id(registry_path)
+    project_id = getattr(args, "project_id", None) or _resolve_project_id(id_anchor)
     cache = _read_drift_cache(project_id) if project_id else {"components": {}}
     cache_populated = _drift_state_populated()
     project_id_resolved = project_id is not None
