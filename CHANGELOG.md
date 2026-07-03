@@ -7,10 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`aim-wiki` skill — in-session project wiki generator & maintainer (PR #253)** — creates and maintains a wiki under `wiki/`: Claude Code authors `wiki/quickstart.md` plus linked section pages, grounding every claim in source and git evidence (no invented files, APIs, or behavior), while a Python engine (`_ai-memory/skills/aim-wiki/scripts/aim_wiki.py`) does only the deterministic work — repo inventory, wiki scaffold, run-state (content-hash + gitHead + updatedAt), git-diff since the last run, the `## Project Wiki` CLAUDE.md/AGENTS.md pointer, and a dead-citation verifier manifest. Modes: `init` (scaffold; ≤8 pages on a first run unless the repo is tiny), `update` (incremental, surgical edits; a no-op is valid when nothing relevant changed), `status` (read-only freshness report), `verify` (dead-citation precheck, then a read-only verifier subagent cross-checks page claims against cited source), and `finalize --command init|update` (post-acceptance: upserts the pointer, records state). Pointer injection is idempotent via a managed marker pair (`<!-- BEGIN/END AI-MEMORY (managed aim-wiki) -->`) so a user's own same-named `## Project Wiki` section is never overwritten, with backup-copy-first and atomic (`tempfile` + `os.replace`) writes. v1 is standalone (no Qdrant integration) and its source-drift check excludes the whole top-level `CLAUDE.md`/`AGENTS.md`, not just the pointer section.
+
 ### Changed
 
 - Bumped dependency constraints: `structlog` `<26.0.0` → `<27.0.0` (resolves 26.1.0), `pytest-randomly` `<4.0.0` → `<5.0.0` (resolves 4.1.0), `click` `>=8.2.1` → `>=8.4.1`, `typer` `>=0.12.0` → `>=0.26.7`, `actions/cache` `v5` → `v6` (CI-only).
 - Bumped `fastapi` `0.128.0` → `0.138.0`, which resolves `starlette` `0.50.0` → `1.3.1`, clearing 5 open starlette Dependabot advisories. `ruff` and the streamlit `structlog` constraint updated to match.
+
+### Fixed
+
+- **`aim-wiki finalize` now surfaces a refused pointer write distinctly from a true no-op (PR #253)** — when a top-level `CLAUDE.md`/`AGENTS.md` carries malformed AI-memory markers (stray, duplicate, or out-of-order `BEGIN`/`END`), the pointer injection is refused and the file is left byte-for-byte unchanged. Previously this was reported identically to "already current" (empty `pointer_files_changed`, exit 0), so the refusal was invisible in `--json` and non-tty capture. `finalize` now emits a distinct `pointer_files_refused` field in `--json`, a `REFUSED … resolve manually, then re-run` line in text output, and exits `2` (mirroring `scripts/merge_agents_md.py`'s malformed-marker convention); a genuine no-op still reports `already current` and exits `0`. Internally `wiki_pointer.splice_block` now raises `MalformedMarkersError` on an unsafe marker state and `upsert_pointer` returns changed/refused paths separately.
 
 ## [2.8.2] - 2026-06-30
 
