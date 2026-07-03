@@ -6,7 +6,7 @@ nextStepFile: './step-02-compile-status.md'
 
 # Step 1b: Parzival Cross-Session Memory Bootstrap
 
-**Progress: Step 1b of 4** — Next: Compile Status Report
+**Progress: Step 1b of 5** — Next: Compile Status Report
 
 ## STEP GOAL:
 

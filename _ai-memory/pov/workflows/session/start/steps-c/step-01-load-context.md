@@ -7,7 +7,7 @@ scaffold: '{workflows_path}/STEP-SCAFFOLD.md'
 
 # Step 1: Load Context
 
-**Progress: Step 1 of 4** — Next: Parzival Cross-Session Memory Bootstrap
+**Progress: Step 1 of 5** — Next: Parzival Cross-Session Memory Bootstrap
 
 ## STEP GOAL:
 

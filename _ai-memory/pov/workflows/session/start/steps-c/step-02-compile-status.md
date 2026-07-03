@@ -1,12 +1,12 @@
 ---
 name: 'step-02-compile-status'
 description: 'Compile all loaded context into a structured session status report'
-nextStepFile: './step-03-present-and-wait.md'
+nextStepFile: './step-02b-plan-bearings.md'
 ---
 
 # Step 2: Compile Status Report
 
-**Progress: Step 2 of 4** — Next: Present and Wait for Direction
+**Progress: Step 2 of 5** — Next: Plan Bearings
 
 ## STEP GOAL:
 

@@ -33,6 +33,7 @@ Execution is the most constraint-dense phase because it is the most frequent. Ev
 | EC-08 | Security Requirements Must Be Addressed for All Applicable Stories | CRITICAL |
 | EC-09 | Sprint Status Must Be Updated After Every Story State Transition | MEDIUM |
 | EC-10 | Observability Requirements for New Code | HIGH |
+| EC-11 | No Initiative Task-Dispatch Without an Approved Active Plan | HIGH |
 
 **Note**: EC-02 (Use Instruction Template) has been moved to the aim-agent-dispatch skill as a Layer 3 constraint. It applies during agent dispatch, not as a phase constraint.
 
@@ -49,6 +50,7 @@ Run this checklist after every 10 messages during Execution:
 - EC-08: Have security requirements been addressed for applicable stories?
 - EC-09: Is sprint-status.yaml current after every state transition?
 - EC-10: Does the current story involve new scripts, services, or features? If yes, have I included observability requirements in agent instructions?
+- EC-11: For any initiative-scale work, is there an approved/active plan before I dispatch tasks?
 
 PLUS all 21 global constraint checks from global/constraints.md
 
@@ -67,3 +69,4 @@ IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 | EC-08: Security requirements skipped | CRITICAL | Run security checklist, fix all gaps |
 | EC-09: sprint-status.yaml not updated on transition | MEDIUM | Update immediately, verify accuracy |
 | EC-10: New code without observability requirements | HIGH | Add observability checklist to agent instructions, verify compliance |
+| EC-11: Initiative dispatched without an approved plan | HIGH | Halt dispatch, draft plan from PLAN_TEMPLATE.md, get approval |
