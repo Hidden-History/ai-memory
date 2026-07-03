@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import shutil
 import stat
 import sys
@@ -73,6 +74,17 @@ def _write_stub_forwarder(install_dir: Path, forwarded_keys: list[str]) -> Path:
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     return script
+
+
+def _forwarded_keys_from_script(script_path: Path) -> set[str]:
+    """Parse ``load_env_var "KEY"`` calls out of a run-with-env.sh-shaped script.
+
+    Used to compute the *actual current* forwarded set from a live copy of the
+    script, so a test can assert against ground truth instead of a hardcoded
+    verdict that would break the moment the script's forwarding list changes.
+    """
+    text = script_path.read_text(encoding="utf-8")
+    return set(re.findall(r'load_env_var\s+"([A-Z0-9_]+)"', text))
 
 
 # ---------------------------------------------------------------------------
@@ -190,9 +202,13 @@ def test_delivery_skip_when_no_venv(tmp_path):
 def test_delivery_against_real_run_with_env_script(tmp_path):
     """Runs the actual scripts/memory/run-with-env.sh from this repo (not a
     stub) to prove the delivery check works against the production forwarder,
-    not just a test double. At current HEAD (pre Lane-A/#256 merge) the
-    AI_MEMORY_SOT_* family is genuinely unforwarded, so this reproduces the
-    live F-D1-1 shape.
+    not just a test double.
+
+    State-agnostic by design (E-FIX-2): the expected verdict is derived from
+    the live script's own ``load_env_var`` calls, not hardcoded. At the time
+    this test was written, PR #256 (which adds AI_MEMORY_SOT_* forwarding) had
+    not merged, so this reproduced a live WARNING — but the assertion holds
+    either way, so the suite does not break the moment #256 lands.
     """
     install_dir = _install_skeleton(tmp_path)
     real_script = REPO_ROOT / "scripts" / "memory" / "run-with-env.sh"
@@ -201,18 +217,46 @@ def test_delivery_against_real_run_with_env_script(tmp_path):
     shutil.copy(real_script, dest)
     dest.chmod(dest.stat().st_mode | stat.S_IEXEC)
 
-    _write_env(
-        install_dir / "docker" / ".env",
-        QDRANT_API_KEY="abc123",
-        AI_MEMORY_SOT_DIGEST_MAX_SECONDS="18.0",
-    )
+    forwarded_today = _forwarded_keys_from_script(dest)
+    expected_undelivered = sorted(set(doctor.DELIVERY_MANIFEST) - forwarded_today)
+
+    env_kv = {k: f"bench-value-{i}" for i, k in enumerate(doctor.DELIVERY_MANIFEST)}
+    _write_env(install_dir / "docker" / ".env", **env_kv)
     _link_venv_python(install_dir)
 
     result = doctor.check_config_delivery(install_dir)
-    # QDRANT_API_KEY is forwarded today; AI_MEMORY_SOT_DIGEST_MAX_SECONDS is not
-    # (verified at TASK-096 Lane E HEAD) — this is a live, not fixture-only, WARNING.
+    if expected_undelivered:
+        assert result.status == doctor.Status.WARNING
+        for key in expected_undelivered:
+            assert key in result.detail
+    else:
+        assert result.status == doctor.Status.PASS
+
+
+def test_delivery_no_false_pass_from_caller_env_leakage(tmp_path, monkeypatch):
+    """E-FIX-1 regression: a DELIVERY_MANIFEST key already exported in the
+    *caller's* shell (this test process) must not leak into the probe
+    subprocess and manufacture a false PASS that masks a genuine forwarding
+    failure. Sets the leaked value equal to the configured value — the exact
+    shape that would previously have produced a false match.
+    """
+    install_dir = _install_skeleton(tmp_path)
+    _write_env(
+        install_dir / "docker" / ".env",
+        QDRANT_API_KEY="abc123",
+        GITHUB_TOKEN="configured-value",
+    )
+    _link_venv_python(install_dir)
+    # Forwards QDRANT_API_KEY but deliberately NOT GITHUB_TOKEN (pre-fix shape).
+    _write_stub_forwarder(install_dir, ["QDRANT_API_KEY"])
+
+    # Simulate an operator's shell already having GITHUB_TOKEN exported (e.g.
+    # for `gh` CLI use), with a value that happens to match docker/.env.
+    monkeypatch.setenv("GITHUB_TOKEN", "configured-value")
+
+    result = doctor.check_config_delivery(install_dir)
     assert result.status == doctor.Status.WARNING
-    assert "AI_MEMORY_SOT_DIGEST_MAX_SECONDS" in result.detail
+    assert "GITHUB_TOKEN" in result.detail
 
 
 # ---------------------------------------------------------------------------

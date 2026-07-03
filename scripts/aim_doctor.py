@@ -66,7 +66,8 @@ from pathlib import Path
 #     AI_MEMORY_SOT_DISCOVERY_SESSION_INTERVAL,
 #     AI_MEMORY_SOT_DISCOVERY_NUDGE_SESSIONS: read via _env_float/_env_int in
 #     _ai-memory/skills/aim-sot/scripts/{aim_sot_shadow,aim_sot_detect_propose}.py
-#     (the F-D1-1 shape — fixed for this family by Lane A / PR #256).
+#     (the F-D1-1 shape — Lane A / PR #256 proposes fixing forwarding for this
+#     family; PR #256 is not yet merged as of this writing).
 #
 # Deliberately EXCLUDED:
 #   - AI_MEMORY_PROJECT_ID: run-with-env.sh documents (BUG-314) that
@@ -111,6 +112,15 @@ class CheckResult:
     detail: str
 
 
+def _strip_quotes(value: str) -> str:
+    """Strip ALL single/double quote characters (not just leading/trailing).
+
+    Matches bash `tr -d '"'"'"'` in _env_split_helpers.sh::_read_env_key — a
+    value like ``foo"bar`` loses the embedded quote too, not just wrapping ones.
+    """
+    return value.replace("'", "").replace('"', "")
+
+
 def _read_env_key(key: str, secrets_file: Path, env_file: Path) -> str:
     """Secrets-first env read. Mirrors scripts/_env_split_helpers.sh::_read_env_key."""
     for path in (secrets_file, env_file):
@@ -118,7 +128,7 @@ def _read_env_key(key: str, secrets_file: Path, env_file: Path) -> str:
             continue
         for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if line.startswith(f"{key}="):
-                val = line.split("=", 1)[1].strip().strip("'\"")
+                val = _strip_quotes(line.split("=", 1)[1].strip())
                 if val:
                     return val
     return ""
@@ -178,13 +188,21 @@ def _probe_delivered_env(
     """Actually execute run-with-env.sh and return what os.environ looks like inside it.
 
     Returns None if the probe could not be run/parsed (caller decides how to report).
+
+    The DELIVERY_MANIFEST keys are scrubbed from the subprocess env before it is
+    passed down: if a manifest key happens to already be exported in the
+    caller's own shell (e.g. an operator's ``QDRANT_API_KEY``), inheriting it
+    would make the probe see the key regardless of whether run-with-env.sh
+    actually forwards it — a false PASS that defeats the whole delivery check.
+    The only way a manifest key can appear in the probe's environ is via
+    run-with-env.sh's own load_env_var loading it from docker/.env(.secrets).
     """
     fd, probe_path_str = tempfile.mkstemp(suffix="_aim_doctor_probe.py")
     probe_path = Path(probe_path_str)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(_PROBE_SOURCE)
-        env = dict(os.environ)
+        env = {k: v for k, v in os.environ.items() if k not in DELIVERY_MANIFEST}
         env["AI_MEMORY_INSTALL_DIR"] = str(install_dir)
         result = subprocess.run(
             ["bash", str(run_with_env), str(probe_path), *keys],
