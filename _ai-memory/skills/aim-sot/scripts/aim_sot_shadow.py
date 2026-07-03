@@ -60,7 +60,7 @@ _DRIFT_STATE_DIR = _INSTALL_DIR / "drift-state"
 # Versions — bump SETUP_VERSION when setup does something new; bump
 # SCHEMA_VERSION when the sentinel JSON shape changes (BP-041 Q3).
 SETUP_SCHEMA_VERSION = "1"
-SETUP_VERSION = "2.8.0"
+SETUP_VERSION = "2.9.0"
 
 # Tree-digest algorithm version.  A v1:→v2: bump is a RE-BASELINE, not drift
 # (R-1): the engine compares the stored digest_version before treating a digest
@@ -671,6 +671,42 @@ _SHADOW_EXCLUDE_LINES: tuple[str, ...] = (
 _MAX_COMMITS = 500
 _MAX_PACK_MB = 100
 
+# S3-F1: inner `git add -A` cap, scoped to that one call (not run_git's general
+# 30s default — gc/rev-list/etc. are unaffected).  Must stay below the hook
+# layer's inner-subprocess cap so a timeout surfaces cleanly instead of a
+# SIGKILL orphaning an in-flight add (coordinated cross-lane: inner-add 15s <
+# hook inner-subprocess 20s < hook outer SIGALRM 25s).
+_SHADOW_ADD_TIMEOUT_SECONDS = 15
+
+# S3-F2: stale `index.lock` threshold.  `run_git` bounds every git call with
+# `subprocess.run(timeout=...)`, which SIGKILLs the child on expiry, so no
+# legitimate holder of a lock we created can outlive its own timeout.  Mirrors
+# the `max(300, 2*cap)` convention in aim_sot_detect_propose.py's
+# `_LOCK_STALE_SECONDS` (product-wide stale-lock invariant): the 2x multiplier
+# absorbs mtime/clock-skew slop, the 300s floor guards against sweeping a
+# genuinely live lock on a slow/laggy filesystem.
+_SHADOW_LOCK_STALE_SECONDS = max(300.0, 2 * _SHADOW_ADD_TIMEOUT_SECONDS)
+
+
+def _project_gitignore_lines(project_dir: Path) -> tuple[str, ...]:
+    """Lines from the project's own on-disk ``.gitignore``, if present (S3-F1).
+
+    Folded into the shadow's ``info/exclude`` after the mandatory list so a
+    project's own nested-clone/backup conventions (unpredictable in general —
+    e.g. this workspace's ``pov-work*/`` or ``_ai-memory_backup_*/``) are
+    picked up automatically instead of hardcoded here.  A *tracked*
+    ``.gitignore`` is identical on every machine that clones the project, so
+    this preserves the module's reproducibility rationale (deliberately NOT
+    reading the ambient/untracked excludesfile) while generalizing beyond any
+    one project's naming choices.  Absent file, or one that isn't valid UTF-8
+    (e.g. a stray byte from a Windows-authored repo), → no lines, no error.
+    """
+    try:
+        text = (project_dir / ".gitignore").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ()
+    return tuple(text.splitlines())
+
 
 def shadow_git_dir(project_id: str) -> Path:
     """``~/.ai-memory/sot-git/<project_id>`` — the bare shadow repo."""
@@ -750,9 +786,17 @@ def ensure_shadow_git(project_id: str, project_dir: Path) -> None:
         )
     info_dir = shadow / "info"
     info_dir.mkdir(parents=True, exist_ok=True)
-    (info_dir / "exclude").write_text(
-        "\n".join(_SHADOW_EXCLUDE_LINES) + "\n", encoding="utf-8"
-    )
+    exclude_lines = _SHADOW_EXCLUDE_LINES
+    gitignore_lines = _project_gitignore_lines(project_dir)
+    if gitignore_lines:
+        exclude_lines = (
+            *_SHADOW_EXCLUDE_LINES,
+            "",
+            "# Folded in from the project's own tracked .gitignore (S3-F1) —",
+            "# picks up this project's nested-clone/backup conventions.",
+            *gitignore_lines,
+        )
+    (info_dir / "exclude").write_text("\n".join(exclude_lines) + "\n", encoding="utf-8")
 
 
 def shadow_head(project_id: str, project_dir: Path) -> str | None:
@@ -764,6 +808,30 @@ def shadow_head(project_id: str, project_dir: Path) -> str | None:
 
 class ShadowGitError(Exception):
     """Raised by shadow_commit when a git operation (add/commit) returns non-zero."""
+
+
+def _clear_stale_index_lock(project_id: str) -> None:
+    """Clear an orphaned ``index.lock`` left by a killed ``git add`` (S3-F2).
+
+    A timed-out (SIGKILLed) ``git add -A`` leaves ``index.lock`` behind with no
+    process left to release it — every later add then fails with "Unable to
+    create '.../index.lock': File exists", permanently wedging the shadow-git.
+    Since ``run_git`` bounds every call with ``subprocess.run(timeout=...)``,
+    no legitimate holder of a lock we created can outlive its own timeout, so a
+    lock older than :data:`_SHADOW_LOCK_STALE_SECONDS` is provably orphaned —
+    clear it before staging.  Best-effort: an ``OSError`` (e.g. lost the race
+    to another process, or unwritable) is not fatal — ``git add`` below will
+    simply fail with its usual error if the lock is still genuinely held.
+    """
+    lock_path = shadow_git_dir(project_id) / "index.lock"
+    try:
+        if (
+            lock_path.exists()
+            and (time.time() - lock_path.stat().st_mtime) > _SHADOW_LOCK_STALE_SECONDS
+        ):
+            lock_path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def shadow_commit(project_id: str, project_dir: Path, message: str) -> str | None:
@@ -778,7 +846,10 @@ def shadow_commit(project_id: str, project_dir: Path, message: str) -> str | Non
     # are staged changes.  This is correct even on the first commit, where every
     # file is untracked (a plain ``status`` would hide them under the repo's
     # status.showUntrackedFiles=no).
-    add = run_git(project_id, project_dir, "add", "-A")
+    _clear_stale_index_lock(project_id)
+    add = run_git(
+        project_id, project_dir, "add", "-A", timeout=_SHADOW_ADD_TIMEOUT_SECONDS
+    )
     if add.returncode != 0:
         raise ShadowGitError(
             f"git add failed (rc={add.returncode}): {add.stderr.strip()}"
