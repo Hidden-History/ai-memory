@@ -357,9 +357,9 @@ leave hooks on). This works two ways:
   the generated `settings.json` — `generate_settings.py` **regenerates** the latter's
   `env` block on every install, so a value hand-added there is wiped on the next install.
 
-  This runtime kill-switch covers the **drift** hooks only (the Claude Stop hook and the
-  Codex/Cursor/Gemini stop adapters). The **digest** session-start hooks are not
-  runtime-gated — disable those at install time (see *Digest Session-Start Hook* below).
+  This runtime kill-switch covers **all 8** SOT hooks — the **drift** hooks (the Claude
+  Stop hook and the Codex/Cursor/Gemini stop adapters) and the **digest** session-start
+  hooks (see *Digest Session-Start Hook* below).
 
 Note: `docker/.env` is sourced only by `install.sh`, so setting the variable there
 affects install-time registration only — it is never loaded into a live Claude Code
@@ -432,10 +432,10 @@ drift hooks). No registry → hook exits with empty context (no-op in non-SOT pr
 Disable SOT hooks with `AI_MEMORY_SOT_HOOKS=off` (case-insensitive; only `off`
 disables — `false`/`0`/`no` leave hooks on). **Install-time** (set before `install.sh`)
 skips registering **all** SOT hooks — drift *and* these digest session-start hooks.
-**Runtime** (see *Stop Hook — Default-on* above for the durable delivery surfaces)
-disables the **drift** hooks only; these digest session-start hooks are **not**
-runtime-gated, so to turn off an already-installed digest hook set the variable before a
-reinstall (or remove its entry from your hook config).
+**Runtime** (see *Stop Hook — Default-on* above for the durable delivery surfaces) also
+disables these digest session-start hooks — each reads `AI_MEMORY_SOT_HOOKS` on every
+run and no-ops (empty context, no engine invocation) when it is `off`, so an
+already-installed digest hook can be turned off per-session without reinstalling.
 
 → Per-CLI hook-config snippets (Claude, Codex, Cursor, Gemini SessionStart): [`references/hook-setup.md`](references/hook-setup.md).
 
