@@ -439,20 +439,24 @@ class TreeDigest:
     (F-SOT-3); the ``digest`` is then a partial sentinel that callers must NOT
     treat as drift or store as a baseline.
 
-    ``changed_rels`` / ``deleted_rels`` (TD-730) are populated ONLY when a
-    ``cache`` was supplied: the POSIX relpaths whose content hash differs from
-    the cache's prior entry (new or modified), and the cached relpaths no longer
-    present (deleted).  They let the caller stage a scoped ``git add`` instead of
-    a whole-tree ``-A`` walk.  Empty on a cache-free run (the caller then falls
-    back to the full ``add -A``).  Purely additive — existing callers/tests that
-    construct or read a ``TreeDigest`` are unaffected."""
+    ``changed_rels`` (TD-730) is populated ONLY when a ``cache`` was supplied: the
+    POSIX relpaths whose content hash differs from the cache's prior entry (new or
+    modified).  ``present_rels`` is every non-excluded regular file the walk saw on
+    disk (cache-independent).  Together with the pre-existing ``skipped_symlinks``
+    they let the caller build a scoped ``git add`` pathspec — new/modified files
+    (``changed_rels``), all present symlinks (``skipped_symlinks`` — the digest
+    skips symlink *content*, so a retarget is invisible to ``changed_rels`` and
+    must be offered explicitly), and deletions (tracked paths absent from
+    ``present_rels`` + ``skipped_symlinks``) instead of a whole-tree ``-A`` walk.
+    ``changed_rels`` is empty on a cache-free run (the caller then falls back to the
+    full ``add -A``).  Additive — existing callers/tests are unaffected."""
 
     digest: str
     skipped_symlinks: list[str]
     file_count: int
     truncated: bool = False
     changed_rels: list[str] = field(default_factory=list)
-    deleted_rels: list[str] = field(default_factory=list)
+    present_rels: list[str] = field(default_factory=list)
 
 
 def tree_digest(
@@ -567,8 +571,8 @@ def tree_digest(
                     # every machine where it is unreadable).
                     continue
                 lines.append(f"{digest}  {rel}\n")
+                seen_rels.add(rel)
                 if cache is not None:
-                    seen_rels.add(rel)
                     prior = prior_hashes.get(rel)
                     if prior is None or prior.get("sha256") != digest:
                         changed_rels.append(rel)
@@ -577,14 +581,6 @@ def tree_digest(
     # an incomplete file set and must not drop live entries (BP-048).
     if cache is not None and not truncated:
         cache["files"] = {k: v for k, v in cache["files"].items() if k in seen_rels}
-    # Deleted rels (TD-730): cached paths absent from a COMPLETE walk.  A truncated
-    # walk has an incomplete file set, so nothing is reported deleted (and the caller
-    # early-returns on truncation before staging anyway).
-    deleted_rels: list[str] = (
-        [k for k in prior_hashes if k not in seen_rels]
-        if cache is not None and not truncated
-        else []
-    )
     summary = "".join(sorted(lines))
     full_digest = (
         DIGEST_VERSION + ":" + hashlib.sha256(summary.encode("utf-8")).hexdigest()
@@ -595,7 +591,7 @@ def tree_digest(
         file_count=len(lines),
         truncated=truncated,
         changed_rels=changed_rels,
-        deleted_rels=deleted_rels,
+        present_rels=sorted(seen_rels),
     )
 
 
@@ -865,6 +861,35 @@ def _clear_stale_index_lock(project_id: str) -> None:
             lock_path.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _scoped_deletions(
+    project_id: str, project_dir: Path, present: set[str]
+) -> list[str]:
+    """Tracked paths that are no longer on disk (TD-730 deletion soundness).
+
+    Deletions cannot be sourced from the per-file hash cache: a committed file that
+    stayed under the freshness horizon (a lockfile, log, or other perpetually-fresh
+    artifact inside the boundary) is tracked in the shadow index yet never cached,
+    so a cache-derived deletion set would miss its later removal and leave a ghost
+    in the shadow tree.  Instead diff the shadow INDEX (``git ls-files`` — an index
+    read, NOT a worktree lstat/readdir walk, so the scoped-add perf win is intact)
+    against the paths the walk saw on disk (``present`` = regular files + symlinks),
+    then confirm each candidate is truly gone with ``os.path.lexists`` — ``lexists``
+    (not ``exists``) so a present-but-dangling symlink is not mistaken for deleted,
+    and a tracked-but-now-excluded path (still on disk) is left alone.  The
+    candidate set is just the handful of removed paths, so only those are stat'd.
+    """
+    res = run_git(project_id, project_dir, "ls-files", "-z")
+    if res.returncode != 0:
+        return []
+    deleted: list[str] = []
+    for rel in res.stdout.split("\0"):
+        if not rel or rel in present:
+            continue
+        if not os.path.lexists(project_dir / rel):
+            deleted.append(rel)
+    return deleted
 
 
 def shadow_commit(
@@ -1454,7 +1479,18 @@ def run_shadow_pass(
     if not cache_warm or prior_commit_dirty:
         add_pathspec: list[str] | None = None
     else:
-        changed = [*td.changed_rels, *td.deleted_rels]
+        # Reconstruct exactly what a whole-tree `git add -A` would stage, from the
+        # walk + the shadow index (no worktree walk): new/modified regular files
+        # (changed_rels), every present symlink (skipped_symlinks — the digest skips
+        # symlink content, so a create/retarget is invisible to changed_rels and
+        # must be offered explicitly; staging an unchanged symlink is a no-op), and
+        # deletions of tracked paths no longer on disk.  present = regular files +
+        # symlinks so a still-present symlink is never mis-flagged as deleted.
+        present = set(td.present_rels) | set(td.skipped_symlinks)
+        deleted = _scoped_deletions(project_id, project_dir, present)
+        changed = list(
+            dict.fromkeys([*td.changed_rels, *td.skipped_symlinks, *deleted])
+        )
         add_pathspec = None if len(changed) > _SCOPED_ADD_MAX_PATHS else changed
     new_head = None
     # Pessimistically mark dirty; cleared only after shadow_commit returns cleanly,

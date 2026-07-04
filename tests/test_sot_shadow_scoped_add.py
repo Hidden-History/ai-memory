@@ -3,15 +3,16 @@
 Proves the scoped-pathspec add that replaces the whole-tree ``git add -A`` walk on
 a large ``path``-type SOT boundary:
 
-  * ``tree_digest`` reports the changed (new/modified) and deleted relpaths it saw,
-    populated ONLY when a cache is supplied (cache-free run → empty, full-add fallback).
+  * ``tree_digest`` reports ``changed_rels`` (new/modified, cache-gated) and
+    ``present_rels`` (every non-excluded regular file on disk, cache-independent).
   * ``shadow_commit(pathspec=...)`` stages exactly those paths (add/modify/delete),
     an empty pathspec skips the add, and ``pathspec=None`` keeps the whole-tree add.
-  * ``run_shadow_pass`` uses the scoped add only on a warm cache with a trustworthy,
-    bounded changed-set — and falls back to the full add on a cold/empty cache, a
-    prior commit that raised, or a changed-set over the cap.
-  * The scoped snapshot is byte-identical to what a full ``add -A`` would commit
-    (same HEAD tree), so no changed file is ever missed.
+  * ``run_shadow_pass`` builds the scoped pathspec = changed_rels + all present
+    symlinks + deletions (tracked paths from ``git ls-files`` no longer on disk),
+    only on a warm cache; else it falls back to the full add (cold/empty cache,
+    prior commit raised, or changed-set over the cap).
+  * The scoped snapshot is byte-identical to what a full ``add -A`` would commit —
+    including symlink retargets and deletions of committed-but-uncached files.
   * #258's stale-lock clear + inner-add cap are still exercised on the scoped path.
   * Perf: a warm steady-state run over a large tree uses the scoped add.
 
@@ -95,18 +96,17 @@ def _spy_pathspec(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# tree_digest — changed / deleted reporting
+# tree_digest — changed / present reporting
 # --------------------------------------------------------------------------- #
 
 
-def test_tree_digest_reports_changed_and_deleted(env):
+def test_tree_digest_reports_changed_and_present(env):
     cache = _cache(env)
     # Warm the cache with a first complete walk (files aged so hashes are stored).
     _age(env.project)
     first = shadow.tree_digest(env.project, cache=cache)
-    assert first.changed_rels == ["src/app.py", "src/util.py"] or set(
-        first.changed_rels
-    ) == {"src/app.py", "src/util.py"}
+    assert set(first.changed_rels) == {"src/app.py", "src/util.py"}
+    assert set(first.present_rels) == {"src/app.py", "src/util.py"}
 
     # Modify one, add one, delete one.
     (env.project / "src" / "app.py").write_text("print('changed')\n", encoding="utf-8")
@@ -115,13 +115,16 @@ def test_tree_digest_reports_changed_and_deleted(env):
 
     second = shadow.tree_digest(env.project, cache=cache)
     assert set(second.changed_rels) == {"src/app.py", "src/new.py"}
-    assert second.deleted_rels == ["src/util.py"]
+    # present_rels is the on-disk set: the deleted file is gone; deletion detection
+    # itself is the caller's job (git ls-files minus present), not tree_digest's.
+    assert set(second.present_rels) == {"src/app.py", "src/new.py"}
 
 
-def test_tree_digest_without_cache_leaves_rels_empty(env):
+def test_tree_digest_present_populated_without_cache(env):
+    # present_rels is cache-independent; changed_rels needs a cache.
     td = shadow.tree_digest(env.project)  # no cache → no changed-set source
     assert td.changed_rels == []
-    assert td.deleted_rels == []
+    assert set(td.present_rels) == {"src/app.py", "src/util.py"}
 
 
 # --------------------------------------------------------------------------- #
@@ -295,6 +298,147 @@ def test_scoped_snapshot_matches_full_add_tree(tmp_path, monkeypatch):
     shadow.shadow_commit("full", full_proj, "next", pathspec=None)
 
     assert _head_tree("scoped", scoped_proj) == _head_tree("full", full_proj)
+
+
+# --------------------------------------------------------------------------- #
+# Soundness: the scoped pathspec == git's full stage-set (symlinks + deletions
+# the digest / 2s cache can't see).  Regression for the review's HIGH + MEDIUM.
+# --------------------------------------------------------------------------- #
+
+
+def test_uncached_regular_file_deletion_staged(env):
+    """A committed file that stayed under the 2s freshness horizon is tracked but
+    never cached; the scoped run must still stage its deletion (sourced from the
+    shadow index, not the cache) — else a ghost is left in the shadow tree."""
+    drift_state = {}
+    _age(env.project)
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)  # warm baseline
+    # Fresh (< horizon) file: committed via changed_rels but NOT stored in the cache.
+    (env.project / "src" / "transient.py").write_text("t = 1\n", encoding="utf-8")
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)
+    mid = shadow.shadow_head(env.pid, env.project)
+    cache = shadow.load_file_hash_cache(env.pid, shadow.DEFAULT_EXCLUDES)
+    assert "src/transient.py" not in cache["files"]  # uncached (too fresh)
+    assert (
+        "src/transient.py" in shadow.run_git(env.pid, env.project, "ls-files").stdout
+    )  # but tracked
+
+    (env.project / "src" / "transient.py").unlink()
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)
+    head = shadow.shadow_head(env.pid, env.project)
+    changes = {
+        c.path: c.status for c in shadow.get_change_set(env.pid, env.project, mid, head)
+    }
+    assert changes.get("src/transient.py") == "D"
+    assert (
+        "src/transient.py"
+        not in shadow.run_git(env.pid, env.project, "ls-files").stdout
+    )
+
+
+def test_symlink_retarget_staged(env):
+    """A symlink retarget is the sole change.  The digest skips symlink content, so
+    it's absent from changed_rels; folding skipped_symlinks into the pathspec is
+    what stops the change being silently dropped (the review's HIGH)."""
+    (env.project / "target1.txt").write_text("one\n", encoding="utf-8")
+    (env.project / "target2.txt").write_text("two\n", encoding="utf-8")
+    os.symlink("target1.txt", env.project / "link.txt")
+    drift_state = {}
+    _age(env.project)
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)  # baseline commits link
+    base = shadow.shadow_head(env.pid, env.project)
+
+    (env.project / "link.txt").unlink()
+    os.symlink("target2.txt", env.project / "link.txt")  # retarget = sole change
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)
+    head = shadow.shadow_head(env.pid, env.project)
+    assert head and head != base  # NOT silently dropped
+    changed = {c.path for c in shadow.get_change_set(env.pid, env.project, base, head)}
+    assert "link.txt" in changed
+
+
+def test_symlink_deletion_staged(env):
+    """A deleted symlink is tracked but absent from present (present = regular +
+    symlink), and lexists is False so the scoped run stages its removal."""
+    (env.project / "target.txt").write_text("x\n", encoding="utf-8")
+    os.symlink("target.txt", env.project / "link.txt")
+    drift_state = {}
+    _age(env.project)
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)  # baseline
+    base = shadow.shadow_head(env.pid, env.project)
+
+    (env.project / "link.txt").unlink()
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)
+    head = shadow.shadow_head(env.pid, env.project)
+    changes = {
+        c.path: c.status
+        for c in shadow.get_change_set(env.pid, env.project, base, head)
+    }
+    assert changes.get("link.txt") == "D"
+
+
+def test_dangling_symlink_not_flagged_deleted(env):
+    """A present-but-dangling symlink (target missing) must NOT be staged as a
+    deletion — lexists (not exists) keeps it in the present-set."""
+    (env.project / "gone.txt").write_text("bye\n", encoding="utf-8")
+    os.symlink("gone.txt", env.project / "link.txt")
+    drift_state = {}
+    _age(env.project)
+    shadow.run_shadow_pass(
+        env.pid, env.project, drift_state
+    )  # baseline (link + target)
+    base = shadow.shadow_head(env.pid, env.project)
+
+    (env.project / "gone.txt").unlink()  # link.txt now dangles but still exists
+    shadow.run_shadow_pass(env.pid, env.project, drift_state)
+    head = shadow.shadow_head(env.pid, env.project)
+    changes = {
+        c.path: c.status
+        for c in shadow.get_change_set(env.pid, env.project, base, head)
+    }
+    assert changes.get("gone.txt") == "D"  # the real deletion is staged
+    assert "link.txt" not in changes  # the dangling symlink is NOT staged as deleted
+
+
+def test_scoped_matches_full_add_symlinks_and_deletions(tmp_path, monkeypatch):
+    """Byte-identical committed tree for the hard cases together: a symlink retarget,
+    an uncached-fresh-file deletion, and a cached-file deletion — scoped == full."""
+    monkeypatch.setattr(shadow, "_SHADOW_GIT_ROOT", tmp_path / "sot-git")
+    monkeypatch.setattr(shadow, "_SETUP_DIR", tmp_path / "sot-setup")
+    monkeypatch.setattr(shadow, "_DRIFT_STATE_DIR", tmp_path / "drift-state")
+
+    def _build(root):
+        root.mkdir(parents=True)
+        (root / "t1.txt").write_text("1\n", encoding="utf-8")
+        (root / "t2.txt").write_text("2\n", encoding="utf-8")
+        (root / "keep.py").write_text("keep\n", encoding="utf-8")
+        (root / "cached_del.py").write_text("x\n", encoding="utf-8")
+        os.symlink("t1.txt", root / "link.txt")
+
+    def _mutate(root):
+        (root / "link.txt").unlink()
+        os.symlink("t2.txt", root / "link.txt")  # symlink retarget
+        (root / "cached_del.py").unlink()  # cached-file deletion
+        (root / "fresh.py").write_text("f\n", encoding="utf-8")  # fresh, then delete
+
+    scoped, full = tmp_path / "s", tmp_path / "f"
+    _build(scoped)
+    _build(full)
+
+    ds = {}
+    _age(scoped)
+    shadow.run_shadow_pass("s", scoped, ds)  # warm baseline
+    _mutate(scoped)
+    (scoped / "fresh.py").unlink()  # delete the just-created uncached file
+    shadow.run_shadow_pass("s", scoped, ds)
+
+    shadow.ensure_setup("f", full)
+    shadow.shadow_commit("f", full, "base", pathspec=None)
+    _mutate(full)
+    (full / "fresh.py").unlink()
+    shadow.shadow_commit("f", full, "next", pathspec=None)
+
+    assert _head_tree("s", scoped) == _head_tree("f", full)
 
 
 # --------------------------------------------------------------------------- #
