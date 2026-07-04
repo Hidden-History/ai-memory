@@ -10,7 +10,7 @@ Checks:
 1. tier1-compose-profiles — re-derives the expected ``COMPOSE_PROFILES``
    from the persisted ``MONITORING_ENABLED`` / ``GITHUB_SYNC_ENABLED``
    values and compares it against the persisted ``COMPOSE_PROFILES``.
-   Mirrors ``derive_and_persist_compose_profiles`` (scripts/install.sh:2510).
+   Mirrors ``derive_and_persist_compose_profiles`` in scripts/install.sh.
    Catches the BUG-311 shape: installer wrote a blank/stale
    ``COMPOSE_PROFILES`` while monitoring was nonetheless enabled.
 
@@ -137,13 +137,14 @@ def _read_env_key(key: str, secrets_file: Path, env_file: Path) -> str:
 def check_tier1_derived_state(install_dir: Path) -> CheckResult:
     """Re-derive expected COMPOSE_PROFILES and compare against persisted state.
 
-    Mirrors derive_and_persist_compose_profiles (scripts/install.sh:2510).
+    Mirrors derive_and_persist_compose_profiles in scripts/install.sh.
     Reimplemented here rather than shelled out to the bash function: that
     function's own fallback reads MONITORING_ENABLED/GITHUB_SYNC_ENABLED from
     the same docker/.env this check verifies, so invoking it from a
     post-install context (no shell-scope INSTALL_MONITORING) would just
     recompute from — and always agree with — the value under test. Keep this
-    derivation in sync with install.sh:2510 by hand; the duplication is an
+    derivation in sync with derive_and_persist_compose_profiles in
+    scripts/install.sh by hand; the duplication is an
     accepted maintenance cost for a MED-severity diagnostic (see TASK-096
     Lane E work report).
     """
@@ -159,7 +160,8 @@ def check_tier1_derived_state(install_dir: Path) -> CheckResult:
     persisted_profiles = _read_env_key("COMPOSE_PROFILES", secrets_file, env_file)
 
     if not monitoring_enabled:
-        # Mirrors install.sh:2521 — no prior/current monitoring choice to derive from.
+        # Mirrors derive_and_persist_compose_profiles in scripts/install.sh — no
+        # prior/current monitoring choice to derive from.
         return CheckResult(
             name, Status.SKIP, "MONITORING_ENABLED not set — nothing to derive"
         )
