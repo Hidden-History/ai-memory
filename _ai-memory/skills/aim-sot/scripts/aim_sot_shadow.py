@@ -41,7 +41,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -437,12 +437,26 @@ class TreeDigest:
 
     ``truncated`` is True when the walk hit the wall-time or file-count budget
     (F-SOT-3); the ``digest`` is then a partial sentinel that callers must NOT
-    treat as drift or store as a baseline."""
+    treat as drift or store as a baseline.
+
+    ``changed_rels`` (TD-730) is populated ONLY when a ``cache`` was supplied: the
+    POSIX relpaths whose content hash differs from the cache's prior entry (new or
+    modified).  ``present_rels`` is every non-excluded regular file the walk saw on
+    disk (cache-independent).  Together with the pre-existing ``skipped_symlinks``
+    they let the caller build a scoped ``git add`` pathspec — new/modified files
+    (``changed_rels``), all present symlinks (``skipped_symlinks`` — the digest
+    skips symlink *content*, so a retarget is invisible to ``changed_rels`` and
+    must be offered explicitly), and deletions (tracked paths absent from
+    ``present_rels`` + ``skipped_symlinks``) instead of a whole-tree ``-A`` walk.
+    ``changed_rels`` is empty on a cache-free run (the caller then falls back to the
+    full ``add -A``).  Additive — existing callers/tests are unaffected."""
 
     digest: str
     skipped_symlinks: list[str]
     file_count: int
     truncated: bool = False
+    changed_rels: list[str] = field(default_factory=list)
+    present_rels: list[str] = field(default_factory=list)
 
 
 def tree_digest(
@@ -491,6 +505,11 @@ def tree_digest(
     lines: list[str] = []
     skipped: list[str] = []
     seen_rels: set[str] = set()
+    changed_rels: list[str] = []
+    # Snapshot the prior per-file hashes so the walk can report which rels changed
+    # (TD-730 scoped-add source).  get_file_hash reassigns a cache entry to a fresh
+    # dict on a miss, so a shallow copy of the mapping preserves the prior values.
+    prior_hashes = dict(cache["files"]) if cache is not None else {}
     truncated = False
     # Explicit LIFO stack over os.scandir; symlinked directories are never
     # descended (mirrors os.walk followlinks=False) and excluded dirs are pruned
@@ -552,8 +571,11 @@ def tree_digest(
                     # every machine where it is unreadable).
                     continue
                 lines.append(f"{digest}  {rel}\n")
+                seen_rels.add(rel)
                 if cache is not None:
-                    seen_rels.add(rel)
+                    prior = prior_hashes.get(rel)
+                    if prior is None or prior.get("sha256") != digest:
+                        changed_rels.append(rel)
         stack.extend(subdirs)
     # Prune deleted-file entries only after a complete walk; a truncated walk has
     # an incomplete file set and must not drop live entries (BP-048).
@@ -568,6 +590,8 @@ def tree_digest(
         skipped_symlinks=sorted(skipped),
         file_count=len(lines),
         truncated=truncated,
+        changed_rels=changed_rels,
+        present_rels=sorted(seen_rels),
     )
 
 
@@ -686,6 +710,11 @@ _SHADOW_ADD_TIMEOUT_SECONDS = 15
 # absorbs mtime/clock-skew slop, the 300s floor guards against sweeping a
 # genuinely live lock on a slow/laggy filesystem.
 _SHADOW_LOCK_STALE_SECONDS = max(300.0, 2 * _SHADOW_ADD_TIMEOUT_SECONDS)
+
+# TD-730: cap on how many paths a scoped `git add -A -- <paths>` will carry on the
+# command line.  Above it the caller falls back to a full `add -A` — both to dodge
+# ARG_MAX and because staging that many paths is no cheaper than the whole-tree add.
+_SCOPED_ADD_MAX_PATHS = 1000
 
 
 def _project_gitignore_lines(project_dir: Path) -> tuple[str, ...]:
@@ -834,26 +863,92 @@ def _clear_stale_index_lock(project_id: str) -> None:
         pass
 
 
-def shadow_commit(project_id: str, project_dir: Path, message: str) -> str | None:
-    """``add -A`` + commit against the shadow repo; return the new HEAD sha.
+def _scoped_deletions(
+    project_id: str, project_dir: Path, present: set[str]
+) -> list[str]:
+    """Tracked paths that are no longer on disk (TD-730 deletion soundness).
 
-    Returns None (and does not commit) when the work-tree is clean.  Raises
+    Deletions cannot be sourced from the per-file hash cache: a committed file that
+    stayed under the freshness horizon (a lockfile, log, or other perpetually-fresh
+    artifact inside the boundary) is tracked in the shadow index yet never cached,
+    so a cache-derived deletion set would miss its later removal and leave a ghost
+    in the shadow tree.  Instead diff the shadow INDEX (``git ls-files`` — an index
+    read, NOT a worktree lstat/readdir walk, so the scoped-add perf win is intact)
+    against the paths the walk saw on disk (``present`` = regular files + symlinks),
+    then confirm each candidate is truly gone with ``os.path.lexists`` — ``lexists``
+    (not ``exists``) so a present-but-dangling symlink is not mistaken for deleted,
+    and a tracked-but-now-excluded path (still on disk) is left alone.  The
+    candidate set is just the handful of removed paths, so only those are stat'd.
+    """
+    res = run_git(project_id, project_dir, "ls-files", "-z")
+    if res.returncode != 0:
+        return []
+    deleted: list[str] = []
+    for rel in res.stdout.split("\0"):
+        if not rel or rel in present:
+            continue
+        if not os.path.lexists(project_dir / rel):
+            deleted.append(rel)
+    return deleted
+
+
+def shadow_commit(
+    project_id: str,
+    project_dir: Path,
+    message: str,
+    pathspec: list[str] | None = None,
+) -> str | None:
+    """``add`` + commit against the shadow repo; return the new HEAD sha.
+
+    ``pathspec`` (TD-730) scopes the stage: ``None`` → whole-tree ``git add -A``
+    (the behavior-preserving default and fallback); a non-empty list → the scoped
+    ``git add -A -- <paths>`` that stages only those relpaths (add/modify/delete),
+    skipping the expensive whole-tree lstat/readdir walk on a slow mount.  Both
+    forms still honor ``info/exclude`` (#258 scoped-exclude) and the stale-lock
+    clear + inner-add cap below (#258 recovery net).  An empty list means "nothing
+    changed since the last digest" → the ``add`` is skipped entirely; the index is
+    left as-is so a prior run's staged-but-uncommitted change still commits here.
+
+    Returns None (and does not commit) when the index is clean.  Raises
     :exc:`ShadowGitError` on a git error so the caller can surface an ERROR
     finding without aborting the session.
     """
-    # Stage everything, then test the index: ``git diff --cached --quiet`` exits
-    # 0 when nothing is staged (clean → skip, no empty snapshot) and 1 when there
-    # are staged changes.  This is correct even on the first commit, where every
-    # file is untracked (a plain ``status`` would hide them under the repo's
+    # Stage, then test the index: ``git diff --cached --quiet`` exits 0 when
+    # nothing is staged (clean → skip, no empty snapshot) and 1 when there are
+    # staged changes.  This is correct even on the first commit, where every file
+    # is untracked (a plain ``status`` would hide them under the repo's
     # status.showUntrackedFiles=no).
     _clear_stale_index_lock(project_id)
-    add = run_git(
-        project_id, project_dir, "add", "-A", timeout=_SHADOW_ADD_TIMEOUT_SECONDS
-    )
-    if add.returncode != 0:
-        raise ShadowGitError(
-            f"git add failed (rc={add.returncode}): {add.stderr.strip()}"
+    if pathspec is None:
+        add = run_git(
+            project_id, project_dir, "add", "-A", timeout=_SHADOW_ADD_TIMEOUT_SECONDS
         )
+        if add.returncode != 0:
+            raise ShadowGitError(
+                f"git add failed (rc={add.returncode}): {add.stderr.strip()}"
+            )
+    elif pathspec:
+        # Scoped stage.  Deleted paths in the pathspec are always tracked (every
+        # file that enters the digest cache is reported changed and committed that
+        # same run), so a deletion stages cleanly.  The one abort case is a
+        # never-tracked path hashed by the digest then removed before this add (a
+        # sub-ms TOCTOU): git returns "pathspec did not match" (rc=128) → the
+        # ShadowGitError below trips the caller's dirty flag → a full `add -A`
+        # resync next run (#258 recovery net), so nothing is lost.
+        add = run_git(
+            project_id,
+            project_dir,
+            "add",
+            "-A",
+            "--",
+            *pathspec,
+            timeout=_SHADOW_ADD_TIMEOUT_SECONDS,
+        )
+        if add.returncode != 0:
+            raise ShadowGitError(
+                f"git add failed (rc={add.returncode}): {add.stderr.strip()}"
+            )
+    # else: empty pathspec → nothing changed → skip add (index untouched).
     staged = run_git(project_id, project_dir, "diff", "--cached", "--quiet")
     if staged.returncode == 0:
         return None  # nothing staged → clean → skip
@@ -1329,6 +1424,10 @@ def run_shadow_pass(
         cache = load_file_hash_cache(project_id, excludes)
     except Exception:  # pragma: no cover - defensive; cache is optional
         cache = None
+    # TD-730: was the cache warm (had prior entries) BEFORE the digest walk mutates
+    # it?  A cold/empty cache can't source a trustworthy changed-set, so the scoped
+    # `git add` is used only when the cache was already warm this run.
+    cache_warm = bool(cache and cache.get("files"))
     try:
         td = tree_digest(project_dir, excludes, cache=cache)
     except Exception as exc:  # pragma: no cover - defensive
@@ -1371,7 +1470,32 @@ def run_shadow_pass(
     )
 
     last_sha = drift_state.get("last_verified_sha", "")
+    # TD-730: pick the scoped-add pathspec.  Fall back to the whole-tree `add -A`
+    # (pathspec=None) whenever the changed-set is not trustworthy — a cold/empty
+    # cache this run, a prior commit that raised (may have left a file unstaged), or
+    # a changed-set larger than the scoped-add cap.  Otherwise stage exactly the rels
+    # the digest saw change (new/modified) or disappear (deleted).
+    prior_commit_dirty = bool(drift_state.get("shadow_commit_dirty"))
+    if not cache_warm or prior_commit_dirty:
+        add_pathspec: list[str] | None = None
+    else:
+        # Reconstruct exactly what a whole-tree `git add -A` would stage, from the
+        # walk + the shadow index (no worktree walk): new/modified regular files
+        # (changed_rels), every present symlink (skipped_symlinks — the digest skips
+        # symlink content, so a create/retarget is invisible to changed_rels and
+        # must be offered explicitly; staging an unchanged symlink is a no-op), and
+        # deletions of tracked paths no longer on disk.  present = regular files +
+        # symlinks so a still-present symlink is never mis-flagged as deleted.
+        present = set(td.present_rels) | set(td.skipped_symlinks)
+        deleted = _scoped_deletions(project_id, project_dir, present)
+        changed = list(
+            dict.fromkeys([*td.changed_rels, *td.skipped_symlinks, *deleted])
+        )
+        add_pathspec = None if len(changed) > _SCOPED_ADD_MAX_PATHS else changed
     new_head = None
+    # Pessimistically mark dirty; cleared only after shadow_commit returns cleanly,
+    # so any add/commit failure forces a full `add -A` resync on the next run.
+    drift_state["shadow_commit_dirty"] = True
     try:
         # Always (idempotently) snapshot at Stop so the next session has a
         # baseline; commit is skipped internally when the tree is clean.
@@ -1380,7 +1504,9 @@ def run_shadow_pass(
             project_dir,
             f"sot-snapshot: session-end {project_id} "
             f"{datetime.now(timezone.utc).isoformat()}",
+            pathspec=add_pathspec,
         )
+        drift_state["shadow_commit_dirty"] = False
     except ShadowGitError as exc:
         findings.append(error_finding(str(exc), "commit"))
     except Exception as exc:  # pragma: no cover - defensive
