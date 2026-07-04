@@ -160,7 +160,8 @@ def check_tier1_derived_state(install_dir: Path) -> CheckResult:
     persisted_profiles = _read_env_key("COMPOSE_PROFILES", secrets_file, env_file)
 
     if not monitoring_enabled:
-        # Mirrors install.sh:2521 — no prior/current monitoring choice to derive from.
+        # Mirrors derive_and_persist_compose_profiles in scripts/install.sh — no
+        # prior/current monitoring choice to derive from.
         return CheckResult(
             name, Status.SKIP, "MONITORING_ENABLED not set — nothing to derive"
         )
