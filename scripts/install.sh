@@ -1427,6 +1427,11 @@ main() {
     # Record project in manifest for cross-filesystem recovery discovery
     record_installed_project
 
+    # TD-578: advisory-only aim doctor drift check (FF-2)
+    if [[ "$INSTALL_MODE" == "full" ]]; then
+        run_aim_doctor_advisory
+    fi
+
     show_success_message
 }
 
@@ -5477,6 +5482,22 @@ with open(sys.argv[1], 'w') as f:
 " "$manifest"
     fi
     log_debug "Recorded project in manifest: $PROJECT_PATH"
+}
+
+# TD-578: non-blocking advisory drift check (FF-2). Report-only — no --strict
+# is passed, so aim_doctor.py itself always exits 0 on a WARNING (only --strict
+# makes a WARNING fatal, per its own --help); any per-check WARNING/PASS detail
+# is printed directly to stdout (captured by install's own log tee). The
+# if/then/else below exists purely so an unexpected nonzero exit (e.g. a crash
+# in aim_doctor.py) is caught here rather than aborting the install under
+# `set -e`.
+run_aim_doctor_advisory() {
+    [[ -f "$INSTALL_DIR/scripts/aim_doctor.py" ]] || return 0
+    if "$INSTALL_DIR/.venv/bin/python" "$INSTALL_DIR/scripts/aim_doctor.py" --install-dir "$INSTALL_DIR"; then
+        log_success "aim doctor: advisory check complete (see output above)"
+    else
+        log_warning "aim doctor: advisory check did not complete cleanly (non-fatal) — run: $INSTALL_DIR/scripts/aim_doctor.py --install-dir $INSTALL_DIR"
+    fi
 }
 
 # Execute main function with all arguments

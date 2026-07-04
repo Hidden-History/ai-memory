@@ -518,3 +518,32 @@ def test_render_digest_empty_returns_empty_string(hook):
         "drift": {"clean": 0, "stale": 0, "unverified": 0},
     }
     assert hook._render_digest(data) == ""
+
+
+# ---------------------------------------------------------------------------
+# T-DH16 — AI_MEMORY_SOT_HOOKS=off suppresses the run at runtime (F-LB-2e)
+# ---------------------------------------------------------------------------
+
+
+def test_sot_hooks_off_skips_run(hook, tmp_path, monkeypatch, capsys):
+    """AI_MEMORY_SOT_HOOKS=off disables the hook at runtime with no reinstall:
+    exit 0, EMPTY_OUTPUT on stdout, and NO subprocess invocation, even with a
+    valid registry (F-LB-2e)."""
+    monkeypatch.setenv("AI_MEMORY_SOT_HOOKS", "off")
+    (tmp_path / ".sot").mkdir()
+    (tmp_path / ".sot" / "registry.yaml").write_text("entries: []\n")
+
+    payload = _make_payload(str(tmp_path))
+    mock_run = MagicMock()
+
+    with (
+        pytest.raises(SystemExit) as exc_info,
+        patch.object(sys, "stdin", io.StringIO(payload)),
+        patch.object(hook.subprocess, "run", mock_run),
+    ):
+        hook.main()
+
+    assert exc_info.value.code == 0
+    mock_run.assert_not_called()
+    out = json.loads(capsys.readouterr().out.strip())
+    assert out == EMPTY_OUTPUT

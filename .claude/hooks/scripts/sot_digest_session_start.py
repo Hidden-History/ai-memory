@@ -75,6 +75,14 @@ def _render_digest(data: dict) -> str:
 
 def main():
     """Main entry point for SessionStart digest hook."""
+    # Runtime kill-switch (F-LB-2e): AI_MEMORY_SOT_HOOKS=off disables the hook at
+    # runtime — no reinstall needed. Mirrors the install-time gate in
+    # generate_settings.py so the two agree. SessionStart hooks must always emit
+    # valid JSON on stdout, so no-op prints EMPTY_OUTPUT rather than a bare exit.
+    if os.environ.get("AI_MEMORY_SOT_HOOKS", "on").lower() == "off":
+        print(json.dumps(EMPTY_OUTPUT))
+        sys.exit(0)
+
     # Install global self-termination timeout (signal.alarm best practice).
     # Skipped in test environments to prevent SIGALRM leaks across tests.
     if not os.environ.get("PYTEST_CURRENT_TEST"):
