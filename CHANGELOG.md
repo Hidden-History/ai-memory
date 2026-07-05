@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.8.3] - 2026-07-05
 
+### Upgrade Instructions
+
+v2.8.3 is operator tooling and installer hygiene — the aim-sot SOT-fix bundle, the new `aim doctor` command, and the TD-741 installer prune. Its changes are host-side (skills, hooks, scripts) delivered by the installer; this release itself adds no new baked-image or dependency changes.
+
+Standard update:
+
+```bash
+cd <your ai-memory clone> && git pull
+./scripts/install.sh <project-path>
+~/.ai-memory/scripts/stack.sh restart
+```
+
+`stack.sh restart` auto-rebuilds source-baked services on the cached path (TD-723, since v2.8.1). If monitoring is enabled, `streamlit` is not in the auto-rebuild set and needs an explicit build:
+
+```bash
+cd ~/.ai-memory/docker
+docker compose --profile monitoring build streamlit
+```
+
+#### Updating from 2.7.x or earlier — stack rebuild required
+
+If you have not updated since **2.7.x or earlier**, you have missed intervening releases that changed baked images and pinned dependencies (the v2.8.0 bundle's baked `src/`/`requirements.txt`, and the `fastapi` `0.128.0` → `0.138.0` / `starlette` `0.50.0` → `1.3.1` bumps shipped as post-v2.8.2 hygiene). After `install.sh`, a `stack.sh restart` is **required** so the source-baked images (embedding, workers, github-sync, monitoring-api) rebuild and pick up those changes — `up -d --no-recreate` alone will keep the old images. After the restart, run `aim doctor` (new this release) to confirm compose profiles and config delivery match reality.
+
 ### Added
 
 - **aim-sot skill-local tests now run in CI and gate merges (RISK-023)** — the 178 tests under `_ai-memory/skills/aim-sot/tests/` previously never ran in CI: `testpaths = ["tests"]` in `pyproject.toml` excludes them, so a regression in the skill's scripts could land without its own test suite ever executing. Fixed with a new dedicated `aim-sot-skill-tests` job in `.github/workflows/test.yml` rather than appending the skill path to `testpaths` — both `tests/` and the skill dir ship a root-level `conftest.py` with no `__init__.py`, so collecting them in the same pytest process collides on the bare module name `conftest` in `sys.modules` (`tests/test_cross_project_best_practices.py`'s `from conftest import wait_for_condition` would silently resolve to the wrong module) and breaks collection for 5 modules. The new job runs the skill suite as its own `pytest` invocation, sidestepping the collision entirely with no `pyproject.toml` change, and is added to `ci-success`'s hard-gate check (a red `aim-sot-skill-tests` now fails the branch-protection summary job, not just the standalone job). The #259 stopgap mirrors (`tests/test_sot_verify.py`, `tests/test_sot_detect_propose.py`) are kept — they're the only coverage of the mirrored fixes (TD-749/753/754/756) that runs across the full Python 3.10/3.11/3.12 matrix, since the new job runs on 3.11 only.
