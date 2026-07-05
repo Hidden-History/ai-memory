@@ -7,10 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.8.3] - 2026-07-05
+
+### Upgrade Instructions
+
+v2.8.3 is operator tooling and installer hygiene — the aim-sot SOT-fix bundle, the new `aim doctor` command, and the TD-741 installer prune. Its changes are host-side (skills, hooks, scripts) delivered by the installer; this release itself adds no new baked-image or dependency changes.
+
+Standard update:
+
+```bash
+cd <your ai-memory clone> && git pull
+./scripts/install.sh <project-path>
+~/.ai-memory/scripts/stack.sh restart
+```
+
+`stack.sh restart` auto-rebuilds source-baked services on the cached path (TD-723, since v2.8.1). If monitoring is enabled, `streamlit` is not in the auto-rebuild set and needs an explicit build:
+
+```bash
+cd ~/.ai-memory/docker
+docker compose --profile monitoring build streamlit
+```
+
+#### Updating from 2.7.x or earlier — stack rebuild required
+
+If you have not updated since **2.7.x or earlier**, you have missed intervening releases that changed baked images and pinned dependencies (the v2.8.0 bundle's baked `src/`/`requirements.txt`, and the `fastapi` `0.128.0` → `0.138.0` / `starlette` `0.50.0` → `1.3.1` bumps shipped as post-v2.8.2 hygiene). After `install.sh`, a `stack.sh restart` is **required** so the source-baked images (embedding, workers, github-sync, monitoring-api) rebuild and pick up those changes — `up -d --no-recreate` alone will keep the old images. After the restart, run `aim doctor` (new this release) to confirm compose profiles and config delivery match reality.
+
 ### Added
 
 - **aim-sot skill-local tests now run in CI and gate merges (RISK-023)** — the 178 tests under `_ai-memory/skills/aim-sot/tests/` previously never ran in CI: `testpaths = ["tests"]` in `pyproject.toml` excludes them, so a regression in the skill's scripts could land without its own test suite ever executing. Fixed with a new dedicated `aim-sot-skill-tests` job in `.github/workflows/test.yml` rather than appending the skill path to `testpaths` — both `tests/` and the skill dir ship a root-level `conftest.py` with no `__init__.py`, so collecting them in the same pytest process collides on the bare module name `conftest` in `sys.modules` (`tests/test_cross_project_best_practices.py`'s `from conftest import wait_for_condition` would silently resolve to the wrong module) and breaks collection for 5 modules. The new job runs the skill suite as its own `pytest` invocation, sidestepping the collision entirely with no `pyproject.toml` change, and is added to `ci-success`'s hard-gate check (a red `aim-sot-skill-tests` now fails the branch-protection summary job, not just the standalone job). The #259 stopgap mirrors (`tests/test_sot_verify.py`, `tests/test_sot_detect_propose.py`) are kept — they're the only coverage of the mirrored fixes (TD-749/753/754/756) that runs across the full Python 3.10/3.11/3.12 matrix, since the new job runs on 3.11 only.
-- **`aim doctor` — post-install state-assertion command (TD-578)** — a new standalone `scripts/aim_doctor.py` catches installer/config drift that was previously invisible until an operator stumbled onto the symptom. Two checks: `tier1-compose-profiles` re-derives the expected `COMPOSE_PROFILES` from persisted `MONITORING_ENABLED`/`GITHUB_SYNC_ENABLED` and flags a mismatch (the BUG-311 shape); `config-delivery` actually executes `scripts/memory/run-with-env.sh` with a probe script and diffs the delivered `os.environ` against what's configured in `docker/.env`/`docker/.env.secrets` for a curated manifest of keys — proving real delivery, not just presence in `.env` (the F-D1-1 shape: `AI_MEMORY_SOT_*` documented and configurable but silently unforwarded). Exits 0 by default (report-only); `--strict` exits 1 on any WARNING. Not wired into `install.sh` yet — standalone this release, advisory install-hook proposed as a fast-follow.
 - **`aim doctor` — post-install state-assertion command (TD-578)** — a new standalone `scripts/aim_doctor.py` catches installer/config drift that was previously invisible until an operator stumbled onto the symptom. Two checks: `tier1-compose-profiles` re-derives the expected `COMPOSE_PROFILES` from persisted `MONITORING_ENABLED`/`GITHUB_SYNC_ENABLED` and flags a mismatch (the BUG-311 shape); `config-delivery` actually executes `scripts/memory/run-with-env.sh` with a probe script and diffs the delivered `os.environ` against what's configured in `docker/.env`/`docker/.env.secrets` for a curated manifest of keys — proving real delivery, not just presence in `.env` (the F-D1-1 shape: `AI_MEMORY_SOT_*` documented and configurable but silently unforwarded). Exits 0 by default (report-only); `--strict` exits 1 on any WARNING. Now wired into `install.sh`'s full-install success path as a report-only advisory check — no `--strict` is passed, so a drift WARNING is logged but never fails the install.
 - **aim-sot directory drift within the Stop-hook budget** — the BP-039 directory tree digest is now accelerated by a per-file hash cache (BP-048), keyed by `(mtime_ns, size)`, so an accurate whole-directory digest completes within the Stop-hook wall-time budget instead of truncating to a partial. The cached digest is byte-identical to an uncached run (a miss recomputes the true content hash), and the budgets are tunable via `AI_MEMORY_SOT_DIGEST_MAX_SECONDS` / `AI_MEMORY_SOT_DIGEST_MAX_FILES`.
 - **aim-sot drift hooks: runtime `AI_MEMORY_SOT_HOOKS=off` kill-switch (F-LB-2e)** — the 4 always-on drift hooks (the Claude Stop hook and the Codex/Cursor/Gemini stop adapters) now read `AI_MEMORY_SOT_HOOKS` at **runtime** and no-op when it is `off`. Export it as `off` in the environment that launches Claude Code (shell profile, or the `env` block of `settings.local.json` — not the generated `settings.json`, whose `env` block is regenerated on every install) to disable the drift hooks per-session without reinstalling. Previously the variable was honored only at install time (`generate_settings.py` registration gate); the hook scripts never read it, and `docker/.env` is sourced only by `install.sh` — never into a live session — so it could not toggle the hooks at runtime.
@@ -3397,7 +3421,8 @@ v2.0.4 Cleanup Sprint: Resolve all open bugs and actionable tech debt (PLAN-003)
 - Comprehensive documentation (README, INSTALL, TROUBLESHOOTING)
 - Test suite: Unit, Integration, E2E, Performance
 
-[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.2...HEAD
+[Unreleased]: https://github.com/Hidden-History/ai-memory/compare/v2.8.3...HEAD
+[2.8.3]: https://github.com/Hidden-History/ai-memory/compare/v2.8.2...v2.8.3
 [2.8.2]: https://github.com/Hidden-History/ai-memory/compare/v2.8.1...v2.8.2
 [2.8.1]: https://github.com/Hidden-History/ai-memory/compare/v2.8.0...v2.8.1
 [2.8.0]: https://github.com/Hidden-History/ai-memory/compare/v2.7.0...v2.8.0

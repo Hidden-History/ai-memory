@@ -212,7 +212,7 @@ Access these via Grafana: `http://localhost:23000`
 
 ### Future Enhancements
 
-Planned security improvements (see ROADMAP.md):
+Planned security improvements:
 
 - [ ] End-to-end encryption for sensitive memories (v1.2.0)
 - [ ] Built-in API key management (v1.2.0)
