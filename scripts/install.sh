@@ -1590,6 +1590,33 @@ sync_installed_files() {
         log_debug "Copying Claude Code skills..."
         mkdir -p "$dst_dir/.claude/skills"
         cp -r "$src_dir/.claude/skills/"* "$dst_dir/.claude/skills/" || log_warning "Failed to copy some Claude Code skills"
+
+        # TD-741: prune retired managed skills the additive cp -r above leaves behind.
+        # The copy never removes dest skills that vanished from source, so a retired
+        # aim-*/parzival-save-* skill (e.g. aim-bmad-dispatch, dropped at v2.4.0) lingers
+        # in the runtime staging dir and re-propagates to every project. Remove only
+        # managed-prefix skills that are absent from source; non-managed skills (bmad-*,
+        # etc.) are installed separately and must never be touched. Mirrors the scoped
+        # cleanup idiom in deploy_ai_memory_skills.
+        for staged_skill in "$dst_dir/.claude/skills"/*/; do
+            [[ -d "$staged_skill" ]] || continue
+            local sname
+            sname=$(basename "$staged_skill")
+            case "$sname" in
+                aim-*|parzival-save-*)
+                    if [[ ! -d "$src_dir/.claude/skills/$sname" ]]; then
+                        # Guard the rm -rf — never delete an unvalidated path.
+                        if [[ -n "$staged_skill" && "$staged_skill" == *"/.claude/skills/"* ]]; then
+                            rm -rf "$staged_skill"
+                            log_debug "Removed retired managed skill: $sname"
+                        else
+                            log_error "Refusing to rm -rf unexpected skill target: $staged_skill"
+                            exit 1
+                        fi
+                    fi
+                    ;;
+            esac
+        done
     fi
 
     # .claude/agents/ — Claude Code agents (optional)
