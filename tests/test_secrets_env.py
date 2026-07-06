@@ -8,7 +8,7 @@ Covers:
   QdrantUnavailable("Search failed: {e}").
 """
 
-from memory.secrets_env import is_auth_error, pin_qdrant_api_key
+from memory.secrets_env import _read_env_key, is_auth_error, pin_qdrant_api_key
 
 
 def _write_secrets(install_dir, **keys):
@@ -68,6 +68,36 @@ class TestPinQdrantApiKey:
         assert os.environ["QDRANT_API_KEY"] == "from-secrets"
 
 
+class TestReadEnvKey:
+    def test_strips_inline_trailing_comment(self, tmp_path):
+        """A whitespace-preceded `# comment` is not part of the value."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("QDRANT_API_KEY=abc123  # rotated 2026-01-01\n")
+
+        assert _read_env_key(env_path, "QDRANT_API_KEY") == "abc123"
+
+    def test_equals_in_value_unchanged(self, tmp_path):
+        """Only the first `=` is a delimiter; `=` inside the value is preserved."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("QDRANT_API_KEY=ab=c1=23\n")
+
+        assert _read_env_key(env_path, "QDRANT_API_KEY") == "ab=c1=23"
+
+    def test_hash_without_preceding_space_stays_in_value(self, tmp_path):
+        """A `#` glued to the value (no preceding whitespace) is not a comment."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("QDRANT_API_KEY=abc#123\n")
+
+        assert _read_env_key(env_path, "QDRANT_API_KEY") == "abc#123"
+
+    def test_quoted_value_still_unwrapped(self, tmp_path):
+        """Surrounding quotes are stripped as before."""
+        env_path = tmp_path / ".env"
+        env_path.write_text('QDRANT_API_KEY="abc123"\n')
+
+        assert _read_env_key(env_path, "QDRANT_API_KEY") == "abc123"
+
+
 class TestIsAuthError:
     def test_detects_wrapped_401(self):
         """The exact shape search.py raises: QdrantUnavailable('Search failed: {e}')."""
@@ -87,5 +117,7 @@ class TestIsAuthError:
             "No memories found matching your query",
             "Connection refused",
             "Search failed: timeout waiting for embedding service",
+            "peer certificate forbidden by policy",
+            "Request forbidden by administrative rules",
         ):
             assert not is_auth_error(msg), msg

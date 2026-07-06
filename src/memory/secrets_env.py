@@ -29,10 +29,15 @@ Usage (inline snippet, before constructing the search):
 """
 
 import os
+import re
 from pathlib import Path
 
 # Auth-failure markers preserved in the wrapped QdrantUnavailable message.
-_AUTH_ERROR_MARKERS = ("401", "unauthorized", "invalid api key", "forbidden")
+_AUTH_ERROR_MARKERS = ("401", "403", "unauthorized", "invalid api key")
+
+# A dotenv inline comment requires whitespace before the `#`; a `#` glued to
+# the value (no preceding whitespace) is part of the value, not a comment.
+_INLINE_COMMENT_RE = re.compile(r"(?<=\s)#.*$")
 
 
 def _read_env_key(env_path: Path, name: str) -> str | None:
@@ -50,6 +55,7 @@ def _read_env_key(env_path: Path, name: str) -> str | None:
         key, _, val = line.partition("=")
         if key.strip() != name:
             continue
+        val = _INLINE_COMMENT_RE.sub("", val)
         val = val.strip().strip('"').strip("'")
         if val:
             return val
