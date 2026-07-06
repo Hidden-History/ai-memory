@@ -55,7 +55,8 @@ Different memory types have different relevance windows. CI results become irrel
 | `guideline` | 60 days | Standards are semi-permanent |
 | `rule` | 60 days | Rules change but not constantly |
 | `agent_handoff` | 180 days | Historical session records for continuity |
-| `agent_insight` | 180 days | Learned knowledge persists across many sessions |
+| `agent_insight` | 90 days | Learned knowledge persists across many sessions |
+| `architecture_decision` | 90 days | Architectural decisions remain relevant for months |
 
 > **Note**: Types not listed in `DECAY_TYPE_OVERRIDES` (e.g., `conversation`, `session_summary`) fall back to their collection-level defaults: `code-patterns` = 14 days, `discussions` = 21 days, `conventions` = 60 days.
 
@@ -189,7 +190,7 @@ All temporal feature settings with their defaults:
 ```bash
 # Decay Scoring
 DECAY_SEMANTIC_WEIGHT=0.7          # Weight for semantic similarity (0.0–1.0); temporal weight = 1 - this value
-DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,agent_handoff:180,agent_insight:180"
+DECAY_TYPE_OVERRIDES="github_ci_result:7,agent_task:14,github_code_blob:14,github_commit:14,github_issue:30,github_pr:30,jira_issue:30,agent_memory:30,guideline:60,rule:60,agent_handoff:180,agent_insight:90,architecture_decision:90"
                                    # Per-type half-life overrides (comma-separated type:days pairs)
 
 # Freshness Detection

@@ -25,7 +25,7 @@ A PostToolUse hook system that automatically captures error patterns from failed
 
 **Functionality**:
 - Formats error content for semantic search
-- Generates embeddings using Nomic Embed Code
+- Generates embeddings using Jina Embeddings v2
 - Stores to Qdrant with `type="error_pattern"`
 - Graceful degradation (queue on failure)
 - Prometheus metrics integration
@@ -173,13 +173,13 @@ ls -lh .claude/hooks/scripts/error*.py
 - **PostToolUse (Bash)**: Error pattern capture (NEW)
 
 ### Qdrant Collections
-- Collection: `implementations`
+- Collection: `code-patterns`
 - Filter by: `type="error_pattern"`
 - Group by: `group_id` (project name)
 
 ## Future Enhancements
 
-1. **PreToolUse Integration**: Create `error_context_retrieval.py` to warn about potential errors before command execution
+1. **PreToolUse Integration**: PreToolUse context injection to warn about potential errors before command execution
 2. **Error Resolution Linking**: Track which errors were fixed and how
 3. **Severity Classification**: Auto-classify as warning/error/fatal
 4. **Cross-Project Learning**: Share patterns across projects

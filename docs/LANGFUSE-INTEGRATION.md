@@ -24,8 +24,8 @@ All trace data is stored in your self-hosted Langfuse instance — nothing leave
 
 - **AI Memory Module** installed and running (see [INSTALL.md](../INSTALL.md))
 - **Docker Compose** with the Langfuse overlay file (`docker-compose.langfuse.yml`)
-- **32 GiB RAM** recommended (Langfuse adds 6 services to the existing 8)
-- **8 CPU cores** recommended for the combined 14-service stack
+- **32 GiB RAM** recommended (Langfuse adds 9 services to the existing 10)
+- **8 CPU cores** recommended for the combined 19-service stack
 
 ---
 
@@ -44,7 +44,7 @@ This runs three phases:
 
 1. **Generate Secrets** (`--generate-secrets`): Creates cryptographic secrets, Langfuse project initialization variables, and MinIO S3 bucket configuration. All values are written to `docker/.env`.
 
-2. **Start Services** (`--start`): Starts the 7 Langfuse Docker services (Web UI, Worker, PostgreSQL, ClickHouse, Redis, MinIO, Trace Flush Worker) using the `langfuse` profile.
+2. **Start Services** (`--start`): Starts the 9 Langfuse Docker services (Web UI, Worker, PostgreSQL, ClickHouse, Redis, MinIO, MinIO Init, Trace Flush Worker, Evaluator Scheduler) using the `langfuse` profile.
 
 3. **Health Check & Model Registration** (`--health-check`): Waits for all services to be healthy, registers custom LLM models (Ollama, OpenRouter), and prints a connection summary.
 
@@ -186,7 +186,7 @@ Claude Code Session
 | `trace_flush_worker.py` | `src/memory/trace_flush_worker.py` | Long-lived daemon. Reads buffer, batches to Langfuse SDK, evicts old events if buffer grows too large. |
 | `langfuse_config.py` | `src/memory/langfuse_config.py` | Langfuse SDK client factory. Reads credentials from environment. |
 | `langfuse_setup.sh` | `scripts/langfuse_setup.sh` | Setup script. Generates secrets, starts services, registers custom models. |
-| `docker-compose.langfuse.yml` | `docker/docker-compose.langfuse.yml` | Docker Compose overlay with all 7 Langfuse services. |
+| `docker-compose.langfuse.yml` | `docker/docker-compose.langfuse.yml` | Docker Compose overlay with all 9 Langfuse services. |
 
 ### Docker Services
 
@@ -197,9 +197,10 @@ All Langfuse services use the `langfuse` profile and join the existing `ai-memor
 | `langfuse-web` | `langfuse/langfuse:3` | Web UI + REST API |
 | `langfuse-worker` | `langfuse/langfuse-worker:3` | Background job processor |
 | `langfuse-postgres` | `postgres:17` | Metadata store (projects, users, API keys) |
-| `langfuse-clickhouse` | `clickhouse/clickhouse-server:24` | Trace + observation storage (OLAP) |
+| `langfuse-clickhouse` | `ai-memory-langfuse-clickhouse:24` (custom, built from `clickhouse/clickhouse-server:24`) | Trace + observation storage (OLAP) |
 | `langfuse-redis` | `redis:7` | Job queue and ephemeral cache |
 | `langfuse-minio` | `cgr.dev/chainguard/minio` | S3-compatible blob storage for event upload |
+| `langfuse-minio-init` | `minio/mc` | One-shot init container — creates the `langfuse` bucket, then exits |
 | `trace-flush-worker` | Custom (Dockerfile.worker) | Reads trace buffer, flushes to Langfuse |
 | `evaluator-scheduler` | Custom (Dockerfile.evaluator-scheduler) | Cron-based LLM-as-judge evaluation runner |
 
@@ -480,7 +481,7 @@ curl -s "http://localhost:23100/api/public/models" \
 
 ## Resource Requirements
 
-The Langfuse stack adds 6 services to the AI Memory core:
+The Langfuse stack adds 9 services to the AI Memory core:
 
 | Service | RAM (typical) | CPU | Disk |
 |---------|--------------|-----|------|
@@ -490,9 +491,11 @@ The Langfuse stack adds 6 services to the AI Memory core:
 | ClickHouse | up to 16 GiB (cap) | 1 core | Grows with trace volume |
 | Redis | ~64 MB | 0.1 core | Ephemeral |
 | MinIO | ~128 MB | 0.1 core | Grows with event uploads |
+| MinIO Init | negligible (one-shot, exits) | — | — |
 | Trace Flush Worker | ~128 MB | 0.1 core | Minimal |
+| Evaluator Scheduler | ~128 MB (idle between daily runs) | 0.1 core | Minimal |
 
-**Total additional**: ~1.3 GiB RAM baseline + up to 16 GiB ClickHouse cap, 2.5 cores. Combined with AI Memory core (8 services), the full stack requires approximately **32 GiB RAM** and **8 cores**.
+**Total additional**: ~1.3 GiB RAM baseline + up to 16 GiB ClickHouse cap, 2.5 cores. Combined with AI Memory core (10 services), the full stack requires approximately **32 GiB RAM** and **8 cores**.
 
 ---
 
@@ -506,4 +509,4 @@ The Langfuse stack adds 6 services to the AI Memory core:
 
 ---
 
-*Documentation for AI Memory v2.5.0 Langfuse LLM Observability integration*
+*Documentation for AI Memory v2.8.3 Langfuse LLM Observability integration*
