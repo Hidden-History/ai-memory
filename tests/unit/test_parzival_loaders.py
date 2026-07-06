@@ -330,6 +330,31 @@ def test_first_breath_marker_real_content_not_seed_prefixed():
     assert not lc.first_breath_marker(bond)
 
 
+def test_first_breath_marker_wrapped_seed_untouched_scaffold():
+    # Seed sentence hard-wrapped across physical lines on an otherwise
+    # untouched scaffold. The continuation line carries no seed substring of
+    # its own; it must still be classified as part of the seed paragraph, not
+    # counted as extra content (must still report PRESENT -> True).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\n\n"
+        "_Filled during First Breath: role, what they are trying to accomplish,\n"
+        "what success looks like for them, what they care about that surprises others._\n"
+    )
+    assert lc.first_breath_marker(bond)
+
+
+def test_first_breath_marker_wrapped_real_content_still_extra():
+    # Genuine (non-seed) Owner content that happens to be wrapped across
+    # physical lines must still count as extra content on every line -- the
+    # paragraph grouping must not swallow real filled-in prose.
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\n\n"
+        "Role: founder, deeply committed\nto quality and craft.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert not lc.first_breath_marker(bond)
+
+
 def test_resolve_paths_substitutes_root(workspace: Path):
     paths = lc.resolve_paths(workspace)
     assert paths["sanctum_path"] == workspace / "_ai-memory/sanctum"

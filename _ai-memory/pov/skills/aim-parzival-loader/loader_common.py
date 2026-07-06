@@ -280,18 +280,30 @@ def _owner_needs_first_breath(owner_block: str) -> bool:
         return False
     has_real_name = False
     has_extra_content = False
+    # Group into paragraphs (blank-line-delimited) so a hard-wrapped seed
+    # sentence -- its continuation lines carry no seed substring of their
+    # own -- is classified as a single seed unit, not per physical line.
+    paragraphs: list[list[str]] = [[]]
     for line in owner_block.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("## "):
+        if not line.strip():
+            paragraphs.append([])
+        else:
+            paragraphs[-1].append(line)
+    for para_lines in paragraphs:
+        if not para_lines:
             continue
-        if stripped.startswith("**Name:**"):
-            value = stripped[len("**Name:**") :].strip()
-            if value and value != "{user_name}":
-                has_real_name = True
+        if any("_Filled during First Breath" in ln for ln in para_lines):
             continue
-        if "_Filled during First Breath" in stripped:
-            continue
-        has_extra_content = True
+        for line in para_lines:
+            stripped = line.strip()
+            if stripped.startswith("## "):
+                continue
+            if stripped.startswith("**Name:**"):
+                value = stripped[len("**Name:**") :].strip()
+                if value and value != "{user_name}":
+                    has_real_name = True
+                continue
+            has_extra_content = True
     return not (has_real_name and has_extra_content)
 
 
