@@ -14,6 +14,11 @@ import sys
 sys.path.insert(0, os.path.join(os.path.expanduser("~/.ai-memory"), "src"))
 
 from memory.search import search_memories
+from memory.secrets_env import pin_qdrant_api_key, is_auth_error
+
+# Pin QDRANT_API_KEY from .env.secrets so a stale exported key can't silently
+# fail auth and degrade this search to file-only (run-with-env.sh parity).
+pin_qdrant_api_key()
 
 # The 'conventions' collection is project-scoped (PLAN-028 P1, DEC-PM298-D4).
 # Resolve the project from AI_MEMORY_PROJECT_ID — never from os.getcwd(), which
@@ -25,14 +30,22 @@ if not project_id:
         "'conventions' collection. Set AI_MEMORY_PROJECT_ID and retry."
     )
 
-results = search_memories(
-    query="topic keywords",
-    collection="conventions",
-    group_id=project_id,
-    memory_type=["guideline", "rule"],
-    limit=5,
-    attach_raw_cosine=True,  # BP-058/#317: needed for the relevance gate below
-)
+try:
+    results = search_memories(
+        query="topic keywords",
+        collection="conventions",
+        group_id=project_id,
+        memory_type=["guideline", "rule"],
+        limit=5,
+        attach_raw_cosine=True,  # BP-058/#317: needed for the relevance gate below
+    )
+except Exception as e:
+    # Auth failure: the knowledge base was NOT consulted. Do not present this
+    # as "no results found" — results are file-only.
+    if is_auth_error(str(e)):
+        print("❌ Memory search auth FAILED (401) — knowledge base NOT "
+              "consulted; results are file-only")
+    raise
 
 top_hit = results[0] if results else None
 raw_cosine = top_hit.get("raw_score", 0.0) if top_hit else 0.0
