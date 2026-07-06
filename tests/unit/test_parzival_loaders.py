@@ -305,6 +305,31 @@ def test_first_breath_marker_blank_name_with_surviving_seed():
     assert lc.first_breath_marker(bond)
 
 
+def test_first_breath_marker_scaffold_substitution_shape():
+    # sanctum-init substitutes a real Name into the template at scaffold time,
+    # before First Breath ever runs, leaving the seed line untouched and no
+    # other Owner content. This must still report PRESENT (issue #269).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Developer\n\n"
+        "_Filled during First Breath: role, what they're trying to accomplish, "
+        "what success looks like for them, what they care about that surprises "
+        "others._\n"
+    )
+    assert lc.first_breath_marker(bond)
+
+
+def test_first_breath_marker_real_content_not_seed_prefixed():
+    # Genuine italic Owner content that does NOT match the literal seed
+    # substring (e.g. "_really_ hates surprises") must still count as real
+    # extra content -- the guard must not treat "any line starting with _" as
+    # seed-related.
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\n\n_really_ hates surprises.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert not lc.first_breath_marker(bond)
+
+
 def test_resolve_paths_substitutes_root(workspace: Path):
     paths = lc.resolve_paths(workspace)
     assert paths["sanctum_path"] == workspace / "_ai-memory/sanctum"
