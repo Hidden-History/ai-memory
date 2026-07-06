@@ -1074,3 +1074,19 @@ def test_health_model_none_returns_503():
     resp = client.get("/health")
     assert resp.status_code == 503
     assert resp.json()["status"] == "loading"
+
+
+def test_lifespan_teardown_shuts_down_inference_executor():
+    """TD-710: the FastAPI lifespan teardown shuts the inference executor down
+    explicitly (rather than leaving it to process-exit reaping). The request path
+    is unaffected — the executor runs work while the app is live; only after
+    teardown are new submissions rejected."""
+    service = _load_service(2)
+
+    # Request path unaffected: the executor runs work while the app is live.
+    with TestClient(service.app):
+        assert service._inference_executor.submit(lambda: 1).result(timeout=5) == 1
+
+    # After teardown the executor is shut down: new submissions are rejected.
+    with pytest.raises(RuntimeError):
+        service._inference_executor.submit(lambda: 1)

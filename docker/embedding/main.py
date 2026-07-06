@@ -690,6 +690,11 @@ async def _lifespan(_app):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
+        # TD-710: shut the inference executor down explicitly at teardown rather
+        # than leaving it to process-exit reaping. wait=False + cancel_futures
+        # mirrors the controller-task cancel above (stop promptly, never block
+        # teardown); any in-flight inference threads finish as the process exits.
+        _inference_executor.shutdown(wait=False, cancel_futures=True)
 
 
 app = FastAPI(
