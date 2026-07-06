@@ -9,6 +9,7 @@
   - [/aim-status](#aim-status)
   - [/aim-save](#aim-save)
   - [/aim-search](#aim-search)
+- [Integration & Maintenance Commands](#integration--maintenance-commands)
 - [How Commands Work](#how-commands-work)
 - [Command vs Hook](#command-vs-hook)
 - [Troubleshooting](#troubleshooting)
@@ -26,6 +27,14 @@ AI Memory Module provides slash commands for manual memory operations. These com
 | `/aim-status` | Check system health | Verify services running | Session startup, debugging |
 | `/aim-save` | Manually save session | Before ending without compaction | Major milestone completed |
 | `/aim-search` | Search all memories | Find specific pattern | Recall past implementation |
+| `/aim-github-sync` | Sync GitHub data to memory | Ingest issues/PRs/commits/CI | After connecting a GitHub repo |
+| `/aim-github-search` | Search synced GitHub data | Find a PR, issue, or CI result | Recall prior GitHub activity |
+| `/aim-jira-sync` | Sync Jira data to memory | Ingest issues and comments | After connecting a Jira project |
+| `/aim-jira-search` | Search synced Jira data | Find a Jira issue or comment | Recall prior Jira activity |
+| `/aim-freshness-report` | Report stale code-patterns | Audit drift vs. current code | Periodic memory hygiene |
+| `/aim-refresh` | Re-evaluate memory freshness | Recompute staleness scores | After a large code change |
+| `/aim-purge` | Purge old memories | Reclaim space with safety guards | Collection grown too large |
+| `/aim-pause-updates` | Toggle auto-capture kill switch | Stop/resume background capture | Throwaway/experimental work |
 
 ---
 
@@ -711,6 +720,35 @@ curl http://localhost:26350/metrics
 
 ---
 
+## 🔗 Integration & Maintenance Commands
+
+Beyond the core memory operations, AI Memory ships commands for external-system
+integration (GitHub, Jira) and for memory hygiene. Each is a skill invoked by its
+slash command.
+
+### Integration Commands
+
+| Command | What It Does |
+|---------|--------------|
+| `/aim-github-sync` | Synchronizes GitHub issues, PRs, commits, and CI results into memory. |
+| `/aim-github-search` | Searches synced GitHub issues, PRs, commits, and CI results with semantic search and filters. |
+| `/aim-jira-sync` | Synchronizes Jira issues and comments into memory. |
+| `/aim-jira-search` | Searches synced Jira issues and comments with semantic search and filters. |
+
+GitHub data is stored in the `github` collection and Jira data in the `jira-data`
+collection; both are searchable via `/aim-search` as well.
+
+### Maintenance Commands
+
+| Command | What It Does |
+|---------|--------------|
+| `/aim-freshness-report` | Scans the `code-patterns` collection for stale memories by comparing them against current GitHub code blob data. |
+| `/aim-refresh` | Manually re-evaluates freshness for `code-patterns` memories, recomputing staleness. |
+| `/aim-purge` | Purges old memories from Qdrant collections with safety guards. |
+| `/aim-pause-updates` | Toggles the `auto_update_enabled` kill switch that controls automatic background memory capture. |
+
+---
+
 ## 🔄 How Commands Work
 
 ### Execution Flow
@@ -825,7 +863,7 @@ ls -la .claude/skills/
 
 In addition to slash commands, AI-Memory includes skills (auto-activated by Claude) and agents (invoked via Task tool).
 
-### best-practices-researcher (Skill)
+### aim-best-practices-researcher (Skill)
 
 **Activation:** Automatic when you ask about best practices, conventions, or "how should I" questions.
 
@@ -836,11 +874,11 @@ In addition to slash commands, AI-Memory includes skills (auto-activated by Clau
 4. Stores in Qdrant for future retrieval
 5. Evaluates if a reusable skill should be created
 
-**Location:** `.claude/skills/best-practices-researcher/`
+**Location:** `.claude/skills/aim-best-practices-researcher/`
 
 ### skill-creator (Agent)
 
-**Activation:** Invoked by best-practices-researcher when findings warrant a skill, or manually.
+**Activation:** Invoked by aim-best-practices-researcher when findings warrant a skill, or manually.
 
 **What It Does:**
 1. Takes research findings as input

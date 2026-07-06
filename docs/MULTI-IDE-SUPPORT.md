@@ -199,7 +199,7 @@ MCP tools are normalized across all IDEs:
 
 ## Architecture Reference
 
-This multi-IDE support follows the **Strangler Fig + Provider Adapter** pattern documented in [BP-119](../oversight/knowledge/best-practices/BP-119-multi-ide-adapter-plugin-patterns-cli-tools-2026.md). Key design decisions:
+This multi-IDE support follows the **Strangler Fig + Provider Adapter** pattern (internal design reference BP-119). Key design decisions:
 
 - Claude Code hooks stay in `.claude/hooks/scripts/` (never moved)
 - New IDE adapters live in `src/memory/adapters/{gemini,cursor,codex}/`

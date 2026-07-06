@@ -1,4 +1,4 @@
-> **Note**: This is preserved reference documentation from the standalone POV Oversight Agent repository. Paths and commands shown may reference the original standalone structure. For current ai-memory installation, see [INSTALL.md](../INSTALL.md).
+> **Note**: This is preserved reference documentation from the standalone POV Oversight Agent repository. Paths and commands shown may reference the original standalone structure. For current ai-memory installation, see [INSTALL.md](../../INSTALL.md).
 
 # Changelog
 
@@ -186,7 +186,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 If you were using the development version from `bmad-memory-module` private repo:
 
 1. Remove old files from your project's `.claude/` directory
-2. Follow the [INSTALL-GUIDE.md](INSTALL-GUIDE.md) for fresh installation
+2. Follow the [INSTALL-GUIDE-POV.md](INSTALL-GUIDE-POV.md) for fresh installation
 3. Your existing `oversight/` directory is compatible - no migration needed
 
 ---

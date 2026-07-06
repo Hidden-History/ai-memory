@@ -7,7 +7,7 @@
 [![Version](https://img.shields.io/badge/version-2.1.0-green.svg)](https://github.com/Hidden-History/pov-oversight-agent)
 [![BMAD Compatible](https://img.shields.io/badge/BMAD-6.0.0--alpha.22+-green.svg)](https://bmad-method.org)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](../../CONTRIBUTING.md)
 
 **Your Technical Project Manager & Quality Gatekeeper for Claude Code**
 
@@ -73,7 +73,7 @@ Parzival operates under **five non-negotiable rules** that prevent behavioral dr
 📚 **Learn More:**
 - [CONSTRAINT-ENFORCEMENT-SYSTEM.md](./CONSTRAINT-ENFORCEMENT-SYSTEM.md) - Behavioral constraint architecture
 - [constraints.md](../../_ai-memory/pov/constraints/global/constraints.md) - Global constraint index (GC-01 through GC-20)
-- [README.md](./README.md) - Source of truth document
+- [README-POV.md](./README-POV.md) - Source of truth document
 
 ---
 
@@ -849,7 +849,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📚 Additional Resources
 
 ### Official Documentation
-- **[README.md](./README.md)** - Complete source of truth (identity, constraints, duties, architecture)
+- **[README-POV.md](./README-POV.md)** - Complete source of truth (identity, constraints, duties, architecture)
 - **[CONSTRAINT-ENFORCEMENT-SYSTEM.md](./CONSTRAINT-ENFORCEMENT-SYSTEM.md)** - Behavioral constraint architecture
 - **[constraints.md](../../_ai-memory/pov/constraints/global/constraints.md)** - Global constraint index (GC-01 through GC-20)
 - **[Workflows](../../_ai-memory/pov/workflows/)** - Step-by-step workflow definitions

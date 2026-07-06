@@ -288,6 +288,6 @@ source ~/.bashrc
 | [docs/parzival/TEAM-BUILDER-GUIDE.md](parzival/TEAM-BUILDER-GUIDE.md) | Team design process, presets, tier selection, file ownership, conflict avoidance |
 | [docs/parzival/AGENT-DISPATCH-GUIDE.md](parzival/AGENT-DISPATCH-GUIDE.md) | Generic and BMAD agent dispatch cycle, instruction template, quality checklist |
 | [docs/parzival/MODEL-DISPATCH-GUIDE.md](parzival/MODEL-DISPATCH-GUIDE.md) | Multi-provider LLM routing, provider reference, dispatch modes, multimodal API dispatch |
-| [Model Dispatch Setup Guide](_ai-memory/pov/skills/aim-model-dispatch/references/setup-guide.md) | Step-by-step installation and configuration |
-| [Model Dispatch User Guide](_ai-memory/pov/skills/aim-model-dispatch/references/user-guide.md) | Trigger phrases, backend selection, dispatch examples |
-| [Provider Reference](_ai-memory/pov/skills/aim-model-dispatch/references/providers.md) | All supported providers with base URLs, token files, and model formats |
+| [Model Dispatch Setup Guide](../_ai-memory/pov/skills/aim-model-dispatch/references/setup-guide.md) | Step-by-step installation and configuration |
+| [Model Dispatch User Guide](../_ai-memory/pov/skills/aim-model-dispatch/references/user-guide.md) | Trigger phrases, backend selection, dispatch examples |
+| [Provider Reference](../_ai-memory/pov/skills/aim-model-dispatch/references/providers.md) | All supported providers with base URLs, token files, and model formats |
