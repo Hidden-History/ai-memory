@@ -3,9 +3,9 @@
 **Purpose:** Rapid recovery guide for common memory system failures
 **Audience:** Operators troubleshooting Claude Code memory issues
 **Owner:** AI Memory Module Team
-**Version:** 1.0.0
-**Last Updated:** 2026-01-13
-**Last Validated:** 2026-01-13
+**Version:** 2.8.3
+**Last Updated:** 2026-07-05
+**Last Validated:** 2026-07-05
 
 ---
 
@@ -157,13 +157,13 @@ kill <PID>
 # Option 2: Change Qdrant port (permanent fix)
 # Edit ~/.ai-memory/docker/docker-compose.yml
 # Change: "26350:6333" to "26351:6333"
-# Update QDRANT_URL in src/memory/config.py: QDRANT_URL = "http://localhost:16351"
+# Update qdrant_port in src/memory/config.py (or set the QDRANT_PORT env var): qdrant_port = 26351
 
 # 3. Start Qdrant
 docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d qdrant
 
 # 4. Verify healthy on new port
-curl http://localhost:16351/health  # If port changed
+curl http://localhost:26351/health  # If port changed
 ```
 
 **Expected Recovery Time:** 5-10 minutes (if port change required)
@@ -208,6 +208,7 @@ from memory.storage import MemoryStorage
 storage = MemoryStorage()
 result = storage.store_memory(
     content='Recovery test',
+    cwd='.',
     group_id='test',
     memory_type='implementation',
     source_hook='Manual',
@@ -414,7 +415,7 @@ kill <PID>
 # Option 2: Change embedding port (permanent)
 # Edit ~/.ai-memory/docker/docker-compose.yml
 # Change: "28080:8080" to "28081:8080"
-# Update EMBEDDING_URL in src/memory/config.py: EMBEDDING_URL = "http://localhost:8001"
+# Update embedding_port in src/memory/config.py (or set the EMBEDDING_PORT env var): embedding_port = 28081
 
 # 3. Start embedding service
 docker compose -f ~/.ai-memory/docker/docker-compose.yml up -d embedding
@@ -457,6 +458,7 @@ from memory.storage import MemoryStorage
 storage = MemoryStorage()
 storage.store_memory(
     content='Embedding recovery test - semantic search validation',
+    cwd='.',
     group_id='test',
     memory_type='implementation',
     source_hook='Manual',
@@ -1206,4 +1208,4 @@ journalctl -u docker
 
 For installation and setup, see [README.md](../README.md)
 For Docker configuration, see [docker/README.md](../docker/README.md)
-For project instructions, see [CLAUDE.md](../CLAUDE.md)
+For project instructions, see [ai-memory.md](../.claude/rules/ai-memory.md)
