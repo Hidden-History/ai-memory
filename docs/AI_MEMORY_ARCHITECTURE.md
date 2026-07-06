@@ -2,7 +2,7 @@
 
 **Purpose:** This document defines the complete architecture of the AI Memory Module. It explains WHAT we're building, WHY each component exists, and HOW they work together. This is the authoritative reference to prevent implementation mistakes.
 
-**Last Updated:** 2026-03-02 (V2.0.9 — five-collection architecture, github collection separation)
+**Last Updated:** v2.8.3 — five-collection architecture plus current subsystems (Source-of-Truth tracking, multi-IDE adapters, LLM classifier, Langfuse observability)
 
 ---
 
@@ -20,6 +20,7 @@
 10. [Validation Requirements](#validation-requirements)
 11. [Data Flow Diagrams](#data-flow-diagrams)
 12. [Common Mistakes to Avoid](#common-mistakes-to-avoid)
+13. [Current Subsystems](#current-subsystems)
 
 ---
 
@@ -1213,6 +1214,36 @@ All memories must include required metadata fields:
 **Wrong:** Relying on Stop hook to store session summaries
 **Result:** Multiple writes per session, unreliable capture, race conditions
 **Correct:** Use PreCompact hook which fires once before compaction with full transcript access
+
+---
+
+## Current Subsystems
+
+Beyond the five-collection core and the hook system, the module has grown several subsystems. Each has a dedicated reference; the summaries below orient them within the architecture.
+
+### Source-of-Truth (SOT) Tracking
+
+The `aim-sot` skill maintains a registry of the project's source-of-truth artifacts and detects drift between each registered entry's declaration and its on-disk reality. It ships two **default-on, propose-only** hooks — a `SessionStart` digest (`sot_digest_session_start.py`) and a `Stop` drift check (`sot_drift_stop.py`) — that surface proposals without writing any committed file. Tuned by the `AI_MEMORY_SOT_*` configuration family; disable hook registration with `AI_MEMORY_SOT_HOOKS=off`.
+
+- Reference: [AIM-SOT.md](AIM-SOT.md), [HOOKS.md](HOOKS.md), [CONFIGURATION.md](CONFIGURATION.md)
+
+### Multi-IDE Adapters
+
+The memory system extends beyond Claude Code to other AI coding surfaces via adapters under `src/memory/adapters/` (Codex, Cursor, Gemini). Each adapter maps the host IDE's lifecycle events onto the shared capture/retrieval and SOT hooks.
+
+- Reference: [MULTI-IDE-SUPPORT.md](MULTI-IDE-SUPPORT.md)
+
+### LLM Classifier
+
+An LLM-based classifier assigns memory types to captured content, routing each item to the correct collection and type. Behavior is tuned by the `MEMORY_CLASSIFIER_*` configuration keys.
+
+- Reference: [llm-classifier.md](llm-classifier.md)
+
+### Langfuse Observability
+
+Optional Langfuse integration provides tracing and observability for hook executions and full sessions, backed by a dedicated Docker stack. Controlled by the `LANGFUSE_*` configuration keys and disabled by default unless configured.
+
+- Reference: [LANGFUSE-INTEGRATION.md](LANGFUSE-INTEGRATION.md), [MONITORING.md](MONITORING.md)
 
 ---
 

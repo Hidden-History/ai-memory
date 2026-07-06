@@ -1,6 +1,6 @@
 """Embedding service client for AI Memory Module.
 
-Provides httpx-based client for Nomic Embed Code service with connection pooling,
+Provides httpx-based client for Jina Embeddings v2 service with connection pooling,
 structured logging, and graceful error handling.
 
 Architecture Reference: architecture.md:235-287 (Service Client Architecture)
