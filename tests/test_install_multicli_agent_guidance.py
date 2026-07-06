@@ -175,6 +175,294 @@ class TestGeminiGuidance:
         # Existing entry preserved.
         assert "GEMINI.md" in names
 
+    def test_zero_clobber_user_top_level_keys(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """TD-635: a pre-existing settings.json with user top-level keys (theme,
+        mcpServers, ...) survives install byte-equivalent except the AI-Memory-owned
+        keys (env, hooks, context); a timestamped backup is written first."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        user_settings = {
+            "theme": "GitHub",
+            "mcpServers": {"my-server": {"command": "node", "args": ["srv.js"]}},
+            "model": {"name": "gemini-2.5-pro"},
+            "env": {"MY_CUSTOM_VAR": "keep-me", "LOG_LEVEL": "DEBUG"},
+        }
+        (project / ".gemini" / "settings.json").write_text(
+            json.dumps(user_settings), encoding="utf-8"
+        )
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        after = json.loads((project / ".gemini" / "settings.json").read_text())
+        # User top-level keys survive byte-equivalent (compare everything except
+        # the AI-Memory-owned keys the installer sets/updates).
+        owned = {"env", "hooks", "context"}
+        before_rest = {k: v for k, v in user_settings.items() if k not in owned}
+        after_rest = {k: v for k, v in after.items() if k not in owned}
+        assert after_rest == before_rest
+        # AI-Memory-owned keys are set.
+        assert after["env"]["AI_MEMORY_INSTALL_DIR"] == str(install_dir)
+        assert after["env"]["AI_MEMORY_PROJECT_ID"] == "test-project"
+        assert "SessionStart" in after["hooks"]
+        assert "AI-MEMORY.md" in after["context"]["fileName"]
+        # User env entries preserved (custom var kept; user LOG_LEVEL not overwritten).
+        assert after["env"]["MY_CUSTOM_VAR"] == "keep-me"
+        assert after["env"]["LOG_LEVEL"] == "DEBUG"
+        # Timestamped backup written before the atomic rewrite.
+        assert list((project / ".gemini").glob("settings.json.backup.*"))
+
+    def test_reinstall_idempotent_settings_byte_equivalent(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """TD-635: a forced re-install produces byte-identical settings.json."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        first = (project / ".gemini" / "settings.json").read_bytes()
+        result = _call(
+            install_sh_no_main,
+            "write_gemini_config",
+            project,
+            install_dir,
+            force="true",
+        )
+        assert result.returncode == 0, result.stderr
+        second = (project / ".gemini" / "settings.json").read_bytes()
+        assert second == first
+
+    def test_malformed_json_no_crash_and_backup_is_pristine(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """TD-635: malformed settings.json must NOT abort the installer, and the
+        timestamped backup must preserve the ORIGINAL (pristine) content so the
+        user's keys are recoverable."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        settings = project / ".gemini" / "settings.json"
+        # Invalid JSON (trailing comma) that still textually carries user keys.
+        malformed = '{"theme": "Dracula", "mcpServers": {"srv": {"command": "node"}},}'
+        settings.write_text(malformed, encoding="utf-8")
+        original = settings.read_bytes()
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        # Installer does not crash on malformed input.
+        assert result.returncode == 0, result.stderr
+        # settings.json was rewritten to a valid AI-Memory config.
+        rewritten = json.loads(settings.read_text())
+        assert "AI-MEMORY.md" in rewritten["context"]["fileName"]
+        # A pristine backup preserves the ORIGINAL content byte-for-byte, so the
+        # user's theme/mcpServers remain recoverable.
+        backups = list((project / ".gemini").glob("settings.json.backup.*"))
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == original
+        assert "theme" in backups[0].read_text()
+        assert "mcpServers" in backups[0].read_text()
+
+    def test_top_level_non_dict_json_no_crash(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """TD-635: a top-level non-dict JSON document (e.g. an array) must not raise
+        under set -euo pipefail — it degrades to a safe default."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        settings = project / ".gemini" / "settings.json"
+        settings.write_text("[1, 2, 3]", encoding="utf-8")
+        original = settings.read_bytes()
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+        rewritten = json.loads(settings.read_text())
+        assert isinstance(rewritten, dict)
+        assert "AI-MEMORY.md" in rewritten["context"]["fileName"]
+        # Original array preserved in the pristine backup.
+        backups = list((project / ".gemini").glob("settings.json.backup.*"))
+        assert len(backups) == 1
+        assert backups[0].read_bytes() == original
+
+    def test_context_present_but_non_dict_no_crash(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """TD-635: a `context` key whose value is not a dict must not raise; it
+        degrades to the default fileName registration."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        settings = project / ".gemini" / "settings.json"
+        settings.write_text(
+            json.dumps({"theme": "Solarized", "context": 5}), encoding="utf-8"
+        )
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+        rewritten = json.loads(settings.read_text())
+        # User top-level key preserved; context.fileName registered with defaults.
+        assert rewritten["theme"] == "Solarized"
+        assert rewritten["context"]["fileName"] == ["GEMINI.md", "AI-MEMORY.md"]
+
+    def test_reinstall_idempotent_from_user_file(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """TD-635: re-install starting FROM a pre-existing user file (not an empty
+        project) is byte-equivalent and the user's top-level keys survive."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        settings = project / ".gemini" / "settings.json"
+        settings.write_text(
+            json.dumps({"theme": "GitHub", "mcpServers": {"s": {"command": "x"}}}),
+            encoding="utf-8",
+        )
+
+        _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        first = settings.read_bytes()
+        # Forced re-install must reproduce byte-identical settings.json.
+        result = _call(
+            install_sh_no_main,
+            "write_gemini_config",
+            project,
+            install_dir,
+            force="true",
+        )
+        assert result.returncode == 0, result.stderr
+        second = settings.read_bytes()
+        assert second == first
+        after = json.loads(second)
+        assert after["theme"] == "GitHub"
+        assert after["mcpServers"] == {"s": {"command": "x"}}
+
+    def test_deep_merge_preserves_user_authored_hook(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """TD-635 fix ②: a user-authored Gemini hook survives the install — hooks are
+        deep-merged (list-append + dedupe-by-command), not wholesale-replaced."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        settings = project / ".gemini" / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "custom",
+                                "hooks": [
+                                    {"type": "command", "command": "echo user-hook"}
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+        hooks = json.loads(settings.read_text())["hooks"]
+        commands = json.dumps(hooks)
+        # User hook preserved.
+        assert "echo user-hook" in commands
+        # AI-Memory hook appended alongside it (not replacing it).
+        assert "gemini/session_start.py" in commands
+
+    def test_all_after_tool_matchers_present_after_clean_install(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """All three AfterTool wrappers survive a clean install. Regression guard:
+        the 'edit_file|write_file|create_file' and 'mcp_.*' wrappers share the
+        after_tool_capture.py command, so command-only dedupe silently dropped the
+        mcp_.* wrapper (Gemini stopped capturing memory on MCP tool calls)."""
+        project = tmp_path / "proj"
+        project.mkdir()
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        after_tool = json.loads((project / ".gemini" / "settings.json").read_text())[
+            "hooks"
+        ]["AfterTool"]
+        matchers = [w["matcher"] for w in after_tool]
+        assert "edit_file|write_file|create_file" in matchers
+        assert "run_shell_command" in matchers
+        assert "mcp_.*" in matchers
+        # Byte-idempotent on a forced reinstall (dedupe keeps all three, no dupes).
+        result = _call(
+            install_sh_no_main,
+            "write_gemini_config",
+            project,
+            install_dir,
+            force="true",
+        )
+        assert result.returncode == 0, result.stderr
+        after_tool_2 = json.loads((project / ".gemini" / "settings.json").read_text())[
+            "hooks"
+        ]["AfterTool"]
+        assert [w["matcher"] for w in after_tool_2] == matchers
+
+    def test_register_only_leaves_env_and_hooks_untouched(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """Skip-path (existing ai-memory hooks, no force): register context.fileName
+        ONLY — env and hooks content is left exactly as the user has it."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        settings = project / ".gemini" / "settings.json"
+        existing = {
+            "theme": "Nord",
+            "env": {
+                "AI_MEMORY_INSTALL_DIR": "/old/install",
+                "AI_MEMORY_PROJECT_ID": "old-proj",
+                "CUSTOM": "keep-me",
+            },
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "matcher": "custom",
+                        "hooks": [{"type": "command", "command": "echo mine"}],
+                    }
+                ]
+            },
+            "context": {"fileName": ["GEMINI.md"]},
+        }
+        settings.write_text(json.dumps(existing), encoding="utf-8")
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        after = json.loads(settings.read_text())
+        # env + hooks content untouched (no AI-Memory injection, old values kept).
+        assert after["env"] == existing["env"]
+        assert after["hooks"] == existing["hooks"]
+        assert after["theme"] == "Nord"
+        # Only context.fileName was updated.
+        assert after["context"]["fileName"] == ["GEMINI.md", "AI-MEMORY.md"]
+
+    def test_register_only_repeat_is_noop_with_no_new_backup(
+        self, install_sh_no_main, install_dir, tmp_path
+    ):
+        """A second skip-path call once AI-MEMORY.md is already registered is a true
+        no-op: the file is byte-identical and no new backup is written."""
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        settings = project / ".gemini" / "settings.json"
+        settings.write_text(
+            json.dumps(
+                {
+                    "env": {"AI_MEMORY_INSTALL_DIR": "/old"},
+                    "hooks": {},
+                    "context": {"fileName": ["GEMINI.md", "AI-MEMORY.md"]},
+                }
+            ),
+            encoding="utf-8",
+        )
+        before = settings.read_bytes()
+
+        result = _call(install_sh_no_main, "write_gemini_config", project, install_dir)
+        assert result.returncode == 0, result.stderr
+        # No write happened (already registered) → byte-identical, zero backups.
+        assert settings.read_bytes() == before
+        assert list((project / ".gemini").glob("settings.json.backup.*")) == []
+
 
 # --------------------------------------------------------------------------- #
 # Cursor

@@ -3757,108 +3757,192 @@ write_gemini_config() {
         cp "$guidance_src" "$project_path/AI-MEMORY.md"
         log_success "Deployed agent-guidance file to $project_path/AI-MEMORY.md"
     fi
-    # Ensure AI-MEMORY.md is registered in context.fileName when an existing
-    # settings.json would otherwise be skipped (append-preserve: never drops GEMINI.md
-    # or user entries; non-str/non-list type guard retained).
-    if [[ -f "$config_file" ]]; then
-        python3 -c "
-import json, sys
-config_path = sys.argv[1]
-try:
-    with open(config_path) as f:
-        cfg = json.load(f)
-except (ValueError, OSError):
-    cfg = {}
-ctx = cfg.setdefault('context', {})
-existing = ctx.get('fileName')
-if existing is None:
-    names = ['GEMINI.md']
-elif isinstance(existing, str):
-    names = [existing]
-elif isinstance(existing, list):
-    names = list(existing)
-else:
-    names = ['GEMINI.md']
-if 'AI-MEMORY.md' not in names:
-    names.append('AI-MEMORY.md')
-    ctx['fileName'] = names
-    with open(config_path, 'w') as f:
-        json.dump(cfg, f, indent=2)
-        f.write('\n')
-" "$config_file"
-    fi
-
-    if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
-        if [[ "$force" != "true" ]]; then
-            log_warning "Gemini config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
-            return 0
-        fi
-    fi
-
     mkdir -p "$project_path/.gemini"
     local py="$install_dir/.venv/bin/python"
     local ad="$install_dir/src/memory/adapters"
 
+    # TD-600 skip-path: when the config already carries ai-memory hooks and this is
+    # not a forced re-install, register context.fileName ONLY (leave env/hooks as the
+    # user has them). Otherwise do the full read-merge. The single python path below
+    # handles both modes; the mode is decided here so the skip-path can still short
+    # -circuit the command-file copy + success log.
+    local mode="full"
+    if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
+        if [[ "$force" != "true" ]]; then
+            mode="register-only"
+        fi
+    fi
+
+    # TD-635: single safe path — read existing (guarded) -> pristine timestamped
+    # backup FIRST (before any mutation) -> merge -> atomic write (tempfile in the
+    # same dir + os.replace). Mirrors scripts/merge_settings.py discipline. Every
+    # access is isinstance-guarded so malformed / non-dict input degrades to safe
+    # defaults and NEVER aborts the installer (no un-guarded access under set -e).
     python3 -c "
-import json, os, sys
-install_dir, project_id, py, ad = sys.argv[1:5]
-config_path = sys.argv[5]
+import json, os, shutil, sys, tempfile
+from datetime import datetime
+
+install_dir, project_id, py, ad, config_path, mode = sys.argv[1:7]
 _sot_on = os.environ.get('AI_MEMORY_SOT_HOOKS', 'on').lower() != 'off'
-config = {
-    'env': {
-        'AI_MEMORY_INSTALL_DIR': install_dir,
-        'AI_MEMORY_PROJECT_ID': project_id,
-        'QDRANT_HOST': 'localhost',
-        'QDRANT_PORT': '26350',
-        'QDRANT_GRPC_PORT': '26351',
-        'EMBEDDING_HOST': '127.0.0.1',
-        'EMBEDDING_PORT': '28080',
-        'SIMILARITY_THRESHOLD': '0.4',
-        'LOG_LEVEL': 'INFO'
-    },
-    'hooks': {
-        'SessionStart': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/session_start.py\"', 'timeout': 30000}]}],
-        'AfterTool': [
-            {'matcher': 'edit_file|write_file|create_file', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/after_tool_capture.py\"', 'timeout': 5000}]},
-            {'matcher': 'run_shell_command', 'hooks': [
-                {'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/error_detection.py\"', 'timeout': 5000},
-                {'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/error_pattern_capture.py\"', 'timeout': 5000}
-            ]},
-            {'matcher': 'mcp_.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/after_tool_capture.py\"', 'timeout': 5000}]}
-        ],
-        'PreCompress': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/pre_compress.py\"', 'timeout': 60000}]}]
-    }
+
+
+def load_config(path):
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (ValueError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def context_and_names(config):
+    context = config.get('context')
+    if not isinstance(context, dict):
+        context = {}
+    existing = context.get('fileName')
+    if isinstance(existing, str):
+        names = [existing]
+    elif isinstance(existing, list):
+        names = list(existing)
+    else:
+        # None or non-str/non-list (int, bool, dict) -> treat as absent. Setting
+        # context.fileName disables Gemini's implicit GEMINI.md default, so list it
+        # explicitly alongside ours when the user has no usable prior setting.
+        names = ['GEMINI.md']
+    return context, names
+
+
+def hook_commands(wrapper):
+    cmds = set()
+    if isinstance(wrapper, dict):
+        if 'command' in wrapper:
+            cmds.add(wrapper['command'])
+        subs = wrapper.get('hooks')
+        if isinstance(subs, list):
+            for h in subs:
+                if isinstance(h, dict) and 'command' in h:
+                    cmds.add(h['command'])
+    return cmds
+
+
+def wrapper_key(wrapper):
+    # Identity of a hook wrapper for dedupe = (matcher, its command set). Keying on
+    # commands alone is WRONG for Gemini: distinct matchers legitimately share a
+    # command (e.g. the 'edit_file|...' and 'mcp_.*' AfterTool wrappers both run
+    # after_tool_capture.py) — command-only dedupe would silently drop one.
+    matcher = wrapper.get('matcher') if isinstance(wrapper, dict) else None
+    return (matcher, frozenset(hook_commands(wrapper)))
+
+
+def merge_hooks(existing, new):
+    # Deep-merge per hook event: list-append + dedupe by (matcher, command set),
+    # preserving user-authored (non-AI-Memory) Gemini hooks. Append a new wrapper
+    # only when its (matcher, commands) identity is not already present. Idempotent:
+    # a re-install's identical wrappers dedupe to a byte-identical result.
+    if not isinstance(existing, dict):
+        existing = {}
+    result = dict(existing)
+    for event, new_wrappers in new.items():
+        current = result.get(event)
+        if not isinstance(current, list):
+            current = []
+        merged = list(current)
+        seen = {wrapper_key(w) for w in current}
+        for w in new_wrappers:
+            key = wrapper_key(w)
+            if key not in seen:
+                merged.append(w)
+                seen.add(key)
+        result[event] = merged
+    return result
+
+
+def atomic_write(path, data):
+    # Pristine backup FIRST (copy, not rename), then atomic tempfile + os.replace.
+    if os.path.exists(path):
+        backup = path + '.backup.' + datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+        shutil.copy2(path, backup)
+    d = os.path.dirname(path) or '.'
+    fd, tmp = tempfile.mkstemp(dir=d, prefix='.settings_', suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+        os.replace(tmp, path)
+    except Exception:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
+
+
+config = load_config(config_path)
+context, names = context_and_names(config)
+
+if mode == 'register-only':
+    # Register context.fileName only; leave env/hooks exactly as the user has them.
+    # Skip the write entirely when already registered so an idempotent re-install
+    # leaves the file (and its backups) untouched.
+    if 'AI-MEMORY.md' in names:
+        sys.exit(0)
+    names.append('AI-MEMORY.md')
+    context['fileName'] = names
+    config['context'] = context
+    atomic_write(config_path, config)
+    sys.exit(0)
+
+# Full mode: read-merge env + deep-merge hooks + register context.fileName, while
+# preserving user-authored top-level keys (theme, mcpServers, ...) and user env
+# sub-keys.
+env = config.get('env')
+if not isinstance(env, dict):
+    env = {}
+for k, v in {
+    'AI_MEMORY_INSTALL_DIR': install_dir,
+    'AI_MEMORY_PROJECT_ID': project_id,
+    'QDRANT_HOST': 'localhost',
+    'QDRANT_PORT': '26350',
+    'QDRANT_GRPC_PORT': '26351',
+    'EMBEDDING_HOST': '127.0.0.1',
+    'EMBEDDING_PORT': '28080',
+    'SIMILARITY_THRESHOLD': '0.4',
+    'LOG_LEVEL': 'INFO',
+}.items():
+    env.setdefault(k, v)
+env['AI_MEMORY_INSTALL_DIR'] = install_dir
+env['AI_MEMORY_PROJECT_ID'] = project_id
+config['env'] = env
+
+ai_hooks = {
+    'SessionStart': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/session_start.py\"', 'timeout': 30000}]}],
+    'AfterTool': [
+        {'matcher': 'edit_file|write_file|create_file', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/after_tool_capture.py\"', 'timeout': 5000}]},
+        {'matcher': 'run_shell_command', 'hooks': [
+            {'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/error_detection.py\"', 'timeout': 5000},
+            {'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/error_pattern_capture.py\"', 'timeout': 5000}
+        ]},
+        {'matcher': 'mcp_.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/after_tool_capture.py\"', 'timeout': 5000}]}
+    ],
+    'PreCompress': [{'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/pre_compress.py\"', 'timeout': 60000}]}]
 }
 if _sot_on:
-    config['hooks']['SessionStart'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_digest_session_start.py\"', 'timeout': 30000}]})
-    config['hooks']['PreCompress'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_drift.py\"', 'timeout': 30000}]})
-# TD-600: register the AI-Memory-owned guidance file in context.fileName so it
-# auto-loads with every prompt, WITHOUT dropping GEMINI.md or any user entries.
-# Setting context.fileName disables Gemini's implicit GEMINI.md default, so when
-# the user has no prior setting we must list GEMINI.md explicitly alongside ours.
-existing_names = None
-if os.path.exists(config_path):
-    try:
-        with open(config_path) as f:
-            existing_names = json.load(f).get('context', {}).get('fileName')
-    except (ValueError, OSError):
-        existing_names = None
-if existing_names is None:
-    names = ['GEMINI.md']
-elif isinstance(existing_names, str):
-    names = [existing_names]
-elif isinstance(existing_names, list):
-    names = list(existing_names)
-else:
-    # Non-string, non-list value (e.g. integer, boolean) — treat as absent.
-    names = ['GEMINI.md']
+    ai_hooks['SessionStart'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_digest_session_start.py\"', 'timeout': 30000}]})
+    ai_hooks['PreCompress'].append({'matcher': '.*', 'hooks': [{'type': 'command', 'command': f'\"{py}\" \"{ad}/gemini/sot_drift.py\"', 'timeout': 30000}]})
+config['hooks'] = merge_hooks(config.get('hooks'), ai_hooks)
+
 if 'AI-MEMORY.md' not in names:
     names.append('AI-MEMORY.md')
-config['context'] = {'fileName': names}
-with open(config_path, 'w') as f:
-    json.dump(config, f, indent=2)
-    f.write('\n')
-" "$install_dir" "$project_id" "$py" "$ad" "$config_file"
+context['fileName'] = names
+config['context'] = context
+
+atomic_write(config_path, config)
+" "$install_dir" "$project_id" "$py" "$ad" "$config_file" "$mode"
+
+    if [[ "$mode" == "register-only" ]]; then
+        log_warning "Gemini config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
+        return 0
+    fi
 
     mkdir -p "$project_path/.gemini/commands"
     cp "$install_dir/src/memory/adapters/templates/gemini/"*.toml "$project_path/.gemini/commands/" 2>/dev/null || true
