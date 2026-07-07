@@ -1,6 +1,7 @@
 # Location: ai-memory/tests/unit/test_embedding_retry.py
 """Unit tests for BUG-113: Embedding retry with exponential backoff."""
 
+import logging
 import os
 from unittest.mock import Mock, patch
 
@@ -339,6 +340,66 @@ class TestEmbeddingTotalTimeout:
                 c.close()
 
 
+class TestEmbeddingTotalTimeoutInvariantGuard:
+    """Tests for the construction-time EMBEDDING_TOTAL_TIMEOUT invariant guard.
+
+    A dual re-review of the F1 fix round found the guard's original formula
+    compared ``total_timeout + read_timeout`` against HOOK_TIMEOUT — but F1
+    already caps the READ phase to the remaining budget, so the read timeout was
+    never the uncapped risk. That wrong formula false-positived on the shipped
+    defaults (45 + 30 = 75 > 60), logging a warning on EVERY EmbeddingClient
+    construction (store_async.py builds a new client per chunk), i.e. per-chunk
+    log spam forever on a correctly configured install. The only wall-clock
+    EMBEDDING_TOTAL_TIMEOUT does NOT bound is the fixed httpx connect+write+pool
+    overhead (11s), so the corrected guard compares ``total_timeout + 11s``
+    against HOOK_TIMEOUT instead. These tests prove the corrected guard is
+    silent on the shipped defaults and fires only when the configured total
+    genuinely cannot guarantee staying under HOOK_TIMEOUT.
+    """
+
+    def test_invariant_guard_silent_on_default_config(self, monkeypatch, caplog):
+        """Shipped defaults (EMBEDDING_TOTAL_TIMEOUT=45, HOOK_TIMEOUT=60) must not
+        trigger the invariant warning: 45 + 11 (fixed overhead) = 56 <= 60."""
+        monkeypatch.delenv("EMBEDDING_TOTAL_TIMEOUT", raising=False)
+        monkeypatch.delenv("HOOK_TIMEOUT", raising=False)
+        from memory.config import reset_config
+
+        reset_config()
+        with caplog.at_level(logging.WARNING, logger="ai_memory.embed"):
+            c = EmbeddingClient()
+        try:
+            assert not any(
+                r.getMessage() == "embedding_total_timeout_invariant_violated"
+                for r in caplog.records
+            )
+        finally:
+            c.close()
+
+    def test_invariant_guard_fires_on_unsafe_config(self, monkeypatch, caplog):
+        """A configured total that genuinely can't guarantee staying under
+        HOOK_TIMEOUT once the fixed overhead is added must fire the guard:
+        45 + 11 (fixed overhead) = 56 > 50."""
+        monkeypatch.setenv("EMBEDDING_TOTAL_TIMEOUT", "45.0")
+        monkeypatch.setenv("HOOK_TIMEOUT", "50")
+        from memory.config import reset_config
+
+        reset_config()
+        with caplog.at_level(logging.WARNING, logger="ai_memory.embed"):
+            c = EmbeddingClient()
+        try:
+            violations = [
+                r
+                for r in caplog.records
+                if r.getMessage() == "embedding_total_timeout_invariant_violated"
+            ]
+            assert len(violations) == 1
+            assert violations[0].total_timeout == 45.0
+            assert violations[0].fixed_overhead_seconds == 11.0
+            assert violations[0].hook_timeout == 50
+        finally:
+            c.close()
+
+
 class TestEmbeddingTimeoutStoreFallback:
     """Proves the store path's pending-status fallback fires on EMBEDDING_TIMEOUT
     (BUG-329/TD-710 verify-before-coding finding).
@@ -524,30 +585,33 @@ class TestStoreAsyncHookFallback:
         call_count = 0
 
         def slow_but_individually_under_configured_timeout(*args, **kwargs):
-            """Two 1.8s stalls — each individually under the 5.0s configured
-            EMBEDDING_READ_TIMEOUT — cumulatively exceed the 2.0s
+            """Two 2.8s stalls — each individually under the 5.0s configured
+            EMBEDDING_READ_TIMEOUT — cumulatively exceed the 3.0s
             EMBEDDING_TOTAL_TIMEOUT budget. Mirrors the tail case from the RCA
             (two individually-fine attempts blowing the cumulative budget),
-            scaled down for a fast test. The 5.0s configured value (vs. a 2.0s
+            scaled down for a fast test. The 5.0s configured value (vs. a 3.0s
             total budget) makes the gap this closes obvious: without F1, a
             second attempt is never capped below the full 5.0s configured
-            value no matter how little budget remains, so two 1.8s stalls cost
-            ~3.6s wall clock — over this test's 3s HOOK_TIMEOUT. With F1, the
+            value no matter how little budget remains, so two 2.8s stalls cost
+            ~5.6s wall clock — over this test's 5s HOOK_TIMEOUT. With F1, the
             second attempt's cap shrinks to the ~0.2s left in the budget, so
-            the whole call finishes at ~2.0s, comfortably inside HOOK_TIMEOUT.
+            the whole call finishes at ~3.0s, comfortably (2s margin) inside
+            HOOK_TIMEOUT — widened from the original ~1s margin (2.0s call vs
+            3s HOOK_TIMEOUT) to be more robust under CI load while still
+            failing against pre-F1 code (~5.6s > 5s HOOK_TIMEOUT).
             """
             nonlocal call_count
             call_count += 1
             req_timeout = kwargs.get("timeout")
             cap = req_timeout.read if req_timeout is not None else 5.0
-            real_time.sleep(min(1.8, cap))
+            real_time.sleep(min(2.8, cap))
             raise httpx.ReadTimeout("simulated stall")
 
         env = {
             "EMBEDDING_READ_TIMEOUT": "5.0",
-            "EMBEDDING_TOTAL_TIMEOUT": "2.0",
+            "EMBEDDING_TOTAL_TIMEOUT": "3.0",
             "EMBEDDING_MAX_RETRIES": "2",
-            "HOOK_TIMEOUT": "3",
+            "HOOK_TIMEOUT": "5",
             # Isolate from the classifier enqueue side path (unrelated to this
             # fix; avoids it resolving a queue dir off an unconfigured mock).
             "MEMORY_CLASSIFIER_ENABLED": "false",
@@ -596,7 +660,7 @@ class TestStoreAsyncHookFallback:
         # store_memory_async() completed and upserted with the pending fallback.
         mock_qdrant.upsert.assert_called_once()
         points = mock_qdrant.upsert.call_args[1]["points"]
-        assert len(points) >= 1
+        assert len(points) == 1
         for point in points:
             assert point["payload"]["embedding_status"] == "pending"
             assert point["vector"] == [0.0] * 768

@@ -39,6 +39,17 @@ except ImportError:
 
 TRACE_CONTENT_MAX = 10000
 
+# Fixed per-request httpx phases outside the read timeout: connection establishment,
+# request-body write, and pool-acquisition wait. EMBEDDING_TOTAL_TIMEOUT only bounds
+# the READ/inference phase (each attempt's read timeout is capped to the remaining
+# budget — see _embed_once()); these three phases are NOT covered by that cap, so
+# they are fixed overhead on top of EMBEDDING_TOTAL_TIMEOUT for worst-case wall-clock
+# time. Used by both the per-request httpx.Timeout construction and the
+# construction-time invariant check against HOOK_TIMEOUT.
+CONNECT_TIMEOUT = 3.0
+WRITE_TIMEOUT = 5.0
+POOL_TIMEOUT = 3.0
+
 __all__ = ["EmbeddingClient", "EmbeddingError"]
 
 logger = logging.getLogger("ai_memory.embed")
@@ -131,10 +142,10 @@ class EmbeddingClient:
             os.getenv("EMBEDDING_READ_TIMEOUT_CODE", "30.0")
         )
         timeout_config = httpx.Timeout(
-            connect=3.0,  # Connection establishment timeout
+            connect=CONNECT_TIMEOUT,  # Connection establishment timeout
             read=read_timeout,  # Read timeout - configurable for CPU vs GPU mode
-            write=5.0,  # Write timeout for request body
-            pool=3.0,  # Pool acquisition timeout
+            write=WRITE_TIMEOUT,  # Write timeout for request body
+            pool=POOL_TIMEOUT,  # Pool acquisition timeout
         )
 
         # Connection pooling with 2025 recommended defaults
@@ -159,8 +170,10 @@ class EmbeddingClient:
         # Must stay below HOOK_TIMEOUT so embed() raises EMBEDDING_TIMEOUT while
         # the caller still has budget left to upsert with embedding_status=pending.
         # F1/F1-guard: each attempt's HTTP read timeout is capped to the remaining
-        # portion of this budget (see _embed_once()), which is what makes it a hard
-        # ceiling rather than just a between-attempts check.
+        # portion of this budget (see _embed_once()), which makes the READ phase a
+        # hard ceiling rather than just a between-attempts check. Fixed httpx
+        # connect/write/pool overhead runs on top of this budget (see the
+        # construction-time invariant check below).
         self._total_timeout = float(os.getenv("EMBEDDING_TOTAL_TIMEOUT", "45.0"))
         if self._total_timeout <= 0:
             # A non-positive budget would make embed() raise EMBEDDING_TIMEOUT on
@@ -175,22 +188,28 @@ class EmbeddingClient:
             )
             self._total_timeout = 1.0
 
-        # F1 construction-time invariant: the deadline plus the slowest attempt's
-        # read timeout must stay below the store hooks' own HOOK_TIMEOUT, or the
-        # hook's outer timeout can still fire before embed() gets a chance to raise
-        # EMBEDDING_TIMEOUT and let the caller's pending-status fallback run. Read
-        # HOOK_TIMEOUT the same way the hooks do (hooks_common.get_hook_timeout()).
+        # F1 construction-time invariant: F1 caps each attempt's READ timeout to the
+        # remaining EMBEDDING_TOTAL_TIMEOUT budget (see _embed_once()), so the read
+        # phase can never itself exceed that budget. What EMBEDDING_TOTAL_TIMEOUT does
+        # NOT cover is the fixed httpx connect/write/pool overhead outside the read
+        # phase (CONNECT_TIMEOUT + WRITE_TIMEOUT + POOL_TIMEOUT, ~11s) — that overhead
+        # runs on top of the deadline on every attempt. So the real worst-case
+        # wall-clock is total_timeout + that fixed overhead, and THAT must stay below
+        # the store hooks' own HOOK_TIMEOUT, or the hook's outer timeout can still
+        # fire before embed() gets a chance to raise EMBEDDING_TIMEOUT and let the
+        # caller's pending-status fallback run. Read HOOK_TIMEOUT the same way the
+        # hooks do (hooks_common.get_hook_timeout()).
         try:
             hook_timeout = int(os.getenv("HOOK_TIMEOUT", "60"))
         except ValueError:
             hook_timeout = 60
-        worst_case_read_timeout = max(self._read_timeout, self._read_timeout_code)
-        if self._total_timeout + worst_case_read_timeout > hook_timeout:
+        fixed_overhead = CONNECT_TIMEOUT + WRITE_TIMEOUT + POOL_TIMEOUT
+        if self._total_timeout + fixed_overhead > hook_timeout:
             logger.warning(
                 "embedding_total_timeout_invariant_violated",
                 extra={
                     "total_timeout": self._total_timeout,
-                    "worst_case_read_timeout": worst_case_read_timeout,
+                    "fixed_overhead_seconds": fixed_overhead,
                     "hook_timeout": hook_timeout,
                 },
             )
@@ -208,19 +227,25 @@ class EmbeddingClient:
         errors (e.g. 413 oversized, 4xx) raise immediately.
 
         BUG-329/TD-710 (fix round F1/F4): The whole retry loop is bounded by an
-        overall wall-clock deadline (``EMBEDDING_TOTAL_TIMEOUT``, default 45s), and
-        that deadline is now a HARD ceiling, not just a between-attempts check: each
-        attempt's HTTP read timeout is capped to ``min(configured_read_timeout,
-        remaining_budget)`` (see _embed_once()), so no single attempt can run long
-        enough on its own to blow past the deadline. Without this cap, per-chunk
-        retries could cumulatively exceed the store hooks' HOOK_TIMEOUT (60s) even
-        though the deadline was "checked" between attempts, because a single slow
-        attempt could still run for the full configured read timeout regardless of
-        how little budget remained — aborting the entire store coroutine mid-embed
-        instead of letting the caller's pending-status fallback run. F4: if the
-        backoff sleep itself would consume more than the remaining budget, embed()
-        raises EMBEDDING_TIMEOUT immediately rather than sleeping out the remainder
-        and then raising anyway — preserving budget for the caller's fallback path.
+        overall wall-clock deadline (``EMBEDDING_TOTAL_TIMEOUT``, default 45s). F1
+        caps each attempt's HTTP read/inference timeout to ``min(configured_read_timeout,
+        remaining_budget)`` (see _embed_once()), so the READ phase of no single
+        attempt can run long enough on its own to blow past the deadline. Without this
+        cap, per-chunk retries could cumulatively exceed the store hooks' HOOK_TIMEOUT
+        (60s) even though the deadline was "checked" between attempts, because a
+        single slow attempt could still run for the full configured read timeout
+        regardless of how little budget remained — aborting the entire store coroutine
+        mid-embed instead of letting the caller's pending-status fallback run. This is
+        NOT an exact ceiling on total wall-clock time: the fixed httpx connect/write/pool
+        overhead (``CONNECT_TIMEOUT + WRITE_TIMEOUT + POOL_TIMEOUT``, ~11s) on each
+        attempt runs on top of the deadline and is not itself budget-capped, so
+        worst-case wall-clock per call is approximately ``EMBEDDING_TOTAL_TIMEOUT +
+        11s``. That combined figure must stay at or below ``HOOK_TIMEOUT``; the
+        client's construction-time invariant check warns (`embedding_total_timeout_invariant_violated`)
+        when it doesn't. F4: if the backoff sleep itself would consume more than the
+        remaining budget, embed() raises EMBEDDING_TIMEOUT immediately rather than
+        sleeping out the remainder and then raising anyway — preserving budget for the
+        caller's fallback path.
 
         Args:
             texts: List of text strings to embed.
@@ -356,7 +381,10 @@ class EmbeddingClient:
             else base_read_timeout
         )
         _request_timeout = httpx.Timeout(
-            connect=3.0, read=read_timeout, write=5.0, pool=3.0
+            connect=CONNECT_TIMEOUT,
+            read=read_timeout,
+            write=WRITE_TIMEOUT,
+            pool=POOL_TIMEOUT,
         )
 
         try:
