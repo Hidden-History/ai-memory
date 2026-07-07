@@ -1349,6 +1349,8 @@ main() {
 
             # BUG-125: Drain queued events that failed during service startup
             drain_pending_queue
+            # TD-710: Standing scheduler so the retry queue keeps draining after install
+            setup_retry_drain_cron
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -4218,6 +4220,47 @@ verify_embedding_readiness() {
         embed_attempts=$((embed_attempts + 1))
     done
     log_warning "Embedding service slow to respond — GitHub sync may have embedding timeouts"
+}
+
+# Set up cron job for automated retry-queue draining (TD-710)
+# Without this, process_retry_queue.py only runs once at install time (drain_pending_queue),
+# so failed-store events accumulate append-only between installs.
+setup_retry_drain_cron() {
+    log_info "Configuring automated retry-queue drain (every 15 minutes)..."
+
+    # Ensure locks directory exists for flock
+    mkdir -p "$INSTALL_DIR/.locks"
+
+    # Build cron command (BP-053: direct interpreter + flock + tagged entry)
+    # cd to docker/ so get_config() finds .env (pydantic env_file=".env")
+    # --limit raised above the 100 default so a multi-week backlog clears over a few runs.
+    local cron_tag="# ai-memory-retry-drain"
+    local cron_cmd
+    if [[ "$PLATFORM" == "macos" ]]; then
+        # macOS: no flock available by default
+        cron_cmd="cd $INSTALL_DIR/docker && $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/process_retry_queue.py --limit 500"
+    else
+        # Linux/WSL: use flock for overlap prevention
+        cron_cmd="cd $INSTALL_DIR/docker && flock -n $INSTALL_DIR/.locks/retry_drain.lock $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/process_retry_queue.py --limit 500"
+    fi
+    local cron_entry="*/15 * * * * $cron_cmd >> $INSTALL_DIR/logs/retry_drain.log 2>&1 $cron_tag"
+
+    # Idempotent: remove any existing ai-memory-retry-drain entry, then add fresh
+    local existing_crontab
+    existing_crontab=$(crontab -l 2>/dev/null || true)
+
+    # Filter out old entries (by tag OR by legacy process_retry_queue.py match)
+    local filtered_crontab
+    filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-retry-drain" | grep -v "process_retry_queue.py" || true)
+
+    # Add new entry
+    if printf '%s\n%s\n' "$filtered_crontab" "$cron_entry" | crontab - 2>/dev/null; then
+        log_success "Cron job configured (retry-queue drain every 15 minutes)"
+        log_debug "To view: crontab -l | grep ai-memory-retry-drain"
+    else
+        log_warning "Failed to configure cron job - set up manually if needed"
+        log_info "Add to crontab: $cron_entry"
+    fi
 }
 
 drain_pending_queue() {
