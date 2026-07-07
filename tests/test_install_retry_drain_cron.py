@@ -112,11 +112,15 @@ class TestSetupRetryDrainCron:
         result = _run_setup_retry_drain_cron(
             install_sh_no_main, install_dir, bin_dir, state_file
         )
-        assert result.returncode == 0, f"setup_retry_drain_cron failed:\n{result.stderr}"
+        assert (
+            result.returncode == 0
+        ), f"setup_retry_drain_cron failed:\n{result.stderr}"
 
         crontab_content = state_file.read_text(encoding="utf-8")
         matching = [
-            line for line in crontab_content.splitlines() if "ai-memory-retry-drain" in line
+            line
+            for line in crontab_content.splitlines()
+            if "ai-memory-retry-drain" in line
         ]
         assert len(matching) == 1, f"expected exactly one entry, got: {matching}"
         entry = matching[0]
@@ -132,7 +136,9 @@ class TestSetupRetryDrainCron:
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
 
-        _run_setup_retry_drain_cron(install_sh_no_main, install_dir, bin_dir, state_file)
+        _run_setup_retry_drain_cron(
+            install_sh_no_main, install_dir, bin_dir, state_file
+        )
         assert (install_dir / ".locks").is_dir()
 
     def test_idempotent_no_duplicate_on_second_run(
@@ -154,11 +160,13 @@ class TestSetupRetryDrainCron:
 
         crontab_content = state_file.read_text(encoding="utf-8")
         matching = [
-            line for line in crontab_content.splitlines() if "ai-memory-retry-drain" in line
+            line
+            for line in crontab_content.splitlines()
+            if "ai-memory-retry-drain" in line
         ]
-        assert len(matching) == 1, (
-            f"re-running install must not duplicate the cron entry, got: {matching}"
-        )
+        assert (
+            len(matching) == 1
+        ), f"re-running install must not duplicate the cron entry, got: {matching}"
 
     def test_preserves_unrelated_existing_crontab_entries(
         self, install_sh_no_main, fake_crontab_env, tmp_path
@@ -176,7 +184,9 @@ class TestSetupRetryDrainCron:
         crontab_content = state_file.read_text(encoding="utf-8")
         assert "/usr/bin/some-other-job" in crontab_content
         matching = [
-            line for line in crontab_content.splitlines() if "ai-memory-retry-drain" in line
+            line
+            for line in crontab_content.splitlines()
+            if "ai-memory-retry-drain" in line
         ]
         assert len(matching) == 1
 
@@ -185,7 +195,8 @@ class TestSetupRetryDrainCron:
     ):
         """A pre-TD-710 crontab entry that calls process_retry_queue.py but lacks the
         "# ai-memory-retry-drain" marker must be replaced by the new tagged entry, not
-        left in place alongside it (the filter greps both the marker and the script name)."""
+        left in place alongside it (the filter greps both the marker and the script name).
+        """
         bin_dir, state_file = fake_crontab_env
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
@@ -200,11 +211,13 @@ class TestSetupRetryDrainCron:
         crontab_content = state_file.read_text(encoding="utf-8")
         assert "/opt/legacy/process_retry_queue.py" not in crontab_content
         matching = [
-            line for line in crontab_content.splitlines() if "process_retry_queue.py" in line
+            line
+            for line in crontab_content.splitlines()
+            if "process_retry_queue.py" in line
         ]
-        assert len(matching) == 1, (
-            f"legacy untagged entry must be replaced not duplicated, got: {matching}"
-        )
+        assert (
+            len(matching) == 1
+        ), f"legacy untagged entry must be replaced not duplicated, got: {matching}"
         assert "ai-memory-retry-drain" in matching[0]
 
     def test_macos_platform_omits_flock(
@@ -221,7 +234,9 @@ class TestSetupRetryDrainCron:
 
         crontab_content = state_file.read_text(encoding="utf-8")
         matching = [
-            line for line in crontab_content.splitlines() if "ai-memory-retry-drain" in line
+            line
+            for line in crontab_content.splitlines()
+            if "ai-memory-retry-drain" in line
         ]
         assert len(matching) == 1
         assert "flock" not in matching[0]
