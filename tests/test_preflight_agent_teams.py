@@ -177,6 +177,25 @@ def test_multiline_json_in_process_mode_fires(helper: Path, tmp_path: Path) -> N
     assert "teammateMode" in r.stderr
 
 
+def test_bom_json_in_process_mode_fires(helper: Path, tmp_path: Path) -> None:
+    """teammateMode "in-process" in a UTF-8-BOM settings.json (common from
+    Windows editors) must still be read correctly -> exit 1. A BOM previously
+    raised JSONDecodeError, was swallowed, and produced a false-pass (exit 0)."""
+    settings = tmp_path / "settings.json"
+    payload = json.dumps({"teammateMode": "in-process"}).encode("utf-8")
+    settings.write_bytes(b"\xef\xbb\xbf" + payload)
+    r = _run(
+        helper,
+        "--settings",
+        str(settings),
+        cwd=tmp_path,
+        env=_base_env("1"),
+    )
+    assert r.returncode == 1
+    assert r.stdout == ""
+    assert "teammateMode" in r.stderr
+
+
 def test_both_missing_reports_both(helper: Path, tmp_path: Path) -> None:
     """Flag missing AND non-team mode -> exit 1; both remediations on stderr."""
     settings = _write_settings(tmp_path, "in-process")

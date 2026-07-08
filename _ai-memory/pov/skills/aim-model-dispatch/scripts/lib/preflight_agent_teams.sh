@@ -57,7 +57,7 @@ _read_teammate_mode() {
         value=$(python3 -c '
 import json, sys
 try:
-    with open(sys.argv[1], encoding="utf-8") as fh:
+    with open(sys.argv[1], encoding="utf-8-sig") as fh:
         data = json.load(fh)
 except (OSError, json.JSONDecodeError):
     sys.exit(0)
