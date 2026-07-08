@@ -492,3 +492,74 @@ def test_check_mid_table_divider_not_false_flagged_missing(tmp_path, capsys):
     assert rc == 0
     out, err = capsys.readouterr()
     assert out == "" and err == ""  # BP-003 must not be false-flagged missing
+
+
+# ---------------------------------------------------------------------------
+# Regression (#303 round-4) — a foreign table butted directly against the
+# canonical one (no blank line) whose OWN first data row happens to be a
+# real-looking BP-ID must still be excluded: the sweep must stop at the
+# foreign table's header+separator, not run into its data rows.
+# ---------------------------------------------------------------------------
+
+# BP-050 appears twice on purpose: once as the foreign table's own row (which
+# must never be swept into the canonical table), once as the genuinely
+# missing canonical row that a bug in the sweep would otherwise mask.
+_BUTTED_BPID_FOREIGN_TABLE_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+    "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |\n"
+    "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |\n"
+    "| BP-ID | Note |\n"
+    "|-------|------|\n"
+    "| BP-050 | archived cross-reference, not a canonical row |\n"
+)
+
+
+def test_check_not_fooled_by_bp_id_in_butted_foreign_table(tmp_path, capsys):
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_text(_BUTTED_BPID_FOREIGN_TABLE_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
+    _write_bp(tmp_path, "BP-050-d.md", "# Delta Topic\n")
+
+    rc = _run(["--check", str(tmp_path)])
+    assert rc == 1
+    _, err = capsys.readouterr()
+    assert "BP-050-d.md" in err
+
+
+def test_write_no_blank_line_before_foreign_bp_id_table(tmp_path):
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_text(_BUTTED_BPID_FOREIGN_TABLE_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
+    _write_bp(tmp_path, "BP-050-d.md", "# Delta Topic\n**Date**: 2026-02-01\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    after_lines = index_path.read_text(encoding="utf-8").split("\n")
+
+    # The foreign table survives byte-for-byte, exactly once — not merged,
+    # not duplicated, not mutated.
+    for line in (
+        "| BP-ID | Note |",
+        "|-------|------|",
+        "| BP-050 | archived cross-reference, not a canonical row |",
+    ):
+        assert after_lines.count(line) == 1, f"foreign table line altered: {line!r}"
+
+    # The new canonical BP-050 row lands after the last real BP row (Gamma)
+    # and before the foreign table's header — not merged into or placed
+    # after the foreign table.
+    new_row_idx = after_lines.index("| BP-050 | Delta Topic | TBD | 2026-02-01 | TBD |")
+    gamma_idx = after_lines.index(
+        "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |"
+    )
+    foreign_header_idx = after_lines.index("| BP-ID | Note |")
+    assert gamma_idx < new_row_idx < foreign_header_idx

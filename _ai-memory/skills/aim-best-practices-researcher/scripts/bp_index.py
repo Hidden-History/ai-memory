@@ -171,9 +171,12 @@ def _find_bp_table(lines: list[str]):
     ``(header_cells, last_row_idx, existing_ids)`` or ``None`` if no such
     table is present.
 
-    Only the first such table is treated as canonical (a second BP-ID-headed
-    table, e.g. an "Archived" section, is not merged into membership — a
-    documented limitation, not fixed here)."""
+    Only the first such table is treated as canonical: a second, separately
+    blank-line-delimited BP-ID-headed table elsewhere in the document (e.g.
+    an "Archived" section) is not merged into membership — a documented
+    limitation, not fixed here. A table butted directly against the
+    canonical one with no blank line is a different case and is handled
+    below via the true table-boundary check."""
     i = 0
     while i < len(lines) - 1:
         line = lines[i]
@@ -181,17 +184,21 @@ def _find_bp_table(lines: list[str]):
             header_cells = _split_row_cells(line)
             sep_cells = _split_row_cells(lines[i + 1])
             if _is_separator_row(sep_cells) and _looks_like_bp_header(header_cells):
-                last_row_idx = i + 1
+                last_row_idx = i + 1  # separator (fallback for an empty table)
                 j = i + 2
-                # Sweep the whole contiguous pipe block (no blank line
-                # breaks it) without stopping at a non-BP-ID row — a
-                # divider/note/spacer row *inside* the table must not
-                # truncate the scan before later real BP rows. last_row_idx
-                # only advances on an actual BP-ID row, so a table butted
-                # directly against this one with no blank line — e.g. a
-                # Status Legend table — is still never counted as more BP
-                # rows or included in the splice bound.
                 while j < len(lines) and lines[j].strip().startswith("|"):
+                    # A new table starts at a header row (this pipe row)
+                    # immediately followed by a separator row — stop before
+                    # it so a table butted directly against this one (no
+                    # blank line) is never swept in, whether or not it's
+                    # itself BP-ID-headed. A mid-table non-ID row (a
+                    # divider/note/spacer, not followed by a separator)
+                    # isn't a table boundary, so it doesn't end the scan —
+                    # later real BP rows are still counted.
+                    if j + 1 < len(lines) and _is_separator_row(
+                        _split_row_cells(lines[j + 1])
+                    ):
+                        break
                     cells = _split_row_cells(lines[j])
                     if cells and _ROW_ID_RE.match(cells[0]):
                         last_row_idx = j
