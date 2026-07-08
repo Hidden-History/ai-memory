@@ -221,6 +221,15 @@ update_files() {
     log_info "Updating hook scripts..."
     cp -r "$SCRIPT_DIR/.claude/hooks/scripts/"* "$INSTALL_DIR/.claude/hooks/scripts/"
 
+    # Refresh oversight templates + prior-version registry into the runtime so a
+    # later install/upgrade run can sync changed templates into projects. Without
+    # this, new shipped templates never reach $INSTALL_DIR via the update path.
+    if [[ -d "$SCRIPT_DIR/templates" ]]; then
+        log_info "Updating templates..."
+        mkdir -p "$INSTALL_DIR/templates"
+        cp -r "$SCRIPT_DIR/templates/"* "$INSTALL_DIR/templates/"
+    fi
+
     log_info "Updating Docker configuration..."
     # Preserve docker-compose.override.yml if exists
     if [[ -f "$INSTALL_DIR/docker/docker-compose.override.yml" ]]; then
