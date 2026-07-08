@@ -441,3 +441,54 @@ def test_check_not_fooled_by_bp_id_in_foreign_table_row(tmp_path, capsys):
     assert rc == 1
     _, err = capsys.readouterr()
     assert "BP-004-new.md" in err
+
+
+# ---------------------------------------------------------------------------
+# Regression (#303 round-2 review) — a non-BP-ID row *inside* the canonical
+# table (a divider/note/spacer) must not truncate the scan; BP rows after it
+# must still be counted and still receive the splice bound.
+# ---------------------------------------------------------------------------
+
+# A divider row between BP-002 and BP-003 whose first cell isn't a BP-ID.
+_MIDTABLE_DIVIDER_INDEX_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+    "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |\n"
+    "| **Archived below** | | | | |\n"
+    "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |\n"
+)
+
+
+def test_write_mid_table_divider_does_not_drop_or_duplicate_row(tmp_path):
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_text(_MIDTABLE_DIVIDER_INDEX_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    after = index_path.read_text(encoding="utf-8")
+    # BP-003's original row survives, uncounted-as-missing — no duplicate
+    # appended after it.
+    assert after.count("BP-003") == 1
+    assert "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |" in after
+    # The divider row itself is untouched.
+    assert "| **Archived below** | | | | |" in after
+
+
+def test_check_mid_table_divider_not_false_flagged_missing(tmp_path, capsys):
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_text(_MIDTABLE_DIVIDER_INDEX_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
+
+    rc = _run(["--check", str(tmp_path)])
+    assert rc == 0
+    out, err = capsys.readouterr()
+    assert out == "" and err == ""  # BP-003 must not be false-flagged missing

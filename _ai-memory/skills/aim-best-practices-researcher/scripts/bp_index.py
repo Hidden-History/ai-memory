@@ -183,17 +183,20 @@ def _find_bp_table(lines: list[str]):
             if _is_separator_row(sep_cells) and _looks_like_bp_header(header_cells):
                 last_row_idx = i + 1
                 j = i + 2
-                # Bounded to actual BP data rows (first cell matches
-                # _ROW_ID_RE) so a table butted directly against this one
-                # with no blank line — e.g. a Status Legend table — is never
-                # swept in as if it were more BP rows.
+                # Sweep the whole contiguous pipe block (no blank line
+                # breaks it) without stopping at a non-BP-ID row — a
+                # divider/note/spacer row *inside* the table must not
+                # truncate the scan before later real BP rows. last_row_idx
+                # only advances on an actual BP-ID row, so a table butted
+                # directly against this one with no blank line — e.g. a
+                # Status Legend table — is still never counted as more BP
+                # rows or included in the splice bound.
                 while j < len(lines) and lines[j].strip().startswith("|"):
                     cells = _split_row_cells(lines[j])
-                    if not cells or not _ROW_ID_RE.match(cells[0]):
-                        break
-                    last_row_idx = j
+                    if cells and _ROW_ID_RE.match(cells[0]):
+                        last_row_idx = j
                     j += 1
-                existing_ids = _row_ids(lines[i + 2 : last_row_idx + 1])
+                existing_ids = _row_ids(lines[i + 2 : j])
                 return header_cells, last_row_idx, existing_ids
         i += 1
     return None
