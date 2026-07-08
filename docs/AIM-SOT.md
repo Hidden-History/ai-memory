@@ -304,7 +304,7 @@ overrides; the defaults suit most projects. See also `docker/.env.example`.
 | `AI_MEMORY_SOT_DIGEST_MAX_SECONDS` | `18.0` | Per-boundary tree-digest wall-time budget (seconds). A boundary that exceeds it yields a partial, truncated digest — carried over, never baselined (see [`references/drift-and-shadow-git.md`](../_ai-memory/skills/aim-sot/references/drift-and-shadow-git.md)). |
 | `AI_MEMORY_SOT_DIGEST_MAX_FILES` | `20000` | Per-boundary tree-digest file-count budget. |
 | `AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS` | `6.0` | Auto-discovery walk wall-time budget (seconds). |
-| `AI_MEMORY_SOT_DISCOVERY_MAX_DIRS` | `5000` | Auto-discovery walk max directories. |
+| `AI_MEMORY_SOT_DISCOVERY_MAX_DIRS` | `15000` | Auto-discovery walk max directories. |
 
 Discovery is split hot/cold (BP-047): the drift loop runs every session; the discovery
 walk runs only when its **R1 cadence** gate is due (or forced with `--discover`). The

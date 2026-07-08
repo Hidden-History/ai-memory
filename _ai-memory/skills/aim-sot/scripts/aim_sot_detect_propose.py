@@ -93,8 +93,11 @@ def _env_int(name: str, default: int) -> int:
 # Upper bound on directories visited during auto-discovery (throttle, F-A2-5),
 # complemented by a wall-time budget (F-SOT-3) — on a slow filesystem the
 # per-directory IO dominates, so a dir-count cap alone still lets the scan blow
-# the [CL] hook's ~20s subprocess cap.  Both are env-overridable.
-_MAX_DISCOVERY_DIRS = _env_int("AI_MEMORY_SOT_DISCOVERY_MAX_DIRS", 5000)
+# the [CL] hook's ~20s subprocess cap.  Both are env-overridable.  The cap is
+# spent cumulatively across the 3 discovery walks that share one _ScanBudget
+# (manifests + ADR dirs + nested source dirs), so 15000 reflects a ~5000
+# effective budget per walk, not per whole scan.
+_MAX_DISCOVERY_DIRS = _env_int("AI_MEMORY_SOT_DISCOVERY_MAX_DIRS", 15000)
 _DISCOVERY_MAX_SECONDS = _env_float("AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS", 6.0)
 # Wall-time cap for the per-entry reindex loop (F-RT5-GAP-1 / F-SOT-2); mirrors
 # _DISCOVERY_MAX_SECONDS.  0 → treated as default per _env_float convention.
