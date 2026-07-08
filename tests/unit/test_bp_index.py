@@ -357,13 +357,13 @@ def test_check_not_fooled_by_prose_mention(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# L3-FIX2 regression (#303 delta review) — _find_bp_table must bound its row
-# sweep to actual BP data rows (not any adjacent pipe-table), and cmd_check
-# must be scoped to the canonical table (not whole-document _row_ids).
+# Regression (#303): _find_bp_table must bound its row sweep to actual BP
+# data rows (not any adjacent pipe-table), and cmd_check must be scoped to
+# the canonical table (not whole-document _row_ids).
 # ---------------------------------------------------------------------------
 
-# No blank line between the last BP row and a foreign table's header — the
-# adjacency shape the delta review flagged as under-hardened.
+# No blank line between the last BP row and a foreign table's header — a
+# table butted directly against the BP table with no blank line.
 _ADJACENT_TABLE_INDEX_FIXTURE = (
     "# Best Practices Index\n"
     "\n"
