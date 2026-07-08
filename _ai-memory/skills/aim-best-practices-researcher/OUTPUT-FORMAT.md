@@ -84,7 +84,7 @@ ONLY the BP file, `INDEX.md`, and no other oversight files.
 | File | Change |
 |------|--------|
 | oversight/knowledge/best-practices/BP-XXX-[topic].md | new |
-| oversight/knowledge/best-practices/INDEX.md | regenerated |
+| oversight/knowledge/best-practices/INDEX.md | appended |
 
 ---
 

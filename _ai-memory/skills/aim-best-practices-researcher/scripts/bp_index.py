@@ -169,7 +169,11 @@ def _find_bp_table(lines: list[str]):
     """Locate the best-practices table (header cell 0 looks like a BP-ID
     column, followed by a valid separator row). Returns
     ``(header_cells, last_row_idx, existing_ids)`` or ``None`` if no such
-    table is present."""
+    table is present.
+
+    Only the first such table is treated as canonical (a second BP-ID-headed
+    table, e.g. an "Archived" section, is not merged into membership — a
+    documented limitation, not fixed here)."""
     i = 0
     while i < len(lines) - 1:
         line = lines[i]
@@ -179,7 +183,14 @@ def _find_bp_table(lines: list[str]):
             if _is_separator_row(sep_cells) and _looks_like_bp_header(header_cells):
                 last_row_idx = i + 1
                 j = i + 2
+                # Bounded to actual BP data rows (first cell matches
+                # _ROW_ID_RE) so a table butted directly against this one
+                # with no blank line — e.g. a Status Legend table — is never
+                # swept in as if it were more BP rows.
                 while j < len(lines) and lines[j].strip().startswith("|"):
+                    cells = _split_row_cells(lines[j])
+                    if not cells or not _ROW_ID_RE.match(cells[0]):
+                        break
                     last_row_idx = j
                     j += 1
                 existing_ids = _row_ids(lines[i + 2 : last_row_idx + 1])
@@ -219,7 +230,11 @@ def _bump_total_findings(text: str, new_total: int) -> str:
 
 def _write_append(bp_files: list[BPFile], index_path: Path) -> int:
     """Append BP files missing (by BP-ID) from an existing INDEX.md, leaving
-    every existing row and all surrounding content byte-for-byte untouched."""
+    every existing row and all surrounding content byte-for-byte untouched.
+
+    Limitation: read_text()/write_text() use Python's universal-newline
+    handling, so any CRLF in the source file is normalized to LF on write.
+    Not preserved on purpose — this repo is LF-only."""
     text = index_path.read_text(encoding="utf-8")
     lines = text.split("\n")
     table = _find_bp_table(lines)
@@ -293,7 +308,13 @@ def cmd_check(bp_dir: Path, index_path: Path) -> int:
         for b in bp_files:
             print(f"  - {b.path.name}", file=sys.stderr)
         return 1
-    indexed = _row_ids(index_path.read_text(encoding="utf-8").split("\n"))
+    # Scoped to the canonical BP table (same table --write appends to), not
+    # whole-document _row_ids — otherwise a BP-ID first-cell in any other
+    # pipe-table would falsely mask a genuinely-missing canonical row. No
+    # canonical table found -> empty membership (fail-safe: everything
+    # reports missing, mirroring _write_append's refusal in that case).
+    table = _find_bp_table(index_path.read_text(encoding="utf-8").split("\n"))
+    indexed = table[2] if table else set()
     missing = [b for b in bp_files if b.display_id not in indexed]
     if not missing:
         # Every BP file has a matching BP-ID row — silent (fire-only-if-missing).

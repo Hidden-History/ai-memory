@@ -354,3 +354,90 @@ def test_check_not_fooled_by_prose_mention(tmp_path, capsys):
     assert rc == 1
     _, err = capsys.readouterr()
     assert "BP-004-new.md" in err
+
+
+# ---------------------------------------------------------------------------
+# L3-FIX2 regression (#303 delta review) — _find_bp_table must bound its row
+# sweep to actual BP data rows (not any adjacent pipe-table), and cmd_check
+# must be scoped to the canonical table (not whole-document _row_ids).
+# ---------------------------------------------------------------------------
+
+# No blank line between the last BP row and a foreign table's header — the
+# adjacency shape the delta review flagged as under-hardened.
+_ADJACENT_TABLE_INDEX_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+    "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |\n"
+    "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |\n"
+    "| Status | Meaning |\n"
+    "|--------|---------|\n"
+    "| **CURRENT** | Actively applicable, verified within 6 months |\n"
+)
+
+
+def test_write_no_blank_line_before_foreign_table(tmp_path):
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_text(_ADJACENT_TABLE_INDEX_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
+    _write_bp(tmp_path, "BP-004-new.md", "# Delta Topic\n**Date**: 2026-02-01\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    after_lines = index_path.read_text(encoding="utf-8").split("\n")
+
+    # Every foreign-table line survives byte-for-byte.
+    for line in _ADJACENT_TABLE_INDEX_FIXTURE.split("\n"):
+        if (
+            line.startswith("| Status")
+            or line.startswith("|--------")
+            or line.startswith("| **CURRENT**")
+        ):
+            assert line in after_lines, f"foreign table line dropped: {line!r}"
+
+    # New row lands immediately after the last real BP row, before the
+    # foreign table's header — not spliced into or after the foreign table.
+    new_row_idx = after_lines.index("| BP-004 | Delta Topic | TBD | 2026-02-01 | TBD |")
+    gamma_idx = after_lines.index(
+        "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |"
+    )
+    status_header_idx = after_lines.index("| Status | Meaning |")
+    assert gamma_idx < new_row_idx < status_header_idx
+
+
+def test_check_not_fooled_by_bp_id_in_foreign_table_row(tmp_path, capsys):
+    # A row in a *non-canonical* pipe-table (e.g. a legend) whose first cell
+    # happens to be a real BP-ID must not mask a genuinely-missing row in
+    # the canonical table — cmd_check must be scoped to the canonical table,
+    # not whole-document _row_ids.
+    fixture = (
+        "# Best Practices Index\n"
+        "\n"
+        "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+        "|-------|-------|--------|---------------|------------|\n"
+        "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+        "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |\n"
+        "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |\n"
+        "\n"
+        "## Unrelated Table\n"
+        "\n"
+        "| BP-ID | Note |\n"
+        "|-------|------|\n"
+        "| BP-004 | not a real canonical index row |\n"
+    )
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_text(fixture, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
+    _write_bp(tmp_path, "BP-004-new.md", "# Delta Topic\n")
+
+    rc = _run(["--check", str(tmp_path)])
+    assert rc == 1
+    _, err = capsys.readouterr()
+    assert "BP-004-new.md" in err

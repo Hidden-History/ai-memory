@@ -56,14 +56,14 @@ Copy this checklist and track progress:
 Research Progress:
 - [ ] Phase 1: Check database (conventions collection)
 - [ ] Phase 2: Web research (if needed)
-- [ ] Phase 3: Save to file (BP-XXX.md) + regenerate INDEX
+- [ ] Phase 3: Save to file (BP-XXX.md) + append INDEX row
 - [ ] Phase 4: Store to database
 - [ ] Phase 5: Evaluate skill-worthiness
 ```
 
 **Write scope (this skill writes ONLY these):** the BP file
 (`oversight/knowledge/best-practices/BP-XXX-[topic].md`), its INDEX row
-(`oversight/knowledge/best-practices/INDEX.md`, regenerated from disk in
+(`oversight/knowledge/best-practices/INDEX.md`, appended in
 Phase 3), and the conventions-collection store (Phase 4). Do NOT edit
 roadmaps, SoT files, or any other oversight file.
 
