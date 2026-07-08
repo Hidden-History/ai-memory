@@ -165,6 +165,12 @@ _MANIFEST_FILENAMES: frozenset[str] = frozenset(
 # registry `exclude:` config, not here.
 _SKIP_DIRS: frozenset[str] = frozenset(
     {
+        # Hardcoded here = universally-uninteresting infra dirs. Deployment-local
+        # transient/runtime trees (logs/, backups/, an install's ~/.ai-memory
+        # runtime/state) are deliberately NOT listed: what counts as runtime is
+        # project-specific, so surfacing them as low-signal candidates is by design
+        # and the registry `exclude:` config is the per-project lever to suppress
+        # them (same principle as vendored trees below — R3/BP-049, I4).
         # VCS / forge / editor / AI-tool metadata
         ".git",
         ".github",
@@ -885,9 +891,14 @@ class _ScanBudget:
     """Shared dir-count + wall-time budget for one auto-discovery scan (F-SOT-3).
 
     A single instance is threaded through every ``_pruned_walk`` of a scan so
-    the wall-time clock spans the whole discovery (manifests + ADR dirs), not
-    each walk in isolation.  ``truncated`` / ``reason`` are set when a budget is
-    hit so the caller can surface a signal instead of silently under-reporting.
+    BOTH budgets span the whole discovery (manifests + ADR dirs + source dirs),
+    not each walk in isolation: the wall-time clock is one shared deadline and
+    the dir count (:attr:`visited`) accumulates across walks (F-SOT-CAP — a
+    per-walk counter let ~3 walks each spend the full ``max_dirs``, ~3x nominal).
+    ``truncated`` / ``reason`` are set when a budget is hit so the caller can
+    surface a signal instead of silently under-reporting; ``_warned`` makes that
+    signal fire at most once per scan (I1 — a shared deadline otherwise re-tripped
+    on the first dir of every later walk, re-emitting the warning up to 3x).
     """
 
     def __init__(
@@ -900,10 +911,18 @@ class _ScanBudget:
         self._deadline = time.monotonic() + max_seconds if max_seconds > 0 else None
         self.truncated = False
         self.reason: str | None = None
+        self.visited = 0
+        self._warned = False
 
-    def exceeded(self, visited: int) -> bool:
-        """True once this walk has visited ``visited`` dirs past either budget."""
-        if self.max_dirs > 0 and visited >= self.max_dirs:
+    def exceeded(self) -> bool:
+        """True once the CUMULATIVE scan has hit either budget.
+
+        Counts each call as one visited directory (increment-after-check keeps
+        the original ``visited >= max_dirs`` semantics while making the count span
+        the whole scan, not one walk). :attr:`visited` is read by the caller for
+        the truncation message.
+        """
+        if self.max_dirs > 0 and self.visited >= self.max_dirs:
             self.truncated = True
             self.reason = "max_dirs"
             return True
@@ -911,6 +930,7 @@ class _ScanBudget:
             self.truncated = True
             self.reason = "wall_time"
             return True
+        self.visited += 1
         return False
 
 
@@ -960,34 +980,38 @@ def _pruned_walk(root: Path, budget: "_ScanBudget | None" = None, excludes=()):
     """
     if budget is None:
         budget = _ScanBudget()
-    for visited, (dirpath, dirnames, filenames) in enumerate(os.walk(root)):
+    for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [
             d
             for d in dirnames
             if d not in _SKIP_DIRS
             and not _walk_dir_excluded(dirpath, d, root, excludes)
         ]
-        if budget.exceeded(visited):
+        if budget.exceeded():
             # Surface the truncation prominently rather than silently capping
             # discovery ("no silent caps — log what was dropped") — components
             # below the budget are missing from the proposed registry, so the
             # human must know the scan was INCOMPLETE and which knob raises it
-            # (TD-753).
-            if budget.reason == "max_dirs":
-                limit_desc = f"the {budget.max_dirs}-directory cap"
-                knob = "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS"
-            else:
-                limit_desc = f"the {budget.max_seconds:g}s wall-time budget"
-                knob = "AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS"
-            print(
-                f"aim-sot: WARNING — discovery scan TRUNCATED at {limit_desc} "
-                f"after visiting {visited} directories; directories beyond the "
-                "budget were NOT scanned and their boundaries are MISSING from "
-                f"the proposed registry. Raise the limit via ${knob} (or narrow "
-                "the tree with a .sot exclude: config) and re-run before "
-                "approving the registry.",
-                file=sys.stderr,
-            )
+            # (TD-753). Warn at most ONCE per scan (I1): the shared budget stays
+            # tripped, so every later walk would otherwise re-print on its first
+            # dir. ``budget.truncated`` still lets the caller detect the state.
+            if not budget._warned:
+                budget._warned = True
+                if budget.reason == "max_dirs":
+                    limit_desc = f"the {budget.max_dirs}-directory cap"
+                    knob = "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS"
+                else:
+                    limit_desc = f"the {budget.max_seconds:g}s wall-time budget"
+                    knob = "AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS"
+                print(
+                    f"aim-sot: WARNING — discovery scan TRUNCATED at {limit_desc} "
+                    f"after visiting {budget.visited} directories; directories "
+                    "beyond the budget were NOT scanned and their boundaries are "
+                    f"MISSING from the proposed registry. Raise the limit via "
+                    f"${knob} (or narrow the tree with a .sot exclude: config) "
+                    "and re-run before approving the registry.",
+                    file=sys.stderr,
+                )
             return
         # File-level exclude (matches tree_digest's per-file path_excluded) so the
         # scanners never see an excluded manifest and the count never over-counts.
