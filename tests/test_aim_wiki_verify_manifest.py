@@ -122,6 +122,35 @@ def test_slash_prose_not_flagged(tmp_path):
     assert m["dead_count"] == 1, "only src/gone.py is dead"
 
 
+def test_bare_basename_citation_flags_dead(tmp_path):
+    """W2: a bare-basename backtick citation (no path) cannot resolve even when
+    the file exists elsewhere in the repo — only root-relative / page-relative
+    forms are supported."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "storage.py").write_text("pass\n", encoding="utf-8")
+    _page(tmp_path, "quickstart.md", "See `storage.py` for the store.\n")
+    m = build_manifest(tmp_path)
+    dead_refs = {(d["page"], d["ref"]) for d in m["dead_citations"]}
+    assert ("wiki/quickstart.md", "storage.py") in dead_refs
+    assert m["dead_count"] == 1
+
+
+def test_dir_citation_resolves_and_flags(tmp_path):
+    """W5: a `/`-terminated backtick citation is checked for directory
+    existence — a real directory resolves live, a missing one is dead."""
+    (tmp_path / "src" / "handlers").mkdir(parents=True)
+    _page(
+        tmp_path,
+        "quickstart.md",
+        "Handlers live in `src/handlers/`. Missing: `src/absent/`.\n",
+    )
+    m = build_manifest(tmp_path)
+    refs = {c["ref"]: c["exists"] for p in m["pages"] for c in p["citations"]}
+    assert refs["src/handlers/"] is True
+    assert refs["src/absent/"] is False
+    assert m["dead_count"] == 1
+
+
 def test_empty_wiki(tmp_path):
     (tmp_path / "wiki").mkdir()
     m = build_manifest(tmp_path)
