@@ -84,7 +84,7 @@ Prioritize results published within the last ~6 months relative to today.
 2. **Write** file: `oversight/knowledge/best-practices/BP-XXX-[topic].md`
 3. Use format from OUTPUT-FORMAT.md
 4. Regenerate the INDEX from disk (idempotent, not append-only):
-   `python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" --write oversight/knowledge/best-practices`
+   `"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" --write oversight/knowledge/best-practices`
 
 ### Write scope
 

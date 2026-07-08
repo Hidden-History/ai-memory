@@ -93,7 +93,8 @@ When presenting each finding, state why it is the current gold standard and cite
 3. Update the INDEX from disk:
 
    ```bash
-   python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" \
+   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python" \
+       "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" \
        --write oversight/knowledge/best-practices
    ```
 

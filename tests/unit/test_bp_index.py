@@ -200,8 +200,9 @@ def test_requires_a_mode(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# F1/F2 regression (#303 review) — a curated 5-col INDEX must never be
-# regenerated, only appended to; --check must match by BP-ID, not filename.
+# A curated multi-column INDEX must never be regenerated, only appended to;
+# --check matches by BP-ID (a table row's first cell), not filename or a
+# BP-ID mentioned in prose.
 # ---------------------------------------------------------------------------
 
 # Structurally faithful to the real oversight/knowledge/best-practices/
@@ -258,11 +259,14 @@ def _write_curated_bp_files(tmp_path: Path) -> None:
     _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
 
 
-def test_row_ids_ignores_status_legend_table_and_prose(tmp_path):
-    ids = mod._row_ids(_CURATED_INDEX_FIXTURE.split("\n"))
-    # Only the Quick Reference table's own rows — not the Status Legend
-    # table's rows (**CURRENT** etc.), and not the "BP-004" mentioned in
-    # BP-002's Topic prose.
+def test_canonical_membership_excludes_status_legend_and_prose():
+    table = mod._find_bp_table(_CURATED_INDEX_FIXTURE)
+    assert table is not None
+    _, _, ids = table
+    # Membership is scoped to the canonical BP-ID table's source-line span
+    # (from the parser): the Status Legend is a separate table (a blank line
+    # precedes it, so it is a distinct table_open), and the "BP-004" in
+    # BP-002's Topic is prose in a non-first cell — neither is a canonical row.
     assert ids == {"BP-001", "BP-002", "BP-003"}
 
 
@@ -357,13 +361,16 @@ def test_check_not_fooled_by_prose_mention(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# Regression (#303): _find_bp_table must bound its row sweep to actual BP
-# data rows (not any adjacent pipe-table), and cmd_check must be scoped to
-# the canonical table (not whole-document _row_ids).
+# Table boundaries come from the GFM parser's source map (token.map). Per the
+# GFM tables extension, contiguous pipe rows with no blank line between them
+# form ONE table; a blank line starts a new table. cmd_check reads membership
+# only from the canonical table's span, so a BP-ID first cell elsewhere in the
+# document (a separate table) cannot mask a genuinely-missing canonical row.
 # ---------------------------------------------------------------------------
 
-# No blank line between the last BP row and a foreign table's header — a
-# table butted directly against the BP table with no blank line.
+# A foreign table (non-BP-ID header) butted directly against the BP table with
+# no blank line between them. Per GFM this is a single table, so the foreign
+# rows fall inside the canonical table's source-map span.
 _ADJACENT_TABLE_INDEX_FIXTURE = (
     "# Best Practices Index\n"
     "\n"
@@ -378,7 +385,7 @@ _ADJACENT_TABLE_INDEX_FIXTURE = (
 )
 
 
-def test_write_no_blank_line_before_foreign_table(tmp_path):
+def test_write_butted_foreign_table_appends_at_merged_table_end(tmp_path):
     index_path = tmp_path / "INDEX.md"
     index_path.write_text(_ADJACENT_TABLE_INDEX_FIXTURE, encoding="utf-8")
     _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
@@ -400,14 +407,15 @@ def test_write_no_blank_line_before_foreign_table(tmp_path):
         ):
             assert line in after_lines, f"foreign table line dropped: {line!r}"
 
-    # New row lands immediately after the last real BP row, before the
-    # foreign table's header — not spliced into or after the foreign table.
+    # The foreign rows' first cells (Status, **CURRENT**) are not BP-IDs, so
+    # they are never counted as members. Because GFM treats the butted rows as
+    # part of the same table, the new row appends at the end of that single
+    # merged table — after the foreign rows, not before them.
     new_row_idx = after_lines.index("| BP-004 | Delta Topic | TBD | 2026-02-01 | TBD |")
-    gamma_idx = after_lines.index(
-        "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |"
+    current_idx = after_lines.index(
+        "| **CURRENT** | Actively applicable, verified within 6 months |"
     )
-    status_header_idx = after_lines.index("| Status | Meaning |")
-    assert gamma_idx < new_row_idx < status_header_idx
+    assert new_row_idx > current_idx
 
 
 def test_check_not_fooled_by_bp_id_in_foreign_table_row(tmp_path, capsys):
@@ -444,9 +452,9 @@ def test_check_not_fooled_by_bp_id_in_foreign_table_row(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# Regression (#303 round-2 review) — a non-BP-ID row *inside* the canonical
-# table (a divider/note/spacer) must not truncate the scan; BP rows after it
-# must still be counted and still receive the splice bound.
+# A non-BP-ID row *inside* the canonical table (a divider/note/spacer) is
+# still within the table's source-map span, so BP rows after it are counted;
+# the divider's first cell simply doesn't match the BP-ID pattern.
 # ---------------------------------------------------------------------------
 
 # A divider row between BP-002 and BP-003 whose first cell isn't a BP-ID.
@@ -495,15 +503,15 @@ def test_check_mid_table_divider_not_false_flagged_missing(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# Regression (#303 round-4) — a foreign table butted directly against the
-# canonical one (no blank line) whose OWN first data row happens to be a
-# real-looking BP-ID must still be excluded: the sweep must stop at the
-# foreign table's header+separator, not run into its data rows.
+# A second BP-ID-headed table butted directly against the canonical one with
+# no blank line between them. Per the GFM tables extension this is a single
+# table: the second header/separator and its data rows become body rows of the
+# one table. So a butted "| BP-050 |" row is a genuine member of the canonical
+# table, and a new row appends at the end of that single merged table.
 # ---------------------------------------------------------------------------
 
-# BP-050 appears twice on purpose: once as the foreign table's own row (which
-# must never be swept into the canonical table), once as the genuinely
-# missing canonical row that a bug in the sweep would otherwise mask.
+# The "| BP-050 |" row is butted against the canonical table with no blank
+# line, so per GFM it is a body row of the one table.
 _BUTTED_BPID_FOREIGN_TABLE_FIXTURE = (
     "# Best Practices Index\n"
     "\n"
@@ -518,7 +526,10 @@ _BUTTED_BPID_FOREIGN_TABLE_FIXTURE = (
 )
 
 
-def test_check_not_fooled_by_bp_id_in_butted_foreign_table(tmp_path, capsys):
+def test_check_butted_bp_id_row_counts_as_member(tmp_path, capsys):
+    # Per GFM, the butted "| BP-050 |" row is a body row of the one canonical
+    # table, so BP-050 is a genuine member. --check must be silent when a
+    # BP-050 file exists on disk — the row already indexes it.
     index_path = tmp_path / "INDEX.md"
     index_path.write_text(_BUTTED_BPID_FOREIGN_TABLE_FIXTURE, encoding="utf-8")
     _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
@@ -527,39 +538,106 @@ def test_check_not_fooled_by_bp_id_in_butted_foreign_table(tmp_path, capsys):
     _write_bp(tmp_path, "BP-050-d.md", "# Delta Topic\n")
 
     rc = _run(["--check", str(tmp_path)])
-    assert rc == 1
-    _, err = capsys.readouterr()
-    assert "BP-050-d.md" in err
+    assert rc == 0
+    out, err = capsys.readouterr()
+    assert out == "" and err == ""
 
 
-def test_write_no_blank_line_before_foreign_bp_id_table(tmp_path):
+def test_write_butted_bp_id_table_appends_after_butted_rows(tmp_path):
     index_path = tmp_path / "INDEX.md"
     index_path.write_text(_BUTTED_BPID_FOREIGN_TABLE_FIXTURE, encoding="utf-8")
     _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
     _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
     _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
-    _write_bp(tmp_path, "BP-050-d.md", "# Delta Topic\n**Date**: 2026-02-01\n")
+    # BP-050 already has a member row (the butted row), so it must NOT be
+    # re-appended; BP-099 is genuinely missing and must be appended.
+    _write_bp(tmp_path, "BP-050-e.md", "# Epsilon Topic\n")
+    _write_bp(tmp_path, "BP-099-new.md", "# Omega Topic\n**Date**: 2026-02-01\n")
 
     rc = _run(["--write", str(tmp_path)])
     assert rc == 0
 
-    after_lines = index_path.read_text(encoding="utf-8").split("\n")
+    after = index_path.read_text(encoding="utf-8")
+    after_lines = after.split("\n")
 
-    # The foreign table survives byte-for-byte, exactly once — not merged,
-    # not duplicated, not mutated.
+    # The butted rows survive byte-for-byte, exactly once — not duplicated,
+    # not mutated.
     for line in (
         "| BP-ID | Note |",
         "|-------|------|",
         "| BP-050 | archived cross-reference, not a canonical row |",
     ):
-        assert after_lines.count(line) == 1, f"foreign table line altered: {line!r}"
+        assert after_lines.count(line) == 1, f"butted table line altered: {line!r}"
 
-    # The new canonical BP-050 row lands after the last real BP row (Gamma)
-    # and before the foreign table's header — not merged into or placed
-    # after the foreign table.
-    new_row_idx = after_lines.index("| BP-050 | Delta Topic | TBD | 2026-02-01 | TBD |")
-    gamma_idx = after_lines.index(
-        "| BP-003 | Gamma Topic | NEEDS_REVIEW | 2026-01-03 | Informed |"
+    # BP-050 is already a member (the butted row), so its file is deduped —
+    # no second BP-050 row is appended.
+    assert "Epsilon Topic" not in after
+
+    # The genuinely-missing BP-099 appends at the end of the single merged
+    # table — after the butted BP-050 row.
+    new_row_idx = after_lines.index("| BP-099 | Omega Topic | TBD | 2026-02-01 | TBD |")
+    butted_row_idx = after_lines.index(
+        "| BP-050 | archived cross-reference, not a canonical row |"
     )
-    foreign_header_idx = after_lines.index("| BP-ID | Note |")
-    assert gamma_idx < new_row_idx < foreign_header_idx
+    assert new_row_idx > butted_row_idx
+
+
+# ---------------------------------------------------------------------------
+# A second BP-ID-headed table separated from the canonical one by a blank line
+# is a DISTINCT table (its own table_open). Only the first BP-ID table is
+# canonical; the second's rows are not members. This is a documented
+# limitation of scoping membership to the first BP-ID table.
+# ---------------------------------------------------------------------------
+
+_BLANK_DELIMITED_SECOND_BP_TABLE_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+    "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |\n"
+    "\n"
+    "## Archived\n"
+    "\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-090 | Archived Topic | ARCHIVED | 2025-01-01 | Informed |\n"
+)
+
+
+def test_blank_delimited_second_bp_table_is_not_merged():
+    table = mod._find_bp_table(_BLANK_DELIMITED_SECOND_BP_TABLE_FIXTURE)
+    assert table is not None
+    _, _, ids = table
+    # The blank line before the second table makes it a distinct table_open;
+    # only the first BP-ID table is canonical, so BP-090 is not a member.
+    assert ids == {"BP-001", "BP-002"}
+
+
+# ---------------------------------------------------------------------------
+# Encoding robustness: a leading UTF-8 BOM and CRLF line endings must not
+# hide the canonical table. The BOM is stripped and CRLF is normalized to LF
+# (via read_text's universal newlines) before parsing.
+# ---------------------------------------------------------------------------
+
+
+def test_check_silent_on_bom_prefixed_index(tmp_path, capsys):
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_text("﻿" + _CURATED_INDEX_FIXTURE, encoding="utf-8")
+    _write_curated_bp_files(tmp_path)
+
+    rc = _run(["--check", str(tmp_path)])
+    assert rc == 0
+    out, err = capsys.readouterr()
+    assert out == "" and err == ""  # BOM stripped: table still found, all indexed
+
+
+def test_check_silent_on_crlf_index(tmp_path, capsys):
+    index_path = tmp_path / "INDEX.md"
+    index_path.write_bytes(_CURATED_INDEX_FIXTURE.replace("\n", "\r\n").encode("utf-8"))
+    _write_curated_bp_files(tmp_path)
+
+    rc = _run(["--check", str(tmp_path)])
+    assert rc == 0
+    out, err = capsys.readouterr()
+    assert out == "" and err == ""  # CRLF normalized: table still found, all indexed
