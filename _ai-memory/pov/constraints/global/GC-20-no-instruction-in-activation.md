@@ -55,3 +55,9 @@ planning mode (relay protocol — where the workflow selection is also sent sepa
 2. Send the activation command alone
 3. Wait for the agent's menu/greeting response
 4. Send the instruction as a follow-up message
+
+## Operational Home
+
+Operationalized as the activation-gate checklist in:
+- `_ai-memory/pov/skills/aim-agent-dispatch/SKILL.md` (B4. Verify Activation)
+- `_ai-memory/pov/skills/aim-agent-lifecycle/SKILL.md` (Step 1, Activation gate)

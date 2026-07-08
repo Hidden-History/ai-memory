@@ -49,13 +49,24 @@ _read_teammate_mode() {
         )
     fi
 
-    local f line
+    local f value
     for f in "${files[@]}"; do
         [[ -f "$f" ]] || continue
-        line=$(grep -oE '"teammateMode"[[:space:]]*:[[:space:]]*"[^"]*"' "$f" 2>/dev/null | head -n1)
-        if [[ -n "$line" ]]; then
-            # Extract the quoted value after the colon.
-            printf '%s' "$line" | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/'
+        # Real JSON parse (not line-oriented grep) so a multi-line
+        # "teammateMode":\n  "value" shape is read correctly.
+        value=$(python3 -c '
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        data = json.load(fh)
+except (OSError, json.JSONDecodeError):
+    sys.exit(0)
+mode = data.get("teammateMode")
+if isinstance(mode, str):
+    print(mode)
+' "$f" 2>/dev/null)
+        if [[ -n "$value" ]]; then
+            printf '%s' "$value"
             return 0
         fi
     done

@@ -160,6 +160,23 @@ def test_in_process_mode_fires(helper: Path, tmp_path: Path) -> None:
     assert "teammateMode" in r.stderr
 
 
+def test_multiline_json_in_process_mode_fires(helper: Path, tmp_path: Path) -> None:
+    """teammateMode "in-process" spread across lines (not single-line
+    json.dumps output) must still be read correctly -> exit 1."""
+    settings = tmp_path / "settings.json"
+    settings.write_text('{\n  "teammateMode":\n    "in-process"\n}\n', encoding="utf-8")
+    r = _run(
+        helper,
+        "--settings",
+        str(settings),
+        cwd=tmp_path,
+        env=_base_env("1"),
+    )
+    assert r.returncode == 1
+    assert r.stdout == ""
+    assert "teammateMode" in r.stderr
+
+
 def test_both_missing_reports_both(helper: Path, tmp_path: Path) -> None:
     """Flag missing AND non-team mode -> exit 1; both remediations on stderr."""
     settings = _write_settings(tmp_path, "in-process")

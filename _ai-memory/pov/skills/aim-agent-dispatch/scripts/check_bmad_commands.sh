@@ -54,11 +54,16 @@ if [[ ! -f "$skill_md" ]]; then
     exit 2
 fi
 
-# Extract referenced /bmad-* commands. Trailing-dash tokens (e.g. the
-# "/bmad-agent-<name>" prose placeholder -> "/bmad-agent-") are placeholders,
-# not commands — drop them.
+# Extract referenced /bmad-* commands. Only backtick-delimited inline-code
+# spans count as command references (the markdown convention this SKILL.md
+# uses for literal commands) — this excludes phantom matches inside
+# non-command text such as markdown link paths (e.g.
+# ".../workflows/bmad-dispatch/workflow.md"). Trailing-dash tokens (e.g. the
+# "/bmad-agent-<name>" prose placeholder) are placeholders, not commands —
+# drop them.
 mapfile -t commands < <(
-    grep -oE '/bmad-[a-z0-9-]+' "$skill_md" \
+    grep -oE '`/bmad-[a-z0-9-]+`' "$skill_md" \
+        | tr -d '`' \
         | grep -vE -- '-$' \
         | sort -u
 )

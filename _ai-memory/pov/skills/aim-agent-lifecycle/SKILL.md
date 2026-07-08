@@ -41,7 +41,17 @@ For BMAD agents, the tmux bmad-dispatch workflow handles two-phase activation (p
 
 For generic agents, the tmux-dispatch workflow sends the instruction directly.
 
-**Activation gate (MANDATORY before first instruction):** do NOT send the task instruction until `tmux capture-pane` shows the teammate's activation output -- BMAD persona greeting plus numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Then send the task as a SEPARATE message (one task per instruction) including an explicit "do not idle until X" plus a concrete numbered step list. If still idle after one retry of the activation command, shut down (Step 4) and spawn FRESH. Never instruct an unverified agent.
+**Activation gate (MANDATORY before first instruction):**
+
+**Two-phase activation (GC-20):** send the activation command ONLY (e.g. `/bmad-agent-dev`) as its own message. Wait for the persona greeting/menu. Send the task instruction as a SEPARATE, follow-up message -- never bundled with activation. Bundling instruction into the activation message is a failed process: re-activate cleanly (fresh activation command, wait again), don't patch around it. See GC-20 (`_ai-memory/pov/constraints/global/GC-20-no-instruction-in-activation.md`) for the full rule and rationale.
+
+**Readiness-ack:** before sending any task content, require the teammate to confirm role + CWD + "READY FOR INSTRUCTION" (the BMAD persona greeting + numbered menu satisfies this for BMAD agents).
+
+**One nudge:** on a genuine menu-stall, send exactly ONE nudge (a repeat of the activation command) before treating it as a real stall -- not a barrage.
+
+**Idle vs. stall:** distinguish a normal between-turn idle (teammate finished its turn, awaiting the next message) from a real stall by checking work-state (git status / files written since spawn). Distinguish a system task-auto-replay (harness re-delivering a prior message) from genuine new direction before re-acting on it.
+
+Do NOT send the task instruction until `tmux capture-pane` shows the teammate's activation output -- BMAD persona greeting plus numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Then send the task as a SEPARATE message (one task per instruction) including an explicit "do not idle until X" plus a concrete numbered step list. If still idle after one retry of the activation command (the "one nudge" above exhausted), shut down (Step 4) and spawn FRESH. Never instruct an unverified agent.
 
 **Handle clarification requests:**
 - Agent asks BEFORE starting: provide clarification with citation. Never guess.

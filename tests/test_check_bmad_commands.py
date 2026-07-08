@@ -110,13 +110,13 @@ def test_all_resolve_is_silent(helper: Path, tmp_path: Path) -> None:
 
 
 def test_unresolved_fires(helper: Path, tmp_path: Path) -> None:
-    skill_md = _write_skill_md(tmp_path, "`/bmad-agent-dev`, `/bmad-ux`")
-    # bmad-ux intentionally absent; the real UX skill is bmad-create-ux-design.
-    skills = _make_skills(tmp_path, ("bmad-agent-dev", "bmad-create-ux-design"))
+    skill_md = _write_skill_md(tmp_path, "`/bmad-agent-dev`, `/bmad-nonexistent-skill`")
+    # /bmad-nonexistent-skill has no installed skill dir; /bmad-agent-dev does.
+    skills = _make_skills(tmp_path, ("bmad-agent-dev",))
     r = _run(helper, skill_md, skills)
     assert r.returncode == 1
     assert r.stdout == ""
-    assert "/bmad-ux" in r.stderr
+    assert "/bmad-nonexistent-skill" in r.stderr
     assert "/bmad-agent-dev" not in r.stderr
 
 
@@ -128,6 +128,25 @@ def test_unresolved_fires(helper: Path, tmp_path: Path) -> None:
 def test_placeholder_not_flagged(helper: Path, tmp_path: Path) -> None:
     skill_md = _write_skill_md(
         tmp_path, "activate via `/bmad-agent-<name>`; DEV is `/bmad-agent-dev`"
+    )
+    skills = _make_skills(tmp_path, ("bmad-agent-dev",))
+    r = _run(helper, skill_md, skills)
+    assert r.returncode == 0
+    assert r.stdout == ""
+    assert r.stderr == ""
+
+
+# ---------------------------------------------------------------------------
+# A markdown link path containing a /bmad-*-shaped substring must not be
+# treated as a referenced command (only backtick-delimited tokens count)
+# ---------------------------------------------------------------------------
+
+
+def test_link_path_not_flagged(helper: Path, tmp_path: Path) -> None:
+    skill_md = _write_skill_md(
+        tmp_path,
+        "see [workflow](../workflows/bmad-dispatch/workflow.md); "
+        "run `/bmad-agent-dev`",
     )
     skills = _make_skills(tmp_path, ("bmad-agent-dev",))
     r = _run(helper, skill_md, skills)

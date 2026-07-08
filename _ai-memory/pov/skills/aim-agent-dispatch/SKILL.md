@@ -179,7 +179,7 @@ MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updatin
 | Architecture | Architect | `/bmad-create-architecture` |
 | Architecture | PM | `/bmad-create-epics-and-stories` |
 | Architecture | Architect | `/bmad-check-implementation-readiness` |
-| Architecture | UX Designer | `/bmad-create-ux-design` |
+| Architecture | UX Designer | `/bmad-ux` |
 | Planning | (direct skill) | `/bmad-sprint-planning`, `/bmad-create-story` |
 | Execution | DEV | `/bmad-dev-story` |
 | Execution | DEV | `/bmad-code-review` |
@@ -191,10 +191,18 @@ Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
 #### B4. Verify Activation (MANDATORY gate before first instruction)
 
+**Two-phase activation (GC-20):** send the activation command ONLY (e.g. `/bmad-agent-dev`) as its own message. Wait for the persona greeting/menu. Send the task instruction as a SEPARATE, follow-up message -- never bundled with activation. Bundling instruction into the activation message is a failed process: re-activate cleanly (fresh activation command, wait again), don't patch around it. See GC-20 (`_ai-memory/pov/constraints/global/GC-20-no-instruction-in-activation.md`) for the full rule and rationale.
+
+**Readiness-ack:** before sending any task content, require the teammate to confirm role + CWD + "READY FOR INSTRUCTION" (the BMAD persona greeting + numbered menu satisfies this for BMAD agents).
+
+**One nudge:** on a genuine menu-stall, send exactly ONE nudge (a repeat of the activation command) before treating it as a real stall -- not a barrage.
+
+**Idle vs. stall:** distinguish a normal between-turn idle (teammate finished its turn, awaiting the next message) from a real stall by checking work-state (git status / files written since spawn). Distinguish a system task-auto-replay (harness re-delivering a prior message) from genuine new direction before re-acting on it.
+
 Do NOT send any task instruction until the teammate has emitted its activation output -- the BMAD persona greeting plus its numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Verify by reading the spawn's first response (Claude-native) or `tmux capture-pane` (tmux).
 
 - Activated (greeting + menu, clean state, no prior task context) -> send the task as a SEPARATE message (one task per instruction), and include an explicit "do not idle until X" plus a concrete numbered step list. BMAD `bmad-agent-dev`/reviewers early-idle otherwise.
-- Not activated after one retry of the activation command -> spawn a FRESH agent. Never send an instruction to an unverified agent; check configuration if it repeats.
+- Not activated after one retry of the activation command (the "one nudge" above exhausted) -> spawn a FRESH agent. Never send an instruction to an unverified agent; check configuration if it repeats.
 
 #### B5. Dispatch Complete
 
