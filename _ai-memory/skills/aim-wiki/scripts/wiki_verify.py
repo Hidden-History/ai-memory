@@ -88,6 +88,12 @@ def _looks_like_source(ref: str) -> bool:
     return bool(dot) and ext.lower() in _SOURCE_EXTS
 
 
+def _looks_like_dir_ref(ref: str) -> bool:
+    """True when a backtick token is a directory citation: `/`-terminated and
+    more than just the bare root slash (e.g. `src/handlers/`)."""
+    return ref.endswith("/") and len(ref) > 1
+
+
 def _is_external(target: str) -> bool:
     return target.startswith(("http://", "https://", "mailto:", "#"))
 
@@ -113,7 +119,7 @@ def _extract_citations(page: Path, wiki_root: Path) -> list[str]:
         refs.add(norm)
     for m in _CODE_PATH_RE.finditer(text):
         norm = _normalize(m.group(1))
-        if _looks_like_source(norm):
+        if _looks_like_source(norm) or _looks_like_dir_ref(norm):
             refs.add(norm)
     return sorted(refs)
 
