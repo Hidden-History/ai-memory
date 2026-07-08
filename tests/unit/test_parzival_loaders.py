@@ -353,6 +353,21 @@ def test_session_build_scopes(workspace: Path):
     assert "Owner is wb." in sanctum_only
 
 
+def test_session_build_missing_bug_td_index_fires_marker(workspace: Path):
+    # #289 — an absent bugs/tech-debt INDEX must fire a marker, not be
+    # silently skipped (fire-only-if-missing).
+    (workspace / "oversight/bugs/INDEX.md").unlink()
+    (workspace / "oversight/tech-debt/INDEX.md").unlink()
+    out = session_loader.build(workspace, scope="oversight")
+    assert (
+        "bugs INDEX absent — bug counts unavailable; run /aim-tracking-freshness" in out
+    )
+    assert (
+        "tech-debt INDEX absent — TD counts unavailable; run /aim-tracking-freshness"
+        in out
+    )
+
+
 def test_vital_floor_present_across_phases(workspace: Path):
     act = activation_loader.build(workspace)
     ses = session_loader.build(workspace, scope="all")
