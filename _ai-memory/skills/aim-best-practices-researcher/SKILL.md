@@ -90,15 +90,16 @@ When presenting each finding, state why it is the current gold standard and cite
    (`oversight/knowledge/best-practices/BP-*.md`) — take the highest ID + 1.
 2. **Write** `oversight/knowledge/best-practices/BP-XXX-[topic].md` using the
    format from [OUTPUT-FORMAT.md](OUTPUT-FORMAT.md).
-3. Regenerate the INDEX from disk:
+3. Update the INDEX from disk:
 
    ```bash
    python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" \
        --write oversight/knowledge/best-practices
    ```
 
-   `bp_index.py` rebuilds `INDEX.md` by scanning `BP-*.md` (idempotent — it is
-   NOT append-only). Swap `--write` for `--check` to verify every BP file has an
+   `bp_index.py` appends any `BP-*.md` file missing from `INDEX.md` (matched
+   by BP-ID) without touching existing rows — idempotent, non-destructive.
+   Swap `--write` for `--check` to verify every BP file has a matching
    INDEX row (silent when all present; non-zero and lists offenders when not).
 
 ### Phase 4: Store to Database (MANDATORY)
@@ -122,6 +123,10 @@ Without this step, research is lost and BUG-048 occurs.
 - [ ] Ran store_best_practice.py via run-with-env.sh
 - [ ] Received "Stored: <id>" or "Duplicate skipped" confirmation
 - [ ] If duplicate, that's OK - finding already exists
+- [ ] If exit code 3 / WARNING (stored but embedding incomplete): the finding
+      IS stored but not yet semantically searchable — run
+      `backfill_pending_embeddings.py`, don't re-run store (it would just
+      report "Duplicate skipped")
 
 ### Phase 5: Skill Evaluation
 
