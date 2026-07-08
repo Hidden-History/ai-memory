@@ -179,13 +179,15 @@ MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updatin
 | Architecture | Architect | `/bmad-create-architecture` |
 | Architecture | PM | `/bmad-create-epics-and-stories` |
 | Architecture | Architect | `/bmad-check-implementation-readiness` |
-| Architecture | UX Designer | `/bmad-ux` |
+| Architecture | UX Designer | `/bmad-create-ux-design` |
 | Planning | (direct skill) | `/bmad-sprint-planning`, `/bmad-create-story` |
 | Execution | DEV | `/bmad-dev-story` |
 | Execution | DEV | `/bmad-code-review` |
 | Release | (direct skill) | `/bmad-retrospective` |
 
 Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
+
+> **Maintenance check:** `scripts/check_bmad_commands.sh` verifies every `/bmad-*` command in the tables above resolves to an installed skill under `.claude/skills/` (fire-only-if-missing: silent when all resolve, non-zero listing any that don't; degrades gracefully when BMAD is not installed). Run it after editing these tables or updating the BMAD module.
 
 #### B4. Verify Activation (MANDATORY gate before first instruction)
 

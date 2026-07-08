@@ -77,6 +77,28 @@ not just the first one in a session -- `cd` drifts silently across Bash calls.
 
 ---
 
+## MANDATORY: Verify Agent Teams Prerequisites
+
+**Before the first TeamCreate, verify the Agent Teams prerequisites above are live.**
+
+The Prerequisites list is not self-enforcing -- a missing
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` or a `teammateMode` set to a non-team
+mode (`in-process`) silently degrades parallel-team dispatch. This preflight is
+**fire-only-if-missing**: silent when the prerequisites hold, loud with exact
+remediation (and non-zero) when one is missing.
+
+```
+Bash: bash "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/preflight_agent_teams.sh"
+# No output + exit 0 -> prerequisites satisfied, proceed.
+# Any output on stderr + exit 1 -> add the flag / fix teammateMode as instructed, then re-run.
+```
+
+**DO NOT PROCEED if this check fails.** Tell the user exactly what to add (the
+script prints the remediation). Same guard runs in `/aim-agent-lifecycle` Step 1
+for tmux dispatch, so both dispatch paths enforce the identical prerequisites.
+
+---
+
 ## Create a Team
 
 TeamCreate establishes the team and shared task list. Parzival becomes team lead.
