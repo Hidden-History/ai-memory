@@ -79,9 +79,18 @@ Prioritize results published within the last ~6 months relative to today.
 
 ### Steps
 
-1. Generate BP-ID: `ls oversight/knowledge/best-practices/BP-*.md | sort -V | tail -1`
-2. Create file: `oversight/knowledge/best-practices/BP-XXX-[topic].md`
+1. Generate BP-ID: use **Glob** on `oversight/knowledge/best-practices/BP-*.md`,
+   take the highest existing ID and add 1.
+2. **Write** file: `oversight/knowledge/best-practices/BP-XXX-[topic].md`
 3. Use format from OUTPUT-FORMAT.md
+4. Regenerate the INDEX from disk (idempotent, not append-only):
+   `python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" --write oversight/knowledge/best-practices`
+
+### Write scope
+
+This skill writes ONLY the BP file, `INDEX.md` (regenerated in step 4), and the
+conventions-DB store (Phase 4). Do NOT edit roadmaps, SoT, or any other
+oversight file.
 
 ---
 

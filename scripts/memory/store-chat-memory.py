@@ -71,7 +71,7 @@ logger.propagate = False
 
 def store_chat_memory(
     session_id: str, agent: str, content: str, cwd: str | None = None
-) -> bool:
+) -> tuple[bool, str | None]:
     """Store chat memory to discussions collection.
 
     Args:
@@ -81,7 +81,11 @@ def store_chat_memory(
         cwd: Optional working directory for project detection
 
     Returns:
-        bool: True if stored successfully, False if gracefully degraded
+        (ok, embedding_status): ``ok`` is True if stored, False if gracefully
+        degraded (storage failure). ``embedding_status`` is the payload's
+        embedding status ("complete" or "pending") on a successful store, or
+        None when storage did not happen. A "pending" status means a
+        zero-vector placeholder was stored (not semantically searchable).
 
     Raises:
         No exceptions - all errors handled gracefully with exit 0
@@ -188,14 +192,14 @@ def store_chat_memory(
             },
         )
 
-        return True
+        return True, embedding_status
 
     except QdrantUnavailable as e:
         logger.warning(
             "qdrant_unavailable",
             extra={"error": str(e), "session_id": session_id, "agent": agent},
         )
-        return False
+        return False, None
 
     except Exception as e:
         logger.error(
@@ -207,7 +211,7 @@ def store_chat_memory(
                 "agent": agent,
             },
         )
-        return False
+        return False, None
 
 
 def main() -> int:
@@ -262,14 +266,25 @@ def main() -> int:
             args.content = args.content[:100000]  # Truncate to max
 
         # Store chat memory
-        success = store_chat_memory(
+        success, embedding_status = store_chat_memory(
             session_id=args.session_id,
             agent=args.agent,
             content=args.content,
             cwd=args.cwd,
         )
 
-        if success:
+        if success and embedding_status != "complete":
+            # Stored, but the embedding degraded to a zero-vector placeholder —
+            # not semantically searchable until backfilled. Warn loudly but keep
+            # exit 0: this is a per-turn capture hook whose graceful-degradation
+            # contract must not break the turn.
+            print(
+                f"⚠️  AI Memory: Chat memory stored for {args.agent} but "
+                f"embedding is {embedding_status!r} — zero-vector placeholder, "
+                "NOT semantically searchable until backfilled",
+                file=sys.stderr,
+            )
+        elif success:
             print(
                 f"💬 AI Memory: Chat memory stored for {args.agent} "
                 f"({len(args.content)} chars)",

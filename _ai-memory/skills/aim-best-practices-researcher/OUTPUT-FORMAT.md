@@ -70,7 +70,21 @@ Template for best practices research reports.
 **Storage Summary**:
 - Successful: [count] new practices stored
 - Duplicates: [count] skipped
+- Degraded: [count] stored with a pending/placeholder embedding (not yet searchable)
 - Failed: [count] errors
+
+---
+
+## Files Written
+
+Enumerate every file this run created or modified, taken from `git status --porcelain`
+(or `git diff --name-only`). Per the skill's write scope, this list must contain
+ONLY the BP file, `INDEX.md`, and no other oversight files.
+
+| File | Change |
+|------|--------|
+| oversight/knowledge/best-practices/BP-XXX-[topic].md | new |
+| oversight/knowledge/best-practices/INDEX.md | regenerated |
 
 ---
 
