@@ -1,14 +1,18 @@
-"""Install tests for the retry-queue drain cron job (TD-710).
+"""Install tests for retiring the retry-queue drain host cron (TD-710 → daemon migration).
 
-Before this fix, scripts/memory/process_retry_queue.py was invoked ONLY once, at
-install time (drain_pending_queue). There was no standing scheduler, so the
-failed-store queue accumulated append-only between installs (7-week, 203-item
-backlog observed in production).
+TD-710 originally had install.sh register a flock-guarded host cron entry (marker
+"# ai-memory-retry-drain") that ran process_retry_queue.py every 15 minutes. The
+standing scheduler has since moved to an in-stack daemon container
+(docker-compose.yml, owned separately), so install.sh must no longer install that
+cron — it must instead REMOVE any prior installation's tagged entry so an
+upgrading operator doesn't end up with BOTH the old host cron and the new daemon
+draining the queue concurrently.
 
-setup_retry_drain_cron() registers a flock-guarded cron entry (marker
-"# ai-memory-retry-drain") that runs process_retry_queue.py every 15 minutes,
-mirroring the existing setup_jira_cron() pattern. Core safety property: re-running
-install must not duplicate the cron entry (idempotent by marker).
+remove_legacy_retry_drain_cron() is the migration function: idempotent, no-op on a
+fresh install or a host with no crontab, and it must never touch any crontab entry
+other than the one carrying the "# ai-memory-retry-drain" marker — including an
+untagged/operator-authored cron line that happens to reference
+process_retry_queue.py for its own purposes.
 
 A fake `crontab` binary is placed on PATH so these tests never touch the real
 crontab of the machine running them.
@@ -68,7 +72,7 @@ def fake_crontab_env(tmp_path):
     """Fake `crontab` binary on PATH + the state file it reads/writes.
 
     Returns (bin_dir, state_file) so tests can prepend bin_dir to PATH and
-    inspect state_file's contents after calling setup_retry_drain_cron.
+    inspect state_file's contents after calling remove_legacy_retry_drain_cron.
     """
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir()
@@ -79,165 +83,194 @@ def fake_crontab_env(tmp_path):
     return bin_dir, state_file
 
 
-def _run_setup_retry_drain_cron(
+def _run_remove_legacy_retry_drain_cron(
     install_sh_copy: Path,
     install_dir: Path,
     bin_dir: Path,
     state_file: Path,
-    platform: str = "linux",
 ) -> subprocess.CompletedProcess:
-    """Source install.sh (no-main copy) and call setup_retry_drain_cron with a fake crontab."""
+    """Source install.sh (no-main copy) and call remove_legacy_retry_drain_cron
+    with a fake crontab."""
     bash_cmd = f"""
 set -euo pipefail
 export PATH="{bin_dir}:$PATH"
 export FAKE_CRONTAB_FILE="{state_file}"
 export INSTALL_DIR="{install_dir}"
-export PLATFORM="{platform}"
 source "{install_sh_copy}"
 INSTALL_DIR="{install_dir}"
-PLATFORM="{platform}"
-setup_retry_drain_cron
+remove_legacy_retry_drain_cron
 """
     return subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
 
 
-class TestSetupRetryDrainCron:
-    def test_registers_entry_with_marker_and_schedule(
+class TestRemoveLegacyRetryDrainCron:
+    def test_fresh_install_no_crontab_write(
         self, install_sh_no_main, fake_crontab_env, tmp_path
     ):
+        """No prior crontab at all (fake crontab -l exits 1, state_file absent) —
+        the function must be a pure no-op: no crontab write, state_file never
+        created."""
         bin_dir, state_file = fake_crontab_env
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
 
-        result = _run_setup_retry_drain_cron(
+        result = _run_remove_legacy_retry_drain_cron(
             install_sh_no_main, install_dir, bin_dir, state_file
         )
         assert (
             result.returncode == 0
-        ), f"setup_retry_drain_cron failed:\n{result.stderr}"
+        ), f"remove_legacy_retry_drain_cron failed:\n{result.stderr}"
+        assert (
+            not state_file.exists()
+        ), "Fresh install with no crontab must not create one"
 
-        crontab_content = state_file.read_text(encoding="utf-8")
-        matching = [
-            line
-            for line in crontab_content.splitlines()
-            if "ai-memory-retry-drain" in line
-        ]
-        assert len(matching) == 1, f"expected exactly one entry, got: {matching}"
-        entry = matching[0]
-        assert entry.startswith("*/15 * * * *"), entry
-        assert "process_retry_queue.py" in entry
-        assert "--limit 500" in entry  # raised above the 100 default so backlog clears
-        assert f"{install_dir}/.locks/retry_drain.lock" in entry
-        assert "flock -n" in entry
-        assert f">> {install_dir}/logs/retry_drain.log 2>&1" in entry
-
-    def test_locks_dir_created(self, install_sh_no_main, fake_crontab_env, tmp_path):
-        bin_dir, state_file = fake_crontab_env
-        install_dir = tmp_path / "install_dir"
-        install_dir.mkdir()
-
-        _run_setup_retry_drain_cron(
-            install_sh_no_main, install_dir, bin_dir, state_file
-        )
-        assert (install_dir / ".locks").is_dir()
-
-    def test_idempotent_no_duplicate_on_second_run(
+    def test_removes_marked_legacy_entry(
         self, install_sh_no_main, fake_crontab_env, tmp_path
     ):
+        """A pre-existing tagged entry (marker "# ai-memory-retry-drain") is removed."""
         bin_dir, state_file = fake_crontab_env
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
+        legacy_entry = (
+            "*/15 * * * * flock -n /tmp/.locks/retry_drain.lock "
+            "/tmp/.venv/bin/python /tmp/scripts/memory/process_retry_queue.py "
+            "--limit 500 >> /tmp/logs/retry_drain.log 2>&1 # ai-memory-retry-drain\n"
+        )
+        state_file.write_text(legacy_entry, encoding="utf-8")
 
-        first = _run_setup_retry_drain_cron(
+        result = _run_remove_legacy_retry_drain_cron(
             install_sh_no_main, install_dir, bin_dir, state_file
         )
-        assert first.returncode == 0, first.stderr
-
-        second = _run_setup_retry_drain_cron(
-            install_sh_no_main, install_dir, bin_dir, state_file
-        )
-        assert second.returncode == 0, second.stderr
+        assert result.returncode == 0, result.stderr
 
         crontab_content = state_file.read_text(encoding="utf-8")
-        matching = [
-            line
-            for line in crontab_content.splitlines()
-            if "ai-memory-retry-drain" in line
-        ]
-        assert (
-            len(matching) == 1
-        ), f"re-running install must not duplicate the cron entry, got: {matching}"
+        assert "ai-memory-retry-drain" not in crontab_content
+        assert "process_retry_queue.py" not in crontab_content
+
+    def test_untagged_process_retry_queue_entry_is_preserved(
+        self, install_sh_no_main, fake_crontab_env, tmp_path
+    ):
+        """An untagged entry that happens to reference process_retry_queue.py (no
+        "# ai-memory-retry-drain" marker) is left alone — matching is marker-only,
+        so an operator's own unrelated cron line referencing the same script path
+        is never touched."""
+        bin_dir, state_file = fake_crontab_env
+        install_dir = tmp_path / "install_dir"
+        install_dir.mkdir()
+        untagged_entry = "*/30 * * * * /usr/bin/python3 /opt/legacy/process_retry_queue.py --limit 50\n"
+        state_file.write_text(untagged_entry, encoding="utf-8")
+
+        result = _run_remove_legacy_retry_drain_cron(
+            install_sh_no_main, install_dir, bin_dir, state_file
+        )
+        assert result.returncode == 0, result.stderr
+
+        crontab_content = state_file.read_text(encoding="utf-8")
+        assert "/opt/legacy/process_retry_queue.py" in crontab_content
 
     def test_preserves_unrelated_existing_crontab_entries(
         self, install_sh_no_main, fake_crontab_env, tmp_path
     ):
+        """Unrelated crontab entries are never touched — only the marker line is
+        matched for removal."""
         bin_dir, state_file = fake_crontab_env
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
-        state_file.write_text("0 0 * * * /usr/bin/some-other-job\n", encoding="utf-8")
+        state_file.write_text(
+            "0 0 * * * /usr/bin/some-other-job\n"
+            "*/15 * * * * /usr/bin/python3 /opt/process_retry_queue.py # ai-memory-retry-drain\n",
+            encoding="utf-8",
+        )
 
-        result = _run_setup_retry_drain_cron(
+        result = _run_remove_legacy_retry_drain_cron(
             install_sh_no_main, install_dir, bin_dir, state_file
         )
         assert result.returncode == 0, result.stderr
 
         crontab_content = state_file.read_text(encoding="utf-8")
         assert "/usr/bin/some-other-job" in crontab_content
-        matching = [
-            line
-            for line in crontab_content.splitlines()
-            if "ai-memory-retry-drain" in line
-        ]
-        assert len(matching) == 1
+        assert "ai-memory-retry-drain" not in crontab_content
+        assert "process_retry_queue.py" not in crontab_content
 
-    def test_legacy_untagged_entry_is_replaced_not_duplicated(
+    def test_idempotent_second_run_is_noop(
         self, install_sh_no_main, fake_crontab_env, tmp_path
     ):
-        """A pre-TD-710 crontab entry that calls process_retry_queue.py but lacks the
-        "# ai-memory-retry-drain" marker must be replaced by the new tagged entry, not
-        left in place alongside it (the filter greps both the marker and the script name).
-        """
+        """Re-running after the legacy entry is already removed makes no further
+        crontab write and leaves the (now-clean) crontab unchanged."""
         bin_dir, state_file = fake_crontab_env
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
-        legacy_entry = "*/30 * * * * /usr/bin/python3 /opt/legacy/process_retry_queue.py --limit 50\n"
-        state_file.write_text(legacy_entry, encoding="utf-8")
+        state_file.write_text(
+            "*/15 * * * * /usr/bin/python3 /opt/process_retry_queue.py # ai-memory-retry-drain\n"
+            "0 0 * * * /usr/bin/some-other-job\n",
+            encoding="utf-8",
+        )
 
-        result = _run_setup_retry_drain_cron(
+        first = _run_remove_legacy_retry_drain_cron(
             install_sh_no_main, install_dir, bin_dir, state_file
         )
-        assert result.returncode == 0, result.stderr
+        assert first.returncode == 0, first.stderr
+        after_first = state_file.read_text(encoding="utf-8")
+        assert "ai-memory-retry-drain" not in after_first
+        assert "/usr/bin/some-other-job" in after_first
 
-        crontab_content = state_file.read_text(encoding="utf-8")
-        assert "/opt/legacy/process_retry_queue.py" not in crontab_content
-        matching = [
-            line
-            for line in crontab_content.splitlines()
-            if "process_retry_queue.py" in line
-        ]
-        assert (
-            len(matching) == 1
-        ), f"legacy untagged entry must be replaced not duplicated, got: {matching}"
-        assert "ai-memory-retry-drain" in matching[0]
+        second = _run_remove_legacy_retry_drain_cron(
+            install_sh_no_main, install_dir, bin_dir, state_file
+        )
+        assert second.returncode == 0, second.stderr
+        after_second = state_file.read_text(encoding="utf-8")
+        assert after_second == after_first, (
+            "Second run must be a no-op once the legacy entry is already gone "
+            f"— before: {after_first!r} after: {after_second!r}"
+        )
 
-    def test_macos_platform_omits_flock(
-        self, install_sh_no_main, fake_crontab_env, tmp_path
-    ):
-        bin_dir, state_file = fake_crontab_env
+    def test_noop_when_crontab_binary_unavailable(self, install_sh_no_main, tmp_path):
+        """On a host with no `crontab` binary at all (e.g. a minimal container),
+        the function must exit 0 without attempting to invoke crontab."""
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
-
-        result = _run_setup_retry_drain_cron(
-            install_sh_no_main, install_dir, bin_dir, state_file, platform="macos"
+        empty_path_dir = tmp_path / "empty_path_dir"
+        empty_path_dir.mkdir()
+        bash_cmd = f"""
+set -euo pipefail
+export INSTALL_DIR="{install_dir}"
+source "{install_sh_no_main}"
+INSTALL_DIR="{install_dir}"
+export PATH="{empty_path_dir}"
+remove_legacy_retry_drain_cron
+echo "REACHED_END"
+"""
+        result = subprocess.run(
+            ["bash", "-c", bash_cmd], capture_output=True, text=True
         )
         assert result.returncode == 0, result.stderr
+        assert "REACHED_END" in result.stdout
 
-        crontab_content = state_file.read_text(encoding="utf-8")
-        matching = [
+    def test_no_cron_installing_function_defined(self):
+        """Structural regression guard: install.sh must not define a
+        setup_retry_drain_cron function (the pre-migration cron-INSTALLING
+        symbol) — only the removal function remove_legacy_retry_drain_cron."""
+        text = _INSTALL_SH.read_text()
+        assert "setup_retry_drain_cron()" not in text, (
+            "install.sh must not define setup_retry_drain_cron() — the standing "
+            "retry-drain scheduler moved to an in-stack daemon; install.sh should "
+            "only remove a legacy host cron, not install one."
+        )
+        assert (
+            "remove_legacy_retry_drain_cron() {" in text
+        ), "remove_legacy_retry_drain_cron() function definition not found"
+
+    def test_removal_function_called_from_main(self):
+        """Structural regression guard: remove_legacy_retry_drain_cron must
+        actually be called from main() — a defined-but-unreachable function
+        would silently never clean up an operator's legacy cron."""
+        text = _INSTALL_SH.read_text()
+        call_sites = [
             line
-            for line in crontab_content.splitlines()
-            if "ai-memory-retry-drain" in line
+            for line in text.splitlines()
+            if line.strip() == "remove_legacy_retry_drain_cron"
         ]
-        assert len(matching) == 1
-        assert "flock" not in matching[0]
-        assert "process_retry_queue.py" in matching[0]
+        assert call_sites, (
+            "remove_legacy_retry_drain_cron is defined but never called — "
+            "it must be invoked from main()'s full-install branch."
+        )

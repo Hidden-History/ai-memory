@@ -825,6 +825,81 @@ else:
     echo ""
 }
 
+# load_persisted_config — Tier-2 (user-managed) prompt-suppression on reinstall.
+# BP-182 §2 / BUG-520: the shell analogue of debconf's "seen" flag — hydrate
+# prompt-gated vars from persisted docker/.env + docker/.env.secrets so
+# configure_options' `[[ -z "$VAR" ]]` guards skip already-answered questions.
+# Reuses the secrets-first _read_env_key idiom already proven in
+# configure_project_sources (BUG-309) and derive_and_persist_compose_profiles
+# (BP-160).
+#
+# Constraints (BP-182 §2.2): (1) only fill UNSET vars — preserves
+# shell > .env > default precedence; (2) all-or-nothing per feature — hydrate an
+# enable-flag only with its dependents present; (3) secrets from .env.secrets
+# first, never echoed; (4) gate on existing install — no-op on fresh.
+load_persisted_config() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # (4) Gate on existing install — no-op on fresh (blank placeholders must prompt)
+    [[ -f "$env_file" ]] || return 0
+
+    local hydrated=()
+
+    # --- GitHub (all-or-nothing: enable-flag + repo + token) ---
+    if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
+        local g_enabled g_repo g_token
+        g_enabled=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
+        g_repo=$(_read_env_key    "GITHUB_REPO"         "$secrets_file" "$env_file")
+        g_token=$(_read_env_key   "GITHUB_TOKEN"        "$secrets_file" "$env_file")
+        if [[ "$g_enabled" == "true" && -n "$g_repo" && -n "$g_token" ]]; then
+            GITHUB_SYNC_ENABLED="$g_enabled"; GITHUB_REPO="$g_repo"; GITHUB_TOKEN="$g_token"
+            hydrated+=("GitHub")
+        elif [[ "$g_enabled" == "false" ]]; then
+            GITHUB_SYNC_ENABLED="false"; hydrated+=("GitHub(disabled)")
+        fi
+        # else: incomplete prior config → leave unset → prompt (all-or-nothing)
+    fi
+
+    # --- Jira (enable-flag + url + email + token + projects) ---
+    if [[ -z "${JIRA_SYNC_ENABLED:-}" ]]; then
+        local j_en j_url j_email j_tok j_proj
+        j_en=$(_read_env_key    "JIRA_SYNC_ENABLED" "$secrets_file" "$env_file")
+        j_url=$(_read_env_key   "JIRA_INSTANCE_URL" "$secrets_file" "$env_file")
+        j_email=$(_read_env_key "JIRA_EMAIL"        "$secrets_file" "$env_file")
+        j_tok=$(_read_env_key   "JIRA_API_TOKEN"    "$secrets_file" "$env_file")
+        j_proj=$(_read_env_key_json "JIRA_PROJECTS" "$secrets_file" "$env_file")
+        if [[ "$j_en" == "true" && -n "$j_url" && -n "$j_email" && -n "$j_tok" ]]; then
+            JIRA_SYNC_ENABLED="$j_en"; JIRA_INSTANCE_URL="$j_url"; JIRA_EMAIL="$j_email"
+            JIRA_API_TOKEN="$j_tok"; JIRA_PROJECTS="$j_proj"; hydrated+=("Jira")
+        elif [[ "$j_en" == "false" ]]; then
+            JIRA_SYNC_ENABLED="false"; hydrated+=("Jira(disabled)")
+        fi
+    fi
+
+    # --- Langfuse / monitoring (single-flag features) ---
+    if [[ -z "${LANGFUSE_ENABLED:-}" ]]; then
+        LANGFUSE_ENABLED=$(_read_env_key "LANGFUSE_ENABLED" "$secrets_file" "$env_file")
+        [[ -n "$LANGFUSE_ENABLED" ]] && hydrated+=("Langfuse")
+    fi
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
+        [[ -n "$INSTALL_MONITORING" ]] && hydrated+=("Monitoring")
+    fi
+
+    # SEED_BEST_PRACTICES is an action, not persisted state — default to skip
+    # re-seed on reinstall (an existing install already has the DB seeded).
+    if [[ -z "${SEED_BEST_PRACTICES:-}" ]]; then
+        SEED_BEST_PRACTICES="false"
+    fi
+
+    # (5) Transparency — make the skipped prompts obviously intentional
+    if (( ${#hydrated[@]} )); then
+        log_info "Reusing existing config from ${env_file}: ${hydrated[*]}"
+        log_info "  (to change any value, edit docker/.env(.secrets) or export the var before install)"
+    fi
+}
+
 # Interactive configuration prompts
 configure_options() {
     # Skip prompts if running non-interactively or if all options pre-set
@@ -1305,6 +1380,7 @@ main() {
 
     # Full install steps - create shared infrastructure
     if [[ "$INSTALL_MODE" == "full" ]]; then
+        load_persisted_config          # BP-182 §2.4 / BUG-520 — hydrate before prompt
         # Interactive configuration (unless non-interactive mode)
         configure_options
 
@@ -1349,8 +1425,9 @@ main() {
 
             # BUG-125: Drain queued events that failed during service startup
             drain_pending_queue
-            # TD-710: Standing scheduler so the retry queue keeps draining after install
-            setup_retry_drain_cron
+            # TD-710 cron→daemon migration: retry-queue draining now runs as an
+            # in-stack daemon (docker-compose.yml); remove any legacy host cron.
+            remove_legacy_retry_drain_cron
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -4222,44 +4299,36 @@ verify_embedding_readiness() {
     log_warning "Embedding service slow to respond — GitHub sync may have embedding timeouts"
 }
 
-# Set up cron job for automated retry-queue draining (TD-710)
-# Without this, process_retry_queue.py only runs once at install time (drain_pending_queue),
-# so failed-store events accumulate append-only between installs.
-setup_retry_drain_cron() {
-    log_info "Configuring automated retry-queue drain (every 15 minutes)..."
+# Remove the legacy retry-queue-drain host cron (TD-710 cron→daemon migration).
+# TD-710 originally installed a host cron entry (marker "# ai-memory-retry-drain")
+# to run process_retry_queue.py every 15 minutes. That standing scheduler has
+# moved to an in-stack daemon container (docker-compose.yml) so it runs under the
+# same lifecycle as the rest of the stack. This function no longer installs any
+# cron — it ONLY removes a prior installation's tagged entry, so an operator
+# upgrading doesn't end up with BOTH the old host cron and the new daemon
+# draining the queue concurrently. Idempotent: no-op on a fresh install or a
+# host with no crontab, and no-op on a second run once the entry is already
+# gone. Matches ONLY the "# ai-memory-retry-drain" marker line — never touches
+# any other crontab entry, including an operator's own unrelated cron jobs.
+remove_legacy_retry_drain_cron() {
+    # crontab may not exist on this host at all (e.g. a minimal container) —
+    # nothing to migrate.
+    command -v crontab >/dev/null 2>&1 || return 0
 
-    # Ensure locks directory exists for flock
-    mkdir -p "$INSTALL_DIR/.locks"
-
-    # Build cron command (BP-053: direct interpreter + flock + tagged entry)
-    # cd to docker/ so get_config() finds .env (pydantic env_file=".env")
-    # --limit raised above the 100 default so a multi-week backlog clears over a few runs.
-    local cron_tag="# ai-memory-retry-drain"
-    local cron_cmd
-    if [[ "$PLATFORM" == "macos" ]]; then
-        # macOS: no flock available by default
-        cron_cmd="cd $INSTALL_DIR/docker && $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/process_retry_queue.py --limit 500"
-    else
-        # Linux/WSL: use flock for overlap prevention
-        cron_cmd="cd $INSTALL_DIR/docker && flock -n $INSTALL_DIR/.locks/retry_drain.lock $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/process_retry_queue.py --limit 500"
-    fi
-    local cron_entry="*/15 * * * * $cron_cmd >> $INSTALL_DIR/logs/retry_drain.log 2>&1 $cron_tag"
-
-    # Idempotent: remove any existing ai-memory-retry-drain entry, then add fresh
     local existing_crontab
     existing_crontab=$(crontab -l 2>/dev/null || true)
+    [[ -z "$existing_crontab" ]] && return 0
 
-    # Filter out old entries (by tag OR by legacy process_retry_queue.py match)
+    # Nothing to remove — never installed, or already migrated.
+    echo "$existing_crontab" | grep -q "ai-memory-retry-drain" || return 0
+
     local filtered_crontab
-    filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-retry-drain" | grep -v "process_retry_queue.py" || true)
+    filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-retry-drain" || true)
 
-    # Add new entry
-    if printf '%s\n%s\n' "$filtered_crontab" "$cron_entry" | crontab - 2>/dev/null; then
-        log_success "Cron job configured (retry-queue drain every 15 minutes)"
-        log_debug "To view: crontab -l | grep ai-memory-retry-drain"
+    if printf '%s\n' "$filtered_crontab" | crontab - 2>/dev/null; then
+        log_success "Removed legacy retry-queue drain cron (now handled by the in-stack daemon)"
     else
-        log_warning "Failed to configure cron job - set up manually if needed"
-        log_info "Add to crontab: $cron_entry"
+        log_warning "Failed to remove legacy retry-drain cron entry — remove manually: crontab -e"
     fi
 }
 

@@ -168,7 +168,7 @@ This session summary was manually saved by the user using /save-memory command.
             "content_hash": content_hash,
             "group_id": project_name,
             "type": "session",
-            "source_hook": "ManualSave",
+            "source_hook": "manual",
             "session_id": session_id,
             "timestamp": timestamp,
             "embedding_status": embedding_status,
@@ -258,7 +258,7 @@ This session summary was manually saved by the user using /save-memory command.
             "content": summary_content,
             "group_id": project_name,
             "memory_type": "session",
-            "source_hook": "ManualSave",
+            "source_hook": "manual",
             "session_id": session_id,
             "importance": "normal",
         }

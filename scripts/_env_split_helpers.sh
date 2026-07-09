@@ -79,6 +79,29 @@ _read_env_key() {
     printf '%s' "$val"
 }
 
+# _read_env_key_json — read a JSON-valued KEY=VALUE from a flat env file
+# (secrets_file-first fallthrough), preserving embedded double-quotes.
+# Companion to _read_env_key(): that helper's `tr -d` strips ALL quote
+# characters from the value, which corrupts a JSON array (e.g.
+# JIRA_PROJECTS='["A","B"]' -> `[A,B]` — invalid JSON, breaking every
+# MemoryConfig() consumer after a reinstall). This helper strips only the ONE
+# wrapping layer of quotes the installer wraps the value in when persisting
+# (single, then double — BUG-101 precedent at install.sh's docker/.env
+# in-place JIRA_PROJECTS migration), leaving internal JSON quoting intact.
+_read_env_key_json() {
+    local key="$1"
+    local secrets_file="$2"
+    local env_file="$3"
+    local val
+    val=$(grep "^${key}=" "$secrets_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    if [[ -z "$val" ]]; then
+        val=$(grep "^${key}=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    fi
+    val="${val#\'}"; val="${val%\'}"
+    val="${val#\"}"; val="${val%\"}"
+    printf '%s' "$val"
+}
+
 # migrate_secret_to_secrets_file — BP-154 §3 Option γ atomic single-key migration.
 # Moves one key from .env (chmod 644) to .env.secrets (chmod 600).
 # Idempotent: safe to re-run; verify-before-blank prevents data loss.

@@ -174,20 +174,23 @@ def _build_recoverable_payload(error_context: dict[str, Any]) -> dict[str, Any]:
     The raw ``error_context`` is not a recognised memory-data record, so the
     queue guard would reject it and the outage-time capture would be lost. This
     reconstructs the same record the main (Qdrant-up) store path would have
-    written — formatted content, the ``error_pattern`` type, the resolved
-    group_id, and the session_id — so the entry drains via the format-1
-    ("content" key) handler. group_id mirrors the main path's
-    ``resolve_project_id`` resolution, falling back to "unknown" (the same
-    sentinel process_retry_queue uses) if detection fails.
+    written — formatted content, the ``error_pattern`` type, a valid
+    ``source_hook`` (this capture runs via the PostToolUse hook), and the
+    session_id — so the entry drains via the format-1 ("content" key) handler.
+
+    ``group_id`` is deliberately NOT resolved here: the raw ``cwd`` is carried
+    on the entry instead, and the failed-store producer boundary
+    (``queue_operation`` -> ``_prepare_failed_store_entry`` in
+    ``src/memory/queue.py``) resolves it ONCE, canonically, in the producer's
+    live context. If resolution genuinely fails, that boundary rejects the
+    entry (drop + log) rather than enqueuing it under a fabricated "unknown"
+    catch-all (BUG-523; Will PM #380 — no catch-all group_ids).
     """
-    try:
-        group_id = resolve_project_id(error_context.get("cwd", ""))
-    except ValueError:
-        group_id = "unknown"
     return {
         "content": format_error_content(error_context),
         "type": "error_pattern",
-        "group_id": group_id,
+        "cwd": error_context.get("cwd", ""),
+        "source_hook": "PostToolUse",
         "session_id": error_context.get("session_id", ""),
     }
 
