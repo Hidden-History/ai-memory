@@ -39,20 +39,6 @@ def required_mem_limit(
     return round(projected * (1 + safety_margin_ratio))
 
 
-def max_concurrency_for_limit(
-    base_rss: float,
-    per_request_peak: float,
-    mem_limit: float,
-    safety_margin_ratio: float = 0.15,
-) -> int:
-    """Largest max_concurrency that fits `mem_limit` with the safety margin, floored at 1."""
-    if per_request_peak <= 0:
-        raise ValueError("per_request_peak must be > 0")
-    budget = mem_limit / (1 + safety_margin_ratio) - base_rss
-    concurrency = int(budget // per_request_peak)
-    return max(1, concurrency)
-
-
 @dataclass
 class EnvelopeCandidate:
     max_concurrency: int

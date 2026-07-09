@@ -26,6 +26,9 @@ def test_write_results_json_serializes_nested_dataclasses(tmp_path):
         leak_tolerance_ratio=0.10,
         memory_peak_bytes=5000,
         mem_limit_bytes=6000,
+        total_requests=100,
+        total_failures=0,
+        base_rss_bytes=1000,
     )
     out_path = tmp_path / "soak.json"
     results.write_results_json(

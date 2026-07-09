@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import math
 import random
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -60,6 +61,16 @@ def _collect_corpus_text(corpus_dir: Path, patterns: tuple[str, ...]) -> str:
     return "\n\n".join(chunks)
 
 
+def corpus_is_empty(corpus_dir: Path, model: str = "en") -> bool:
+    """True if `sample_texts` would fall back to the placeholder corpus for this
+    dir/model. Callers check this once up front to set a loud, machine-readable
+    `corpus_fallback_used` flag in their results — an overnight soak run on toy
+    strings must never silently pass (BP-179 §2).
+    """
+    patterns = CODE_GLOB_PATTERNS if model == "code" else EN_GLOB_PATTERNS
+    return not _collect_corpus_text(corpus_dir, patterns)
+
+
 def sample_texts(
     corpus_dir: Path,
     n: int,
@@ -72,11 +83,18 @@ def sample_texts(
     Falls back to a clearly-marked repeated placeholder if the corpus is empty —
     a degraded mode for smoke-testing the harness itself, NOT a substitute for
     BP-179 §2's "realistic payloads" requirement in an actual measurement run.
+    Emits a UserWarning when the fallback fires.
     """
     rng = random.Random(seed)
     patterns = CODE_GLOB_PATTERNS if model == "code" else EN_GLOB_PATTERNS
     corpus = _collect_corpus_text(corpus_dir, patterns)
     if not corpus:
+        warnings.warn(
+            f"corpus_dir={corpus_dir} has no matching files for model={model!r} "
+            "— falling back to placeholder toy strings; this run's measurements "
+            "are NOT representative of BP-179 §2 realistic payloads",
+            stacklevel=2,
+        )
         return [
             "[harness-smoke-placeholder-corpus-empty] "
             * (distribution.sample(rng) // 40 + 1)

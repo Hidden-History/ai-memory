@@ -37,40 +37,6 @@ def test_required_mem_limit_adds_safety_margin():
     assert result == pytest.approx(projected * 1.15, rel=1e-6)
 
 
-def test_max_concurrency_for_limit_floors_at_one():
-    # Budget too small for even one slot at the given per-request peak.
-    concurrency = envelope.max_concurrency_for_limit(
-        base_rss=5.9 * GIB,
-        per_request_peak=1.0 * GIB,
-        mem_limit=6.0 * GIB,
-        safety_margin_ratio=0.15,
-    )
-    assert concurrency == 1
-
-
-def test_max_concurrency_for_limit_rejects_non_positive_peak():
-    with pytest.raises(ValueError):
-        envelope.max_concurrency_for_limit(
-            base_rss=2.0 * GIB, per_request_peak=0, mem_limit=6.0 * GIB
-        )
-
-
-def test_max_concurrency_for_limit_is_inverse_of_required_mem_limit():
-    # required_mem_limit rounds to the nearest byte, so the round-trip can be off
-    # by one at the margin; the load-bearing invariant is that the mem_limit it
-    # produces for a target concurrency actually admits that concurrency.
-    base_rss = 2.0 * GIB
-    per_request_peak = 0.5 * GIB
-    for target_concurrency in range(1, 6):
-        mem_limit = envelope.required_mem_limit(
-            base_rss, per_request_peak, target_concurrency
-        )
-        recovered = envelope.max_concurrency_for_limit(
-            base_rss, per_request_peak, mem_limit
-        )
-        assert abs(recovered - target_concurrency) <= 1
-
-
 def test_recommend_envelope_returns_one_candidate_per_concurrency_level():
     candidates = envelope.recommend_envelope(
         base_rss=2.0 * GIB,

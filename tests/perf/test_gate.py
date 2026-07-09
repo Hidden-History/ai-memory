@@ -18,12 +18,16 @@ BASE_KWARGS = {
     "leak_tolerance_ratio": 0.10,
     "memory_peak_bytes": 5_500_000_000,
     "mem_limit_bytes": 6_000_000_000,
+    "total_requests": 100,
+    "total_failures": 0,
+    "base_rss_bytes": 2_000_000_000,
 }
 
 
 def test_all_criteria_pass_gate_passes():
     result = gate.evaluate_gate(**BASE_KWARGS)
     assert result.passed
+    assert result.outcome == "PASS"
     assert len(result.criteria) == 6
     assert all(c.passed for c in result.criteria)
 
@@ -116,3 +120,46 @@ def test_single_failing_criterion_fails_the_whole_gate():
     passing = [c for c in result.criteria if c.passed]
     assert len(passing) == 5
     assert not result.passed
+    assert result.outcome == "FAIL"
+
+
+def test_load_never_landed_is_invalid_not_pass():
+    # All requests failed (e.g. wrong port) — every criterion trivially holds
+    # (0 oom, 0 shed, no working-set climb) but the run proved nothing.
+    kwargs = {
+        **BASE_KWARGS,
+        "total_requests": 100,
+        "total_failures": 100,
+        "memory_peak_bytes": 2_000_000_100,  # never rose above base_rss
+    }
+    result = gate.evaluate_gate(**kwargs)
+    assert result.outcome == "INVALID"
+    assert not result.passed
+    assert "load may not have landed" in result.load_validity_detail
+
+
+def test_peak_never_rose_above_base_is_invalid():
+    kwargs = {
+        **BASE_KWARGS,
+        "memory_peak_bytes": 2_000_000_000,  # == base_rss, no burst landed
+    }
+    result = gate.evaluate_gate(**kwargs)
+    assert result.outcome == "INVALID"
+    assert "burst may not have landed" in result.load_validity_detail
+
+
+def test_zero_requests_is_invalid():
+    kwargs = {**BASE_KWARGS, "total_requests": 0, "total_failures": 0}
+    result = gate.evaluate_gate(**kwargs)
+    assert result.outcome == "INVALID"
+    assert "no requests were sent" in result.load_validity_detail
+
+
+def test_evaluate_load_validity_passes_with_healthy_run():
+    validity = gate.evaluate_load_validity(
+        total_requests=100,
+        total_failures=2,
+        memory_peak_bytes=5_500_000_000,
+        base_rss_bytes=2_000_000_000,
+    )
+    assert validity.valid

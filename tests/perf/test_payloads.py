@@ -5,6 +5,9 @@ module slices genuine corpus content (given a real directory) and only falls
 back to a clearly-marked placeholder when the corpus is empty.
 """
 
+import warnings
+
+import pytest
 from embedding_capacity import payloads
 
 
@@ -38,10 +41,37 @@ def test_sample_texts_respects_model_glob_pattern(tmp_path):
 
 def test_sample_texts_falls_back_to_marked_placeholder_when_corpus_empty(tmp_path):
     dist = payloads.LengthDistribution(p50_chars=100, p99_chars=500)
-    texts = payloads.sample_texts(tmp_path, n=3, distribution=dist, model="en", seed=1)
+    with pytest.warns(UserWarning, match="falling back to placeholder"):
+        texts = payloads.sample_texts(
+            tmp_path, n=3, distribution=dist, model="en", seed=1
+        )
 
     assert len(texts) == 3
     assert all("harness-smoke-placeholder-corpus-empty" in text for text in texts)
+
+
+def test_sample_texts_does_not_warn_when_corpus_has_content(tmp_path):
+    (tmp_path / "notes.md").write_text("word " * 5000)
+    dist = payloads.LengthDistribution(p50_chars=100, p99_chars=500)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        payloads.sample_texts(tmp_path, n=3, distribution=dist, model="en", seed=1)
+
+
+def test_corpus_is_empty_true_when_no_matching_files(tmp_path):
+    assert payloads.corpus_is_empty(tmp_path, model="en") is True
+
+
+def test_corpus_is_empty_false_when_matching_files_present(tmp_path):
+    (tmp_path / "notes.md").write_text("some content")
+    assert payloads.corpus_is_empty(tmp_path, model="en") is False
+
+
+def test_corpus_is_empty_respects_model_glob(tmp_path):
+    (tmp_path / "code.py").write_text("def f():\n    return 1\n")
+    assert payloads.corpus_is_empty(tmp_path, model="en") is True
+    assert payloads.corpus_is_empty(tmp_path, model="code") is False
 
 
 def test_sample_texts_is_deterministic_with_seed(tmp_path):

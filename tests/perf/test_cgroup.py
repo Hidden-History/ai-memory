@@ -4,6 +4,8 @@ Fully mocked at the exec_fn / subprocess.run boundary (BP-179 §2/§3 logic unde
 test, never a live container).
 """
 
+import time
+
 import pytest
 from embedding_capacity import cgroup
 
@@ -157,3 +159,101 @@ def test_scan_dmesg_oom_raises_on_permission_denied(monkeypatch):
     monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
     with pytest.raises(cgroup.CgroupAccessError):
         cgroup.scan_dmesg_oom()
+
+
+def test_try_reset_peak_returns_true_on_success():
+    reader = cgroup.DockerCgroupReader("c1", exec_fn=lambda *a: "")
+    assert reader.try_reset_peak() is True
+
+
+def test_try_reset_peak_returns_false_when_reset_unsupported():
+    # BP-179 §2 corrected: kernel 6.6 / read-only cgroup -> reset raises.
+    def exec_fn(container, *cmd):
+        raise cgroup.CgroupAccessError("Read-only file system")
+
+    reader = cgroup.DockerCgroupReader("c1", exec_fn=exec_fn)
+    assert reader.try_reset_peak() is False
+
+
+def test_peak_poller_tracks_max_current_over_time():
+    # First 2 reads return a low baseline value, every read after that returns
+    # a higher value forever — regardless of exact thread-scheduling timing,
+    # any run long enough to poll more than twice must observe the higher max.
+    call_count = {"n": 0}
+
+    def exec_fn(container, *cmd):
+        call_count["n"] += 1
+        return "1000" if call_count["n"] <= 2 else "5000"
+
+    reader = cgroup.DockerCgroupReader("c1", exec_fn=exec_fn)
+    poller = cgroup.PeakPoller(reader, interval_seconds=0.01)
+    poller.start()
+    time.sleep(0.1)
+    peak = poller.stop()
+
+    assert peak == 5000
+
+
+def test_peak_poller_stops_cleanly_when_never_started():
+    reader = cgroup.DockerCgroupReader("c1", exec_fn=lambda *a: "1000")
+    poller = cgroup.PeakPoller(reader)
+    assert poller.stop() == 0
+
+
+def test_dmesg_baseline_returns_latest_timestamp(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = "[10.0] boot\n[55.5] some other line\n[30.0] middle\n"
+        stderr = ""
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    assert cgroup.dmesg_baseline() == 55.5
+
+
+def test_dmesg_baseline_returns_zero_when_no_timestamps(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = "no timestamps here\n"
+        stderr = ""
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    assert cgroup.dmesg_baseline() == 0.0
+
+
+def test_dmesg_baseline_raises_on_permission_denied(monkeypatch):
+    class _Result:
+        returncode = 1
+        stdout = ""
+        stderr = "dmesg: read kernel buffer failed: Operation not permitted"
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    with pytest.raises(cgroup.CgroupAccessError):
+        cgroup.dmesg_baseline()
+
+
+def test_scan_dmesg_oom_excludes_lines_at_or_before_baseline(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = (
+            "[100.0] Out of memory: Killed process 1 (python) stale kill\n"
+            "[200.0] Out of memory: Killed process 2 (python) fresh kill\n"
+        )
+        stderr = ""
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    lines = cgroup.scan_dmesg_oom(process_pattern="python", since_timestamp=100.0)
+
+    assert len(lines) == 1
+    assert "fresh kill" in lines[0]
+
+
+def test_scan_dmesg_oom_keeps_lines_with_unparseable_timestamp(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = "Out of memory: Killed process 1 (python) no bracket timestamp\n"
+        stderr = ""
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    lines = cgroup.scan_dmesg_oom(process_pattern="python", since_timestamp=500.0)
+
+    assert len(lines) == 1

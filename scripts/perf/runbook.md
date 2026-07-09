@@ -21,12 +21,18 @@ separate, deliberate follow-up decision.
   works from this host before scheduling the run — if it errors, stop and
   fix cgroup access first (see BLOCKER PROTOCOL in the dispatch brief; do not
   guess a value).
+- `memory.peak` **reset** needs Linux >= 6.8 AND a writable cgroup mount; on
+  the WSL2 6.6 target it is `-r--r--r--` (read-only), so reset fails. The
+  harness detects this automatically (`try_reset_peak()`) and falls back to
+  dense-polling `memory.current` for the burst/soak duration instead
+  (BP-179 §2 corrected) — every result JSON records whether the fallback was
+  used via `peak_measurement_fallback_used`. No manual smoke-check needed.
 - Confirm `dmesg` is readable (no `Operation not permitted`) — it is one of
   the two authoritative OOM signals (BP-179 §3) and the harness raises
   `CgroupAccessError` rather than silently treating a permission failure as
-  "zero kills".
+  "zero kills". `soak` does this pre-flight automatically at start.
 - Install harness dependencies: `pip install -e .[dev]` from the repo root
-  (adds `httpx`, `prometheus-client`, `psutil`, already in `dev`).
+  (adds `httpx`, `prometheus-client`, already in `dev`).
 
 All commands below assume `cwd` is the repo root and the stack is already
 running (`docker/stack.sh` up, embedding service healthy on `:28080`).
@@ -39,7 +45,7 @@ concurrency (BP-179 §2). Run once per model (`en`, `code`) you care about.
 ```bash
 python scripts/perf/embedding_capacity_harness.py measure \
     --concurrency 4 --batch-size 30 --model en \
-    --corpus-dir docs
+    --corpus-dir /mnt/e/projects/dev-ai-memory/ai-memory/docs
 ```
 
 - `--corpus-dir` should point at real prose (`docs/`) for `--model en` or a
@@ -63,7 +69,8 @@ table.
 ```bash
 python scripts/perf/embedding_capacity_harness.py ramp \
     --start-concurrency 1 --max-concurrency 8 --step 1 \
-    --batch-size 30 --model en --corpus-dir docs
+    --batch-size 30 --model en \
+    --corpus-dir /mnt/e/projects/dev-ai-memory/ai-memory/docs
 ```
 
 - Stops the moment `memory.events:oom_kill` increments or backpressure
@@ -97,7 +104,7 @@ python scripts/perf/embedding_capacity_harness.py soak \
     --duration-hours 8 \
     --concurrency-ceiling 4 --waiters 4 \
     --mem-limit-bytes 6442450944 \
-    --model en --corpus-dir docs \
+    --model en --corpus-dir /mnt/e/projects/dev-ai-memory/ai-memory/docs \
     --read-timeout-seconds 30
 ```
 
