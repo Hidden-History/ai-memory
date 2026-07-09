@@ -420,6 +420,33 @@ def cleanup_dedup_lock(lock_path: str) -> None:
         pass
 
 
+def _spawn_opportunistic_drain() -> None:
+    """Fire-and-forget an immediate retry-queue drain on session start (BP-181).
+
+    Complements the in-stack daemon so a resumed session doesn't wait for the
+    next interval tick. Fully non-blocking and best-effort — it NEVER delays or
+    crashes session start. The drain CLI holds the shared drain lock, so this
+    never runs concurrently with the daemon.
+    """
+    try:
+        import subprocess
+
+        drain_script = os.path.join(
+            INSTALL_DIR, "scripts", "memory", "process_retry_queue.py"
+        )
+        if not os.path.exists(drain_script):
+            return
+        subprocess.Popen(
+            [sys.executable, drain_script],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass  # Never block or crash session start (FR30, NFR-R1).
+
+
 def main():
     """Retrieve and output relevant memories for Claude context.
 
@@ -427,6 +454,9 @@ def main():
     CRITICAL: Always exit 0 - never block Claude startup (FR30, NFR-R1).
     """
     start_time = time.perf_counter()
+
+    # Opportunistic, non-blocking retry-queue drain (BP-181) — never blocks start.
+    _spawn_opportunistic_drain()
 
     with track_hook_duration("SessionStart"):
         try:

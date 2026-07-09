@@ -643,10 +643,99 @@ class TestEnqueueGuard:
         assert result is False
 
     def test_queue_operation_returns_true_for_valid_payload(self, tmp_path):
-        """queue_operation() returns True for a valid memory-data record."""
+        """queue_operation() returns True for a replay-valid memory-data record."""
         with patch("src.memory.queue.QUEUE_FILE", tmp_path / "q.jsonl"):
             result = queue_operation(
-                {"content": "store this", "group_id": "proj"},
+                {
+                    "content": "store this",
+                    "group_id": "proj",
+                    "type": "implementation",
+                    "source_hook": "manual",
+                },
                 "qdrant_unavailable",
             )
         assert result is True
+
+
+class TestQueueOperationReplayValidity:
+    """WI-1 / BP-180 / BUG-521 / BUG-522: the failed-store producer boundary
+    (queue_operation) resolves scope in the producer's live context and persists
+    a self-contained, replay-valid entry — or rejects a malformed op loudly,
+    never queuing an entry that can never store.
+    """
+
+    def test_malformed_op_rejected_at_boundary(self, tmp_path):
+        """An op missing a storable source_hook is rejected and never written."""
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            # group_id resolvable (explicit), but source_hook absent → not replay-valid.
+            result = queue_operation(
+                {"content": "x" * 50, "group_id": "proj-x", "type": "implementation"},
+                "qdrant_unavailable",
+            )
+        assert result is False
+        assert not qfile.exists() or qfile.read_text().strip() == ""
+
+    def test_valid_op_roundtrips_and_is_self_contained(self, tmp_path):
+        """A valid op is queued with persisted group_id + provenance stamped so the
+        drainer never re-resolves scope."""
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(
+                {
+                    "content": "x" * 50,
+                    "group_id": "proj-x",
+                    "type": "implementation",
+                    "source_hook": "PostToolUse",
+                    "session_id": "sess-9",
+                },
+                "qdrant_unavailable",
+            )
+        assert result is True
+        entry = json.loads(qfile.read_text().strip())
+        md = entry["memory_data"]
+        assert md["group_id"] == "proj-x"  # persisted, resolved in live context
+        assert md["source_hook"] == "PostToolUse"
+        assert md["session_id"] == "sess-9"
+        assert md["type"] == "implementation"
+
+    def test_unknown_catch_all_never_persisted(self, tmp_path, monkeypatch):
+        """An explicit 'unknown' catch-all is treated as unset; with an
+        unresolvable cwd + no env, the op is rejected rather than stored under
+        the forbidden 'unknown' group (Will PM #380)."""
+        monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(
+                {
+                    "content": "x" * 50,
+                    "group_id": "unknown",
+                    "type": "implementation",
+                    "source_hook": "PostToolUse",
+                    "cwd": "/nonexistent-unresolvable-xyz-123",
+                },
+                "qdrant_unavailable",
+            )
+        assert result is False
+        assert not qfile.exists() or qfile.read_text().strip() == ""
+
+    def test_memory_type_key_variant_normalized(self, tmp_path):
+        """A producer using 'memory_type' (not 'type') is normalized + stamped so
+        the entry is self-contained and correctly typed (no false rejection)."""
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(
+                {
+                    "content": "x" * 50,
+                    "group_id": "proj-x",
+                    "memory_type": "decision",
+                    "source_hook": "Stop",
+                    "session_id": "s1",
+                },
+                "qdrant_unavailable",
+            )
+        assert result is True
+        md = json.loads(qfile.read_text().strip())["memory_data"]
+        assert md["type"] == "decision"  # normalized from memory_type
+        assert md["group_id"] == "proj-x"
+        assert md["source_hook"] == "Stop"

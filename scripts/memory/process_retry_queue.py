@@ -29,9 +29,11 @@ Usage:
 """
 
 import argparse
+import fcntl
 import json
 import os
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -56,9 +58,52 @@ logger = setup_hook_logging("ai_memory.retry_processor")
 # Dead letter queue for items that exceed max retries or are permanently unparseable
 DLQ_FILE = Path(INSTALL_DIR) / "queue" / "retry_queue_dlq.jsonl"
 
+# Shared non-blocking drain lock. The in-stack daemon and an on-session-start
+# opportunistic drain both acquire THIS lock before draining, so at most one
+# drain runs at a time (they never double-process the queue concurrently).
+DRAIN_LOCK_FILE = Path(INSTALL_DIR) / "queue" / "retry_drain.lock"
+
+
+@contextmanager
+def drain_lock():
+    """Yield True if the exclusive drain lock was acquired, else False.
+
+    Non-blocking (LOCK_NB): if another drain already holds it, yields False so
+    the caller skips this pass instead of piling up. Best-effort — if the lock
+    file cannot be created, yields True (degrade to unlocked rather than block).
+    """
+    lock_file = None
+    try:
+        DRAIN_LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # The handle is held across the yield (closed in finally below), so a
+        # `with` block cannot span the context-manager's lifetime (SIM115).
+        lock_file = open(DRAIN_LOCK_FILE, "w")  # noqa: SIM115
+    except OSError:
+        yield True  # Degrade to unlocked rather than block the drain.
+        return
+    try:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    finally:
+        lock_file.close()
+
+
 # Substrings in a process_entry failure message that mark an entry as permanently
 # unparseable — no amount of retrying will fix these.  Dead-letter on first encounter.
-_PERMANENT_FAILURE_MARKERS: frozenset = frozenset({"Unknown payload format"})
+#   "Unknown payload format"    — memory_data carries no recognised key.
+#   "entry not self-contained"  — BP-180 / BUG-522: the entry lacks a persisted
+#                                 group_id/source_hook, so no retry can ever
+#                                 re-store it (drain must not re-derive scope).
+_PERMANENT_FAILURE_MARKERS: frozenset = frozenset(
+    {"Unknown payload format", "entry not self-contained"}
+)
 
 
 def _is_permanent_failure(message: str) -> bool:
@@ -141,13 +186,22 @@ def process_entry(
         if not content or len(content) < 20:
             return False, "Content too short or empty"
 
-        # Build memory params (BUG-314: via the one shared resolver)
-        from memory.project import resolve_project_id
-
-        cwd = hook_input.get("cwd", "/")
-        group_id = resolve_project_id(cwd)
-        session_id = hook_input.get("session_id", "retry")
-        source_hook = "PostToolUse"
+        # BP-180 / BUG-522: scope + provenance are read ONLY from the entry's
+        # persisted fields (stamped at enqueue in the producer's live context).
+        # NEVER re-resolve group_id from the stored cwd at drain time — the
+        # contextless drainer cannot resolve a producer's workspace, which is
+        # exactly what made Fix B recover ≈0 (BUG-522). A legacy entry that
+        # predates the persist fix has no group_id → poison → DLQ.
+        group_id = memory_data.get("group_id")
+        if not group_id or not str(group_id).strip():
+            return False, (
+                "entry not self-contained: hook_input entry has no persisted "
+                "group_id (legacy pre-BP-180 entry)"
+            )
+        session_id = memory_data.get("session_id") or hook_input.get(
+            "session_id", "retry"
+        )
+        source_hook = memory_data.get("source_hook") or "PostToolUse"
         file_path = tool_input.get("file_path", "")
 
         # Mirror live capture path: apply ImplementationFilter before extraction
@@ -176,21 +230,35 @@ def process_entry(
         content = payload.get("content", "")
         metadata = payload.get("metadata", {})
         memory_type = metadata.get("type", "implementation")
-        group_id = metadata.get("group_id", "unknown")
+        # BP-180 / BUG-521: no catch-all defaults — an entry that omits its
+        # persisted scope/provenance is poison (would mis-file or fail storage
+        # validation), so route it to the DLQ instead of guessing.
+        group_id = metadata.get("group_id")
         session_id = metadata.get("session_id", "retry")
-        source_hook = metadata.get("source_hook", "retry")
+        source_hook = metadata.get("source_hook")
         file_path = metadata.get("file_path", "")
         collection = get_collection_for_type(memory_type)
+        if not group_id or not str(group_id).strip() or not source_hook:
+            return False, (
+                "entry not self-contained: payload entry missing persisted "
+                "group_id/source_hook"
+            )
 
     elif "content" in memory_data:
         # Direct format
         content = memory_data.get("content", "")
         memory_type = memory_data.get("type", "implementation")
-        group_id = memory_data.get("group_id", "unknown")
+        # BP-180 / BUG-521: no catch-all defaults — see payload branch above.
+        group_id = memory_data.get("group_id")
         session_id = memory_data.get("session_id", "retry")
-        source_hook = memory_data.get("source_hook", "retry")
+        source_hook = memory_data.get("source_hook")
         file_path = memory_data.get("file_path", "")
         collection = get_collection_for_type(memory_type)
+        if not group_id or not str(group_id).strip() or not source_hook:
+            return False, (
+                "entry not self-contained: direct entry missing persisted "
+                "group_id/source_hook"
+            )
 
     else:
         return False, f"Unknown payload format: {list(memory_data.keys())}"
@@ -236,20 +304,21 @@ def extract_group_id(entry: dict) -> str | None:
     """Return the group_id an entry would be stored under.
 
     Mirrors the per-format group_id resolution in process_entry so a scoped
-    drain (--group-id) can match an entry without storing it. Returns None when
-    the group cannot be determined (unknown payload format).
+    drain (--group-id) can match an entry without storing it.
+
+    BP-180 / BUG-522: the group is read ONLY from the entry's persisted
+    ``group_id`` — never re-resolved from a stored cwd at drain time. Returns
+    None when no persisted group_id is present (unknown/legacy entry), so a
+    scoped drain skips it and a global drain routes it to the DLQ.
     """
     memory_data = entry.get("memory_data", {})
 
     if "hook_input" in memory_data:
-        from memory.project import resolve_project_id
-
-        cwd = memory_data["hook_input"].get("cwd", "/")
-        return resolve_project_id(cwd)
+        return memory_data.get("group_id")
     elif "payload" in memory_data:
-        return memory_data["payload"].get("metadata", {}).get("group_id", "unknown")
+        return memory_data["payload"].get("metadata", {}).get("group_id")
     elif "content" in memory_data:
-        return memory_data.get("group_id", "unknown")
+        return memory_data.get("group_id")
     return None
 
 
@@ -457,12 +526,18 @@ def main():
             print("Aborted")
             return 1
 
-    stats = process_queue(
-        force=args.force,
-        dry_run=args.dry_run,
-        limit=args.limit,
-        group_id=args.group_id,
-    )
+    # Hold the shared drain lock so a CLI/session-start drain and the in-stack
+    # daemon never drain concurrently. A dry run inspects only — no lock needed.
+    with drain_lock() as acquired:
+        if not acquired and not args.dry_run:
+            print("Another drain is already running — skipping.")
+            return 0
+        stats = process_queue(
+            force=args.force,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            group_id=args.group_id,
+        )
 
     print("\nProcessing Complete:")
     print(f"  Processed: {stats['processed']}")

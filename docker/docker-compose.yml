@@ -513,6 +513,82 @@ services:
       retries: 3
       start_period: 60s  # F2/F9: Allow time for Python startup, logger init, and first health file creation (typically <5s, buffer for slow systems)
 
+  # BUG-522 / BP-181: in-stack retry-queue drain daemon. Replaces the WSL2 host
+  # cron (which recovered ≈0 because the distro idles out with no terminal open).
+  # Reuses Dockerfile.worker (bakes scripts/) with a command override; drains on
+  # a fixed interval, re-storing each entry under its own persisted group_id.
+  retry-queue-drain:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-retry-queue-drain
+    labels:
+      <<: *ai-memory-labels
+      ai-memory.service: "retry-queue-drain"
+    <<: *python-service-defaults
+    command: ["python3", "scripts/memory/retry_drain_scheduler.py"]
+    environment:
+      # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
+      - QDRANT_HOST=qdrant                            # container-internal hostname
+      - QDRANT_PORT=6333                              # container-internal port
+      - EMBEDDING_HOST=embedding                      # container-internal hostname
+      - EMBEDDING_PORT=8080                           # container-internal port
+      - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
+      - LANGFUSE_BASE_URL=http://langfuse-web:3000    # container-internal URL
+      # BUG-150: LANGFUSE_TRACING_ENABLED mirrors LANGFUSE_ENABLED — Docker-only alias.
+      - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
+      - AI_MEMORY_INSTALL_DIR=/app                    # container path override
+      - AI_MEMORY_QUEUE_DIR=/app/queue                # container path override
+      - RETRY_DRAIN_INTERVAL_SECONDS=${RETRY_DRAIN_INTERVAL_SECONDS:-900}  # BP-181: ~15-min cadence
+      - PUSHGATEWAY_ENABLED=${MONITORING_ENABLED:-false}
+    volumes:
+      - ../src:/app/src:ro
+      - ../scripts:/app/scripts:ro
+      # Writable: the drain dequeues recovered entries and appends to the DLQ.
+      - ${AI_MEMORY_QUEUE_DIR:-~/.ai-memory/queue}:/app/queue
+      # Shared trace buffer for store span emission (matches classifier-worker)
+      - ${AI_MEMORY_INSTALL_DIR:-~/.ai-memory}/trace_buffer:/app/trace_buffer
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    # Run as host user for queue file access (bind mount permissions)
+    user: "${UID:-1000}:${GID:-1000}"
+    stop_grace_period: 30s
+    restart: unless-stopped  # Dependable heartbeat across reboots/crashes (BP-181). Matches anchor; explicit for the DONE-WHEN gate.
+    # Security hardening (2026 best practices) — matches classifier-worker
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=50m
+    networks:
+      - default
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      # File-based heartbeat — daemon touches the health file on startup and after
+      # each successful drain cycle. Check: exists AND modified within last 3600s
+      # (accommodates the 900s interval plus buffer, without a false failure).
+      test: ["CMD-SHELL", "python3 -c \"import os,sys,time; f='/tmp/retry-queue-drain.health'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f)<3600 else 1)\""]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s  # Python startup + first health-file write (typically <5s)
+
   github-sync:
     build:
       context: ..
