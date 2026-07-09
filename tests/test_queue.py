@@ -739,3 +739,146 @@ class TestQueueOperationReplayValidity:
         assert md["type"] == "decision"  # normalized from memory_type
         assert md["group_id"] == "proj-x"
         assert md["source_hook"] == "Stop"
+
+    def test_hook_input_format_defaults_source_hook_to_posttooluse(self, tmp_path):
+        """M1: hook_input entries with neither source_hook nor hook_event_name
+        default to 'PostToolUse' — matches the OLD drain's unconditional
+        default; store_async is the only hook_input producer and only ever
+        emits PostToolUse, so this is safe."""
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(
+                {
+                    "group_id": "proj-x",
+                    "type": "implementation",
+                    "hook_input": {
+                        "cwd": "/some/path",
+                        "session_id": "s1",
+                        "tool_name": "Edit",
+                    },
+                },
+                "qdrant_unavailable",
+            )
+        assert result is True
+        md = json.loads(qfile.read_text().strip())["memory_data"]
+        assert md["source_hook"] == "PostToolUse"
+        assert md["group_id"] == "proj-x"
+
+    def test_hook_input_format_uses_hook_event_name_when_present(self, tmp_path):
+        """hook_event_name still wins over the PostToolUse default when present."""
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(
+                {
+                    "group_id": "proj-x",
+                    "type": "implementation",
+                    "hook_input": {
+                        "cwd": "/some/path",
+                        "session_id": "s1",
+                        "hook_event_name": "Stop",
+                    },
+                },
+                "qdrant_unavailable",
+            )
+        assert result is True
+        md = json.loads(qfile.read_text().strip())["memory_data"]
+        assert md["source_hook"] == "Stop"
+
+    def test_payload_wrapper_format_roundtrips(self, tmp_path):
+        """M2: the payload-wrapper format (in addition to direct + hook_input)
+        is exercised through the guard."""
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(
+                {
+                    "payload": {
+                        "content": "x" * 50,
+                        "metadata": {
+                            "group_id": "proj-x",
+                            "type": "implementation",
+                            "source_hook": "SDKWrapper",
+                            "session_id": "s1",
+                        },
+                    },
+                },
+                "qdrant_unavailable",
+            )
+        assert result is True
+        md = json.loads(qfile.read_text().strip())["memory_data"]
+        assert md["source_hook"] == "SDKWrapper"
+        assert md["group_id"] == "proj-x"
+
+    def test_payload_wrapper_format_missing_source_hook_rejected(self, tmp_path):
+        """The payload-wrapper format has no PostToolUse default (that default
+        is hook_input-specific, M1) — a missing source_hook is still rejected."""
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(
+                {
+                    "payload": {
+                        "content": "x" * 50,
+                        "metadata": {"group_id": "proj-x", "type": "implementation"},
+                    },
+                },
+                "qdrant_unavailable",
+            )
+        assert result is False
+        assert not qfile.exists() or qfile.read_text().strip() == ""
+
+
+class TestRealProducerPayloadsPassGuard:
+    """BUG-521 / BUG-523 fix: the two producers that were emitting
+    invalid/missing provenance now pass the replay-validity guard with a
+    valid source_hook + resolved group_id. Fixed AT THE PRODUCERS — no
+    catch-all default was added to the live guard.
+    """
+
+    def test_manual_save_queue_payload_passes_guard(self, tmp_path):
+        """Mirrors the queue_data dict built in manual_save_memory.py's
+        store_manual_summary() ResponseHandlingException/UnexpectedResponse/
+        ApiException/QdrantUnavailable except-block (BUG-521 fix:
+        source_hook is now 'manual', not the invalid 'ManualSave')."""
+        qfile = tmp_path / "q.jsonl"
+        queue_data = {
+            "content": "Manual Session Save: myorg-myrepo\n" + "x" * 20,
+            "group_id": "myorg-myrepo",
+            "memory_type": "session",
+            "source_hook": "manual",
+            "session_id": "sess-1",
+            "importance": "normal",
+        }
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(queue_data)
+        assert result is True
+        md = json.loads(qfile.read_text().strip())["memory_data"]
+        assert md["source_hook"] == "manual"
+        assert md["group_id"] == "myorg-myrepo"
+
+    def test_error_store_recoverable_payload_passes_guard(self, tmp_path, monkeypatch):
+        """The REAL payload built by error_store_async.py's
+        _build_recoverable_payload() (BUG-523 fix: source_hook is now the
+        valid 'PostToolUse'; group_id is resolved by the guard from the
+        producer's live cwd — never the fabricated 'unknown' sentinel)."""
+        import sys
+        from pathlib import Path
+
+        sys.path.insert(0, str(Path(__file__).parent.parent / ".claude/hooks/scripts"))
+        import error_store_async as esav
+
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "myorg-myrepo")
+        error_context = {
+            "session_id": "sess-2",
+            "cwd": "/mnt/e/projects/dev-ai-memory/ai-memory",
+            "command": "pytest tests/",
+            "error_message": "boom",
+            "exit_code": 1,
+        }
+        payload = esav._build_recoverable_payload(error_context)
+
+        qfile = tmp_path / "q.jsonl"
+        with patch("src.memory.queue.QUEUE_FILE", qfile):
+            result = queue_operation(payload, "timeout")
+        assert result is True
+        md = json.loads(qfile.read_text().strip())["memory_data"]
+        assert md["source_hook"] == "PostToolUse"
+        assert md["group_id"] == "myorg-myrepo"

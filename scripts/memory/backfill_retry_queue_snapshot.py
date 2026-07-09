@@ -183,17 +183,14 @@ def backfill(snapshot_dir: Path, dry_run: bool, limit: int | None) -> dict:
 
 
 def main() -> int:
-    default_snapshot = (
-        "/mnt/e/projects/dev-ai-memory/oversight/tasks/pm386-lane-c/"
-        "queue-snapshot-2026-07-09"
-    )
     parser = argparse.ArgumentParser(
         description="Backfill preserved retry-queue snapshot entries (BUG-521/522)."
     )
     parser.add_argument(
         "--snapshot-dir",
-        default=default_snapshot,
-        help=f"Directory holding the snapshot .jsonl files (default: {default_snapshot})",
+        required=True,
+        help="Directory holding the snapshot .jsonl files (no default — no "
+        "hardcoded machine-specific path)",
     )
     parser.add_argument(
         "--execute",
@@ -213,6 +210,15 @@ def main() -> int:
 
     dry_run = not args.execute
     snapshot_dir = Path(args.snapshot_dir)
+
+    if args.execute:
+        confirm = input(
+            "W-02: this WRITES to Qdrant. Are you sure you want to execute "
+            "the backfill? (yes/no): "
+        )
+        if confirm.lower() != "yes":
+            print("Aborted")
+            return 1
 
     mode = (
         "DRY RUN (no Qdrant writes)"

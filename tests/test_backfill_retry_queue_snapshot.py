@@ -146,6 +146,76 @@ class TestStampLegacyScope:
         assert reason is not None
 
 
+class TestMainCLI:
+    """Fix M-portability / M-safety: --snapshot-dir has no hardcoded default,
+    and --execute (a W-02-gated production Qdrant write) is gated behind an
+    interactive yes/no confirmation, matching process_retry_queue.py's
+    --clear pattern."""
+
+    def test_snapshot_dir_is_required(self, monkeypatch, capsys):
+        mod = _load_module(monkeypatch)
+        monkeypatch.setattr(sys, "argv", ["backfill_retry_queue_snapshot.py"])
+        with pytest.raises(SystemExit) as exc_info:
+            mod.main()
+        assert exc_info.value.code == 2
+        assert "--snapshot-dir" in capsys.readouterr().err
+
+    def test_execute_aborts_without_yes_confirmation(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        mod = _load_module(monkeypatch)
+        called = MagicMock()
+        monkeypatch.setattr(mod, "backfill", called)
+        monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "backfill_retry_queue_snapshot.py",
+                "--snapshot-dir",
+                str(tmp_path),
+                "--execute",
+            ],
+        )
+        result = mod.main()
+        assert result == 1
+        called.assert_not_called()
+        assert "Aborted" in capsys.readouterr().out
+
+    def test_execute_proceeds_with_yes_confirmation(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        mod = _load_module(monkeypatch)
+        called = MagicMock(
+            return_value={
+                "read": 0,
+                "stored": 0,
+                "duplicate": 0,
+                "filtered": 0,
+                "skipped": 0,
+                "failed": 0,
+                "by_group": {},
+                "skip_reasons": {},
+            }
+        )
+        monkeypatch.setattr(mod, "backfill", called)
+        monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "backfill_retry_queue_snapshot.py",
+                "--snapshot-dir",
+                str(tmp_path),
+                "--execute",
+            ],
+        )
+        result = mod.main()
+        assert result == 0
+        called.assert_called_once()
+        assert called.call_args.kwargs["dry_run"] is False
+
+
 class TestBackfillDryRun:
     def _write_snapshot(self, tmp_path, pending, dlq):
         (tmp_path / "pending_queue.jsonl").write_text(

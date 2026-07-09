@@ -647,7 +647,12 @@ def _extract_replay_fields(data: dict) -> tuple[str | None, dict]:
             "explicit_gid": data.get("group_id"),
             "cwd": hi.get("cwd"),
             "type": data.get("type") or data.get("memory_type"),
-            "source_hook": data.get("source_hook") or hi.get("hook_event_name"),
+            # store_async is the only hook_input producer and only ever emits
+            # PostToolUse; when both keys are absent, default to it (matches
+            # the old drain's unconditional PostToolUse — Fix M1).
+            "source_hook": data.get("source_hook")
+            or hi.get("hook_event_name")
+            or "PostToolUse",
             "session_id": data.get("session_id") or hi.get("session_id"),
         }
     if "payload" in data:
