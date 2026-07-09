@@ -17,13 +17,18 @@ Usage:
     python scripts/memory/retry_drain_scheduler.py
 
 Environment:
-    RETRY_DRAIN_INTERVAL_SECONDS   Seconds between drains (default: 900 = 15 min)
-    RETRY_DRAIN_LIMIT              Max entries per drain cycle (default: 100)
-    AI_MEMORY_LOG_LEVEL           Log level (default: INFO)
+    RETRY_DRAIN_INTERVAL_SECONDS         Seconds between drains (default: 900 = 15 min)
+    RETRY_DRAIN_LIMIT                    Max entries per drain cycle (default: 100)
+    RETRY_DRAIN_GRPC_PREFLIGHT_MAX_ATTEMPTS  Max gRPC-readiness probe attempts at
+                                          startup before falling through (default: 30)
+    RETRY_DRAIN_GRPC_PREFLIGHT_SLEEP_SECONDS  Seconds between preflight probe
+                                          attempts (default: 2)
+    AI_MEMORY_LOG_LEVEL                  Log level (default: INFO)
 
 Reference:
 - BP-181 (WSL2 periodic execution), BP-180 (durable retry queue), BUG-522
 - DEC-110 (standalone scheduler container pattern)
+- TD-777 (bounded gRPC-readiness preflight)
 """
 
 import logging
@@ -43,6 +48,9 @@ sys.path.insert(0, os.path.join(INSTALL_DIR, "src"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from process_retry_queue import drain_lock, process_queue  # noqa: E402
+from qdrant_client import QdrantClient  # noqa: E402
+
+from memory.config import get_config  # noqa: E402
 
 HEALTH_FILE = Path("/tmp/retry-queue-drain.health")
 
@@ -50,6 +58,13 @@ HEALTH_FILE = Path("/tmp/retry-queue-drain.health")
 # recovery latency and load for a durable queue.
 DEFAULT_INTERVAL_SECONDS = 900
 DEFAULT_LIMIT = 100
+
+# TD-777: qdrant's compose `service_healthy` gate is the HTTP probe, which
+# passes before the gRPC listener accepts connections. These bound the
+# gRPC-readiness preflight (see _wait_for_grpc_ready) so the daemon never
+# hangs waiting for gRPC — it just falls through to normal operation.
+DEFAULT_GRPC_PREFLIGHT_MAX_ATTEMPTS = 30
+DEFAULT_GRPC_PREFLIGHT_SLEEP_SECONDS = 2
 
 logging.basicConfig(
     level=os.environ.get("AI_MEMORY_LOG_LEVEL", "INFO"),
@@ -104,6 +119,65 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
+def _wait_for_grpc_ready() -> None:
+    """Bounded preflight: poll Qdrant gRPC readiness with a THROWAWAY client.
+
+    TD-777: docker-compose's qdrant `service_healthy` gate is an HTTP probe
+    that passes before the gRPC listener (container :6334 / host :26351)
+    accepts connections. If the daemon's first process_queue() call reaches
+    get_qdrant_client() while gRPC is still unready, that function falls back
+    to HTTP and CACHES the HTTP-only client for the process lifetime
+    (src/memory/qdrant_client.py:107-135). This preflight never calls
+    get_qdrant_client() — it probes with a disposable raw QdrantClient so the
+    real client is only built (and cached) once gRPC is actually reachable.
+
+    Bounded by RETRY_DRAIN_GRPC_PREFLIGHT_MAX_ATTEMPTS attempts, sleeping
+    RETRY_DRAIN_GRPC_PREFLIGHT_SLEEP_SECONDS between them. If the budget
+    expires, logs a warning and falls through to normal operation — never
+    raises, never crashes the daemon.
+    """
+    max_attempts = _positive_int_env(
+        "RETRY_DRAIN_GRPC_PREFLIGHT_MAX_ATTEMPTS", DEFAULT_GRPC_PREFLIGHT_MAX_ATTEMPTS
+    )
+    sleep_seconds = _positive_int_env(
+        "RETRY_DRAIN_GRPC_PREFLIGHT_SLEEP_SECONDS",
+        DEFAULT_GRPC_PREFLIGHT_SLEEP_SECONDS,
+    )
+
+    config = get_config()
+    grpc_port = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
+    api_key = (
+        config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None
+    )
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            probe = QdrantClient(
+                host=config.qdrant_host,
+                port=config.qdrant_port,
+                api_key=api_key,
+                https=config.qdrant_use_https,
+                timeout=config.qdrant_timeout,
+                prefer_grpc=True,
+                grpc_port=grpc_port,
+                check_compatibility=False,
+            )
+            probe.get_collections()
+            logger.info("grpc_preflight_ready attempt=%d", attempt)
+            return
+        except Exception as exc:
+            logger.debug("grpc_preflight_not_ready attempt=%d error=%s", attempt, exc)
+            if attempt < max_attempts and not _shutdown_requested:
+                time.sleep(sleep_seconds)
+
+    logger.warning(
+        "grpc_preflight_budget_exhausted attempts=%d — proceeding without "
+        "confirmed gRPC readiness; first process_queue() may cache an "
+        "HTTP-only client",
+        max_attempts,
+    )
+
+
 def run_scheduler() -> None:
     """Main drain loop: drain, heartbeat, sleep — until shutdown is requested."""
     interval = _positive_int_env(
@@ -118,6 +192,9 @@ def run_scheduler() -> None:
     # Touch health file on startup so the Docker healthcheck passes immediately
     # (do not wait until the first drain completes — BUG-045 pattern).
     _touch_health_file()
+
+    # TD-777: bounded gRPC-readiness preflight — see _wait_for_grpc_ready.
+    _wait_for_grpc_ready()
 
     while not _shutdown_requested:
         try:
