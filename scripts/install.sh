@@ -4304,12 +4304,12 @@ verify_embedding_readiness() {
 # to run process_retry_queue.py every 15 minutes. That standing scheduler has
 # moved to an in-stack daemon container (docker-compose.yml) so it runs under the
 # same lifecycle as the rest of the stack. This function no longer installs any
-# cron — it ONLY removes a prior installation's tagged entry (or a legacy
-# untagged process_retry_queue.py entry), so an operator upgrading doesn't end up
-# with BOTH the old host cron and the new daemon draining the queue concurrently.
-# Idempotent: no-op on a fresh install or a host with no crontab, and no-op on a
-# second run once the legacy entry is already gone. Never touches unrelated
-# crontab entries — only lines matching the marker or the legacy script path.
+# cron — it ONLY removes a prior installation's tagged entry, so an operator
+# upgrading doesn't end up with BOTH the old host cron and the new daemon
+# draining the queue concurrently. Idempotent: no-op on a fresh install or a
+# host with no crontab, and no-op on a second run once the entry is already
+# gone. Matches ONLY the "# ai-memory-retry-drain" marker line — never touches
+# any other crontab entry, including an operator's own unrelated cron jobs.
 remove_legacy_retry_drain_cron() {
     # crontab may not exist on this host at all (e.g. a minimal container) —
     # nothing to migrate.
@@ -4320,10 +4320,10 @@ remove_legacy_retry_drain_cron() {
     [[ -z "$existing_crontab" ]] && return 0
 
     # Nothing to remove — never installed, or already migrated.
-    echo "$existing_crontab" | grep -qE "ai-memory-retry-drain|process_retry_queue\.py" || return 0
+    echo "$existing_crontab" | grep -q "ai-memory-retry-drain" || return 0
 
     local filtered_crontab
-    filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-retry-drain" | grep -v "process_retry_queue.py" || true)
+    filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-retry-drain" || true)
 
     if printf '%s\n' "$filtered_crontab" | crontab - 2>/dev/null; then
         log_success "Removed legacy retry-queue drain cron (now handled by the in-stack daemon)"

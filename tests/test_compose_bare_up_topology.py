@@ -66,11 +66,11 @@ ENV_FILE_SERVICES = ["prometheus-init", "prometheus", "grafana", "qdrant"]
 # so both must receive the identical knob set (TD-773: evaluator-scheduler's
 # hand-maintained environment: allow-list never got EMBEDDING_TOTAL_TIMEOUT when
 # Fix A/PR #278 added it — a silent per-service divergence in embed wall-time
-# bounding). EMBEDDING_READ_TIMEOUT is deliberately excluded: it is consumed by
-# embeddings.py but has no docker/.env.example entry at all (a separate,
-# symmetric, pre-existing gap — not an install-mode/service asymmetry).
+# bounding). EMBEDDING_READ_TIMEOUT (TD-774) was consumed by embeddings.py but had
+# no docker/.env.example entry at all; now documented there and included here.
 EMBEDDING_CLIENT_KNOBS = {
     "EMBEDDING_TOTAL_TIMEOUT",
+    "EMBEDDING_READ_TIMEOUT",
     "EMBEDDING_READ_TIMEOUT_CODE",
     "EMBEDDING_MAX_RETRIES",
     "EMBEDDING_BACKOFF_BASE",

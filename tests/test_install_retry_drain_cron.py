@@ -4,13 +4,15 @@ TD-710 originally had install.sh register a flock-guarded host cron entry (marke
 "# ai-memory-retry-drain") that ran process_retry_queue.py every 15 minutes. The
 standing scheduler has since moved to an in-stack daemon container
 (docker-compose.yml, owned separately), so install.sh must no longer install that
-cron — it must instead REMOVE any prior installation's tagged entry (or a legacy
-untagged process_retry_queue.py entry) so an upgrading operator doesn't end up with
-BOTH the old host cron and the new daemon draining the queue concurrently.
+cron — it must instead REMOVE any prior installation's tagged entry so an
+upgrading operator doesn't end up with BOTH the old host cron and the new daemon
+draining the queue concurrently.
 
 remove_legacy_retry_drain_cron() is the migration function: idempotent, no-op on a
-fresh install or a host with no crontab, and it must never touch unrelated crontab
-entries — only lines matching the marker or the legacy script path.
+fresh install or a host with no crontab, and it must never touch any crontab entry
+other than the one carrying the "# ai-memory-retry-drain" marker — including an
+untagged/operator-authored cron line that happens to reference
+process_retry_queue.py for its own purposes.
 
 A fake `crontab` binary is placed on PATH so these tests never touch the real
 crontab of the machine running them.
@@ -145,16 +147,18 @@ class TestRemoveLegacyRetryDrainCron:
         assert "ai-memory-retry-drain" not in crontab_content
         assert "process_retry_queue.py" not in crontab_content
 
-    def test_removes_legacy_untagged_entry(
+    def test_untagged_process_retry_queue_entry_is_preserved(
         self, install_sh_no_main, fake_crontab_env, tmp_path
     ):
-        """A pre-TD-710 untagged entry (process_retry_queue.py, no marker) is also
-        removed — the migration must not leave a pre-marker cron installation behind."""
+        """An untagged entry that happens to reference process_retry_queue.py (no
+        "# ai-memory-retry-drain" marker) is left alone — matching is marker-only,
+        so an operator's own unrelated cron line referencing the same script path
+        is never touched."""
         bin_dir, state_file = fake_crontab_env
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
-        legacy_entry = "*/30 * * * * /usr/bin/python3 /opt/legacy/process_retry_queue.py --limit 50\n"
-        state_file.write_text(legacy_entry, encoding="utf-8")
+        untagged_entry = "*/30 * * * * /usr/bin/python3 /opt/legacy/process_retry_queue.py --limit 50\n"
+        state_file.write_text(untagged_entry, encoding="utf-8")
 
         result = _run_remove_legacy_retry_drain_cron(
             install_sh_no_main, install_dir, bin_dir, state_file
@@ -162,13 +166,13 @@ class TestRemoveLegacyRetryDrainCron:
         assert result.returncode == 0, result.stderr
 
         crontab_content = state_file.read_text(encoding="utf-8")
-        assert "/opt/legacy/process_retry_queue.py" not in crontab_content
+        assert "/opt/legacy/process_retry_queue.py" in crontab_content
 
     def test_preserves_unrelated_existing_crontab_entries(
         self, install_sh_no_main, fake_crontab_env, tmp_path
     ):
-        """Unrelated crontab entries are never touched — only the marker/legacy-script
-        lines are matched for removal."""
+        """Unrelated crontab entries are never touched — only the marker line is
+        matched for removal."""
         bin_dir, state_file = fake_crontab_env
         install_dir = tmp_path / "install_dir"
         install_dir.mkdir()
