@@ -173,6 +173,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant       # container-internal hostname (not localhost)
       - QDRANT_PORT=6333         # container-internal port (not host port QDRANT_PORT)
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - VECTOR_DIMENSIONS=768    # hardcoded — not user-tunable via .env
     depends_on:
       qdrant:
@@ -409,6 +410,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                             # container-internal hostname
       - QDRANT_PORT=6333                               # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - QDRANT_EXTERNAL_PORT=26350                     # hardcoded external reference for UI links
       - EMBEDDING_SERVICE_URL=http://embedding:8080    # container-internal URL
       - AI_MEMORY_INSTALL_DIR=/app                     # container path override
@@ -461,6 +463,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                            # container-internal hostname
       - QDRANT_PORT=6333                              # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
       - LANGFUSE_BASE_URL=http://langfuse-web:3000    # container-internal URL
       # BUG-150: LANGFUSE_TRACING_ENABLED mirrors LANGFUSE_ENABLED — Docker-only alias,
@@ -531,6 +534,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                            # container-internal hostname
       - QDRANT_PORT=6333                              # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - EMBEDDING_HOST=embedding                      # container-internal hostname
       - EMBEDDING_PORT=8080                           # container-internal port
       - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
@@ -603,6 +607,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                            # container-internal hostname
       - QDRANT_PORT=6333                              # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - EMBEDDING_HOST=embedding                      # container-internal hostname
       - EMBEDDING_PORT=8080                           # container-internal port
       - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
