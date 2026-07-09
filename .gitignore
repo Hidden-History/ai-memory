@@ -57,6 +57,9 @@ test-results/
 screenshots/
 queue/*.jsonl
 
+# Embedding capacity/soak harness output (PLAN-030 Phase 2, BP-179)
+scripts/perf/results/
+
 # Migration backups (may contain secrets)
 migration-backup*/
 scripts/_migration_state.json
