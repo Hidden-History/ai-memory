@@ -121,6 +121,51 @@ class TestGrpcPreflightRetry:
 
         assert qc_module._client_cache == {}
 
+    def test_shutdown_during_preflight_aborts_promptly(self, monkeypatch):
+        """Shutdown requested while the probe loop is failing — the preflight
+        must return promptly instead of draining the full attempt budget."""
+        mod = _load_scheduler()
+        mod._shutdown_requested = True
+        monkeypatch.setenv("RETRY_DRAIN_GRPC_PREFLIGHT_MAX_ATTEMPTS", "30")
+        monkeypatch.setenv("RETRY_DRAIN_GRPC_PREFLIGHT_SLEEP_SECONDS", "1")
+
+        call_count = [0]
+
+        def always_fail(**kwargs):
+            call_count[0] += 1
+            raise ConnectionError("grpc not ready")
+
+        with (
+            patch.object(mod, "QdrantClient", side_effect=always_fail),
+            patch.object(mod, "get_config", return_value=_make_config()),
+            patch.object(mod, "time") as mock_time,
+        ):
+            mod._wait_for_grpc_ready()
+
+        # Bounded to a single probe attempt, not the full 30-attempt budget.
+        assert call_count[0] == 1
+        mock_time.sleep.assert_not_called()
+
+    def test_config_error_falls_through_without_raising(self, monkeypatch):
+        """get_config() raising must not crash the daemon — the preflight
+        logs a warning and returns."""
+        mod = _load_scheduler()
+        mod._shutdown_requested = False
+        monkeypatch.setenv("RETRY_DRAIN_GRPC_PREFLIGHT_MAX_ATTEMPTS", "5")
+        monkeypatch.setenv("RETRY_DRAIN_GRPC_PREFLIGHT_SLEEP_SECONDS", "1")
+
+        def broken_config():
+            raise ValueError("bad qdrant config")
+
+        with (
+            patch.object(mod, "QdrantClient") as mock_client,
+            patch.object(mod, "get_config", side_effect=broken_config),
+        ):
+            # Must not raise — daemon falls through to normal operation.
+            mod._wait_for_grpc_ready()
+
+        mock_client.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # Test: run_scheduler() calls the preflight before the first process_queue()

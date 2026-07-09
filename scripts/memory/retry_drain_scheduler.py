@@ -126,10 +126,11 @@ def _wait_for_grpc_ready() -> None:
     that passes before the gRPC listener (container :6334 / host :26351)
     accepts connections. If the daemon's first process_queue() call reaches
     get_qdrant_client() while gRPC is still unready, that function falls back
-    to HTTP and CACHES the HTTP-only client for the process lifetime
-    (src/memory/qdrant_client.py:107-135). This preflight never calls
-    get_qdrant_client() — it probes with a disposable raw QdrantClient so the
-    real client is only built (and cached) once gRPC is actually reachable.
+    to HTTP and CACHES the HTTP-only client for the process lifetime — see
+    get_qdrant_client()'s gRPC-fallback/HTTP-cache behavior. This preflight
+    never calls get_qdrant_client() — it probes with a disposable raw
+    QdrantClient so the real client is only built (and cached) once gRPC is
+    actually reachable.
 
     Bounded by RETRY_DRAIN_GRPC_PREFLIGHT_MAX_ATTEMPTS attempts, sleeping
     RETRY_DRAIN_GRPC_PREFLIGHT_SLEEP_SECONDS between them. If the budget
@@ -144,13 +145,18 @@ def _wait_for_grpc_ready() -> None:
         DEFAULT_GRPC_PREFLIGHT_SLEEP_SECONDS,
     )
 
-    config = get_config()
-    grpc_port = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
-    api_key = (
-        config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None
-    )
+    try:
+        config = get_config()
+        grpc_port = int(os.getenv("QDRANT_GRPC_PORT", "6334"))
+        api_key = (
+            config.qdrant_api_key.get_secret_value() if config.qdrant_api_key else None
+        )
+    except Exception as exc:
+        logger.warning("grpc_preflight_config_error error=%s", exc)
+        return
 
     for attempt in range(1, max_attempts + 1):
+        probe = None
         try:
             probe = QdrantClient(
                 host=config.qdrant_host,
@@ -167,8 +173,16 @@ def _wait_for_grpc_ready() -> None:
             return
         except Exception as exc:
             logger.debug("grpc_preflight_not_ready attempt=%d error=%s", attempt, exc)
-            if attempt < max_attempts and not _shutdown_requested:
+            if _shutdown_requested:
+                logger.info(
+                    "grpc_preflight_interrupted_by_shutdown attempt=%d", attempt
+                )
+                return
+            if attempt < max_attempts:
                 time.sleep(sleep_seconds)
+        finally:
+            if probe is not None:
+                probe.close()
 
     logger.warning(
         "grpc_preflight_budget_exhausted attempts=%d — proceeding without "
