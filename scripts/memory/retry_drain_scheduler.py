@@ -182,7 +182,10 @@ def _wait_for_grpc_ready() -> None:
                 time.sleep(sleep_seconds)
         finally:
             if probe is not None:
-                probe.close()
+                try:
+                    probe.close()
+                except Exception:
+                    logger.debug("grpc_preflight_probe_close_failed", exc_info=True)
 
     logger.warning(
         "grpc_preflight_budget_exhausted attempts=%d — proceeding without "

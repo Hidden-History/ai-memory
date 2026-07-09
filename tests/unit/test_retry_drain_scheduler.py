@@ -73,6 +73,7 @@ class TestGrpcPreflightRetry:
 
         assert call_count[0] == 3
         succeed_client.get_collections.assert_called_once()
+        succeed_client.close.assert_called_once()
         # Slept after attempt 1 and attempt 2 (both failures); no sleep after success.
         assert mock_time.sleep.call_count == 2
 
