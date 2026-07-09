@@ -148,10 +148,12 @@ class PeakPoller:
     _max_seen: int = field(default=0, init=False)
     _stop_event: threading.Event = field(default_factory=threading.Event, init=False)
     _thread: threading.Thread | None = field(default=None, init=False)
+    _poll_error: Exception | None = field(default=None, init=False)
 
     def start(self) -> None:
         self._max_seen = self.reader.read_current()
         self._stop_event.clear()
+        self._poll_error = None
         self._thread = threading.Thread(target=self._poll_loop, daemon=True)
         self._thread.start()
 
@@ -159,7 +161,17 @@ class PeakPoller:
         while not self._stop_event.is_set():
             try:
                 current = self.reader.read_current()
-            except CgroupAccessError:
+            except CgroupAccessError as e:
+                # Non-fatal (a long soak shouldn't abort on one transient
+                # docker exec hiccup) but must not be silent — the peak from
+                # this point on is a floor, not a true max, so callers need
+                # to see it (BLOCKER PROTOCOL: never guess a value quietly).
+                self._poll_error = e
+                print(
+                    f"WARNING: PeakPoller lost its docker exec read mid-poll "
+                    f"({e}) — peak reporting is degraded from here on (last "
+                    f"observed: {self._max_seen} bytes)"
+                )
                 break
             self._max_seen = max(self._max_seen, current)
             self._stop_event.wait(self.interval_seconds)
@@ -169,6 +181,11 @@ class PeakPoller:
         if self._thread is not None:
             self._thread.join(timeout=self.interval_seconds + 5)
         return self._max_seen
+
+    @property
+    def degraded(self) -> bool:
+        """True if the poll loop exited early on a docker exec read failure."""
+        return self._poll_error is not None
 
 
 _DMESG_OOM_PATTERN = re.compile(r"Out of memory|Killed process", re.IGNORECASE)

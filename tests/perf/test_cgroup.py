@@ -200,6 +200,40 @@ def test_peak_poller_stops_cleanly_when_never_started():
     assert poller.stop() == 0
 
 
+def test_peak_poller_surfaces_transient_read_failure(capsys):
+    # A transient docker exec failure mid-poll must not be silently
+    # swallowed: the loop stops, the last-seen max is kept as a floor, and
+    # `degraded` plus a warning surface the failure (round-2 LOW fix).
+    call_count = {"n": 0}
+
+    def exec_fn(container, *cmd):
+        call_count["n"] += 1
+        if call_count["n"] <= 2:
+            return "1000"
+        raise cgroup.CgroupAccessError("docker exec: container not responding")
+
+    reader = cgroup.DockerCgroupReader("c1", exec_fn=exec_fn)
+    poller = cgroup.PeakPoller(reader, interval_seconds=0.01)
+    poller.start()
+    time.sleep(0.1)
+    peak = poller.stop()
+
+    assert peak == 1000
+    assert poller.degraded is True
+    assert "container not responding" in str(poller._poll_error)
+    assert "WARNING" in capsys.readouterr().out
+
+
+def test_peak_poller_not_degraded_on_clean_run():
+    reader = cgroup.DockerCgroupReader("c1", exec_fn=lambda *a: "1000")
+    poller = cgroup.PeakPoller(reader, interval_seconds=0.01)
+    poller.start()
+    time.sleep(0.05)
+    poller.stop()
+
+    assert poller.degraded is False
+
+
 def test_dmesg_baseline_returns_latest_timestamp(monkeypatch):
     class _Result:
         returncode = 0

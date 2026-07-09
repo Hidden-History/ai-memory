@@ -118,10 +118,19 @@ python scripts/perf/embedding_capacity_harness.py soak \
 - The harness snapshots `memory.events` **before** the run and reports
   deltas — a baseline is mandatory per BP-179 §4; without it, pre-existing
   kills would be misattributed to this soak.
-- Exit code is `0` only if **all 6** gate criteria pass; any single failure
-  fails the whole gate (BP-179 §4 "assert all", not majority).
+- The gate has three possible outcomes — exit code **0** (`PASS`, all 6
+  criteria pass), **1** (`FAIL`, at least one criterion failed), or **2**
+  (`INVALID`, the load-validity guard tripped before the 6 criteria were
+  even meaningful). `INVALID` fires when either too few requests succeeded
+  (success ratio below the floor) or the measured peak never rose
+  meaningfully above the base RSS — both indicate the burst/soak load never
+  actually landed (e.g. wrong port, all-503s, not-ready container), so a
+  trivial all-PASS on the 6 criteria wouldn't certify anything. On
+  `INVALID`, fix why the load didn't land (check `--base-url`/`--container`,
+  confirm the target is warm and serving) and re-run — it is not a capacity
+  verdict either way.
 - Results land in `scripts/perf/results/soak-<timestamp>.json` plus a
-  human-readable PASS/FAIL line per criterion on stdout.
+  human-readable PASS/FAIL/INVALID line per criterion on stdout.
 
 ## Reading a soak failure
 
@@ -131,7 +140,17 @@ python scripts/perf/embedding_capacity_harness.py soak \
 | `backpressure_shed_zero` | A request was dropped (lost memory), not just delayed. | `embedding_backpressure_total{action="shed"}` on `:28080/metrics` |
 | `admission_wait_p95_within_timeout` | Clients would time out and retry-storm under this envelope. | `embedding_admission_wait_seconds` histogram |
 | `no_working_set_climb` | Possible slow leak/fragmentation drift (BUG-324 axis). | Compare `working_set_start_bytes`/`working_set_end_bytes` in the results JSON |
-| `peak_under_mem_limit` | `memory.peak` reached or exceeded the cap even without a kill — no safety margin left. | `memory.peak` in the results JSON vs `--mem-limit-bytes` |
+| `peak_under_mem_limit` | The measured peak reached or exceeded the cap even without a kill — no safety margin left. | `memory_peak_bytes` in the results JSON vs `--mem-limit-bytes` |
+
+The `memory_peak_bytes` value is the polled `memory.current` max (dense-poll
+fallback on kernels < 6.8 or a read-only cgroup mount — the case on the
+WSL2 6.6 target), not `memory.peak` directly; check
+`peak_measurement_fallback_used` in the results JSON to confirm which path
+was used. If `peak_poll_degraded` is `true`, the poller lost its `docker
+exec` read partway through the run — `peak_poll_error` has the detail, and
+`memory_peak_bytes` is a floor (last value observed before the failure),
+not a confirmed max; treat a `peak_under_mem_limit` PASS on a degraded run
+with less confidence and consider re-running.
 
 A failed soak means: go back to Step 1/2 with a lower `max_concurrency` or
 apply BP-175 §5 footprint knobs and re-measure — do not raise `mem_limit`

@@ -63,12 +63,15 @@ def _timestamp() -> str:
 def _measure_peak_during(
     reader: cgroup.DockerCgroupReader, coro, poll_interval_seconds: float
 ):
-    """Run `coro` (an unawaited coroutine) and return `(result, peak_bytes, used_fallback)`.
+    """Run `coro` (an unawaited coroutine) and return `(result, peak_bytes,
+    used_fallback, poll_degraded, poll_error)`.
 
     Prefers a memory.peak reset before/read after (BP-179 §2); falls back to
     dense-polling memory.current for the coro's duration when reset is
     unsupported (kernel < 6.8 or a read-only cgroup — verified true on the
-    WSL2 6.6 target, BP-179 §2 corrected PM #387).
+    WSL2 6.6 target, BP-179 §2 corrected PM #387). `poll_degraded` is True
+    when the dense-poll fallback lost its docker exec read mid-run — the
+    peak is then a floor, not a confirmed max.
     """
     reset_ok = reader.try_reset_peak()
     poller = None
@@ -80,7 +83,9 @@ def _measure_peak_during(
     finally:
         polled_peak = poller.stop() if poller is not None else None
     peak = reader.read_peak() if reset_ok else polled_peak
-    return result, peak, not reset_ok
+    poll_degraded = poller.degraded if poller is not None else False
+    poll_error = str(poller._poll_error) if poll_degraded else None
+    return result, peak, not reset_ok, poll_degraded, poll_error
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
@@ -117,10 +122,12 @@ def cmd_measure(args: argparse.Namespace) -> int:
         )
         for i in range(args.concurrency)
     ]
-    request_results, peak, peak_fallback_used = _measure_peak_during(
-        reader,
-        load.run_burst(args.base_url, request_batches, model=args.model),
-        BURST_POLL_INTERVAL_SECONDS,
+    request_results, peak, peak_fallback_used, peak_poll_degraded, peak_poll_error = (
+        _measure_peak_during(
+            reader,
+            load.run_burst(args.base_url, request_batches, model=args.model),
+            BURST_POLL_INTERVAL_SECONDS,
+        )
     )
     failures = [r for r in request_results if r.status_code != 200]
     successes = len(request_results) - len(failures)
@@ -136,6 +143,8 @@ def cmd_measure(args: argparse.Namespace) -> int:
     print(f"memory.peak = {peak} bytes ({peak / 2**30:.3f} GiB)")
     if peak_fallback_used:
         print("  (via memory.current dense-poll fallback — reset unsupported)")
+    if peak_poll_degraded:
+        print(f"WARNING: peak poll degraded mid-run — {peak_poll_error}")
     if per_req_peak is not None:
         print(
             f"per_request_burst_peak = {per_req_peak:.0f} bytes "
@@ -158,6 +167,8 @@ def cmd_measure(args: argparse.Namespace) -> int:
         "base_rss_bytes": base_rss,
         "memory_peak_bytes": peak,
         "peak_measurement_fallback_used": peak_fallback_used,
+        "peak_poll_degraded": peak_poll_degraded,
+        "peak_poll_error": peak_poll_error,
         "per_request_burst_peak_bytes": per_req_peak,
         "request_count": len(request_results),
         "request_failures": len(failures),
@@ -198,7 +209,13 @@ def cmd_ramp(args: argparse.Namespace) -> int:
             )
             for i in range(concurrency)
         ]
-        request_results, peak, peak_fallback_used = _measure_peak_during(
+        (
+            request_results,
+            peak,
+            peak_fallback_used,
+            peak_poll_degraded,
+            peak_poll_error,
+        ) = _measure_peak_during(
             reader,
             load.run_burst(args.base_url, request_batches, model=args.model),
             BURST_POLL_INTERVAL_SECONDS,
@@ -221,6 +238,8 @@ def cmd_ramp(args: argparse.Namespace) -> int:
             "concurrency": concurrency,
             "memory_peak_bytes": peak,
             "peak_measurement_fallback_used": peak_fallback_used,
+            "peak_poll_degraded": peak_poll_degraded,
+            "peak_poll_error": peak_poll_error,
             "oom_kill_delta": oom_delta,
             "backpressure_shed_delta": shed_delta,
             "request_failures": request_failures,
@@ -233,6 +252,8 @@ def cmd_ramp(args: argparse.Namespace) -> int:
             f"oom_kill_delta={oom_delta} shed_delta={shed_delta} "
             f"load_valid={validity.valid}"
         )
+        if peak_poll_degraded:
+            print(f"  WARNING: peak poll degraded mid-round — {peak_poll_error}")
 
         if oom_delta > 0 or shed_delta > 0:
             print(
@@ -323,16 +344,18 @@ def cmd_soak(args: argparse.Namespace) -> int:
         f"soak starting: callers={n_callers} duration={args.duration_seconds:.0f}s "
         f"model={args.model} batch_size={args.batch_size}"
     )
-    caller_stats, peak, peak_fallback_used = _measure_peak_during(
-        reader,
-        load.run_soak_callers(
-            args.base_url,
-            n_callers,
-            args.duration_seconds,
-            payload_fn,
-            model=args.model,
-        ),
-        args.peak_poll_interval_seconds,
+    caller_stats, peak, peak_fallback_used, peak_poll_degraded, peak_poll_error = (
+        _measure_peak_during(
+            reader,
+            load.run_soak_callers(
+                args.base_url,
+                n_callers,
+                args.duration_seconds,
+                payload_fn,
+                model=args.model,
+            ),
+            args.peak_poll_interval_seconds,
+        )
     )
 
     working_set_end = reader.read_current()
@@ -368,6 +391,8 @@ def cmd_soak(args: argparse.Namespace) -> int:
     )
 
     print(f"soak complete: {total_requests} requests sent, {total_failures} non-200")
+    if peak_poll_degraded:
+        print(f"  WARNING: peak poll degraded mid-soak — {peak_poll_error}")
     if not gate_result.load_valid:
         print(f"  LOAD INVALID: {gate_result.load_validity_detail}")
     for criterion in gate_result.criteria:
@@ -391,6 +416,8 @@ def cmd_soak(args: argparse.Namespace) -> int:
         "working_set_end_bytes": working_set_end,
         "memory_peak_bytes": peak,
         "peak_measurement_fallback_used": peak_fallback_used,
+        "peak_poll_degraded": peak_poll_degraded,
+        "peak_poll_error": peak_poll_error,
         "mem_limit_bytes": args.mem_limit_bytes,
         "admission_wait_p95_seconds": final_metrics.admission_wait_p95_seconds,
         "gate": gate_result,
