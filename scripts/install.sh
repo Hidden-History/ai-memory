@@ -868,7 +868,7 @@ load_persisted_config() {
         j_url=$(_read_env_key   "JIRA_INSTANCE_URL" "$secrets_file" "$env_file")
         j_email=$(_read_env_key "JIRA_EMAIL"        "$secrets_file" "$env_file")
         j_tok=$(_read_env_key   "JIRA_API_TOKEN"    "$secrets_file" "$env_file")
-        j_proj=$(_read_env_key  "JIRA_PROJECTS"     "$secrets_file" "$env_file")
+        j_proj=$(_read_env_key_json "JIRA_PROJECTS" "$secrets_file" "$env_file")
         if [[ "$j_en" == "true" && -n "$j_url" && -n "$j_email" && -n "$j_tok" ]]; then
             JIRA_SYNC_ENABLED="$j_en"; JIRA_INSTANCE_URL="$j_url"; JIRA_EMAIL="$j_email"
             JIRA_API_TOKEN="$j_tok"; JIRA_PROJECTS="$j_proj"; hydrated+=("Jira")

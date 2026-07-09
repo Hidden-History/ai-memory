@@ -21,6 +21,7 @@ Non-negotiable constraints under test:
 No external services required — shells out to bash only.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -76,7 +77,7 @@ def install_dir(tmp_path) -> Path:
         "JIRA_INSTANCE_URL=https://company.atlassian.net\n"
         "JIRA_EMAIL=user@example.com\n"
         "JIRA_API_TOKEN=\n"
-        'JIRA_PROJECTS="[\\"PROJ\\"]"\n'
+        "JIRA_PROJECTS='[\"PROJ\"]'\n"
         "LANGFUSE_ENABLED=false\n"
         "MONITORING_ENABLED=true\n"
     )
@@ -108,6 +109,7 @@ echo "__JIRA_SYNC_ENABLED=${{JIRA_SYNC_ENABLED:-}}"
 echo "__JIRA_INSTANCE_URL=${{JIRA_INSTANCE_URL:-}}"
 echo "__JIRA_EMAIL=${{JIRA_EMAIL:-}}"
 echo "__JIRA_API_TOKEN=${{JIRA_API_TOKEN:-}}"
+echo "__JIRA_PROJECTS=${{JIRA_PROJECTS:-}}"
 echo "__LANGFUSE_ENABLED=${{LANGFUSE_ENABLED:-}}"
 echo "__INSTALL_MONITORING=${{INSTALL_MONITORING:-}}"
 echo "__SEED_BEST_PRACTICES=${{SEED_BEST_PRACTICES:-}}"
@@ -173,6 +175,10 @@ def test_hydrates_complete_jira_config(install_sh_no_main, install_dir):
     assert v["JIRA_INSTANCE_URL"] == "https://company.atlassian.net"
     assert v["JIRA_EMAIL"] == "user@example.com"
     assert v["JIRA_API_TOKEN"] == "ATATpersisted_token"
+    # JIRA_PROJECTS hydration: must hydrate as valid JSON, quote-preserving
+    # (not the corrupted `[PROJ]` a `tr -d` quote-strip would produce).
+    assert v["JIRA_PROJECTS"] == '["PROJ"]'
+    assert json.loads(v["JIRA_PROJECTS"]) == ["PROJ"]
 
 
 def test_hydrates_langfuse_and_monitoring(install_sh_no_main, install_dir):
@@ -336,6 +342,67 @@ def test_reinstall_over_existing_install_fires_zero_prompts(
     assert v["JIRA_SYNC_ENABLED"] == "true"
     assert v["JIRA_API_TOKEN"] == "ATATpersisted_token"
     assert v["INSTALL_MONITORING"] == "true"
+    # Zero-prompts assertion covers the full real chain, including the
+    # single-flag features (not just GitHub/Jira/monitoring).
+    assert v["LANGFUSE_ENABLED"] == "false"
+    assert v["SEED_BEST_PRACTICES"] == "false"
+
+
+# ---------------------------------------------------------------------------
+# JIRA_PROJECTS reinstall round-trip — the value must survive hydrate
+# (load_persisted_config) -> persist (persist_user_choices_to_env) as
+# byte-for-byte valid JSON, identical to the pre-reinstall persisted value.
+# _read_env_key's `tr -d` quote-strip corrupts JIRA_PROJECTS='["A","B"]' into
+# `[A,B]` during hydration; persist_user_choices_to_env's `=~ ^\[` guard then
+# treats the corrupted value as already-JSON and writes it back verbatim — a
+# reinstall silently breaks every MemoryConfig() consumer downstream
+# (parse_jira_projects() fails pydantic JSON parsing on `[A,B]`).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "projects",
+    [["PROJ", "TEAM"], ["PROJ"]],
+    ids=["multi-project", "single-project"],
+)
+def test_jira_projects_round_trips_valid_json_on_reinstall(
+    install_sh_no_main, tmp_path, projects
+):
+    projects_json = json.dumps(projects)
+    original_line = f"JIRA_PROJECTS='{projects_json}'"
+
+    docker_dir = tmp_path / "roundtrip_install" / "docker"
+    docker_dir.mkdir(parents=True)
+    env_file = docker_dir / ".env"
+    env_file.write_text(
+        "JIRA_SYNC_ENABLED=true\n"
+        "JIRA_INSTANCE_URL=https://company.atlassian.net\n"
+        "JIRA_EMAIL=user@example.com\n"
+        "JIRA_API_TOKEN=\n"
+        f"{original_line}\n"
+    )
+    (docker_dir / ".env.secrets").write_text("JIRA_API_TOKEN=ATATpersisted_token\n")
+
+    install_dir = tmp_path / "roundtrip_install"
+    result = _run(
+        install_sh_no_main,
+        install_dir,
+        functions="load_persisted_config\npersist_user_choices_to_env",
+    )
+    assert result.returncode == 0, result.stderr
+
+    persisted_line = next(
+        line
+        for line in env_file.read_text().splitlines()
+        if line.startswith("JIRA_PROJECTS=")
+    )
+    assert persisted_line == original_line, (
+        f"JIRA_PROJECTS corrupted on reinstall round-trip: {persisted_line!r} "
+        f"!= original {original_line!r}"
+    )
+    persisted_value = persisted_line[len("JIRA_PROJECTS=") :]
+    assert persisted_value[0] == "'" and persisted_value[-1] == "'"
+    assert json.loads(persisted_value[1:-1]) == projects
 
 
 # ---------------------------------------------------------------------------
