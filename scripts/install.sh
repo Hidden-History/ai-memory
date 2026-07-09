@@ -825,6 +825,81 @@ else:
     echo ""
 }
 
+# load_persisted_config — Tier-2 (user-managed) prompt-suppression on reinstall.
+# BP-182 §2 / BUG-520: the shell analogue of debconf's "seen" flag — hydrate
+# prompt-gated vars from persisted docker/.env + docker/.env.secrets so
+# configure_options' `[[ -z "$VAR" ]]` guards skip already-answered questions.
+# Reuses the secrets-first _read_env_key idiom already proven in
+# configure_project_sources (BUG-309) and derive_and_persist_compose_profiles
+# (BP-160).
+#
+# Constraints (BP-182 §2.2): (1) only fill UNSET vars — preserves
+# shell > .env > default precedence; (2) all-or-nothing per feature — hydrate an
+# enable-flag only with its dependents present; (3) secrets from .env.secrets
+# first, never echoed; (4) gate on existing install — no-op on fresh.
+load_persisted_config() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # (4) Gate on existing install — no-op on fresh (blank placeholders must prompt)
+    [[ -f "$env_file" ]] || return 0
+
+    local hydrated=()
+
+    # --- GitHub (all-or-nothing: enable-flag + repo + token) ---
+    if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
+        local g_enabled g_repo g_token
+        g_enabled=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
+        g_repo=$(_read_env_key    "GITHUB_REPO"         "$secrets_file" "$env_file")
+        g_token=$(_read_env_key   "GITHUB_TOKEN"        "$secrets_file" "$env_file")
+        if [[ "$g_enabled" == "true" && -n "$g_repo" && -n "$g_token" ]]; then
+            GITHUB_SYNC_ENABLED="$g_enabled"; GITHUB_REPO="$g_repo"; GITHUB_TOKEN="$g_token"
+            hydrated+=("GitHub")
+        elif [[ "$g_enabled" == "false" ]]; then
+            GITHUB_SYNC_ENABLED="false"; hydrated+=("GitHub(disabled)")
+        fi
+        # else: incomplete prior config → leave unset → prompt (all-or-nothing)
+    fi
+
+    # --- Jira (enable-flag + url + email + token + projects) ---
+    if [[ -z "${JIRA_SYNC_ENABLED:-}" ]]; then
+        local j_en j_url j_email j_tok j_proj
+        j_en=$(_read_env_key    "JIRA_SYNC_ENABLED" "$secrets_file" "$env_file")
+        j_url=$(_read_env_key   "JIRA_INSTANCE_URL" "$secrets_file" "$env_file")
+        j_email=$(_read_env_key "JIRA_EMAIL"        "$secrets_file" "$env_file")
+        j_tok=$(_read_env_key   "JIRA_API_TOKEN"    "$secrets_file" "$env_file")
+        j_proj=$(_read_env_key  "JIRA_PROJECTS"     "$secrets_file" "$env_file")
+        if [[ "$j_en" == "true" && -n "$j_url" && -n "$j_email" && -n "$j_tok" ]]; then
+            JIRA_SYNC_ENABLED="$j_en"; JIRA_INSTANCE_URL="$j_url"; JIRA_EMAIL="$j_email"
+            JIRA_API_TOKEN="$j_tok"; JIRA_PROJECTS="$j_proj"; hydrated+=("Jira")
+        elif [[ "$j_en" == "false" ]]; then
+            JIRA_SYNC_ENABLED="false"; hydrated+=("Jira(disabled)")
+        fi
+    fi
+
+    # --- Langfuse / monitoring (single-flag features) ---
+    if [[ -z "${LANGFUSE_ENABLED:-}" ]]; then
+        LANGFUSE_ENABLED=$(_read_env_key "LANGFUSE_ENABLED" "$secrets_file" "$env_file")
+        [[ -n "$LANGFUSE_ENABLED" ]] && hydrated+=("Langfuse")
+    fi
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
+        [[ -n "$INSTALL_MONITORING" ]] && hydrated+=("Monitoring")
+    fi
+
+    # SEED_BEST_PRACTICES is an action, not persisted state — default to skip
+    # re-seed on reinstall (an existing install already has the DB seeded).
+    if [[ -z "${SEED_BEST_PRACTICES:-}" ]]; then
+        SEED_BEST_PRACTICES="false"
+    fi
+
+    # (5) Transparency — make the skipped prompts obviously intentional
+    if (( ${#hydrated[@]} )); then
+        log_info "Reusing existing config from ${env_file}: ${hydrated[*]}"
+        log_info "  (to change any value, edit docker/.env(.secrets) or export the var before install)"
+    fi
+}
+
 # Interactive configuration prompts
 configure_options() {
     # Skip prompts if running non-interactively or if all options pre-set
@@ -1305,6 +1380,7 @@ main() {
 
     # Full install steps - create shared infrastructure
     if [[ "$INSTALL_MODE" == "full" ]]; then
+        load_persisted_config          # BP-182 §2.4 / BUG-520 — hydrate before prompt
         # Interactive configuration (unless non-interactive mode)
         configure_options
 
