@@ -1425,8 +1425,9 @@ main() {
 
             # BUG-125: Drain queued events that failed during service startup
             drain_pending_queue
-            # TD-710: Standing scheduler so the retry queue keeps draining after install
-            setup_retry_drain_cron
+            # TD-710 cron→daemon migration: retry-queue draining now runs as an
+            # in-stack daemon (docker-compose.yml); remove any legacy host cron.
+            remove_legacy_retry_drain_cron
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -4298,44 +4299,36 @@ verify_embedding_readiness() {
     log_warning "Embedding service slow to respond — GitHub sync may have embedding timeouts"
 }
 
-# Set up cron job for automated retry-queue draining (TD-710)
-# Without this, process_retry_queue.py only runs once at install time (drain_pending_queue),
-# so failed-store events accumulate append-only between installs.
-setup_retry_drain_cron() {
-    log_info "Configuring automated retry-queue drain (every 15 minutes)..."
+# Remove the legacy retry-queue-drain host cron (TD-710 cron→daemon migration).
+# TD-710 originally installed a host cron entry (marker "# ai-memory-retry-drain")
+# to run process_retry_queue.py every 15 minutes. That standing scheduler has
+# moved to an in-stack daemon container (docker-compose.yml) so it runs under the
+# same lifecycle as the rest of the stack. This function no longer installs any
+# cron — it ONLY removes a prior installation's tagged entry (or a legacy
+# untagged process_retry_queue.py entry), so an operator upgrading doesn't end up
+# with BOTH the old host cron and the new daemon draining the queue concurrently.
+# Idempotent: no-op on a fresh install or a host with no crontab, and no-op on a
+# second run once the legacy entry is already gone. Never touches unrelated
+# crontab entries — only lines matching the marker or the legacy script path.
+remove_legacy_retry_drain_cron() {
+    # crontab may not exist on this host at all (e.g. a minimal container) —
+    # nothing to migrate.
+    command -v crontab >/dev/null 2>&1 || return 0
 
-    # Ensure locks directory exists for flock
-    mkdir -p "$INSTALL_DIR/.locks"
-
-    # Build cron command (BP-053: direct interpreter + flock + tagged entry)
-    # cd to docker/ so get_config() finds .env (pydantic env_file=".env")
-    # --limit raised above the 100 default so a multi-week backlog clears over a few runs.
-    local cron_tag="# ai-memory-retry-drain"
-    local cron_cmd
-    if [[ "$PLATFORM" == "macos" ]]; then
-        # macOS: no flock available by default
-        cron_cmd="cd $INSTALL_DIR/docker && $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/process_retry_queue.py --limit 500"
-    else
-        # Linux/WSL: use flock for overlap prevention
-        cron_cmd="cd $INSTALL_DIR/docker && flock -n $INSTALL_DIR/.locks/retry_drain.lock $INSTALL_DIR/.venv/bin/python $INSTALL_DIR/scripts/memory/process_retry_queue.py --limit 500"
-    fi
-    local cron_entry="*/15 * * * * $cron_cmd >> $INSTALL_DIR/logs/retry_drain.log 2>&1 $cron_tag"
-
-    # Idempotent: remove any existing ai-memory-retry-drain entry, then add fresh
     local existing_crontab
     existing_crontab=$(crontab -l 2>/dev/null || true)
+    [[ -z "$existing_crontab" ]] && return 0
 
-    # Filter out old entries (by tag OR by legacy process_retry_queue.py match)
+    # Nothing to remove — never installed, or already migrated.
+    echo "$existing_crontab" | grep -qE "ai-memory-retry-drain|process_retry_queue\.py" || return 0
+
     local filtered_crontab
     filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-retry-drain" | grep -v "process_retry_queue.py" || true)
 
-    # Add new entry
-    if printf '%s\n%s\n' "$filtered_crontab" "$cron_entry" | crontab - 2>/dev/null; then
-        log_success "Cron job configured (retry-queue drain every 15 minutes)"
-        log_debug "To view: crontab -l | grep ai-memory-retry-drain"
+    if printf '%s\n' "$filtered_crontab" | crontab - 2>/dev/null; then
+        log_success "Removed legacy retry-queue drain cron (now handled by the in-stack daemon)"
     else
-        log_warning "Failed to configure cron job - set up manually if needed"
-        log_info "Add to crontab: $cron_entry"
+        log_warning "Failed to remove legacy retry-drain cron entry — remove manually: crontab -e"
     fi
 }
 
