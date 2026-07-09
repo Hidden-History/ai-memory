@@ -372,7 +372,26 @@ services:
       # not bind-mounted: single-file bind mounts are fragile on WSL2/Docker
       # Desktop reboots (TD-748). Override at runtime via EVALUATOR_CONFIG_PATH.
       - ${AI_MEMORY_INSTALL_DIR:-.}/.audit:/app/.audit
+    # TD-773 / BP-182 §3.4: YAML anchors/x-* fields are file-scoped (docker/compose#5621) —
+    # x-python-service-defaults (docker-compose.yml) cannot be referenced here, so its
+    # env_file: list is replicated literally. Delivers every MemoryConfig/os.environ knob
+    # (e.g. EMBEDDING_TOTAL_TIMEOUT) that classifier-worker already receives via the anchor,
+    # instead of relying on the hand-maintained environment: allow-list below to be kept in
+    # sync by hand (the exact gap that let EMBEDDING_TOTAL_TIMEOUT go undelivered here).
+    env_file:
+      - path: .env
+        required: true
+      - path: .env.secrets
+        required: false
+      - path: ${PROJECT_ENV_FILE:-/dev/null}
+        required: false
     environment:
+      # Service-specific overrides — matches classifier-worker's container-internal
+      # pins (docker-compose.yml). Without these, env_file: delivers the host-mapped
+      # QDRANT_PORT (e.g. 26350) with no QDRANT_HOST override — a latent footgun for
+      # any future MemoryConfig.qdrant_port read from this service.
+      - QDRANT_HOST=qdrant                            # container-internal hostname
+      - QDRANT_PORT=6333                               # container-internal port
       - LANGFUSE_ENABLED=true
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:?Run langfuse_setup.sh first to generate API keys}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:?Run langfuse_setup.sh first to generate API keys}
