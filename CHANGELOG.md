@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade Instructions
+
+This release replaces the install-time retry-drain host cron with an in-stack daemon, and reinstalls now reuse persisted configuration. The cron retirement and the new daemon are set up only in the full shared-infrastructure reinstall path — not add-project mode — so an existing install must be updated with reinstall option 2:
+
+```bash
+# 1. Update source
+cd <your ai-memory clone> && git pull
+
+# 2. Reinstall — at the existing-install menu, choose:
+#      2) Reinstall shared infrastructure (stop services, update files, restart)
+#    Option 1 (add-project) will NOT retire the legacy cron or deploy the daemon.
+./scripts/install.sh <project-path>
+
+# 3. Restart — builds & starts the new source-baked in-stack retry-drain daemon
+#    (auto-rebuild on the cached path, TD-723):
+~/.ai-memory/scripts/stack.sh restart
+```
+
+Confirm the cron→daemon migration landed:
+
+```bash
+crontab -l | grep ai-memory-retry-drain            # expect: no output (cron retired)
+docker ps --format '{{.Names}}' | grep retry-queue-drain   # expect: ai-memory-retry-queue-drain running
+```
+
+Reinstall reuses your persisted GitHub / Jira / Langfuse / monitoring configuration (no re-prompting), and preserves the persisted Jira project list exactly.
+
 ### Fixed
 
 - **`EmbeddingClient.embed()` now bounds its retry loop to a hard overall wall-clock deadline (BUG-329/TD-710)** — the dense embedding retry loop had no cumulative time limit, so under CPU load (code model) it could retry for close to 90s across all attempts and backoff sleeps. The store hooks wrap the whole storage coroutine in a 60s timeout; when the retry loop ran past that budget, the hook's outer timeout fired first and aborted the write entirely into the retry queue instead of letting the existing embedding-failure fallback store the memory with `embedding_status="pending"`. `embed()` tracks elapsed time against a new `EMBEDDING_TOTAL_TIMEOUT` (default 45s, intentionally below the 60s hook budget) and raises the existing `EmbeddingError("EMBEDDING_TIMEOUT")` once the deadline is reached, so the caller's pending-status fallback runs instead of losing the memory. A between-attempts deadline check alone isn't sufficient — a single slow attempt can still run for its full configured read timeout regardless of how little budget is left, so two attempts that are each individually within their read timeout can still blow past the deadline (and the hooks' 60s budget) before the check ever runs again. Each attempt's HTTP read/inference timeout is now also capped to `min(configured_read_timeout, remaining_budget)`, so the READ phase itself is bounded by the deadline rather than just checked between attempts; a backoff sleep that would itself exceed the remaining budget is skipped in favor of raising immediately, preserving budget for the fallback. This is not an exact ceiling on total wall-clock time: the fixed httpx connect+write+pool overhead (~11s) on each attempt sits outside the capped read phase, so worst-case wall-clock per call is approximately `EMBEDDING_TOTAL_TIMEOUT + 11s`, which must stay at or below `HOOK_TIMEOUT` — the client now warns at construction time if that invariant is violated. `embed_sparse()` and `embed_late()` are unchanged; each already has its own bounded per-request timeout and a much lighter retry profile (no retry loop), so they were not carrying this risk to the same degree — worth revisiting if sparse/late embedding latency becomes a similar source of hook-timeout aborts.
