@@ -177,6 +177,10 @@ def get_hook_timeout() -> int:
         (embedding_total_timeout_invariant_violated) if a custom config breaks this.
     """
     try:
+        # NOTE: this "90" default is deliberately kept in lockstep with the "90"
+        # default in embeddings.py's construction-time HOOK_TIMEOUT invariant check.
+        # The two are duplicated rather than shared to avoid coupling src/memory to the
+        # hook-scripts layer; if one default changes the other must change with it.
         timeout_str = os.getenv("HOOK_TIMEOUT", "90")
         return int(timeout_str)
     except ValueError:

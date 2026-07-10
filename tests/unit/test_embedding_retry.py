@@ -908,7 +908,10 @@ class TestSubmitRateLimiter:
 
     def test_embed_consults_limiter_with_text_count(self):
         """embed() feeds the submission's text count to the shared limiter before
-        posting, so bulk callers are actually shaped."""
+        posting (so bulk callers are actually shaped) AND forwards the BP-184 reserved
+        pacing budget as max_wait — the deadline SLACK above the attempt window
+        (remaining - min_attempt_window), NOT the full remaining deadline — so pacing
+        can never eat the window the HTTP request itself needs."""
         import memory.embeddings as emod
         from memory.config import reset_config
 
@@ -924,12 +927,21 @@ class TestSubmitRateLimiter:
         mock_ok.raise_for_status = Mock()
         mock_ok.json.return_value = {"embeddings": [[0.1] * 768] * 3}
 
+        # Non-zero coherence terms => min_attempt_window = 20s; a longer total deadline
+        # (100s) leaves observable slack so the reserved budget is distinguishable from
+        # the full deadline.
         with patch.dict(
             os.environ,
-            {"EMBEDDING_ACQUIRE_TIMEOUT": "0", "EMBEDDING_INFERENCE_TIMEOUT": "0"},
+            {
+                "EMBEDDING_ACQUIRE_TIMEOUT": "10",
+                "EMBEDDING_INFERENCE_TIMEOUT": "10",
+                "EMBEDDING_TOTAL_TIMEOUT": "100",
+                "EMBEDDING_MAX_RETRIES": "0",
+            },
         ):
             reset_config()
             c = EmbeddingClient()
+            assert c._min_attempt_window == 20.0
             try:
                 with (
                     patch.object(
@@ -939,6 +951,117 @@ class TestSubmitRateLimiter:
                 ):
                     c.embed(["a", "b", "c"])
                 assert recorded
-                assert recorded[0][0] == 3  # cost == number of texts
+                cost, max_wait = recorded[0]
+                assert cost == 3  # cost == number of texts
+                # BP-184: max_wait is the reserved slack (~80s), not the full ~100s
+                # deadline — proving pacing reserves the attempt window.
+                assert max_wait == pytest.approx(
+                    c._total_timeout - c._min_attempt_window, abs=1.0
+                )
+                assert max_wait < c._total_timeout - 1.0
             finally:
                 c.close()
+
+    def test_embed_reserves_attempt_window_near_boundary(self):
+        """BP-184 red->green near-boundary: with the submit-rate limiter primed into
+        the danger band (a pacing backlog just under the full deadline), embed() still
+        leaves >= min_attempt_window for the HTTP attempt. The pre-fix behavior (the
+        limiter sleeps out ~the whole deadline -> ~0s left -> 0 attempts made) is
+        impossible by construction, because max_wait is the reserved slack, not the
+        full deadline.
+        """
+        import memory.embeddings as emod
+        from memory.config import reset_config
+        from memory.embeddings import _SubmitRateLimiter
+
+        # Interactive per-hook path: acquire 30 + inference 30 => min_attempt_window 60,
+        # deadline 60 (60 == 60, structurally zero slack) => pacing_budget 0 => bypass.
+        with patch.dict(
+            os.environ,
+            {
+                "EMBEDDING_ACQUIRE_TIMEOUT": "30",
+                "EMBEDDING_INFERENCE_TIMEOUT": "30",
+                "EMBEDDING_TOTAL_TIMEOUT": "60",
+                "EMBEDDING_MAX_RETRIES": "0",
+            },
+        ):
+            reset_config()
+            c = EmbeddingClient()
+            assert c._min_attempt_window == 60.0
+
+            clock = {"now": 1000.0}
+
+            def fake_monotonic():
+                return clock["now"]
+
+            def fake_sleep(seconds):
+                clock["now"] += seconds
+
+            # Real limiter on the same fake clock, primed so a single-text submission
+            # would require ~59s of pacing wait (just under the 60s deadline).
+            lim = _SubmitRateLimiter(
+                1.0, burst=0.0, time_source=fake_monotonic, sleeper=fake_sleep
+            )
+            lim._next_free = clock["now"] + 59.0
+
+            captured = {}
+
+            def fake_embed_once(
+                texts, model="en", project="unknown", remaining_budget=None
+            ):
+                captured["remaining_budget"] = remaining_budget
+                return [[0.1] * 768 for _ in texts]
+
+            try:
+                with (
+                    patch.object(emod.time, "monotonic", fake_monotonic),
+                    patch.object(emod, "_get_submit_rate_limiter", lambda: lim),
+                    patch.object(c, "_embed_once", side_effect=fake_embed_once),
+                ):
+                    c.embed(["x"])
+                # Limiter bypassed: it did NOT sleep out the 59s backlog.
+                assert clock["now"] == 1000.0
+                # The attempt got the full coherent window (60s), not ~1s.
+                assert captured["remaining_budget"] >= c._min_attempt_window
+            finally:
+                c.close()
+
+    def test_pacing_never_eats_attempt_window_property(self):
+        """BP-184 invariant (property): for arbitrary backlog and deadline, after the
+        submit-rate acquire either the limiter bypassed (waited 0) OR at least
+        min_attempt_window of the deadline still remains for the HTTP attempt. A long
+        pacing sleep followed by a doomed sub-window attempt is impossible.
+        """
+        from memory.embeddings import _SubmitRateLimiter
+
+        min_attempt_window = 60.0
+        for deadline_remaining in (60.0, 61.0, 90.0, 120.0, 600.0):
+            for backlog in (0.0, 30.0, 59.0, 59.9, 61.0, 200.0, 599.0):
+                clk = self._FakeReservationClock()
+                lim = _SubmitRateLimiter(
+                    1.0, burst=0.0, time_source=clk.time, sleeper=clk.sleep
+                )
+                lim._next_free = clk.now + backlog
+                pacing_budget = max(0.0, deadline_remaining - min_attempt_window)
+                slept = lim.acquire(1, max_wait=pacing_budget)
+                remaining_for_attempt = deadline_remaining - slept
+                assert (
+                    slept == 0.0 or remaining_for_attempt >= min_attempt_window - 1e-9
+                ), (deadline_remaining, backlog, slept)
+
+    def test_bulk_budget_still_paces(self):
+        """BP-184 feature-preservation: where the caller has real slack (a long bulk
+        budget), the reserved-window math still yields a large pacing_budget, so the
+        limiter DOES pace. Load-shaping is preserved wherever slack exists — it is only
+        inert on the tight interactive path where slack is structurally zero.
+        """
+        min_attempt_window = 60.0
+        bulk_budget = 600.0
+        pacing_budget = max(0.0, bulk_budget - min_attempt_window)  # 540s of slack
+        lim, _clk = self._make(rate=10.0, burst=1.0)
+        total = 0.0
+        for _ in range(11):
+            total += lim.acquire(1, max_wait=pacing_budget)
+        # 10 texts past the 1-text burst, paced at 10/s => ~1.0s of real shaping, far
+        # within the 540s slack (pacing is NOT bypassed).
+        assert abs(total - 1.0) < 1e-9

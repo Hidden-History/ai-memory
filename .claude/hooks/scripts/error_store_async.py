@@ -5,7 +5,9 @@ This script runs in a detached background process, storing captured
 error patterns to Qdrant with type="error_pattern" (v2.0).
 
 Performance: Runs independently of hook (no <500ms constraint)
-Timeout: Configurable via HOOK_TIMEOUT env var (default: 60s)
+Timeout: Configurable via HOOK_TIMEOUT env var (default: 90s — TD-782/788 coherent
+    ceiling above the embedding client's coordinated timeout budget; see
+    memory.hooks_common.get_hook_timeout)
 """
 
 # LANGFUSE: Uses trace buffer (Path A). See LANGFUSE-INTEGRATION-SPEC.md §3.1, §4, §7.7

@@ -248,6 +248,15 @@ class EmbeddingClient:
         )
         coherent_read_floor = self._acquire_timeout + self._inference_timeout
 
+        # BP-184 (reserve-attempt-window): the minimum time a submission's HTTP call
+        # must be left to have a real chance of succeeding — the SAME coherent
+        # read-timeout floor (server acquire + inference). embed() reserves this much of
+        # the per-request deadline before spending any of the remainder on submit-rate
+        # pacing, so load-shaping can never borrow the budget the attempt itself needs.
+        # Wired to the real constants (not a magic number) so it stays coherent if the
+        # acquire/inference knobs change.
+        self._min_attempt_window = coherent_read_floor
+
         # EMBEDDING_READ_TIMEOUT / _CODE remain configurable, but are floored UP to the
         # coherent value so a stale/short setting can never reintroduce the inversion.
         # A larger configured value (slow hardware) is preserved.
@@ -341,6 +350,11 @@ class EmbeddingClient:
         # fire before embed() gets a chance to raise EMBEDDING_TIMEOUT and let the
         # caller's pending-status fallback run. Read HOOK_TIMEOUT the same way the
         # hooks do (hooks_common.get_hook_timeout()).
+        # NOTE: this "90" default is deliberately kept in lockstep with
+        # hooks_common.get_hook_timeout()'s own "90" default. The two are duplicated
+        # rather than shared to avoid coupling src/memory (shipped, importable by Docker
+        # services) to the hook-scripts layer; if one default changes the other must
+        # change with it.
         try:
             hook_timeout = int(os.getenv("HOOK_TIMEOUT", "90"))
         except ValueError:
@@ -409,10 +423,25 @@ class EmbeddingClient:
             # server's sustainable compute ceiling so bulk consumers apply patient
             # backpressure instead of firehosing. Done BEFORE computing `remaining` so
             # the pacing wait is charged against the deadline (the per-attempt read
-            # timeout below shrinks accordingly); max_wait caps it to the remaining
-            # budget so shaping can never make a must-not-drop request miss its deadline.
+            # timeout below shrinks accordingly).
+            #
+            # BP-184 (deadline-budget partitioning — reserve the attempt window):
+            # max_wait is the SLACK above the attempt window the request itself needs
+            # (`remaining - _min_attempt_window`), NOT the full remaining deadline.
+            # Reserving _min_attempt_window (the coherent read-timeout floor: server
+            # acquire + inference) guarantees by construction that >= one full
+            # legitimate attempt always survives pacing, so the reproduced HIGH defect
+            # ("limiter sleeps out the whole deadline -> 0s left, 0 attempts made") is
+            # impossible. On the interactive per-hook path `remaining` equals
+            # _min_attempt_window (budget 60 == floor 60), so pacing_budget is 0 and the
+            # limiter always bypasses: pacing is inert there BY DESIGN — backpressure on
+            # that path is owned by Lane A server-side admission (BP-175) plus the
+            # durable pending-embed queue (BP-180), not a client sleep. Client pacing
+            # only shapes where slack exists (bulk consumers carry their own longer
+            # budget; relocating pacing onto them is TD-799).
             budget = deadline - time.monotonic()
-            _get_submit_rate_limiter().acquire(len(texts), max_wait=max(0.0, budget))
+            pacing_budget = max(0.0, budget - self._min_attempt_window)
+            _get_submit_rate_limiter().acquire(len(texts), max_wait=pacing_budget)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self._log_total_timeout_exceeded(attempt, texts, model)
