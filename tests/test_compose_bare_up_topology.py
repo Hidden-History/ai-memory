@@ -75,6 +75,13 @@ EMBEDDING_CLIENT_KNOBS = {
     "EMBEDDING_MAX_RETRIES",
     "EMBEDDING_BACKOFF_BASE",
     "EMBEDDING_BACKOFF_CAP",
+    # TD-782/788 timeout-coherence knobs: the acquire/inference terms feed the
+    # coherent read-timeout floor AND (BP-184) the reserved attempt window used by
+    # embed()'s submit-rate pacing; both baking services must receive them.
+    "EMBEDDING_ACQUIRE_TIMEOUT",
+    "EMBEDDING_INFERENCE_TIMEOUT",
+    # PLAN-030 WI-10 load-shaping: the client submit-rate ceiling.
+    "EMBEDDING_CLIENT_MAX_TXT_PER_SEC",
 }
 
 

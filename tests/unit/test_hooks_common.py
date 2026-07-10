@@ -274,16 +274,17 @@ class TestGetHookTimeout:
         monkeypatch.setenv("HOOK_TIMEOUT", "120")
         assert get_hook_timeout() == 120
 
-    def test_default_60_when_env_var_unset(self, monkeypatch):
-        """get_hook_timeout returns 60 when HOOK_TIMEOUT is not set."""
+    def test_default_90_when_env_var_unset(self, monkeypatch):
+        """get_hook_timeout returns 90 when HOOK_TIMEOUT is not set (TD-782/788
+        coherent ceiling above the embedding client's coordinated timeout budget)."""
         monkeypatch.delenv("HOOK_TIMEOUT", raising=False)
-        assert get_hook_timeout() == 60
+        assert get_hook_timeout() == 90
 
-    def test_invalid_env_var_returns_60_not_raises(self, monkeypatch):
-        """get_hook_timeout returns 60 (not raises) when HOOK_TIMEOUT is non-numeric."""
+    def test_invalid_env_var_returns_90_not_raises(self, monkeypatch):
+        """get_hook_timeout returns 90 (not raises) when HOOK_TIMEOUT is non-numeric."""
         monkeypatch.setenv("HOOK_TIMEOUT", "not_a_number")
         result = get_hook_timeout()
-        assert result == 60
+        assert result == 90
 
     def test_return_type_is_always_int(self, monkeypatch):
         """get_hook_timeout always returns an int, never a string."""
