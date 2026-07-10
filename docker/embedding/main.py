@@ -538,7 +538,7 @@ async def run_inference_async(operation, work_units=1, work_chars=0):
         raise HTTPException(status_code=503, detail="embedding_inference_failed") from e
 
 
-def _enforce_payload_limits(texts: list[str]) -> None:
+def _enforce_payload_limits(texts: list[str], per_text_cap: bool = True) -> None:
     """Reject oversized embed payloads with HTTP 413 before any model work (TD-670).
 
     Bounds three dimensions, closing the single-request OOM vector before the batch is
@@ -550,9 +550,18 @@ def _enforce_payload_limits(texts: list[str]) -> None:
       super-linear (~O(L^2)), so one huge text costs far more than the same chars spread
       across texts; a total-chars bound alone is blind to that distribution.
 
+    Args:
+        texts: the texts about to be embedded.
+        per_text_cap: enforce the per-text char cap. Defaults True. Set False ONLY for the
+            ``/embed/chunked`` document CONTAINER (``texts[0]`` is a whole document that the
+            endpoint then splits by offsets into in-cap chunks — the per-text cap must apply
+            to those resulting chunks, not to the pre-split document, or it would false-reject
+            a legitimately large document that will never be embedded whole). Every path that
+            embeds a text DIRECTLY keeps the cap on.
+
     Raises:
-        HTTPException: 413 if the batch has too many texts, too many total chars, or any
-        single text exceeds the per-text cap.
+        HTTPException: 413 if the batch has too many texts, too many total chars, or (when
+        ``per_text_cap``) any single text exceeds the per-text cap.
     """
     if len(texts) > EMBEDDING_MAX_BATCH_TEXTS:
         raise HTTPException(
@@ -560,15 +569,16 @@ def _enforce_payload_limits(texts: list[str]) -> None:
             detail=f"Too many texts: {len(texts)} > max {EMBEDDING_MAX_BATCH_TEXTS}",
         )
     # TD-795: per-text cap first — a single super-linear text is the worst-case OOM driver.
-    for i, t in enumerate(texts):
-        if len(t) > EMBEDDING_MAX_TEXT_CHARS:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Text {i} too large: {len(t)} chars > "
-                    f"max {EMBEDDING_MAX_TEXT_CHARS} per text"
-                ),
-            )
+    if per_text_cap:
+        for i, t in enumerate(texts):
+            if len(t) > EMBEDDING_MAX_TEXT_CHARS:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Text {i} too large: {len(t)} chars > "
+                        f"max {EMBEDDING_MAX_TEXT_CHARS} per text"
+                    ),
+                )
     total_chars = sum(len(t) for t in texts)
     if total_chars > EMBEDDING_MAX_INPUT_CHARS:
         raise HTTPException(
@@ -1088,15 +1098,20 @@ async def embed_chunked(request: EmbedWithOffsetsRequest):
     """
     if not request.texts:
         raise HTTPException(status_code=400, detail="No texts provided")
-    # Only texts[0] is used as the document; this count check is a conservative
-    # oversized-payload guard — the char-length check below is the operative limit.
-    _enforce_payload_limits(request.texts)
+    # texts[0] is a whole DOCUMENT this endpoint splits by offsets into in-cap chunks, so
+    # the per-text cap must NOT apply to the pre-split document (that would false-reject a
+    # legitimately large document — TD-795 friction 4); it is enforced on the resulting
+    # chunks below. Batch-count + total-char bounds still apply to the container.
+    _enforce_payload_limits(request.texts, per_text_cap=False)
 
     document = request.texts[0]
     model = MODEL_REGISTRY["en"]
 
     if not request.chunk_offsets:
-        # No offsets — embed whole document as single vector
+        # No offsets — embed the whole document as a single vector. Here the document IS the
+        # embedded text, so the per-text cap DOES apply (a huge whole-document embed is the
+        # O(L^2) OOM vector); a >cap document must be sent WITH offsets so it is split.
+        _enforce_payload_limits([document])
         embeddings = await run_inference_async(
             lambda: list(model.embed([document])),
             work_units=1,

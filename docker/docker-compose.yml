@@ -164,11 +164,13 @@ services:
     deploy:
       resources:
         limits:
-          # SPEC-010 / BUG-324: 6G default for multi-project shared deployments. The
-          # shared service climbs well past the ~3GB model footprint under real mixed
-          # load (arena retention); 4G OOM-loops. Tune by concurrent-project count —
-          # see docs/EMBEDDING-SIZING.md. (Provisional pending the BUG-324 soak.)
-          memory: ${EMBEDDING_MEMORY_LIMIT:-6G}
+          # BUG-329 / DEC-PM386-D4 + PM #390: 10G is the design basis of the byte-aware
+          # envelope above — it is the denominator of the whole sizing (warm base ~2.35 GiB
+          # + ~5.6 GiB in-flight char budget = ~7.95 GiB peak, ~2 GiB headroom). Shipping the
+          # old 6G default under this envelope is a latent OOM on a fresh install (base +
+          # budget >> 6G), so the committed default must equal the sizing basis. Tune by
+          # concurrent-project count — see docs/EMBEDDING-SIZING.md.
+          memory: ${EMBEDDING_MEMORY_LIMIT:-10G}
 
   monitoring-api:
     build:

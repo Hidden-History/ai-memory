@@ -997,6 +997,91 @@ def test_computed_peak_under_cap_with_margin():
     assert service.EMBEDDING_MAX_INPUT_CHARS <= service.EMBEDDING_SAFE_INFLIGHT_CHARS
 
 
+def _committed_memory_limit_gib(text):
+    """Parse the EMBEDDING_MEMORY_LIMIT default (e.g. '10G') from a compose/.env file into
+    GiB. Docker's 'G' suffix is GiB (1024^3)."""
+    m = re.search(r"EMBEDDING_MEMORY_LIMIT(?:=|:-)(\d+)([GgMm])", text)
+    assert m, "EMBEDDING_MEMORY_LIMIT default not found"
+    value, unit = int(m.group(1)), m.group(2).upper()
+    return value if unit == "G" else value / 1024.0
+
+
+def test_envelope_consistent_with_committed_memory_limit():
+    """Drift guard: the shipped EMBEDDING_MEMORY_LIMIT (the envelope's denominator) must
+    equal the sizing basis in BOTH compose and .env.example, and the computed peak must fit
+    under it with margin. Shipping a limit smaller than the envelope's basis is a latent OOM
+    on a fresh install (base + budget >> limit) — this fails loudly if either drifts."""
+    repo_root = Path(__file__).resolve().parents[1]
+    compose = (repo_root / "docker" / "docker-compose.yml").read_text()
+    env_example = (repo_root / "docker" / ".env.example").read_text()
+
+    committed_compose = _committed_memory_limit_gib(compose)
+    committed_env = _committed_memory_limit_gib(env_example)
+    # No drift between the two files.
+    assert committed_compose == committed_env
+    committed_gib = committed_compose
+
+    service = _load_service(4)
+    mib_per_char = 235.0 / service.EMBEDDING_MAX_TEXT_CHARS
+    peak_gib = 2.35 + service.EMBEDDING_SAFE_INFLIGHT_CHARS * mib_per_char / 1024.0
+
+    # The envelope was sized against a 10 GiB basis; the committed limit must match it, and
+    # the peak must clear it with fragmentation headroom.
+    assert committed_gib == 10
+    assert peak_gib < committed_gib
+    assert committed_gib - peak_gib >= 1.5
+
+
+# --- TD-795 friction 4: legitimate large texts are admitted, not false-rejected ---
+
+
+def test_legit_max_size_text_admitted():
+    """Friction 4: a text at the largest legitimate size is ADMITTED (not 413'd). The
+    chunkers emit prose chunks <= 2048 chars and code chunks well under that; a text right
+    at the 8192 per-text cap (>=3x the largest real chunk) must still pass."""
+    service = _load_service(4)
+    client = TestClient(service.app)
+
+    # A realistic prose-sized chunk (~2 KB) — the actual production max — is admitted.
+    prose = client.post("/embed/dense", json={"texts": ["p" * 2048], "model": "en"})
+    assert prose.status_code == 200
+
+    # A text exactly at the per-text cap boundary is admitted (cap is inclusive).
+    at_cap = client.post(
+        "/embed/dense",
+        json={"texts": ["x" * service.EMBEDDING_MAX_TEXT_CHARS], "model": "en"},
+    )
+    assert at_cap.status_code == 200
+
+
+def test_embed_chunked_large_document_split_is_admitted():
+    """Friction 4: /embed/chunked receives a whole DOCUMENT (legitimately large) that it
+    splits by offsets into in-cap chunks — the per-text cap must NOT false-reject the
+    pre-split document. A 20 K-char document carved into 8 KB spans is embedded (200), while
+    the no-offsets whole-document fallback still enforces the cap (a >cap whole-doc embed is
+    the O(L^2) OOM vector and must be sent WITH offsets)."""
+    service = _load_service(4)
+    client = TestClient(service.app)
+
+    big_doc = (
+        "d" * 20_000
+    )  # > EMBEDDING_MAX_TEXT_CHARS (8192), a legit document to split
+    offsets = [[0, 8000], [8000, 16000], [16000, 20000]]  # each span <= 8192
+    split = client.post(
+        "/embed/chunked",
+        json={"texts": [big_doc], "chunk_offsets": offsets, "late_chunking": True},
+    )
+    assert split.status_code == 200
+    assert len(split.json()["embeddings"]) == len(offsets)
+
+    # No-offsets fallback embeds the document WHOLE -> the per-text cap applies (protective).
+    whole = client.post(
+        "/embed/chunked", json={"texts": [big_doc], "chunk_offsets": []}
+    )
+    assert whole.status_code == 413
+    assert "per text" in whole.json()["detail"]
+
+
 # --- Phase 2: cgroup-v2 reader + memory-aware AIMD self-throttle ---
 
 
