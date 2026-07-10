@@ -146,11 +146,14 @@ EMBEDDING_SAFE_INFLIGHT_TEXTS = int(os.getenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", "
 # TD-783 (PM #390 X2): byte/superlinear-aware in-flight envelope. The count-only
 # EMBEDDING_SAFE_INFLIGHT_TEXTS above is byte-BLIND — 48 in-flight texts is ~96 KiB of
 # work at 2 KB/text but ~384 KB at 8 KB/text, and the latter OOM-killed the 10 GiB cap
-# (48 x 8 KB = 393,216 chars -> ~10.37 GiB, X2). This bounds the SUM of in-flight CHARS
-# across all slots holding an inference slot, so peak memory tracks real byte-work, not
-# text count. It COMPLEMENTS (does not replace) the count envelope: the count stays as the
-# cross-deploy contract the client mirrors (storage._embedding_inflight_envelope), while
-# this char budget is the binding memory bound for large-text bursts.
+# (48 x 8 KB = 393,216 chars -> ~10.37 GiB, X2). This bounds the SUM of in-flight PADDED
+# chars (see _padded_chars: rows x max_len, the real onnx working set — fastembed pads the
+# batch to its longest sequence) across all slots holding an inference slot, so peak memory
+# tracks real byte-work, not text count. It COMPLEMENTS (does not replace) the count
+# envelope: the count stays as the cross-deploy contract the client mirrors
+# (storage._embedding_inflight_envelope), while this char budget is the binding memory bound
+# for large-text bursts AND for skewed batches (one long text + many tiny), whose padded
+# footprint the char SUM would miss (reviewer MEDIUM: batch padding).
 #   Sizing (10 GiB cap, ~2.35 GiB warm base): budget the transient at cap - base - margin
 #   ~= 10 - 2.35 - ~1.5 (fragmentation/overshoot; X2 overshot the cap by ~0.37 GiB) ~=
 #   6.15 GiB. With per-text capped at 8 KB the worst per-char cost is 235 MiB / 8192 =
@@ -177,6 +180,25 @@ if EMBEDDING_MAX_WAITERS < 1:
         extra={"configured": EMBEDDING_MAX_WAITERS, "floored_to": 1},
     )
     EMBEDDING_MAX_WAITERS = 1
+
+# Memory invariant (reviewer MEDIUM): EMBEDDING_MAX_INPUT_CHARS must never exceed
+# EMBEDDING_SAFE_INFLIGHT_CHARS. A lone request is ALWAYS admitted (deadlock prevention),
+# so its whole payload — up to EMBEDDING_MAX_INPUT_CHARS — can sit in flight by itself; if
+# that ceiling is above the concurrent char envelope, a single always-admitted request
+# breaches the memory envelope the whole design rests on. The sizing docs invite per-install
+# tuning of EMBEDDING_MAX_INPUT_CHARS, so an operator can raise it past
+# EMBEDDING_SAFE_INFLIGHT_CHARS without realizing the coupling. Clamp it down at load (with a
+# warning) so the invariant holds by construction rather than only in the test suite —
+# mirrors the EMBEDDING_MAX_WAITERS floor-with-warning above.
+if EMBEDDING_MAX_INPUT_CHARS > EMBEDDING_SAFE_INFLIGHT_CHARS:
+    logger.warning(
+        "embedding_max_input_chars_clamped",
+        extra={
+            "configured": EMBEDDING_MAX_INPUT_CHARS,
+            "clamped_to": EMBEDDING_SAFE_INFLIGHT_CHARS,
+        },
+    )
+    EMBEDDING_MAX_INPUT_CHARS = EMBEDDING_SAFE_INFLIGHT_CHARS
 
 
 def _make_metric(factory, name, *args, **kwargs):
@@ -275,9 +297,10 @@ _waiting_count = 0
 # its release (no await in that window), so a plain int needs no lock.
 _inflight_work = 0
 
-# TD-783: byte twin of _inflight_work — sum of INPUT CHARS of requests currently holding
-# an inference slot. Bounded by EMBEDDING_SAFE_INFLIGHT_CHARS at admission. Same
-# single-event-loop mutation window as _inflight_work, so a plain int needs no lock.
+# TD-783: byte twin of _inflight_work — sum of PADDED chars (_padded_chars: rows x max_len)
+# of requests currently holding an inference slot. Bounded by EMBEDDING_SAFE_INFLIGHT_CHARS
+# at admission. Same single-event-loop mutation window as _inflight_work, so a plain int
+# needs no lock.
 _inflight_chars = 0
 
 # BUG-324 Phase 2: the AIMD controller shrinks the EFFECTIVE limit below the static max
@@ -337,11 +360,14 @@ async def run_inference_async(operation, work_units=1, work_chars=0):
             ``work_units=len(texts)`` — the count envelope and the 413 gate are only correct
             if this equals the number of texts ``operation`` will embed. A wrong value
             silently under- or over-counts in-flight work and defeats the memory bound.
-        work_chars: This request's total input size in chars (``sum(len(t) for t in
-            texts)``); the unit the byte envelope (``EMBEDDING_SAFE_INFLIGHT_CHARS``)
-            bounds (TD-783). Defaults to 0 (byte gate inert) for callers that do not
-            embed text. CONTRACT: text-embedding callers MUST pass the real char total —
-            it is the memory-proportional quantity the byte envelope caps.
+        work_chars: This request's PADDED working set in chars — ``_padded_chars(texts)``
+            = ``len(texts) * max_text_len`` (NOT the char sum); the unit the byte envelope
+            (``EMBEDDING_SAFE_INFLIGHT_CHARS``) bounds (TD-783 + reviewer MEDIUM batch
+            padding). fastembed pads the batch to its longest sequence, so the padded
+            rectangle — not the char sum — is the memory-proportional quantity; for a
+            uniform batch the two are equal. Defaults to 0 (byte gate inert) for callers
+            that do not embed text. CONTRACT: text-embedding callers MUST pass
+            ``_padded_chars(texts)``.
 
     Returns:
         Whatever ``operation`` returns.
@@ -450,12 +476,13 @@ async def run_inference_async(operation, work_units=1, work_chars=0):
             headers={"Retry-After": str(EMBEDDING_RETRY_AFTER)},
         )
 
-    # TD-783 byte/superlinear-aware gate. Same shape as the count gate above but on CHARS:
-    # if admitting this request's chars would push the concurrent in-flight char total over
-    # EMBEDDING_SAFE_INFLIGHT_CHARS, shed (giving the slot back). This is the binding memory
-    # bound under large-text bursts, where the count gate is byte-blind (48 texts is safe at
-    # 2 KB but OOMs at 8 KB). A lone request is always admitted — its chars are already
-    # bounded to <= EMBEDDING_MAX_INPUT_CHARS (<= EMBEDDING_SAFE_INFLIGHT_CHARS) by
+    # TD-783 byte/superlinear-aware gate. Same shape as the count gate above but on PADDED
+    # CHARS (rows x max_len): if admitting this request's padded work would push the
+    # concurrent in-flight padded total over EMBEDDING_SAFE_INFLIGHT_CHARS, shed (giving the
+    # slot back). This is the binding memory bound under large-text bursts AND skewed batches,
+    # where the count gate is byte-blind (48 texts is safe at 2 KB but OOMs at 8 KB) and a
+    # char-SUM gate is padding-blind. A lone request is always admitted — its padded rectangle
+    # is already bounded to <= EMBEDDING_MAX_INPUT_CHARS (<= EMBEDDING_SAFE_INFLIGHT_CHARS) by
     # _enforce_payload_limits — so this never starves it and cannot deadlock.
     if (
         _inflight_chars > 0
@@ -538,10 +565,36 @@ async def run_inference_async(operation, work_units=1, work_chars=0):
         raise HTTPException(status_code=503, detail="embedding_inference_failed") from e
 
 
+def _padded_chars(texts: list[str]) -> int:
+    """The padded-batch working-set proxy in chars: ``len(texts) * max_text_len``.
+
+    fastembed embeds a request as onnx batches of ``batch_size`` (default 256; the service
+    passes no ``batch_size`` and ``parallel=None``, so a whole request up to
+    ``EMBEDDING_MAX_BATCH_TEXTS`` is a single batch) and its tokenizer pads with
+    ``enable_padding()`` and NO fixed length — i.e. ``BatchLongest``: every row is padded to
+    the LONGEST sequence in the batch (truncated at the model's 8192-token max). Verified in
+    the fastembed source (``common/preprocessor_utils.py`` load_tokenizer +
+    ``text/onnx_text_model.py`` _embed_documents/onnx_embed); this padding+batching shape is
+    long-standing across fastembed 0.7.x/0.8.x.
+
+    ``rows * max_len`` is a conservative UPPER bound on the true padded onnx work for ANY
+    internal ``batch_size``: sub-batching can only pad to a per-sub-batch max <= the global
+    max and processes one sub-batch at a time, so the peak never exceeds this rectangle. The
+    bound therefore holds regardless of the exact pinned fastembed version.
+
+    Consequence: peak memory tracks the padded RECTANGLE ``rows * max_len``, not
+    ``sum(len)``. A skewed batch — one text at the per-text cap plus many tiny ones — has a
+    small char sum yet a large padded rectangle (its transient cost is ~ effective_batch x
+    max_len^2), so a ``sum(chars)`` bound alone is byte-blind to it. This function is the
+    quantity the char envelope must actually bound. Empty batch -> 0.
+    """
+    return len(texts) * max((len(t) for t in texts), default=0)
+
+
 def _enforce_payload_limits(texts: list[str], per_text_cap: bool = True) -> None:
     """Reject oversized embed payloads with HTTP 413 before any model work (TD-670).
 
-    Bounds three dimensions, closing the single-request OOM vector before the batch is
+    Bounds four dimensions, closing the single-request OOM vector before the batch is
     materialized into vectors:
 
     - number of texts (``EMBEDDING_MAX_BATCH_TEXTS``) — vectors materialized;
@@ -549,6 +602,14 @@ def _enforce_payload_limits(texts: list[str], per_text_cap: bool = True) -> None
     - size of any single text (``EMBEDDING_MAX_TEXT_CHARS``, TD-795) — per-text memory is
       super-linear (~O(L^2)), so one huge text costs far more than the same chars spread
       across texts; a total-chars bound alone is blind to that distribution.
+    - padded rectangle ``len(texts) * max_text_len`` (``EMBEDDING_MAX_INPUT_CHARS``, reviewer
+      MEDIUM) — fastembed pads the batch to its longest sequence (see ``_padded_chars``), so
+      a SKEWED batch (one text at the per-text cap + many tiny) has a tiny char sum yet a
+      huge padded footprint that the total-chars bound misses. Bounding the padded rectangle
+      to ``EMBEDDING_MAX_INPUT_CHARS`` (which the load-time invariant keeps
+      ``<= EMBEDDING_SAFE_INFLIGHT_CHARS``) makes a lone (always-admitted) request's padded
+      batch memory-safe; for a uniform batch the rectangle equals the char sum, so this only
+      catches skew.
 
     Args:
         texts: the texts about to be embedded.
@@ -560,8 +621,9 @@ def _enforce_payload_limits(texts: list[str], per_text_cap: bool = True) -> None
             embeds a text DIRECTLY keeps the cap on.
 
     Raises:
-        HTTPException: 413 if the batch has too many texts, too many total chars, or (when
-        ``per_text_cap``) any single text exceeds the per-text cap.
+        HTTPException: 413 if the batch has too many texts, too many total chars, (when
+        ``per_text_cap``) any single text exceeds the per-text cap, or the padded rectangle
+        exceeds the input-char budget.
     """
     if len(texts) > EMBEDDING_MAX_BATCH_TEXTS:
         raise HTTPException(
@@ -586,6 +648,22 @@ def _enforce_payload_limits(texts: list[str], per_text_cap: bool = True) -> None
             detail=(
                 f"Input too large: {total_chars} chars > "
                 f"max {EMBEDDING_MAX_INPUT_CHARS}"
+            ),
+        )
+    # Reviewer MEDIUM (batch padding): bound the padded rectangle, not just the char sum. A
+    # skewed batch passes the total-chars cap but pads to len(texts) x max_len; capping that
+    # at the same input-char budget keeps a lone request's padded batch within the concurrent
+    # envelope (the load-time invariant guarantees MAX_INPUT_CHARS <= SAFE_INFLIGHT_CHARS).
+    # Checked after the total-chars cap so a plain oversized batch still reports "Input too
+    # large" (a uniform batch has padded == sum, so this fires only on genuine skew).
+    padded_chars = _padded_chars(texts)
+    if padded_chars > EMBEDDING_MAX_INPUT_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Batch padding too large: {len(texts)} texts x "
+                f"{max((len(t) for t in texts), default=0)} max chars = {padded_chars} "
+                f"> max {EMBEDDING_MAX_INPUT_CHARS}"
             ),
         )
 
@@ -1060,7 +1138,7 @@ async def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
     embeddings = await run_inference_async(
         lambda: list(model.embed(request.texts)),
         work_units=len(request.texts),
-        work_chars=sum(len(t) for t in request.texts),
+        work_chars=_padded_chars(request.texts),
     )
     return EmbedDenseResponse(
         embeddings=[e.tolist() for e in embeddings],
@@ -1135,7 +1213,7 @@ async def embed_chunked(request: EmbedWithOffsetsRequest):
     embeddings = await run_inference_async(
         lambda: list(model.embed(chunk_texts)),
         work_units=len(chunk_texts),
-        work_chars=sum(len(t) for t in chunk_texts),
+        work_chars=_padded_chars(chunk_texts),
     )
     return EmbedResponse(
         embeddings=[e.tolist() for e in embeddings],
@@ -1156,7 +1234,7 @@ async def embed_sparse(request: EmbedSparseRequest):
     results = await run_inference_async(
         lambda: list(model.embed(request.texts)),
         work_units=len(request.texts),
-        work_chars=sum(len(t) for t in request.texts),
+        work_chars=_padded_chars(request.texts),
     )
     return EmbedSparseResponse(
         embeddings=[
@@ -1182,7 +1260,7 @@ async def embed_late(request: EmbedLateRequest):
     results = await run_inference_async(
         lambda: list(model.embed(request.texts)),
         work_units=len(request.texts),
-        work_chars=sum(len(t) for t in request.texts),
+        work_chars=_padded_chars(request.texts),
     )
     return EmbedLateResponse(
         embeddings=[LateEmbeddingResult(embeddings=r.tolist()) for r in results],

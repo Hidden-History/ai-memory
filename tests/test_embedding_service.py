@@ -819,6 +819,113 @@ def test_char_envelope_enforced_on_http_path_with_large_texts():
     assert holder_status == 200
 
 
+# --- Reviewer MEDIUM: batch-padding memory bound (fastembed pads the batch to its longest
+# sequence, so peak memory tracks the padded rectangle rows x max_len, not the char sum) ---
+
+
+def test_padded_chars_rectangle():
+    """_padded_chars is the padded rectangle rows x max_len. For a uniform batch it equals
+    the char sum; for a skewed batch (one long + many tiny) it is far larger — that gap is
+    exactly the padding cost the char SUM misses."""
+    service = _load_service(4)
+    uniform = ["abcd", "efgh", "ijkl"]  # 3 x 4 = 12; sum = 12 -> equal
+    assert service._padded_chars(uniform) == 12
+    assert service._padded_chars(uniform) == sum(len(t) for t in uniform)
+
+    skewed = ["x" * 8192] + ["y"] * 47  # sum = 8239, padded = 48 x 8192 = 393216
+    assert sum(len(t) for t in skewed) == 8239
+    assert service._padded_chars(skewed) == 48 * 8192
+    assert service._padded_chars([]) == 0
+
+
+def test_skewed_batch_rejected_by_padding_gate():
+    """A skewed batch — one text at the per-text cap plus many tiny — has a small char SUM
+    (passes the total-chars cap) yet a padded rectangle of 48 x 8192 = 393216 (the load that
+    OOM'd the 10 GiB cap). At the shipped defaults it is rejected up front with a clean 413
+    (padding gate), NOT admitted-then-OOM; the service keeps serving. A uniform batch of the
+    SAME char sum is admitted, proving the gate catches padding skew, not batch size."""
+    service = _load_service(4)  # ships MAX_TEXT_CHARS=8192, MAX_INPUT_CHARS=200000
+    client = TestClient(service.app)
+
+    skewed = ["x" * service.EMBEDDING_MAX_TEXT_CHARS] + ["y"] * 47
+    assert (
+        sum(len(t) for t in skewed) <= service.EMBEDDING_MAX_INPUT_CHARS
+    )  # passes sum cap
+    resp = client.post("/embed/dense", json={"texts": skewed, "model": "en"})
+    assert resp.status_code == 413
+    assert "Batch padding too large" in resp.json()["detail"]
+
+    # Same char SUM spread uniformly -> padded ~= sum -> admitted (only skew is caught).
+    total = sum(len(t) for t in skewed)
+    uniform = ["z" * (total // 48)] * 48
+    ok = client.post("/embed/dense", json={"texts": uniform, "model": "en"})
+    assert ok.status_code == 200
+
+    # Service survived the rejection and still serves.
+    alive = client.post("/embed/dense", json={"texts": ["still alive"], "model": "en"})
+    assert alive.status_code == 200
+
+
+def test_padded_char_envelope_sheds_concurrent_skewed_work():
+    """End-to-end on /embed/dense: work_chars is wired from the PADDED rectangle, not the
+    char sum. While one skewed request (small sum, large padded footprint) holds a slot, a
+    second concurrent skewed request that would push the in-flight PADDED total over
+    EMBEDDING_SAFE_INFLIGHT_CHARS is shed — proving the byte envelope bounds real padded work
+    across concurrent slots, not the padding-blind char sum."""
+    service = _load_service(4)
+    # One skewed request: 10 texts, one at the 8192 cap + 9 tiny. padded = 10 x 8192 = 81920,
+    # char sum ~ 8201. Budget just above one padded request so a second concurrent one breaches
+    # it; a char-SUM gate (~8201 in flight) would NOT fire, so a shed proves padded accounting.
+    skewed = ["x" * service.EMBEDDING_MAX_TEXT_CHARS] + ["y"] * 9
+    one_padded = service._padded_chars(skewed)
+    assert one_padded == 10 * 8192
+    service.EMBEDDING_SAFE_INFLIGHT_CHARS = one_padded + 100
+    service.EMBEDDING_SAFE_INFLIGHT_TEXTS = 48  # keep the count gate non-binding
+
+    async def _drive():
+        gate = threading.Event()
+        entered = asyncio.Event()
+        loop = asyncio.get_running_loop()
+
+        class _GatedModel:
+            name = "gated-stub"
+
+            def embed(self, embed_texts):
+                loop.call_soon_threadsafe(entered.set)
+                gate.wait(timeout=10)  # hold the slot while the second request arrives
+                return [np.full(768, 0.1, dtype=np.float32) for _ in embed_texts]
+
+        service.MODEL_REGISTRY["en"] = _GatedModel()
+
+        transport = httpx.ASGITransport(app=service.app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://embedding.test"
+        ) as client:
+            holder = asyncio.create_task(
+                client.post("/embed/dense", json={"texts": skewed, "model": "en"})
+            )
+            await entered.wait()  # first skewed request in flight (padded chars counted)
+            assert service._inflight_chars == one_padded
+
+            over = await client.post(
+                "/embed/dense", json={"texts": skewed, "model": "en"}
+            )
+
+            gate.set()
+            holder_resp = await holder
+            for _ in range(1000):
+                if service._inflight_chars == 0:
+                    break
+                await asyncio.sleep(0)
+            assert service._inflight_chars == 0
+            return over.status_code, over.json().get("detail"), holder_resp.status_code
+
+    status, detail, holder_status = asyncio.run(_drive())
+    assert status == 503
+    assert detail == "embedding_admission_over_char_envelope"
+    assert holder_status == 200
+
+
 # --- TD-793/794/795: config wiring (threads, memory-high ratio, byte caps) ---
 
 
@@ -870,8 +977,9 @@ def test_thread_config_aligned_across_compose_and_env_example():
 
 def test_new_env_keys_mirrored_in_env_example_and_compose():
     """Every new EMBEDDING_* key must appear in BOTH docker-compose.yml and
-    docker/.env.example (env-key parity — a compose key absent from .env.example drifts the
-    operator's real .env)."""
+    docker/.env.example with the SAME default value (env-key + value parity — a compose key
+    absent from, or defaulting differently than, .env.example drifts the operator's real
+    .env). Value-equality parallels the EMBEDDING_MEMORY_LIMIT drift guard."""
     repo_root = Path(__file__).resolve().parents[1]
     compose = (repo_root / "docker" / "docker-compose.yml").read_text()
     env_example = (repo_root / "docker" / ".env.example").read_text()
@@ -883,6 +991,15 @@ def test_new_env_keys_mirrored_in_env_example_and_compose():
         assert re.search(
             rf"^{key}=", env_example, re.MULTILINE
         ), f"{key} missing from docker/.env.example"
+        # Value-equality: compose uses ``KEY=${KEY:-DEFAULT}``, .env.example uses ``KEY=VALUE``.
+        compose_default = re.search(rf"{key}=\$\{{{key}:-(\d+)\}}", compose)
+        env_value = re.search(rf"^{key}=(\d+)$", env_example, re.MULTILINE)
+        assert compose_default, f"{key} default not parseable in docker-compose.yml"
+        assert env_value, f"{key} value not parseable in docker/.env.example"
+        assert compose_default.group(1) == env_value.group(1), (
+            f"{key} default drifts: compose={compose_default.group(1)} "
+            f"env.example={env_value.group(1)}"
+        )
 
 
 # --- WI-10 acceptance proofs at PRODUCTION defaults (DEC-PM390 amended DONE-WHEN) ---
@@ -1310,11 +1427,17 @@ def test_cancelled_midinference_holds_slot_until_thread_completes():
         sem = service._inference_semaphore
         before_inflight = service.embedding_inflight._value.get()
 
-        task = asyncio.create_task(service.run_inference_async(blocking_op))
+        # Non-zero work_chars so the _inflight_chars no-leak assertion below is meaningful
+        # (a leak on cancel would strand these chars).
+        task = asyncio.create_task(
+            service.run_inference_async(blocking_op, work_units=1, work_chars=7)
+        )
         # Wait until the worker thread is actually inside the inference (slot held).
         await asyncio.get_running_loop().run_in_executor(None, started.wait, 10)
         assert sem.locked()
         assert service.embedding_inflight._value.get() == before_inflight + 1
+        assert service._inflight_work == 1
+        assert service._inflight_chars == 7
 
         # Client disconnect mid-inference.
         task.cancel()
@@ -1339,6 +1462,10 @@ def test_cancelled_midinference_holds_slot_until_thread_completes():
             await asyncio.sleep(0.01)
         assert not sem.locked(), "slot not released after the executor thread completed"
         assert service.embedding_inflight._value.get() == before_inflight
+        # M1: the release callback unwinds BOTH in-flight counters — no work/char leak on the
+        # cancel path.
+        assert service._inflight_work == 0
+        assert service._inflight_chars == 0
 
         # The freed slot admits the next request normally; a double-release would have
         # corrupted the permit count, so a clean single free slot proves exactly-once.
@@ -1369,7 +1496,8 @@ def test_submit_failure_releases_slot_and_returns_503():
 
         service._inference_executor.submit = boom
         with pytest.raises(HTTPException) as exc:
-            await service.run_inference_async(lambda: [1])
+            # Non-zero work_chars so the _inflight_chars no-leak assertion below is meaningful.
+            await service.run_inference_async(lambda: [1], work_units=1, work_chars=5)
 
         # Slot released (not leaked), inflight back to baseline, 503 (not 500).
         assert exc.value.status_code == 503
@@ -1377,9 +1505,10 @@ def test_submit_failure_releases_slot_and_returns_503():
         assert not sem.locked(), "slot leaked after submit() failure"
         assert sem._value == 1
         assert service.embedding_inflight._value.get() == before_inflight
-        # BUG-327: the inline release on submit() failure also unwinds in-flight work
-        # (incremented just before submit) back to zero — no work-unit leak.
+        # BUG-327: the inline release on submit() failure also unwinds in-flight work AND
+        # chars (both incremented just before submit) back to zero — no work-unit/char leak.
         assert service._inflight_work == 0
+        assert service._inflight_chars == 0
 
     asyncio.run(_drive())
 
@@ -1394,6 +1523,34 @@ def test_max_waiters_floored_to_one(caplog):
     assert any(
         "embedding_max_waiters_floored" in r.getMessage() for r in caplog.records
     )
+
+
+def test_max_input_chars_clamped_to_safe_inflight_chars(caplog):
+    """Reviewer MEDIUM: EMBEDDING_MAX_INPUT_CHARS is clamped down to
+    EMBEDDING_SAFE_INFLIGHT_CHARS at load (with a warning) when an operator tunes it above the
+    envelope. A lone request is always admitted, so its whole payload can sit in flight alone;
+    the clamp makes the invariant MAX_INPUT_CHARS <= SAFE_INFLIGHT_CHARS hold by construction,
+    not only in tests."""
+    os.environ["EMBEDDING_SAFE_INFLIGHT_CHARS"] = "100000"
+    os.environ["EMBEDDING_MAX_INPUT_CHARS"] = (
+        "500000"  # misconfigured above the envelope
+    )
+    with caplog.at_level(logging.WARNING, logger="ai_memory.embedding"):
+        service = _load_service(4)
+    assert service.EMBEDDING_MAX_INPUT_CHARS == 100000
+    assert service.EMBEDDING_MAX_INPUT_CHARS <= service.EMBEDDING_SAFE_INFLIGHT_CHARS
+    assert any(
+        "embedding_max_input_chars_clamped" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_max_input_chars_not_clamped_when_within_envelope():
+    """The clamp is a guard, not a floor: a MAX_INPUT_CHARS at or below the envelope is left
+    untouched (no spurious downsizing at the shipped defaults)."""
+    os.environ["EMBEDDING_SAFE_INFLIGHT_CHARS"] = "200000"
+    os.environ["EMBEDDING_MAX_INPUT_CHARS"] = "150000"
+    service = _load_service(4)
+    assert service.EMBEDDING_MAX_INPUT_CHARS == 150000
 
 
 def test_blind_hold_at_one_logs_once_per_state_entry(caplog):
