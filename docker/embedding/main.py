@@ -230,13 +230,14 @@ embedding_inflight_work = _make_metric(
     "embedding_inflight_work",
     "Sum of in-flight batch sizes (work-units) across slots held; bounded by the envelope",
 )
-# TD-783: the byte dimension of in-flight work — the SUM of in-flight CHARS across slots
-# held, bounded by EMBEDDING_SAFE_INFLIGHT_CHARS. Exposed so live load-verification can
-# watch the real memory-proportional quantity (bytes), not just the text count.
+# TD-783: the byte dimension of in-flight work — the SUM of in-flight PADDED chars
+# (_padded_chars: rows x max_len) across slots held, bounded by EMBEDDING_SAFE_INFLIGHT_CHARS.
+# Exposed so live load-verification can watch the real memory-proportional quantity (bytes),
+# not just the text count.
 embedding_inflight_chars = _make_metric(
     Gauge,
     "embedding_inflight_chars",
-    "Sum of in-flight input chars across slots held; bounded by the byte envelope",
+    "Sum of in-flight PADDED chars (rows x max_len) across slots held; bounded by the byte envelope",
 )
 embedding_queue_depth = _make_metric(
     Gauge,
@@ -656,13 +657,14 @@ def _enforce_payload_limits(texts: list[str], per_text_cap: bool = True) -> None
     # envelope (the load-time invariant guarantees MAX_INPUT_CHARS <= SAFE_INFLIGHT_CHARS).
     # Checked after the total-chars cap so a plain oversized batch still reports "Input too
     # large" (a uniform batch has padded == sum, so this fires only on genuine skew).
-    padded_chars = _padded_chars(texts)
+    max_len = max((len(t) for t in texts), default=0)
+    padded_chars = len(texts) * max_len
     if padded_chars > EMBEDDING_MAX_INPUT_CHARS:
         raise HTTPException(
             status_code=413,
             detail=(
                 f"Batch padding too large: {len(texts)} texts x "
-                f"{max((len(t) for t in texts), default=0)} max chars = {padded_chars} "
+                f"{max_len} max chars = {padded_chars} "
                 f"> max {EMBEDDING_MAX_INPUT_CHARS}"
             ),
         )
