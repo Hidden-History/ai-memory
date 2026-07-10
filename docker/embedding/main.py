@@ -46,9 +46,12 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 # onnxruntime build OMP_NUM_THREADS does NOT cap intra-op parallelism (it defaults to
 # all cores), so fastembed's threads= is the effective lever. Fewer threads => smaller
 # per-request peak and less CPU contention on the shared low-RAM host, trading
-# throughput for survivability ("process slowly"). Conservative default; tune under the
-# soak.
-EMBEDDING_INFERENCE_THREADS = int(os.getenv("EMBEDDING_INFERENCE_THREADS", "2"))
+# throughput for survivability ("process slowly").
+# TD-794 (PM #390 X1 thread sweep): a 5-run-median sweep found throughput monotonically
+# rising 2→3→4 threads (7.87→9.27→9.56 txt/s aggregate; large-text 28.5→19.4 s) with NO
+# extra memory, so 4 is the measured sweet-spot on this host. Keep OMP_NUM_THREADS aligned
+# to this in compose.
+EMBEDDING_INFERENCE_THREADS = int(os.getenv("EMBEDDING_INFERENCE_THREADS", "4"))
 
 # TD-670 / BUG-324: Bound concurrent model inference with a single service-global gate.
 # FastAPI ran the sync handlers in the anyio threadpool (~40 threads), so without a real
@@ -77,17 +80,38 @@ EMBEDDING_RETRY_AFTER = int(os.getenv("EMBEDDING_RETRY_AFTER", "5"))
 EMBEDDING_CGROUP_PATH = os.getenv("EMBEDDING_CGROUP_PATH", "/sys/fs/cgroup")
 EMBEDDING_PRESSURE_INTERVAL = float(os.getenv("EMBEDDING_PRESSURE_INTERVAL", "1.0"))
 EMBEDDING_PSI_THRESHOLD = float(os.getenv("EMBEDDING_PSI_THRESHOLD", "10.0"))
-EMBEDDING_MEMORY_HIGH_RATIO = float(os.getenv("EMBEDDING_MEMORY_HIGH_RATIO", "0.9"))
-EMBEDDING_MEMORY_OK_RATIO = float(os.getenv("EMBEDDING_MEMORY_OK_RATIO", "0.75"))
+# TD-793/X5 (PM #390): lowered from 0.9 as the PORTABLE primary memory.high fix. The
+# kernel cgroup memory.high is not settable from Docker/compose (mem_reservation maps to
+# memory.low, mem_limit to memory.max), and the in-container cgroup is read-only (X5) — so
+# the app-level ratio IS the portable throttle threshold. At 0.80 the AIMD controller
+# starts shedding at ~8 GiB of the 10 GiB cap (vs 9 GiB before), giving ~2 GiB to react
+# before the OOM ceiling instead of the previous thin ~1 GiB margin (X3). OK_RATIO lowered
+# in lockstep to 0.65 to preserve the 0.15 hysteresis gap (recover at ~6.5 GiB), just
+# below the ~7.95 GiB designed envelope peak, so recovery is not chattery.
+EMBEDDING_MEMORY_HIGH_RATIO = float(os.getenv("EMBEDDING_MEMORY_HIGH_RATIO", "0.80"))
+EMBEDDING_MEMORY_OK_RATIO = float(os.getenv("EMBEDDING_MEMORY_OK_RATIO", "0.65"))
 
 # TD-670: Reject oversized payloads up front so a single huge request cannot drive the
 # worker into an OS-level OOM SIGKILL (which the 503 fault-isolation in
-# run_inference_async cannot catch). Bound both the batch size (number of texts ->
-# number of vectors materialized) and the total input size (chars -> model working
-# memory). Defaults are provisional and meant to be tuned against real saturation
-# behaviour during the soak.
+# run_inference_async cannot catch). Bound the batch size (number of texts -> number of
+# vectors materialized), the total input size (chars), AND the size of any single text.
 EMBEDDING_MAX_BATCH_TEXTS = int(os.getenv("EMBEDDING_MAX_BATCH_TEXTS", "256"))
-EMBEDDING_MAX_INPUT_CHARS = int(os.getenv("EMBEDDING_MAX_INPUT_CHARS", "1000000"))
+# TD-795 (P0, PM #390 X2): the old 1,000,000-char total let ONE request reach ~28 GiB and
+# OOM the 10 GiB cap regardless of concurrency (1,000,000 / 8192 = ~122 texts x 235 MiB =
+# ~28 GiB). Sized from the measured slope + cap: with per-text bounded to the 8 KB anchor
+# (below), the worst per-char transient cost is 235 MiB / 8192 = ~0.0287 MiB/char, so a
+# 200,000-char request peaks at ~5.6 GiB transient (+2.35 GiB warm base = ~7.95 GiB), well
+# under the 10 GiB cap. This is also the per-request ceiling for a lone (always-admitted)
+# request, so it must stay <= EMBEDDING_SAFE_INFLIGHT_CHARS.
+EMBEDDING_MAX_INPUT_CHARS = int(os.getenv("EMBEDDING_MAX_INPUT_CHARS", "200000"))
+# TD-795 (P0): per-TEXT char cap. Because per-text memory is super-linear (~O(L^2), the
+# transformer attention term), one very large text costs far more than the same chars
+# spread across many texts — a total-chars bound alone is byte-blind to the distribution.
+# Capping each text at the 8 KB measurement anchor pins the worst per-char rate to the
+# directly-measured 235 MiB / 8192 chars (no O(L^2) extrapolation) and bounds a single
+# text to ~235 MiB. 8192 is >=3x the largest legitimate chunk (256-512 tok ~= 2.4 KB), so
+# it never rejects real sub-batched traffic; it only catches a pathological lone text.
+EMBEDDING_MAX_TEXT_CHARS = int(os.getenv("EMBEDDING_MAX_TEXT_CHARS", "8192"))
 
 # BUG-326: PROACTIVE pre-admission envelope on the worst-case concurrent transient
 # footprint. With the BUG-324 arena-off retention fix in place, the service still admits
@@ -118,6 +142,23 @@ EMBEDDING_MAX_INPUT_CHARS = int(os.getenv("EMBEDDING_MAX_INPUT_CHARS", "1000000"
 #     work level and why live verification governs the final value. Per-request total
 #     chars remain separately bounded by EMBEDDING_MAX_INPUT_CHARS.
 EMBEDDING_SAFE_INFLIGHT_TEXTS = int(os.getenv("EMBEDDING_SAFE_INFLIGHT_TEXTS", "48"))
+
+# TD-783 (PM #390 X2): byte/superlinear-aware in-flight envelope. The count-only
+# EMBEDDING_SAFE_INFLIGHT_TEXTS above is byte-BLIND — 48 in-flight texts is ~96 KiB of
+# work at 2 KB/text but ~384 KB at 8 KB/text, and the latter OOM-killed the 10 GiB cap
+# (48 x 8 KB = 393,216 chars -> ~10.37 GiB, X2). This bounds the SUM of in-flight CHARS
+# across all slots holding an inference slot, so peak memory tracks real byte-work, not
+# text count. It COMPLEMENTS (does not replace) the count envelope: the count stays as the
+# cross-deploy contract the client mirrors (storage._embedding_inflight_envelope), while
+# this char budget is the binding memory bound for large-text bursts.
+#   Sizing (10 GiB cap, ~2.35 GiB warm base): budget the transient at cap - base - margin
+#   ~= 10 - 2.35 - ~1.5 (fragmentation/overshoot; X2 overshot the cap by ~0.37 GiB) ~=
+#   6.15 GiB. With per-text capped at 8 KB the worst per-char cost is 235 MiB / 8192 =
+#   ~0.0287 MiB/char, so 200,000 chars -> ~5.6 GiB transient -> ~7.95 GiB peak, leaving
+#   ~2 GiB (~20%) headroom. The exact 393,216-char kill-load is shed down to <= 200,000.
+EMBEDDING_SAFE_INFLIGHT_CHARS = int(
+    os.getenv("EMBEDDING_SAFE_INFLIGHT_CHARS", "200000")
+)
 
 # Configure logging
 logging.basicConfig(
@@ -166,6 +207,14 @@ embedding_inflight_work = _make_metric(
     Gauge,
     "embedding_inflight_work",
     "Sum of in-flight batch sizes (work-units) across slots held; bounded by the envelope",
+)
+# TD-783: the byte dimension of in-flight work — the SUM of in-flight CHARS across slots
+# held, bounded by EMBEDDING_SAFE_INFLIGHT_CHARS. Exposed so live load-verification can
+# watch the real memory-proportional quantity (bytes), not just the text count.
+embedding_inflight_chars = _make_metric(
+    Gauge,
+    "embedding_inflight_chars",
+    "Sum of in-flight input chars across slots held; bounded by the byte envelope",
 )
 embedding_queue_depth = _make_metric(
     Gauge,
@@ -226,6 +275,11 @@ _waiting_count = 0
 # its release (no await in that window), so a plain int needs no lock.
 _inflight_work = 0
 
+# TD-783: byte twin of _inflight_work — sum of INPUT CHARS of requests currently holding
+# an inference slot. Bounded by EMBEDDING_SAFE_INFLIGHT_CHARS at admission. Same
+# single-event-loop mutation window as _inflight_work, so a plain int needs no lock.
+_inflight_chars = 0
+
 # BUG-324 Phase 2: the AIMD controller shrinks the EFFECTIVE limit below the static max
 # by *parking* permits on the semaphore (acquiring without releasing) — so a collapse to
 # 1 simply drains as in-flight requests finish. effective = max - parked.
@@ -239,7 +293,7 @@ _blind_hold_logged = False
 embedding_effective_concurrency_limit.set(_effective_limit)
 
 
-async def run_inference_async(operation, work_units=1):
+async def run_inference_async(operation, work_units=1, work_chars=0):
     """Run a model inference under the service-global backpressure gate (BUG-324).
 
     Admission is BLOCK-not-drop: the caller waits up to ``EMBEDDING_ACQUIRE_TIMEOUT`` for
@@ -279,10 +333,15 @@ async def run_inference_async(operation, work_units=1):
     Args:
         operation: Zero-arg callable performing the (blocking) model inference.
         work_units: This request's batch size (number of texts to embed); the unit the
-            envelope bounds. Defaults to 1. CONTRACT: callers MUST pass
-            ``work_units=len(texts)`` — the envelope and the 413 gate are only correct if
-            this equals the number of texts ``operation`` will embed. A wrong value
+            count envelope bounds. Defaults to 1. CONTRACT: callers MUST pass
+            ``work_units=len(texts)`` — the count envelope and the 413 gate are only correct
+            if this equals the number of texts ``operation`` will embed. A wrong value
             silently under- or over-counts in-flight work and defeats the memory bound.
+        work_chars: This request's total input size in chars (``sum(len(t) for t in
+            texts)``); the unit the byte envelope (``EMBEDDING_SAFE_INFLIGHT_CHARS``)
+            bounds (TD-783). Defaults to 0 (byte gate inert) for callers that do not
+            embed text. CONTRACT: text-embedding callers MUST pass the real char total —
+            it is the memory-proportional quantity the byte envelope caps.
 
     Returns:
         Whatever ``operation`` returns.
@@ -293,7 +352,7 @@ async def run_inference_async(operation, work_units=1):
             limits, if admitting would breach the in-flight-work envelope, or if the
             inference call raises any non-HTTPException error.
     """
-    global _waiting_count, _inflight_work
+    global _waiting_count, _inflight_work, _inflight_chars
 
     # BUG-327: permanent 413 for a request whose own batch exceeds the envelope. Checked
     # before queueing/acquiring a slot (independent of concurrency) — it is the work-unit
@@ -391,9 +450,38 @@ async def run_inference_async(operation, work_units=1):
             headers={"Retry-After": str(EMBEDDING_RETRY_AFTER)},
         )
 
+    # TD-783 byte/superlinear-aware gate. Same shape as the count gate above but on CHARS:
+    # if admitting this request's chars would push the concurrent in-flight char total over
+    # EMBEDDING_SAFE_INFLIGHT_CHARS, shed (giving the slot back). This is the binding memory
+    # bound under large-text bursts, where the count gate is byte-blind (48 texts is safe at
+    # 2 KB but OOMs at 8 KB). A lone request is always admitted — its chars are already
+    # bounded to <= EMBEDDING_MAX_INPUT_CHARS (<= EMBEDDING_SAFE_INFLIGHT_CHARS) by
+    # _enforce_payload_limits — so this never starves it and cannot deadlock.
+    if (
+        _inflight_chars > 0
+        and _inflight_chars + work_chars > EMBEDDING_SAFE_INFLIGHT_CHARS
+    ):
+        _inference_semaphore.release()
+        embedding_backpressure_total.labels(action="shed").inc()
+        logger.warning(
+            "embedding_admission_over_char_envelope",
+            extra={
+                "inflight_chars": _inflight_chars,
+                "work_chars": work_chars,
+                "envelope": EMBEDDING_SAFE_INFLIGHT_CHARS,
+            },
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="embedding_admission_over_char_envelope",
+            headers={"Retry-After": str(EMBEDDING_RETRY_AFTER)},
+        )
+
     _inflight_work += work_units
+    _inflight_chars += work_chars
     embedding_inflight.inc()
     embedding_inflight_work.set(_inflight_work)
+    embedding_inflight_chars.set(_inflight_chars)
     # M1 (BUG-324): release the slot EXACTLY ONCE and ONLY when the executor thread truly
     # completes. A client disconnect raises asyncio.CancelledError (a BaseException) out of
     # the await below; releasing in the request-coroutine ``finally`` would free the
@@ -408,10 +496,12 @@ async def run_inference_async(operation, work_units=1):
     loop = asyncio.get_running_loop()
 
     def _release_slot():
-        global _inflight_work
+        global _inflight_work, _inflight_chars
         _inflight_work -= work_units
+        _inflight_chars -= work_chars
         embedding_inflight.dec()
         embedding_inflight_work.set(_inflight_work)
+        embedding_inflight_chars.set(_inflight_chars)
         _inference_semaphore.release()
 
     # If submit() raises (executor shutdown -> RuntimeError; or BrokenThreadPool after a
@@ -451,19 +541,34 @@ async def run_inference_async(operation, work_units=1):
 def _enforce_payload_limits(texts: list[str]) -> None:
     """Reject oversized embed payloads with HTTP 413 before any model work (TD-670).
 
-    Bounds both the number of texts in the batch and the total input size in
-    characters, closing the single-request OOM vector by refusing a huge batch before
-    it is materialized into vectors. Limits are configured via
-    ``EMBEDDING_MAX_BATCH_TEXTS`` and ``EMBEDDING_MAX_INPUT_CHARS``.
+    Bounds three dimensions, closing the single-request OOM vector before the batch is
+    materialized into vectors:
+
+    - number of texts (``EMBEDDING_MAX_BATCH_TEXTS``) — vectors materialized;
+    - total input chars (``EMBEDDING_MAX_INPUT_CHARS``) — the whole-request working set;
+    - size of any single text (``EMBEDDING_MAX_TEXT_CHARS``, TD-795) — per-text memory is
+      super-linear (~O(L^2)), so one huge text costs far more than the same chars spread
+      across texts; a total-chars bound alone is blind to that distribution.
 
     Raises:
-        HTTPException: 413 if the batch has too many texts or too many total chars.
+        HTTPException: 413 if the batch has too many texts, too many total chars, or any
+        single text exceeds the per-text cap.
     """
     if len(texts) > EMBEDDING_MAX_BATCH_TEXTS:
         raise HTTPException(
             status_code=413,
             detail=f"Too many texts: {len(texts)} > max {EMBEDDING_MAX_BATCH_TEXTS}",
         )
+    # TD-795: per-text cap first — a single super-linear text is the worst-case OOM driver.
+    for i, t in enumerate(texts):
+        if len(t) > EMBEDDING_MAX_TEXT_CHARS:
+            raise HTTPException(
+                status_code=413,
+                detail=(
+                    f"Text {i} too large: {len(t)} chars > "
+                    f"max {EMBEDDING_MAX_TEXT_CHARS} per text"
+                ),
+            )
     total_chars = sum(len(t) for t in texts)
     if total_chars > EMBEDDING_MAX_INPUT_CHARS:
         raise HTTPException(
@@ -943,7 +1048,9 @@ async def embed_dense(request: EmbedDenseRequest) -> EmbedDenseResponse:
 
     model = MODEL_REGISTRY[request.model]
     embeddings = await run_inference_async(
-        lambda: list(model.embed(request.texts)), work_units=len(request.texts)
+        lambda: list(model.embed(request.texts)),
+        work_units=len(request.texts),
+        work_chars=sum(len(t) for t in request.texts),
     )
     return EmbedDenseResponse(
         embeddings=[e.tolist() for e in embeddings],
@@ -991,7 +1098,9 @@ async def embed_chunked(request: EmbedWithOffsetsRequest):
     if not request.chunk_offsets:
         # No offsets — embed whole document as single vector
         embeddings = await run_inference_async(
-            lambda: list(model.embed([document])), work_units=1
+            lambda: list(model.embed([document])),
+            work_units=1,
+            work_chars=len(document),
         )
         return EmbedResponse(
             embeddings=[e.tolist() for e in embeddings],
@@ -1009,7 +1118,9 @@ async def embed_chunked(request: EmbedWithOffsetsRequest):
     _enforce_payload_limits(chunk_texts)
 
     embeddings = await run_inference_async(
-        lambda: list(model.embed(chunk_texts)), work_units=len(chunk_texts)
+        lambda: list(model.embed(chunk_texts)),
+        work_units=len(chunk_texts),
+        work_chars=sum(len(t) for t in chunk_texts),
     )
     return EmbedResponse(
         embeddings=[e.tolist() for e in embeddings],
@@ -1028,7 +1139,9 @@ async def embed_sparse(request: EmbedSparseRequest):
     _enforce_payload_limits(request.texts)
     model = SPARSE_REGISTRY["bm25"]
     results = await run_inference_async(
-        lambda: list(model.embed(request.texts)), work_units=len(request.texts)
+        lambda: list(model.embed(request.texts)),
+        work_units=len(request.texts),
+        work_chars=sum(len(t) for t in request.texts),
     )
     return EmbedSparseResponse(
         embeddings=[
@@ -1052,7 +1165,9 @@ async def embed_late(request: EmbedLateRequest):
     _enforce_payload_limits(request.texts)
     model = LATE_REGISTRY["colbert"]
     results = await run_inference_async(
-        lambda: list(model.embed(request.texts)), work_units=len(request.texts)
+        lambda: list(model.embed(request.texts)),
+        work_units=len(request.texts),
+        work_chars=sum(len(t) for t in request.texts),
     )
     return EmbedLateResponse(
         embeddings=[LateEmbeddingResult(embeddings=r.tolist()) for r in results],

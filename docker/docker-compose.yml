@@ -122,23 +122,36 @@ services:
       - EMBEDDING_RETRY_AFTER=${EMBEDDING_RETRY_AFTER:-5}
       - EMBEDDING_MAX_BATCH_TEXTS=${EMBEDDING_MAX_BATCH_TEXTS:-256}
       - EMBEDDING_SAFE_INFLIGHT_TEXTS=${EMBEDDING_SAFE_INFLIGHT_TEXTS:-48}
-      - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-1000000}
+      # TD-783/795 (PM #390): byte/superlinear-aware caps. MAX_INPUT_CHARS shrunk from 1M
+      # (one request could reach ~28 GiB) to 200K; MAX_TEXT_CHARS caps a single super-linear
+      # text at the 8 KB measured anchor (~235 MiB); SAFE_INFLIGHT_CHARS bounds concurrent
+      # in-flight chars so peak memory tracks byte-work, not text count (10 GiB cap sizing).
+      - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-200000}
+      - EMBEDDING_MAX_TEXT_CHARS=${EMBEDDING_MAX_TEXT_CHARS:-8192}
+      - EMBEDDING_SAFE_INFLIGHT_CHARS=${EMBEDDING_SAFE_INFLIGHT_CHARS:-200000}
       # BUG-324 Phase 2: memory-aware AIMD self-throttle (the OOM-loop fix). The
       # controller reads cgroup-v2 memory signals and collapses effective concurrency
       # toward 1 under pressure. Thresholds are conservative; tune under the soak.
       - EMBEDDING_PRESSURE_INTERVAL=${EMBEDDING_PRESSURE_INTERVAL:-1.0}
       - EMBEDDING_PSI_THRESHOLD=${EMBEDDING_PSI_THRESHOLD:-10.0}
-      - EMBEDDING_MEMORY_HIGH_RATIO=${EMBEDDING_MEMORY_HIGH_RATIO:-0.9}
-      - EMBEDDING_MEMORY_OK_RATIO=${EMBEDDING_MEMORY_OK_RATIO:-0.75}
+      # TD-793/X5 (PM #390): lowered 0.9->0.80 as the PORTABLE memory.high fix (kernel
+      # memory.high is not settable via Docker/compose; the app-level ratio is the throttle
+      # threshold). AIMD sheds at ~8 GiB of the 10 GiB cap; OK_RATIO lowered in lockstep to
+      # keep the 0.15 hysteresis gap (recover at ~6.5 GiB).
+      - EMBEDDING_MEMORY_HIGH_RATIO=${EMBEDDING_MEMORY_HIGH_RATIO:-0.80}
+      - EMBEDDING_MEMORY_OK_RATIO=${EMBEDDING_MEMORY_OK_RATIO:-0.65}
       # BUG-324 (footprint): shrink anon-RSS under concurrent inference. MALLOC_ARENA_MAX
       # caps glibc malloc arenas (fragmentation is the prime suspect for the >cap anon-rss
       # overshoot); OMP_NUM_THREADS bounds OpenMP thread pools. Conservative defaults
       # (also baked into the image); tune under the sizing soak.
       - MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2}
-      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
+      # TD-794 (PM #390 X1): 2->4 — the measured throughput sweet-spot (monotonic gain
+      # 2->3->4, no extra memory). OMP_NUM_THREADS and EMBEDDING_INFERENCE_THREADS kept in
+      # lockstep (the latter is the effective lever on a non-OpenMP onnxruntime build).
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
       # Bound the onnxruntime intra-op thread pool (effective lever on a non-OpenMP
       # onnxruntime build, where OMP_NUM_THREADS alone won't cap it).
-      - EMBEDDING_INFERENCE_THREADS=${EMBEDDING_INFERENCE_THREADS:-2}
+      - EMBEDDING_INFERENCE_THREADS=${EMBEDDING_INFERENCE_THREADS:-4}
       # Set fastembed cache to persistent volume location
       - FASTEMBED_CACHE_PATH=/home/embedding/.cache/fastembed
     restart: unless-stopped
