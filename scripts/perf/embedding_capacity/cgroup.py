@@ -188,6 +188,36 @@ class PeakPoller:
         return self._poll_error is not None
 
 
+def container_restart_count(container: str) -> int:
+    """Return the container's cumulative restart count via `docker inspect`.
+
+    The second authoritative OOM witness alongside dmesg (TD-792/789): on this
+    host a kernel OOM-kill leaves memory.events:oom_kill=0, docker OOMKilled=
+    false, and the app's own counter=0, yet the kill crashes the container's
+    main process and Docker's restart policy restarts it — incrementing
+    RestartCount. Read this at soak start and end; a positive delta witnesses a
+    crash/restart the cgroup and app counters were blind to. Raises
+    CgroupAccessError if docker inspect fails (surface per the BLOCKER PROTOCOL,
+    never treat an unreadable count as zero restarts).
+    """
+    result = subprocess.run(
+        ["docker", "inspect", "-f", "{{.RestartCount}}", container],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise CgroupAccessError(
+            f"docker inspect {container} restart-count failed "
+            f"(exit {result.returncode}): {result.stderr.strip()}"
+        )
+    raw = result.stdout.strip()
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise CgroupAccessError(f"non-integer restart count: {raw!r}") from e
+
+
 _DMESG_OOM_PATTERN = re.compile(r"Out of memory|Killed process", re.IGNORECASE)
 _DMESG_TIMESTAMP_PATTERN = re.compile(r"^\[\s*(\d+\.\d+)\]")
 

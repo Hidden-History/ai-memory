@@ -4,6 +4,7 @@ Works entirely off raw exposition text, matching what a live embedding
 container's `/metrics` endpoint returns (BP-179 §6) — no live service needed.
 """
 
+import httpx
 import pytest
 from embedding_capacity import metrics_client
 
@@ -80,3 +81,33 @@ def test_histogram_quantile_zero_total_count_returns_none():
     assert (
         metrics_client._histogram_quantile({0.1: 0.0}, total_count=0.0, q=0.95) is None
     )
+
+
+def test_fetch_metrics_follows_307_redirect(monkeypatch):
+    # TD-793: the service serves /metrics behind a 307 redirect. httpx does not
+    # follow redirects by default, so the unfixed scrape returned the empty
+    # redirect body and the admission-wait gate criterion was silently inert.
+    # This routes the request through a MockTransport that faithfully honors
+    # whatever `follow_redirects` value fetch_metrics_text passes: without the
+    # fix the 307 body (empty) comes back and p95 is None; with it the scrape
+    # follows through to the real metrics body. No live service.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/metrics":
+            return httpx.Response(307, headers={"Location": "/metrics/"})
+        if request.url.path == "/metrics/":
+            return httpx.Response(200, text=SAMPLE_METRICS)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+
+    def patched_get(url, **kwargs):
+        follow = kwargs.pop("follow_redirects", False)
+        with httpx.Client(transport=transport, follow_redirects=follow) as client:
+            return client.get(url, **kwargs)
+
+    monkeypatch.setattr(metrics_client.httpx, "get", patched_get)
+
+    text = metrics_client.fetch_metrics_text("http://localhost:28080")
+    snapshot = metrics_client.parse_metrics(text)
+    assert snapshot.admission_wait_p95_seconds is not None
+    assert snapshot.backpressure["shed"] == 0.0

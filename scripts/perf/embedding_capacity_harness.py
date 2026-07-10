@@ -316,6 +316,11 @@ def cmd_soak(args: argparse.Namespace) -> int:
     # CgroupAccessError immediately if unreadable, and its return value
     # baselines the ring buffer so stale prior-run kills aren't re-reported.
     dmesg_baseline_ts = cgroup.dmesg_baseline()
+    # Second authoritative OOM witness (TD-792/789): a real kill is invisible to
+    # memory.events/docker-OOMKilled/app-counter on this host — only dmesg and
+    # a container restart witness it. Baseline the restart count NOW so a delta
+    # over the soak reflects only kills during the run.
+    restart_count_start = cgroup.container_restart_count(args.container)
 
     baseline_events = reader.read_events()
     working_set_start = reader.read_current()
@@ -364,6 +369,8 @@ def cmd_soak(args: argparse.Namespace) -> int:
         "oom_kill", 0
     )
     dmesg_lines = cgroup.scan_dmesg_oom(since_timestamp=dmesg_baseline_ts)
+    restart_count_end = cgroup.container_restart_count(args.container)
+    restart_count_delta = restart_count_end - restart_count_start
     final_metrics = metrics_client.parse_metrics(
         metrics_client.fetch_metrics_text(args.base_url)
     )
@@ -377,6 +384,7 @@ def cmd_soak(args: argparse.Namespace) -> int:
     gate_result = gate.evaluate_gate(
         oom_kill_delta=oom_kill_delta,
         dmesg_oom_count=len(dmesg_lines),
+        restart_count_delta=restart_count_delta,
         shed_delta=shed_delta,
         admission_wait_p95_seconds=final_metrics.admission_wait_p95_seconds,
         client_read_timeout_seconds=args.read_timeout_seconds,
@@ -411,6 +419,9 @@ def cmd_soak(args: argparse.Namespace) -> int:
         "final_events": final_events,
         "oom_kill_delta": oom_kill_delta,
         "dmesg_oom_lines": dmesg_lines,
+        "restart_count_start": restart_count_start,
+        "restart_count_end": restart_count_end,
+        "restart_count_delta": restart_count_delta,
         "shed_delta": shed_delta,
         "working_set_start_bytes": working_set_start,
         "working_set_end_bytes": working_set_end,
