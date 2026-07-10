@@ -83,7 +83,7 @@ class GateResult:
     @property
     def outcome(self) -> str:
         """PASS | FAIL | INVALID — INVALID means the load never landed, so the
-        other 6 criteria's trivial passes don't certify anything (BP-179 §4)."""
+        other 7 criteria's trivial passes don't certify anything (BP-179 §4)."""
         if not self.load_valid:
             return "INVALID"
         return "PASS" if self.passed else "FAIL"

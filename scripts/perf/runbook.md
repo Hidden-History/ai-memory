@@ -97,7 +97,7 @@ reviewed decision — not something the harness does automatically.
 ## Step 4 — Soak (`soak`)
 
 Validates the chosen envelope survives sustained, burst-shaped, genuine
-multi-caller load and asserts all 6 BP-179 §4 gate criteria. Run overnight.
+multi-caller load and asserts all 7 BP-179 §4 gate criteria. Run overnight.
 
 ```bash
 python scripts/perf/embedding_capacity_harness.py soak \
@@ -118,14 +118,14 @@ python scripts/perf/embedding_capacity_harness.py soak \
 - The harness snapshots `memory.events` **before** the run and reports
   deltas — a baseline is mandatory per BP-179 §4; without it, pre-existing
   kills would be misattributed to this soak.
-- The gate has three possible outcomes — exit code **0** (`PASS`, all 6
+- The gate has three possible outcomes — exit code **0** (`PASS`, all 7
   criteria pass), **1** (`FAIL`, at least one criterion failed), or **2**
-  (`INVALID`, the load-validity guard tripped before the 6 criteria were
+  (`INVALID`, the load-validity guard tripped before the 7 criteria were
   even meaningful). `INVALID` fires when either too few requests succeeded
   (success ratio below the floor) or the measured peak never rose
   meaningfully above the base RSS — both indicate the burst/soak load never
   actually landed (e.g. wrong port, all-503s, not-ready container), so a
-  trivial all-PASS on the 6 criteria wouldn't certify anything. On
+  trivial all-PASS on the 7 criteria wouldn't certify anything. On
   `INVALID`, fix why the load didn't land (check `--base-url`/`--container`,
   confirm the target is warm and serving) and re-run — it is not a capacity
   verdict either way.
@@ -137,6 +137,7 @@ python scripts/perf/embedding_capacity_harness.py soak \
 | Failing criterion | What it means | Where to look |
 |---|---|---|
 | `oom_kill_delta_zero` / `dmesg_oom_zero` | The envelope is unsafe — the primary gate. | `docker exec ai-memory-embedding cat /sys/fs/cgroup/memory.events`, `dmesg` |
+| `container_restart_zero` | The container's main process was OOM-killed by the kernel even though cgroup `memory.events` / docker `OOMKilled` / the app counter all stayed 0 (the TD-792/789 blind-spot). | `docker inspect -f '{{.RestartCount}}' <container>`; compare `restart_count_start`/`restart_count_end` in the results JSON |
 | `backpressure_shed_zero` | A request was dropped (lost memory), not just delayed. | `embedding_backpressure_total{action="shed"}` on `:28080/metrics` |
 | `admission_wait_p95_within_timeout` | Clients would time out and retry-storm under this envelope. | `embedding_admission_wait_seconds` histogram |
 | `no_working_set_climb` | Possible slow leak/fragmentation drift (BUG-324 axis). | Compare `working_set_start_bytes`/`working_set_end_bytes` in the results JSON |

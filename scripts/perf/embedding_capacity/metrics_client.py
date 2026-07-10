@@ -31,10 +31,12 @@ class MetricsSnapshot:
 
 def fetch_metrics_text(base_url: str, timeout: float = 10.0) -> str:
     # The embedding service serves /metrics behind a 307 redirect; httpx does
-    # not follow redirects by default, so without follow_redirects the scrape
-    # returns the empty redirect body and every downstream metric goes missing
-    # — silently rendering the soak's admission-wait gate criterion inert
-    # (TD-793). A 307 is not a 4xx/5xx, so raise_for_status would not catch it.
+    # not follow redirects by default, so without follow_redirects the 307 is
+    # returned unfollowed and raise_for_status raises HTTPStatusError on it —
+    # the scrape never reaches the real metrics body, so the soak's
+    # admission-wait gate criterion cannot be evaluated (TD-793).
+    # follow_redirects=True is required simply to follow the 307 to the actual
+    # /metrics payload.
     response = httpx.get(
         f"{base_url.rstrip('/')}/metrics", timeout=timeout, follow_redirects=True
     )

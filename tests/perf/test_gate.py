@@ -1,6 +1,6 @@
 """Unit tests for scripts/perf/embedding_capacity/gate.py — BP-179 §4 pass/fail gate.
 
-Each of the 6 criteria is tested independently for its failure case, plus the
+Each of the 7 criteria is tested independently for its failure case, plus the
 overall pass case, matching the "assert ALL" requirement (a single failing
 criterion must fail the whole gate).
 """
