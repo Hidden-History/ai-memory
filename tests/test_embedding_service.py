@@ -885,6 +885,118 @@ def test_new_env_keys_mirrored_in_env_example_and_compose():
         ), f"{key} missing from docker/.env.example"
 
 
+# --- WI-10 acceptance proofs at PRODUCTION defaults (DEC-PM390 amended DONE-WHEN) ---
+
+
+def test_over_cap_request_rejected_cleanly_at_default_caps():
+    """(a) At the shipped defaults (no cap overrides), an over-cap single request is
+    rejected with a clean 413 — NOT a crash — and the service keeps serving. Covers both
+    the per-text cap (a >8192-char text) and the total-chars cap (a ~1M-char batch, the
+    old limit that could reach ~28 GiB)."""
+    service = _load_service(
+        4
+    )  # ships EMBEDDING_MAX_TEXT_CHARS=8192, MAX_INPUT_CHARS=200000
+    client = TestClient(service.app)
+
+    # A single text over the 8 KB per-text cap -> clean 413.
+    over_text = client.post("/embed/dense", json={"texts": ["x" * 8193], "model": "en"})
+    assert over_text.status_code == 413
+    assert "per text" in over_text.json()["detail"]
+
+    # The old 1,000,000-char total (as in-cap 8000-char texts) -> clean 413 on the total
+    # budget (125 x 8000 = 1,000,000 > 200,000; each text <= 8192 so the per-text cap passes
+    # and the TOTAL cap is the one exercised).
+    big_batch = ["x" * 8000] * 125
+    over_total = client.post("/embed/dense", json={"texts": big_batch, "model": "en"})
+    assert over_total.status_code == 413
+    assert "Input too large" in over_total.json()["detail"]
+
+    # Service survived both rejections and still serves a normal request.
+    ok = client.post("/embed/dense", json={"texts": ["still alive"], "model": "en"})
+    assert ok.status_code == 200
+
+
+def test_kill_load_sheds_to_envelope_at_default():
+    """(b) The 48x8 KB kill-load (~393,216 concurrent in-flight chars, which OOM'd the
+    10 GiB cap) can no longer be admitted: at the shipped EMBEDDING_SAFE_INFLIGHT_CHARS
+    default, once ~200 K chars are in flight, further work SHEDS — in-flight never reaches
+    393 K. Proven at the production default (no override)."""
+    service = _load_service(4)
+    assert (
+        service.EMBEDDING_SAFE_INFLIGHT_CHARS == 200_000
+    )  # shipped default, not overridden
+
+    async def _drive():
+        gate = threading.Event()
+
+        def _blocking_op():
+            gate.wait(
+                timeout=10
+            )  # hold the envelope full while the next request arrives
+            return ["held"]
+
+        # Fill the char envelope exactly (200 K chars, in-cap 8000-char texts, lone-admitted).
+        held_chars = service.EMBEDDING_SAFE_INFLIGHT_CHARS
+        holder = asyncio.create_task(
+            service.run_inference_async(
+                _blocking_op, work_units=1, work_chars=held_chars
+            )
+        )
+        while service._inflight_chars < held_chars:
+            await asyncio.sleep(0)
+
+        # Any further concurrent work would push in-flight past 200 K toward the 393 K
+        # kill-load -> shed (503), so in-flight is pinned at <= the envelope.
+        before_shed = _backpressure_count(service, "shed")
+        with pytest.raises(HTTPException) as over:
+            await service.run_inference_async(
+                lambda: ["x"], work_units=1, work_chars=8192
+            )
+        shed_delta = _backpressure_count(service, "shed") - before_shed
+        peak_inflight = service._inflight_chars
+
+        gate.set()
+        await holder
+        return over.value, shed_delta, peak_inflight
+
+    err, shed_delta, peak_inflight = asyncio.run(_drive())
+    assert err.status_code == 503
+    assert err.detail == "embedding_admission_over_char_envelope"
+    assert shed_delta == 1
+    # In-flight never reached the 393 K kill-load — capped at the 200 K envelope.
+    assert peak_inflight <= 200_000
+    assert peak_inflight < 393_216
+
+
+def test_computed_peak_under_cap_with_margin():
+    """(c) Documented sizing invariant: warm base + the concurrent in-flight char budget,
+    priced at the MEASURED per-char cost, stays under the 10 GiB cap with real margin.
+    This encodes the envelope math so a future retune that breaks the memory budget fails
+    loudly here."""
+    service = _load_service(4)
+
+    # Measured inputs (PM #390 X2/X4): 10 GiB cap, ~2.35 GiB warm base, 235 MiB per 8192-char
+    # text. Per-text is capped at 8192 (EMBEDDING_MAX_TEXT_CHARS), so this per-char rate is
+    # the worst case within the envelope — no O(L^2) extrapolation past the measured point.
+    cap_gib = 10.0
+    warm_base_gib = 2.35
+    mib_per_8192_chars = 235.0
+    assert service.EMBEDDING_MAX_TEXT_CHARS == 8192  # the anchor the rate is priced at
+    mib_per_char = mib_per_8192_chars / service.EMBEDDING_MAX_TEXT_CHARS
+
+    inflight_transient_gib = (
+        service.EMBEDDING_SAFE_INFLIGHT_CHARS * mib_per_char / 1024.0
+    )
+    computed_peak_gib = warm_base_gib + inflight_transient_gib
+
+    # ~7.95 GiB peak; assert it clears the cap with at least ~1.5 GiB of fragmentation
+    # headroom (X2 overshot the cap by ~0.37 GiB, so the margin must comfortably exceed it).
+    assert computed_peak_gib < cap_gib
+    assert cap_gib - computed_peak_gib >= 1.5
+    # And the lone-request ceiling cannot exceed the concurrent budget.
+    assert service.EMBEDDING_MAX_INPUT_CHARS <= service.EMBEDDING_SAFE_INFLIGHT_CHARS
+
+
 # --- Phase 2: cgroup-v2 reader + memory-aware AIMD self-throttle ---
 
 
