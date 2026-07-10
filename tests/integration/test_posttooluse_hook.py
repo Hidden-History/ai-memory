@@ -290,7 +290,7 @@ class TestTimeoutHandling:
 
     @pytest.mark.slow
     def test_timeout_default_value(self):
-        """HOOK_TIMEOUT should default to 60s if not set."""
+        """HOOK_TIMEOUT should default to 90s if not set."""
         script_path = Path(".claude/hooks/scripts/store_async.py")
 
         # Read script to verify timeout configuration exists

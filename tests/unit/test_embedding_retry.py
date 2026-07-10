@@ -206,6 +206,11 @@ class TestEmbeddingTotalTimeout:
             {
                 "EMBEDDING_MAX_RETRIES": "2",
                 "EMBEDDING_TOTAL_TIMEOUT": "10.0",
+                # Disable the TD-782 coherence floor (acquire+inference=0) so this
+                # test can exercise the raw F1 deadline mechanics at a small 10s
+                # budget; the coherence flooring has its own tests (TestTimeoutCoherence).
+                "EMBEDDING_ACQUIRE_TIMEOUT": "0",
+                "EMBEDDING_INFERENCE_TIMEOUT": "0",
             },
         ):
             from memory.config import reset_config
@@ -300,7 +305,15 @@ class TestEmbeddingTotalTimeout:
 
         with patch.dict(
             os.environ,
-            {"EMBEDDING_MAX_RETRIES": "2", "EMBEDDING_TOTAL_TIMEOUT": "45.0"},
+            {
+                "EMBEDDING_MAX_RETRIES": "2",
+                "EMBEDDING_TOTAL_TIMEOUT": "45.0",
+                # Coherence floor disabled so the configured 30s code read timeout
+                # governs (this test asserts the F1 remaining-budget cap, not the
+                # TD-782 floor — see TestTimeoutCoherence for that).
+                "EMBEDDING_ACQUIRE_TIMEOUT": "0",
+                "EMBEDDING_INFERENCE_TIMEOUT": "0",
+            },
         ):
             from memory.config import reset_config
 
@@ -358,8 +371,8 @@ class TestEmbeddingTotalTimeoutInvariantGuard:
     """
 
     def test_invariant_guard_silent_on_default_config(self, monkeypatch, caplog):
-        """Shipped defaults (EMBEDDING_TOTAL_TIMEOUT=45, HOOK_TIMEOUT=60) must not
-        trigger the invariant warning: 45 + 11 (fixed overhead) = 56 <= 60."""
+        """Coherent shipped defaults (EMBEDDING_TOTAL_TIMEOUT=60, HOOK_TIMEOUT=90) must
+        not trigger the invariant warning: 60 + 11 (fixed overhead) = 71 <= 90."""
         monkeypatch.delenv("EMBEDDING_TOTAL_TIMEOUT", raising=False)
         monkeypatch.delenv("HOOK_TIMEOUT", raising=False)
         from memory.config import reset_config
@@ -381,6 +394,10 @@ class TestEmbeddingTotalTimeoutInvariantGuard:
         45 + 11 (fixed overhead) = 56 > 50."""
         monkeypatch.setenv("EMBEDDING_TOTAL_TIMEOUT", "45.0")
         monkeypatch.setenv("HOOK_TIMEOUT", "50")
+        # Coherence floor disabled so the configured 45s total is used as-is (this test
+        # asserts the fixed-overhead invariant, not the TD-782 floor).
+        monkeypatch.setenv("EMBEDDING_ACQUIRE_TIMEOUT", "0")
+        monkeypatch.setenv("EMBEDDING_INFERENCE_TIMEOUT", "0")
         from memory.config import reset_config
 
         reset_config()
@@ -448,7 +465,15 @@ class TestEmbeddingTimeoutStoreFallback:
 
         with patch.dict(
             os.environ,
-            {"EMBEDDING_MAX_RETRIES": "2", "EMBEDDING_TOTAL_TIMEOUT": "10.0"},
+            {
+                "EMBEDDING_MAX_RETRIES": "2",
+                "EMBEDDING_TOTAL_TIMEOUT": "10.0",
+                # Coherence floor disabled so the small 10s budget drives the
+                # store-path pending fallback quickly (TestTimeoutCoherence covers
+                # the floor itself).
+                "EMBEDDING_ACQUIRE_TIMEOUT": "0",
+                "EMBEDDING_INFERENCE_TIMEOUT": "0",
+            },
         ):
             from memory.config import reset_config
 
@@ -612,6 +637,11 @@ class TestStoreAsyncHookFallback:
             "EMBEDDING_TOTAL_TIMEOUT": "3.0",
             "EMBEDDING_MAX_RETRIES": "2",
             "HOOK_TIMEOUT": "5",
+            # Coherence floor disabled (acquire+inference=0) so the scaled-down 3s
+            # total / 5s read / 5s HOOK budgets drive the F1 tail case; the TD-782
+            # floor is covered by TestTimeoutCoherence.
+            "EMBEDDING_ACQUIRE_TIMEOUT": "0",
+            "EMBEDDING_INFERENCE_TIMEOUT": "0",
             # Isolate from the classifier enqueue side path (unrelated to this
             # fix; avoids it resolving a queue dir off an unconfigured mock).
             "MEMORY_CLASSIFIER_ENABLED": "false",
@@ -664,3 +694,251 @@ class TestStoreAsyncHookFallback:
         for point in points:
             assert point["payload"]["embedding_status"] == "pending"
             assert point["vector"] == [0.0] * 768
+
+
+class TestTimeoutCoherence:
+    """TD-782/788: the client read timeout / overall deadline must out-wait the
+    embedding server's worst-case response (admission wait + inference), or the
+    client abandons a request the server is still legitimately servicing — the
+    inversion bug that drives premature EMBEDDING_TIMEOUT and server-side sheds.
+    """
+
+    def test_read_timeout_floored_removes_inversion(self):
+        """With the shipped (inverted) read timeouts, the effective read timeout is
+        floored UP to acquire + inference, so it can no longer expire before the
+        server can even admit the request (let alone finish inference)."""
+        from memory.config import reset_config
+
+        with patch.dict(
+            os.environ,
+            {
+                "EMBEDDING_ACQUIRE_TIMEOUT": "30",
+                "EMBEDDING_INFERENCE_TIMEOUT": "30",
+                # The shipped, inverted values (15s < 30s server admission alone).
+                "EMBEDDING_READ_TIMEOUT": "15.0",
+                "EMBEDDING_READ_TIMEOUT_CODE": "30.0",
+            },
+        ):
+            reset_config()
+            c = EmbeddingClient()
+            try:
+                floor = 30.0 + 30.0
+                assert c._read_timeout == floor
+                assert c._read_timeout_code == floor
+                # Inversion removed: the read timeout now exceeds the server's
+                # admission wait, so the client never gives up mid-admission.
+                assert c._read_timeout > c._acquire_timeout
+            finally:
+                c.close()
+
+    def test_configured_read_above_floor_is_preserved(self):
+        """A LONGER configured read timeout (slow hardware) is kept — the floor only
+        raises, never lowers."""
+        from memory.config import reset_config
+
+        with patch.dict(
+            os.environ,
+            {
+                "EMBEDDING_ACQUIRE_TIMEOUT": "30",
+                "EMBEDDING_INFERENCE_TIMEOUT": "30",
+                "EMBEDDING_READ_TIMEOUT": "120.0",
+            },
+        ):
+            reset_config()
+            c = EmbeddingClient()
+            try:
+                assert c._read_timeout == 120.0  # above the 60s floor, preserved
+            finally:
+                c.close()
+
+    def test_total_timeout_default_is_inference_aware(self):
+        """With no EMBEDDING_TOTAL_TIMEOUT set, the default deadline equals the
+        coherent single-attempt budget (acquire + inference), not a flat constant."""
+        from memory.config import reset_config
+
+        with patch.dict(
+            os.environ,
+            {"EMBEDDING_ACQUIRE_TIMEOUT": "30", "EMBEDDING_INFERENCE_TIMEOUT": "30"},
+        ):
+            os.environ.pop("EMBEDDING_TOTAL_TIMEOUT", None)
+            reset_config()
+            c = EmbeddingClient()
+            try:
+                assert c._total_timeout == 60.0
+            finally:
+                c.close()
+
+    def test_total_timeout_below_floor_is_raised_with_warning(self, caplog):
+        """A stale/short EMBEDDING_TOTAL_TIMEOUT (e.g. the shipped 45s) is floored up
+        to the coherent budget so it can't clip a legitimate attempt — and the
+        misconfiguration is logged, not silently swallowed."""
+        from memory.config import reset_config
+
+        with patch.dict(
+            os.environ,
+            {
+                "EMBEDDING_ACQUIRE_TIMEOUT": "30",
+                "EMBEDDING_INFERENCE_TIMEOUT": "30",
+                "EMBEDDING_TOTAL_TIMEOUT": "45.0",
+            },
+        ):
+            reset_config()
+            with caplog.at_level(logging.WARNING, logger="ai_memory.embed"):
+                c = EmbeddingClient()
+            try:
+                assert c._total_timeout == 60.0
+                warnings = [
+                    r
+                    for r in caplog.records
+                    if r.getMessage() == "embedding_total_timeout_below_coherent_floor"
+                ]
+                assert len(warnings) == 1
+                assert warnings[0].configured_value == 45.0
+                assert warnings[0].coherent_read_floor == 60.0
+            finally:
+                c.close()
+
+    def test_hook_ceiling_sits_above_coordinated_budget(self):
+        """The whole point of the coordinated budget: HOOK_TIMEOUT (the outer store
+        ceiling) must exceed EMBEDDING_TOTAL_TIMEOUT + fixed httpx overhead, so the
+        hook cannot fire mid-embed. Proven on the coherent defaults."""
+        from memory.config import reset_config
+        from memory.embeddings import (
+            CONNECT_TIMEOUT,
+            POOL_TIMEOUT,
+            WRITE_TIMEOUT,
+        )
+        from memory.hooks_common import get_hook_timeout
+
+        with patch.dict(
+            os.environ,
+            {"EMBEDDING_ACQUIRE_TIMEOUT": "30", "EMBEDDING_INFERENCE_TIMEOUT": "30"},
+        ):
+            for key in ("EMBEDDING_TOTAL_TIMEOUT", "HOOK_TIMEOUT"):
+                os.environ.pop(key, None)
+            reset_config()
+            c = EmbeddingClient()
+            try:
+                fixed_overhead = CONNECT_TIMEOUT + WRITE_TIMEOUT + POOL_TIMEOUT
+                assert c._total_timeout + fixed_overhead <= get_hook_timeout()
+            finally:
+                c.close()
+
+
+class TestSubmitRateLimiter:
+    """PLAN-030 WI-10 load-shaping: the client paces embedding submissions to the
+    server's sustainable compute ceiling (~9.6 txt/s) with patient backpressure
+    (BP-175/BP-180) instead of firehosing it.
+    """
+
+    class _FakeReservationClock:
+        """Deterministic clock where sleep() advances time (models real wall-clock
+        consumption) so the limiter's pacing math is tested without real sleeps."""
+
+        def __init__(self):
+            self.now = 0.0
+            self.slept = []
+
+        def time(self):
+            return self.now
+
+        def sleep(self, seconds):
+            self.slept.append(seconds)
+            self.now += seconds
+
+    def _make(self, rate, burst):
+        from memory.embeddings import _SubmitRateLimiter
+
+        clk = self._FakeReservationClock()
+        lim = _SubmitRateLimiter(
+            rate, burst=burst, time_source=clk.time, sleeper=clk.sleep
+        )
+        return lim, clk
+
+    def test_default_rate_targets_server_ceiling(self):
+        """The default submit rate is the ~9.6 txt/s server compute ceiling."""
+        from memory.embeddings import EMBEDDING_CLIENT_MAX_TXT_PER_SEC
+
+        assert EMBEDDING_CLIENT_MAX_TXT_PER_SEC == 9.6
+
+    def test_sustained_submissions_paced_to_rate(self):
+        """N single-text submissions are paced so cumulative wall-clock ~= the time
+        the server needs at the ceiling: (N - burst_credit) / rate."""
+        lim, clk = self._make(rate=10.0, burst=1.0)
+        for _ in range(11):
+            lim.acquire(1)
+        # burst=1 forgives ~1 text; the remaining 10 are paced at 10/s => ~1.0s.
+        assert abs(sum(clk.slept) - 1.0) < 1e-9
+
+    def test_batch_cost_counts_all_texts(self):
+        """A batch submission is charged for every text in it (the pacing unit is
+        texts, not requests)."""
+        lim, clk = self._make(rate=10.0, burst=0.0)
+        lim.acquire(5)  # first call: reserves 0.5s of future server time, waits 0
+        lim.acquire(5)  # second call must wait for that 0.5s to elapse
+        assert abs(sum(clk.slept) - 0.5) < 1e-9
+
+    def test_burst_credit_absorbs_idle(self):
+        """After an idle period, up to `burst` texts submit unshaped (bounded burst),
+        then pacing resumes."""
+        lim, clk = self._make(rate=10.0, burst=5.0)
+        clk.now = 100.0  # simulate a long idle gap
+        total = 0.0
+        for _ in range(5):
+            total += lim.acquire(1)
+        assert total == 0.0  # 5 texts within the burst credit: no shaping
+
+    def test_disabled_when_rate_nonpositive(self):
+        """rate <= 0 disables shaping entirely (never sleeps)."""
+        lim, clk = self._make(rate=0.0, burst=1.0)
+        for _ in range(50):
+            assert lim.acquire(1) == 0.0
+        assert clk.slept == []
+
+    def test_deadline_bypass_does_not_shape_or_reserve(self):
+        """When the required wait would exceed the caller's remaining budget, the
+        submission passes through unshaped AND the reservation clock is not advanced —
+        a must-not-drop request never misses its deadline because of shaping."""
+        lim, _clk = self._make(rate=2.0, burst=0.0)
+        lim.acquire(10)  # reserves 5s of future server time
+        next_free_before = lim._next_free
+        waited = lim.acquire(1, max_wait=0.5)  # would need ~5s wait > 0.5 budget
+        assert waited == 0.0
+        assert lim._next_free == next_free_before  # reservation not advanced
+
+    def test_embed_consults_limiter_with_text_count(self):
+        """embed() feeds the submission's text count to the shared limiter before
+        posting, so bulk callers are actually shaped."""
+        import memory.embeddings as emod
+        from memory.config import reset_config
+
+        recorded = []
+
+        class _RecordingLimiter:
+            def acquire(self, cost, max_wait=None):
+                recorded.append((cost, max_wait))
+                return 0.0
+
+        mock_ok = Mock()
+        mock_ok.status_code = 200
+        mock_ok.raise_for_status = Mock()
+        mock_ok.json.return_value = {"embeddings": [[0.1] * 768] * 3}
+
+        with patch.dict(
+            os.environ,
+            {"EMBEDDING_ACQUIRE_TIMEOUT": "0", "EMBEDDING_INFERENCE_TIMEOUT": "0"},
+        ):
+            reset_config()
+            c = EmbeddingClient()
+            try:
+                with (
+                    patch.object(
+                        emod, "_get_submit_rate_limiter", lambda: _RecordingLimiter()
+                    ),
+                    patch.object(c.client, "post", return_value=mock_ok),
+                ):
+                    c.embed(["a", "b", "c"])
+                assert recorded
+                assert recorded[0][0] == 3  # cost == number of texts
+            finally:
+                c.close()

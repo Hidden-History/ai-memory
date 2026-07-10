@@ -161,20 +161,30 @@ def get_hook_timeout() -> int:
     Consolidated from CR-1.4 (duplicated in error_store_async.py, store_async.py).
 
     Returns:
-        Timeout in seconds (default: 60)
+        Timeout in seconds (default: 90)
 
     Environment Variables:
         HOOK_TIMEOUT: Timeout in seconds for background operations
+
+    Note:
+        TD-782/788 TIMEOUT COHERENCE: this is the OUTER ceiling that wraps the store
+        coroutine (asyncio.wait_for). It must sit ABOVE the embedding client's
+        coordinated budget so it cannot fire mid-embed and cancel the whole store
+        (which defeats the per-chunk pending-status fallback). The client's worst-case
+        per-embed wall clock is EMBEDDING_TOTAL_TIMEOUT (coherent default 60s =
+        acquire 30 + inference 30) plus ~11s fixed httpx connect/write/pool overhead
+        (~71s); 90s keeps the ceiling above that sum. The client warns
+        (embedding_total_timeout_invariant_violated) if a custom config breaks this.
     """
     try:
-        timeout_str = os.getenv("HOOK_TIMEOUT", "60")
+        timeout_str = os.getenv("HOOK_TIMEOUT", "90")
         return int(timeout_str)
     except ValueError:
         logger = logging.getLogger("ai_memory.hooks")
         logger.warning(
-            "invalid_timeout_env", extra={"value": timeout_str, "using_default": 60}
+            "invalid_timeout_env", extra={"value": timeout_str, "using_default": 90}
         )
-        return 60
+        return 90
 
 
 def get_metrics():

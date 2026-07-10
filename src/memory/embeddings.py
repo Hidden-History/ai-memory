@@ -11,6 +11,7 @@ import contextlib
 import logging
 import os
 import random
+import threading
 import time
 
 import httpx
@@ -59,6 +60,106 @@ logger = logging.getLogger("ai_memory.embed")
 # services. @observe creates orphaned Langfuse traces when OTel context doesn't cross
 # process boundaries. Use emit_trace_event() with explicit session_id instead.
 # See LANGFUSE-INTEGRATION-SPEC.md §4.3
+
+
+class _SubmitRateLimiter:
+    """Process-global patient rate limiter that shapes embedding submissions to the
+    embedding server's sustainable compute ceiling (PLAN-030 WI-10 load-shaping).
+
+    Why: bulk single-process consumers (github-sync, jira-sync, document_pipeline) can
+    firehose the shared embedding service far past its ~9.6 txt/s compute ceiling
+    (PLAN-030 X1/TD-794), driving admission waits and last-resort sheds. BP-175 §1/§4
+    prescribe BACKPRESSURE (make the producer WAIT) over shedding for a must-not-drop
+    system. This is the client half: pace submissions so the server is fed at a rate it
+    can sustain instead of being overrun.
+
+    Mechanism: a reservation clock (no per-call polling). Each ``acquire(cost)`` reserves
+    the next ``cost / rate`` seconds of server time and blocks until that slot opens. A
+    bounded burst credit (``burst`` texts) lets an idle client send a short burst without
+    pacing — so an interactive single-chunk store is never delayed — after which sustained
+    submission is paced to ``rate`` texts/sec. Shared process-wide so all EmbeddingClient
+    instances in one process (e.g. a sync loop that rebuilds clients) share one schedule.
+
+    ``time_source``/``sleeper`` are injectable so the pacing math is unit-testable without
+    real wall-clock sleeps.
+    """
+
+    def __init__(self, rate_per_sec, burst=None, *, time_source=None, sleeper=None):
+        self._rate = float(rate_per_sec)
+        # Default burst = ~1 second of credit, so a brief interactive burst is unshaped.
+        self._burst = float(burst) if burst is not None else max(1.0, self._rate)
+        self._time = time_source or time.monotonic
+        self._sleep = sleeper or time.sleep
+        self._lock = threading.Lock()
+        self._next_free = 0.0
+
+    def acquire(self, cost, max_wait=None):
+        """Block (patiently) until ``cost`` texts may be submitted; return seconds waited.
+
+        Args:
+            cost: Number of texts in this submission (the pacing unit).
+            max_wait: If the required wait would exceed this many seconds, skip shaping
+                and return immediately (0.0) WITHOUT reserving a slot. Callers pass their
+                remaining deadline budget here so load-shaping can never cause a
+                must-not-drop request to blow its own timeout.
+
+        Returns:
+            Seconds actually slept (0.0 when within burst credit or shaping disabled).
+        """
+        if self._rate <= 0 or cost <= 0:
+            return 0.0
+        with self._lock:
+            now = self._time()
+            # Credit only up to `burst` texts of idleness — bounds the burst so a long
+            # idle period cannot forgive an unbounded backlog all at once.
+            floor = now - (self._burst / self._rate)
+            if self._next_free < floor:
+                self._next_free = floor
+            start = self._next_free
+            wait = start - now
+            if wait < 0:
+                wait = 0.0
+            if max_wait is not None and wait > max_wait:
+                # Deadline-tight caller: let it through unshaped rather than risk a
+                # missed deadline / lost memory. Do NOT advance the reservation clock.
+                return 0.0
+            self._next_free = start + (cost / self._rate)
+        if wait > 0:
+            self._sleep(wait)
+        return wait
+
+
+# Client-side submit-rate ceiling (texts/sec). Default = the ~9.6 txt/s server compute
+# ceiling measured at INFERENCE_THREADS=4 (PLAN-030 X1/TD-794). <= 0 disables shaping.
+EMBEDDING_CLIENT_MAX_TXT_PER_SEC = float(
+    os.getenv("EMBEDDING_CLIENT_MAX_TXT_PER_SEC", "9.6")
+)
+
+# Process-global limiter singleton (lazy). Shared across all EmbeddingClient instances
+# in a process so a bulk sync loop that rebuilds clients is still paced as one stream.
+_submit_rate_limiter: _SubmitRateLimiter | None = None
+_submit_rate_limiter_lock = threading.Lock()
+
+
+def _get_submit_rate_limiter() -> _SubmitRateLimiter:
+    """Return the process-global submit-rate limiter, creating it on first use.
+
+    The rate is read from the environment at first construction (falling back to the
+    default ceiling) so a deployment — or the test suite — can tune or disable shaping
+    without editing code. Set ``_submit_rate_limiter = None`` to force a rebuild.
+    """
+    global _submit_rate_limiter
+    if _submit_rate_limiter is None:
+        with _submit_rate_limiter_lock:
+            if _submit_rate_limiter is None:
+                rate = float(
+                    os.getenv(
+                        "EMBEDDING_CLIENT_MAX_TXT_PER_SEC",
+                        str(EMBEDDING_CLIENT_MAX_TXT_PER_SEC),
+                    )
+                )
+                _submit_rate_limiter = _SubmitRateLimiter(rate)
+    return _submit_rate_limiter
 
 
 class EmbeddingError(Exception):
@@ -127,23 +228,42 @@ class EmbeddingClient:
             f"http://{self.config.embedding_host}:{self.config.embedding_port}"
         )
 
-        # 2025 Best Practice: Granular timeouts per operation type
-        # Source: https://www.python-httpx.org/advanced/timeouts/
-        # Read timeout is configurable via EMBEDDING_READ_TIMEOUT for integration tests
-        # CPU mode (7B model): 20-30s typical, use 60s for safety
-        # GPU mode: <2s (NFR-P2 compliant)
-        read_timeout = float(os.getenv("EMBEDDING_READ_TIMEOUT", "15.0"))
+        # TD-782/788 TIMEOUT COHERENCE: the client read timeout must out-wait the
+        # server's worst-case response time, or the client abandons a request the
+        # server is still legitimately servicing (premature EMBEDDING_TIMEOUT → retry
+        # storm → server-side admission shed). The server response spans TWO phases the
+        # client holds the connection open for: the admission wait (block-not-drop up to
+        # EMBEDDING_ACQUIRE_TIMEOUT for an inference slot — docker/embedding/main.py) and
+        # then the inference itself (a single large-text embed measured at ~19-28s,
+        # PLAN-030 X1). So the coherent floor for any read timeout is
+        # acquire_timeout + inference_timeout. Below that floor is the inversion bug.
+        self._acquire_timeout = max(
+            0.0, float(os.getenv("EMBEDDING_ACQUIRE_TIMEOUT", "30.0"))
+        )
+        # Realistic worst-case single-request inference time (covers the observed
+        # 19-28s large-text range with margin). Separate knob so ops can tune the
+        # inference term without touching the server's admission timeout.
+        self._inference_timeout = max(
+            0.0, float(os.getenv("EMBEDDING_INFERENCE_TIMEOUT", "30.0"))
+        )
+        coherent_read_floor = self._acquire_timeout + self._inference_timeout
+
+        # EMBEDDING_READ_TIMEOUT / _CODE remain configurable, but are floored UP to the
+        # coherent value so a stale/short setting can never reintroduce the inversion.
+        # A larger configured value (slow hardware) is preserved.
         # BUG-329 fix round (F1): stored on self so _embed_once() can cap it to the
         # remaining EMBEDDING_TOTAL_TIMEOUT budget on each attempt.
-        self._read_timeout = read_timeout
+        self._read_timeout = max(
+            float(os.getenv("EMBEDDING_READ_TIMEOUT", "15.0")), coherent_read_floor
+        )
         # BUG-288: Code model is slower than en model under CPU load.
         # Per-request override applied in _embed_once() when model="code".
-        self._read_timeout_code = float(
-            os.getenv("EMBEDDING_READ_TIMEOUT_CODE", "30.0")
+        self._read_timeout_code = max(
+            float(os.getenv("EMBEDDING_READ_TIMEOUT_CODE", "30.0")), coherent_read_floor
         )
         timeout_config = httpx.Timeout(
             connect=CONNECT_TIMEOUT,  # Connection establishment timeout
-            read=read_timeout,  # Read timeout - configurable for CPU vs GPU mode
+            read=self._read_timeout,  # Coherent read floor (>= acquire + inference)
             write=WRITE_TIMEOUT,  # Write timeout for request body
             pool=POOL_TIMEOUT,  # Pool acquisition timeout
         )
@@ -165,7 +285,7 @@ class EmbeddingClient:
 
         # BUG-329/TD-710: Overall wall-clock deadline for embed()'s retry loop.
         # Per-chunk retries with no cumulative bound can exceed the store hooks'
-        # HOOK_TIMEOUT (default 60s), which cancels the whole store coroutine
+        # HOOK_TIMEOUT (coherent default 90s), which cancels the whole store coroutine
         # mid-embed instead of letting the pending-status fallback handle it.
         # Must stay below HOOK_TIMEOUT so embed() raises EMBEDDING_TIMEOUT while
         # the caller still has budget left to upsert with embedding_status=pending.
@@ -174,7 +294,29 @@ class EmbeddingClient:
         # hard ceiling rather than just a between-attempts check. Fixed httpx
         # connect/write/pool overhead runs on top of this budget (see the
         # construction-time invariant check below).
-        self._total_timeout = float(os.getenv("EMBEDDING_TOTAL_TIMEOUT", "45.0"))
+        # TD-782/788: made inference-time-aware. The default AND the lower floor are the
+        # coherent single-attempt budget (acquire + inference) so the deadline can never
+        # be smaller than one full legitimate attempt — otherwise the deadline itself
+        # would clip a request the server is still servicing (the inversion, one layer
+        # up). Per-attempt HTTP read timeout is still capped to the remaining portion of
+        # this budget (see _embed_once()).
+        default_total = coherent_read_floor if coherent_read_floor > 0 else 45.0
+        self._total_timeout = float(
+            os.getenv("EMBEDDING_TOTAL_TIMEOUT", str(default_total))
+        )
+        if coherent_read_floor > 0 and self._total_timeout < coherent_read_floor:
+            # A configured deadline below one coherent attempt reintroduces premature
+            # timeout. Floor it up and log so the misconfiguration is visible.
+            logger.warning(
+                "embedding_total_timeout_below_coherent_floor",
+                extra={
+                    "configured_value": self._total_timeout,
+                    "coherent_read_floor": coherent_read_floor,
+                    "acquire_timeout": self._acquire_timeout,
+                    "inference_timeout": self._inference_timeout,
+                },
+            )
+            self._total_timeout = coherent_read_floor
         if self._total_timeout <= 0:
             # A non-positive budget would make embed() raise EMBEDDING_TIMEOUT on
             # every call before a first attempt is ever made, silently disabling
@@ -200,9 +342,9 @@ class EmbeddingClient:
         # caller's pending-status fallback run. Read HOOK_TIMEOUT the same way the
         # hooks do (hooks_common.get_hook_timeout()).
         try:
-            hook_timeout = int(os.getenv("HOOK_TIMEOUT", "60"))
+            hook_timeout = int(os.getenv("HOOK_TIMEOUT", "90"))
         except ValueError:
-            hook_timeout = 60
+            hook_timeout = 90
         fixed_overhead = CONNECT_TIMEOUT + WRITE_TIMEOUT + POOL_TIMEOUT
         if self._total_timeout + fixed_overhead > hook_timeout:
             logger.warning(
@@ -226,13 +368,14 @@ class EmbeddingClient:
         the caller wait and re-submit rather than dropping the memory. Non-retryable
         errors (e.g. 413 oversized, 4xx) raise immediately.
 
-        BUG-329/TD-710 (fix round F1/F4): The whole retry loop is bounded by an
-        overall wall-clock deadline (``EMBEDDING_TOTAL_TIMEOUT``, default 45s). F1
-        caps each attempt's HTTP read/inference timeout to ``min(configured_read_timeout,
-        remaining_budget)`` (see _embed_once()), so the READ phase of no single
-        attempt can run long enough on its own to blow past the deadline. Without this
-        cap, per-chunk retries could cumulatively exceed the store hooks' HOOK_TIMEOUT
-        (60s) even though the deadline was "checked" between attempts, because a
+        BUG-329/TD-710 (fix round F1/F4) + TD-782/788: The whole retry loop is bounded
+        by an overall wall-clock deadline (``EMBEDDING_TOTAL_TIMEOUT``, coherent default
+        = acquire + inference, 60s). F1 caps each attempt's HTTP read/inference timeout
+        to ``min(configured_read_timeout, remaining_budget)`` (see _embed_once()), so the
+        READ phase of no single attempt can run long enough on its own to blow past the
+        deadline. Without this cap, per-chunk retries could cumulatively exceed the store
+        hooks' HOOK_TIMEOUT (coherent default 90s) even though the deadline was "checked"
+        between attempts, because a
         single slow attempt could still run for the full configured read timeout
         regardless of how little budget remained — aborting the entire store coroutine
         mid-embed instead of letting the caller's pending-status fallback run. This is
@@ -262,6 +405,14 @@ class EmbeddingClient:
         last_error: EmbeddingError | None = None
         deadline = time.monotonic() + self._total_timeout
         for attempt in range(1 + self._max_retries):
+            # Load-shaping (BP-175/BP-180, PLAN-030 WI-10): pace submissions to the
+            # server's sustainable compute ceiling so bulk consumers apply patient
+            # backpressure instead of firehosing. Done BEFORE computing `remaining` so
+            # the pacing wait is charged against the deadline (the per-attempt read
+            # timeout below shrinks accordingly); max_wait caps it to the remaining
+            # budget so shaping can never make a must-not-drop request miss its deadline.
+            budget = deadline - time.monotonic()
+            _get_submit_rate_limiter().acquire(len(texts), max_wait=max(0.0, budget))
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self._log_total_timeout_exceeded(attempt, texts, model)
