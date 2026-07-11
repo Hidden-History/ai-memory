@@ -24,7 +24,7 @@ is a task instruction, not routing metadata, and is forbidden in the activation 
 ## Required Sequence
 
 ```
-Step 1 — Spawn:     Agent tool with team_name (GC-19)
+Step 1 — Spawn:     Agent tool with a unique `name` (GC-19)
 Step 2 — Activate:  Send activation command + reporting-routing directive
                      (e.g., "Use the Skill tool to load bmad-agent-dev" + "report your activation reply to <handle>")
                      — never the task

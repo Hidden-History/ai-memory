@@ -8,10 +8,10 @@ description: "Output format for assembling a 2-tier (flat) agent team prompt —
 Use this template when assembling the final copy-pasteable prompt for a 2-tier team.
 
 **Claude Code tool mapping**:
-- **Lead** spawns each worker as a **teammate** via the `Agent` tool with a unique `name` (single implicit team — `TeamCreate` not required)
+- **Lead** spawns each worker as a **teammate** via the `Agent` tool with a unique `name`
 - **Communication** uses `SendMessage` (type: "message" for DMs, "shutdown_request" for shutdown)
 - **Task coordination** uses `TaskCreate`, `TaskUpdate`, `TaskList`
-- **Cleanup** uses `TeamDelete` (after all teammates shut down)
+- **Cleanup** uses the `shutdown_request` handshake, one per teammate (from the lead session)
 
 **Two-phase BMAD activation (GC-20):** each teammate's spawn `prompt` carries ONLY its BMAD activation
 + the report-to-team-lead one-line — never the task. `{teammate_N_activation}` is the Skill-tool-load
@@ -20,7 +20,7 @@ activates Parzival, not the persona). After the teammate replies with its greeti
 8-section task block as ONE SendMessage.
 
 ```
-Create a team with the description "{team_objective}" — **not required (single implicit team)**; the Agent-tool spawns below are sufficient.
+Spawn each teammate via the `Agent` tool (below).
 Then spawn {teammate_count} teammates to {team_objective}.
 Use {default_model} for each teammate.
 {plan_approval_instruction}
@@ -95,7 +95,7 @@ Lead Instructions:
 - When all teammates finish, synthesize their results into {synthesis_deliverable}.
 - Report back with: {summary_format}.
 - After synthesis, shut down all teammates using SendMessage (type: 'shutdown_request') to each.
-- After all teammates confirm shutdown, clean up the team using TeamDelete.
+- After all teammates confirm shutdown, cleanup is complete.
 
 {contract_first_addendum}
 ```

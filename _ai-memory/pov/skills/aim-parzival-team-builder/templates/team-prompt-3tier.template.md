@@ -17,23 +17,23 @@ Outer prompt (Parzival assembles -> User pastes into new session)
   Manager 2 context (10 elements) — spawned as teammate
     Element 4: Worker prompts — spawned as tmux teammates
     Element 5: Review agent prompt — spawned as tmux teammate
-  Lead Instructions (TeamCreate, TaskCreate, SendMessage, TeamDelete)
+  Lead Instructions (Agent spawn, TaskCreate, SendMessage, shutdown_request)
   Task List
 ```
 
 **Claude Code tool mapping**:
-- **Lead** spawns each manager as a **teammate** via the `Agent` tool with a unique `name` (single implicit team — `TeamCreate` not required)
+- **Lead** spawns each manager as a **teammate** via the `Agent` tool with a unique `name`
 - **Managers** (teammates) spawn worker **tmux teammates** via `/aim-agent-lifecycle` and coordinate with them via the built-in messaging system (`tmux send-keys` / `tmux capture-pane`)
 - **Communication** uses `SendMessage` (type: "message" for DMs, "shutdown_request" for shutdown)
 - **Task coordination** uses `TaskCreate`, `TaskUpdate`, `TaskList`
-- **Cleanup** uses `TeamDelete` (after all teammates shut down)
+- **Cleanup** uses the `shutdown_request` handshake, one per teammate (from the lead session)
 
 **Key principle**: Managers spawn worker **teammates via tmux** (aim-agent-lifecycle) and coordinate via the built-in messaging system. Each worker starts fresh with its own context and reports back to its manager by name. (This does not violate "only the lead spawns claude-native teammates" — workers are tmux teammates, not Claude Agent-Teams `name`-based members.)
 
 **Two-phase BMAD activation (GC-20):** every spawn `prompt` — Lead→Manager and Manager→Worker — carries ONLY its BMAD activation + a report-to-<spawning-lead> one-line (report by name: Parzival = `team-lead`, a Manager = its own name; never `main`), never the task. `{*_activation}` is the Skill-tool-load form: `Use the Skill tool to load bmad-<role> (the BMAD <role> persona).` (a bare `/bmad-*` at spawn activates Parzival, not the persona). Send the task/brief block as ONE SendMessage after the greeting/menu lands; `mode: auto`.
 
 ```
-Create a team with the description "{team_objective}" — **not required (single implicit team)**; the Agent-tool spawns below are sufficient.
+Spawn each teammate via the `Agent` tool (below).
 Then spawn {manager_count} manager teammates to {team_objective}.
 Use {default_model} for each teammate.
 Work only through managers -- do not implement directly (use delegate mode).
@@ -179,7 +179,7 @@ Lead Instructions:
 - Synthesize results into {synthesis_deliverable}.
 - Report back with: {summary_format}.
 - After synthesis, shut down all managers using SendMessage (type: 'shutdown_request') to each manager.
-- After all managers confirm shutdown, clean up the team using TeamDelete.
+- After all managers confirm shutdown, cleanup is complete.
 
 {contract_first_addendum}
 ```

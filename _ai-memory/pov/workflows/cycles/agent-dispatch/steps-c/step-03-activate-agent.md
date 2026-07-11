@@ -22,7 +22,7 @@ Once the teammate is spawned with fresh context, activate the correct agent. For
 **Behavioral Constraints:**
 - FORBIDDEN to send instruction before agent activation is verified (BMAD agents)
 - Approach: BMAD — activate, verify, then proceed. Generic — spawn and proceed to step-04. One agent per teammate only.
-- If BMAD activation fails, retry before proceeding — never send to unverified BMAD agent
+- If activation output doesn't arrive, apply the state-based stall check in §3 (idle is noise → inspect → respawn FRESH); never retry the activation command, never send to an unverified agent
 
 ## Sequence
 

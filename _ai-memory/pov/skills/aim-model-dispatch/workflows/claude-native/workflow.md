@@ -49,7 +49,7 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 
 ## MANDATORY: Verify Working Directory (Workspace Root Sentinel)
 
-**Before EVERY TeamCreate or Agent spawn, verify CWD is the workspace root.**
+**Before EVERY Agent spawn, verify CWD is the workspace root.**
 
 Teammates inherit the lead's working directory. If CWD is wrong, teammates
 cannot find BMAD skills, oversight docs, or project context. The workspace root
@@ -79,7 +79,7 @@ not just the first one in a session -- `cd` drifts silently across Bash calls.
 
 ## MANDATORY: Verify Agent Teams Prerequisites
 
-**Before the first TeamCreate, verify the Agent Teams prerequisites above are live.**
+**Before the first Agent spawn, verify the Agent Teams prerequisites above are live.**
 
 The Prerequisites list is not self-enforcing -- a missing
 `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` or a `teammateMode` set to a non-team
@@ -99,17 +99,9 @@ for tmux dispatch, so both dispatch paths enforce the identical prerequisites.
 
 ---
 
-## Create a Team (not required — single implicit team)
+## The Team
 
-A session has a single implicit team; `TeamCreate` is **not required** and the `team_name` param is
-deprecated/ignored. Spawning a teammate via the Agent tool (below) is sufficient — the shared task
-list exists without an explicit team. Parzival is team lead. If you do call TeamCreate, pass only a
-`description`.
-
-```
-TeamCreate:
-  description: "Story 4.1: Base Stage Class and Pipeline Message Schemas"
-```
+Spawning a teammate with the `Agent` tool automatically forms the team and shared task list. This session is the lead.
 
 ---
 
@@ -209,14 +201,7 @@ SendMessage:
   message: {type: "shutdown_request", reason: "Task complete"}
 ```
 
-After ALL teammates shut down, clean up:
-
-```
-TeamDelete
-```
-
-TeamDelete fails if active teammates remain. Always shutdown all teammates first.
-Always clean up from the lead session, not from a teammate.
+Shut down each teammate this way once its work is accepted, from the lead session (not from a teammate).
 
 ---
 
@@ -225,9 +210,6 @@ Always clean up from the lead session, not from a teammate.
 ### Single DEV Story Implementation
 
 ```
-TeamCreate:
-  description: "Story 4.1: Base Stage Class"
-
 TaskCreate:
   subject: "Implement Story 4.1"
   description: "[full instruction]"
@@ -254,9 +236,6 @@ TaskUpdate:
 ### Parallel Dual Review
 
 ```
-TeamCreate:
-  description: "Story 4.1 dual review"
-
 TaskCreate:
   subject: "Review Story 4.1 (Sonnet)"
   description: "[review instruction]"
@@ -293,9 +272,6 @@ SendMessage:
 ### Multi-Track Parallel Sprint
 
 ```
-TeamCreate:
-  description: "Parallel: Track A (4.2) + Track B (11.1) + Track C (14.2)"
-
 TaskCreate:
   subject: "Implement Story 4.2"
   description: "[instruction]"
