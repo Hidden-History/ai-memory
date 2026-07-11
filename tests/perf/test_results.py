@@ -18,6 +18,7 @@ def test_write_results_json_serializes_nested_dataclasses(tmp_path):
     gate_result = gate.evaluate_gate(
         oom_kill_delta=0,
         dmesg_oom_count=0,
+        restart_count_delta=0,
         shed_delta=0.0,
         admission_wait_p95_seconds=0.5,
         client_read_timeout_seconds=30.0,
@@ -37,5 +38,5 @@ def test_write_results_json_serializes_nested_dataclasses(tmp_path):
 
     data = json.loads(out_path.read_text())
     assert data["gate_passed"] is True
-    assert len(data["gate"]["criteria"]) == 6
+    assert len(data["gate"]["criteria"]) == 7
     assert data["gate"]["criteria"][0]["name"] == "oom_kill_delta_zero"

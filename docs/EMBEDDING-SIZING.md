@@ -2,7 +2,7 @@
 
 The embedding service is **shared across every project on one install**. All projects (and any co-tenant such as a document-ingest pipeline) send their embed requests to the same container, so its memory limit must be sized for your **combined** load, not a single project.
 
-> **Status: provisional.** The numbers below are sized from observed live behaviour, now including the BUG-324 idle-watch diagnostic (2026-06-21). Treat them as safe starting points, not final tuning — the active-release fix that would let a 6G cap hold indefinitely under sustained load is a tracked follow-up (see *Memory footprint reality*).
+> **Status: provisional.** The numbers below are sized from observed live behaviour, now including the BUG-324 idle-watch diagnostic (2026-06-21). Treat them as safe starting points, not final tuning — the active-release fix that would let the memory cap hold indefinitely under sustained load is a tracked follow-up (see *Memory footprint reality*).
 
 ## How the service behaves under load
 
@@ -23,13 +23,14 @@ Because the residue only releases on a recycle today, an **active-release lever*
 
 ## Sizing guidance
 
-Set `EMBEDDING_MEMORY_LIMIT` (in `docker/.env`) by how many projects embed **concurrently** on this install:
+`EMBEDDING_MEMORY_LIMIT` (in `docker/.env`) ships at **`10G`, and 10G is also the floor** — it is the design basis of the byte-aware admission envelope, not a value to trim. The envelope is sized against a 10 GiB cap: warm base ~2.35 GiB + ~5.6 GiB in-flight char budget = ~7.95 GiB worst-case peak, leaving ~2 GiB headroom. Shipping (or shrinking to) a smaller cap puts the envelope's designed peak above the limit and re-introduces the exact OOM this sizing prevents, so `EMBEDDING_MAX_INPUT_CHARS` / `EMBEDDING_SAFE_INFLIGHT_CHARS` and the cap must move together.
+
+Raise the cap by how many projects embed **concurrently** on this install:
 
 | Concurrent projects on the install | `EMBEDDING_MEMORY_LIMIT` | Notes |
 |---|---|---|
-| 1, light/uniform load | `6G` (floor — `4G` not viable) | Even a single light project sits at a ~3.10 GiB loaded-idle baseline, so `4G` leaves <0.9 GiB for load + arena growth and will OOM under sustained load. Do not drop below 6G. |
-| 2–3 (multi-repo shared, incl. a doc-ingest co-tenant) | **`6G` (default)** | Survives observed real mixed load **when paired with active release** (a tracked follow-up — see *Memory footprint reality*); expect AIMD to throttle toward serial under bursts. |
-| Many / heavy / large code files | `8G`+ **or isolate** | Either raise the cap, or run a dedicated embedding service per heavy project. |
+| 1–3 (typical multi-repo shared, incl. a doc-ingest co-tenant) | **`10G` (default — the envelope basis, and the floor)** | The admission envelope is sized against this cap (peak ~7.95 GiB, ~2 GiB headroom). Do not drop below `10G` without lowering the char envelope in lockstep, or the designed peak exceeds the cap. |
+| Many / heavy / large code files | `12G`+ **or isolate** | Either raise the cap (and the char envelope with it), or run a dedicated embedding service per heavy project. |
 
 If you routinely see `embedding_effective_concurrency_limit` pinned at `1` and `embedding_memory_headroom_bytes` near zero (Prometheus), the cap is too low for your load — raise it or reduce `EMBEDDING_MAX_CONCURRENCY`.
 

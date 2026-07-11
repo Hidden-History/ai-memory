@@ -124,6 +124,56 @@ def test_docker_exec_raises_cgroup_access_error_on_nonzero_exit(monkeypatch):
         cgroup._docker_exec("missing", "cat", "/x")
 
 
+def test_container_restart_count_parses_int(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = "3\n"
+        stderr = ""
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    assert cgroup.container_restart_count("ai-memory-embedding") == 3
+
+
+def test_container_restart_count_delta_witnesses_oom(monkeypatch):
+    # TD-792/789: a start->end restart-count delta is the authoritative OOM
+    # witness when memory.events/docker-OOMKilled/app-counter are all blind.
+    outputs = iter(["1\n", "2\n"])
+
+    class _Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self):
+            self.stdout = next(outputs)
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    start = cgroup.container_restart_count("c1")
+    end = cgroup.container_restart_count("c1")
+    assert end - start == 1
+
+
+def test_container_restart_count_raises_on_inspect_failure(monkeypatch):
+    class _Result:
+        returncode = 1
+        stdout = ""
+        stderr = "Error: No such container: missing"
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    with pytest.raises(cgroup.CgroupAccessError):
+        cgroup.container_restart_count("missing")
+
+
+def test_container_restart_count_raises_on_non_integer(monkeypatch):
+    class _Result:
+        returncode = 0
+        stdout = "<no value>\n"
+        stderr = ""
+
+    monkeypatch.setattr(cgroup.subprocess, "run", lambda *a, **k: _Result())
+    with pytest.raises(cgroup.CgroupAccessError):
+        cgroup.container_restart_count("c1")
+
+
 def test_scan_dmesg_oom_filters_by_pattern(monkeypatch):
     class _Result:
         returncode = 0
