@@ -10,9 +10,11 @@ phase: global
 
 ## Rule
 
-When activating a BMAD teammate, the activation message MUST contain the BMAD command + the required
-reporting-routing line (report the activation reply to the lead by name — `team-lead` — then wait) and
-MUST NOT contain the task. The task is sent only after the greeting/menu confirms the persona loaded.
+When activating a BMAD teammate, the activation message MUST contain the BMAD persona activation —
+loaded via the Skill tool (e.g. `Use the Skill tool to load bmad-agent-dev`; a bare `/bmad-*` at spawn
+activates the lead, not the persona) — + the required reporting-routing line (report the activation
+reply to the lead by name — `team-lead` — then wait) and MUST NOT contain the task. The task is sent
+only after the greeting/menu confirms the persona loaded.
 
 **Bright line for the reporting-routing directive:** it may state ONLY (a) where to send the
 activation reply, and (b) to wait for instructions after that. It MUST NOT contain any task,
@@ -24,7 +26,7 @@ is a task instruction, not routing metadata, and is forbidden in the activation 
 ```
 Step 1 — Spawn:     Agent tool with team_name (GC-19)
 Step 2 — Activate:  Send activation command + reporting-routing directive
-                     (e.g., /bmad-agent-dev + "report your activation reply to <handle>")
+                     (e.g., "Use the Skill tool to load bmad-agent-dev" + "report your activation reply to <handle>")
                      — never the task
 Step 3 — Wait:      Wait for agent menu/greeting — do NOT send task content yet
 Step 4 — Instruct:  Send task instruction as a separate message

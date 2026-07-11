@@ -301,6 +301,18 @@ The team design document (Steps 1-6) is the deliverable. It feeds into the agent
 - [`templates/team-prompt-2tier.template.md`](templates/team-prompt-2tier.template.md) — 2-tier team prompt format (lead + workers)
 - [`templates/team-prompt-3tier.template.md`](templates/team-prompt-3tier.template.md) — 3-tier team prompt format (lead + managers + workers)
 
+**Template placeholder fill-rules (dispatch-time assembly):** the 2-tier/3-tier templates carry two
+placeholder families that are NOT Step-4 context-block content — the dispatch-time assembler fills them
+from each agent's BMAD role so no raw placeholder survives into a rendered prompt:
+- `{*_activation}` (`{teammate_N_activation}`, `{manager_N_activation}`, `{worker_N_activation}`) =
+  the Skill-tool-load activation string for that agent's BMAD role — e.g. `Use the Skill tool to load
+  bmad-dev (the BMAD dev persona).` A bare `/bmad-*` at spawn activates the lead, not the persona, so
+  the persona MUST be loaded via the Skill tool.
+- `{*_subagent_type}` (`{teammate_N_subagent_type}` / `{teammate_subagent_type}`,
+  `{manager_N_subagent_type}` / `{manager_subagent_type}`) = `general-purpose` — the BMAD persona
+  activates via the in-prompt Skill-load, not a native `subagent_type`. (Workers spawn via tmux
+  `/aim-agent-lifecycle` and have no `subagent_type`.)
+
 Parzival activates all agents himself — the user does not run agents.
 
 **MANDATORY NEXT STEP**: After user approves the dispatch plan:

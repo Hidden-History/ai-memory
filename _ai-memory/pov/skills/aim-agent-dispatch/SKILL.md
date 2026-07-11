@@ -198,10 +198,12 @@ Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 **Sentinel (GC-19):** before every spawn, as its own Bash step, assert workspace root:
 `test -d _ai-memory && test -d _bmad && test -d oversight`. FAIL → ABORT.
 
-**Spawn (two-phase, GC-20):** the spawn prompt is ONLY the BMAD command (`/bmad-agent-dev`,
-`/bmad-create-story`, `/bmad-code-review`) + one line — "You're activated as a teammate under Parzival
-(team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent
-asks) to team-lead, then wait for my instructions before doing any work." Never the task. `mode: auto`.
+**Spawn (two-phase, GC-20):** the spawn prompt loads the BMAD persona via the Skill tool (e.g.
+`Use the Skill tool to load bmad-agent-dev` — likewise `bmad-create-story`, `bmad-code-review`; a bare
+`/bmad-*` at spawn activates the lead, not the persona) + one line — "You're activated as a teammate
+under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and
+anything the agent asks) to team-lead, then wait for my instructions before doing any work." Never the
+task. `mode: auto`.
 
 **Wait:** idle pings (`idle_notification "available"`) are NOISE — no reaction, no on-disk checks, no
 nudges; the teammate sends a real message when it has one.

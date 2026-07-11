@@ -69,10 +69,11 @@ MANAGER 1: {manager_1_name}
 
 4. WORKER ROSTER:
    For each task, spawn a worker teammate via tmux (/aim-agent-lifecycle) using
-   two-phase BMAD activation — the spawn prompt is ONLY the BMAD activation + a
-   report-to-{manager_1_name} one-line (workers report to you by name, never
-   'main'); mode: auto; send the worker task as a SEPARATE message after the
-   greeting/menu lands:
+   two-phase BMAD activation — the spawn prompt loads the BMAD persona via the
+   Skill tool (the `{worker_1_activation}` Skill-load form; a bare `/bmad-*` at
+   spawn activates the lead, not the persona) + a report-to-{manager_1_name}
+   one-line (workers report to you by name, never 'main'); mode: auto; send the
+   worker task as a SEPARATE message after the greeting/menu lands:
 
    Worker 1: {worker_1_role}
    Spawn via /aim-agent-lifecycle, model='{worker_1_model}', mode: auto.
