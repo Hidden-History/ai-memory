@@ -111,6 +111,18 @@ def _is_secret(key: str, field_info) -> bool:
     return bool(_SECRET_NAME_RE.search(key))
 
 
+def _safe_key_token(key: str) -> str:
+    """Reduce a parsed env key to a bare ``[A-Z0-9_]`` token before it is emitted.
+
+    Only key NAMES are ever reported — values (secret or otherwise) never are.
+    Rebuilding the emitted name from an allowlist of characters is a hard barrier:
+    even a malformed deployed line can only ever contribute a key-name token to
+    the output, never a value fragment. Real keys are already SCREAMING_SNAKE, so
+    this is a no-op for valid input.
+    """
+    return re.sub(r"[^A-Z0-9_]", "", key.upper())
+
+
 def _is_placeholder(value: str) -> bool:
     low = value.strip().lower()
     if low in _PLACEHOLDERS:
@@ -243,7 +255,13 @@ def build_report(env_example: Path, install_dir: Path) -> dict:
             else:
                 cls = "ORPHAN_UNKNOWN"
 
-        findings.append({"key": key, "classification": cls, "severity": SEVERITY[cls]})
+        findings.append(
+            {
+                "key": _safe_key_token(key),
+                "classification": cls,
+                "severity": SEVERITY[cls],
+            }
+        )
 
     class_counts: dict[str, int] = {}
     sev_counts: dict[str, int] = {}
