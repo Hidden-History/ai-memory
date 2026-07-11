@@ -1382,3 +1382,137 @@ def test_nospace_end_marker_still_resolves():
     assert table is not None
     _, _, ids = table
     assert ids == {"BP-001"}
+
+
+# ---------------------------------------------------------------------------
+# Column-collision on a BP-ID-aliased non-zero header, a dangling marker at
+# exact EOF, and "refusing to write" wording surfacing during read-only
+# --check.
+# ---------------------------------------------------------------------------
+
+# Col-0 ("Topic") is BP-ID by position regardless of its header text; col-1's
+# header ("BP-ID") is an alias that must NOT also get the id — that would
+# double-write it and orphan the topic-like column.
+_AMBIGUOUS_BPID_ALIAS_HEADER_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| Topic | BP-ID | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+    f"{_MARKER_END}\n"
+)
+
+# The ordinary "BP-ID | Topic | Status" shape (BP-ID in its normal col-0
+# position) — must render exactly as before the fix.
+_NORMAL_BPID_TOPIC_HEADER_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+    f"{_MARKER_END}\n"
+)
+
+
+def test_render_row_no_bpid_column_collision(tmp_path):
+    # Before the fix: a non-zero column whose header aliases "BP-ID" also got
+    # b.display_id, duplicating the id and dropping the topic-like column.
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_AMBIGUOUS_BPID_ALIAS_HEADER_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+    after = index_path.read_text(encoding="utf-8")
+    assert "| BP-002 | TBD | TBD |" in after
+    assert "| BP-002 | BP-002 |" not in after  # no duplicate BP-ID
+
+
+def test_render_row_topic_column_unaffected_by_bpid_alias_removal(tmp_path):
+    # Guard: the ordinary BP-ID/Topic column order still renders the topic —
+    # the fix only removes the redundant non-zero BP-ID-alias branch.
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_NORMAL_BPID_TOPIC_HEADER_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+    after = index_path.read_text(encoding="utf-8")
+    assert "| BP-002 | Beta | TBD |" in after
+
+
+# A BEGIN anchor that is the literal last bytes of the file (no trailing
+# newline, no space, no "-->") must still match the anchor boundary —
+# otherwise it looks like "no markers" and the fallback appends instead of
+# refusing on the malformed, dangling marker.
+_DANGLING_EOF_BEGIN_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+    "<!-- BEGIN bp-index"
+)
+
+
+def test_dangling_eof_begin_marker_refuses(tmp_path, capsys):
+    # rest == "" (anchor is the literal last bytes) is now a boundary match.
+    assert mod._anchor_match(mod._BEGIN_ANCHOR, mod._BEGIN_ANCHOR)
+    # An unrelated prefix-sharing comment must still not match.
+    assert not mod._anchor_match(
+        f"{mod._BEGIN_ANCHOR}-experimental -->", mod._BEGIN_ANCHOR
+    )
+
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_DANGLING_EOF_BEGIN_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta\n")
+    before = index_path.read_text(encoding="utf-8")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 1
+    assert index_path.read_text(encoding="utf-8") == before  # byte-identical
+    _, err = capsys.readouterr()
+    assert "malformed bp-index markers" in err
+
+
+def test_check_never_emits_refusing_to_write_wording(tmp_path, capsys):
+    # --check is read-only; a malformed-marker refuse must not claim it was
+    # "refusing to write".
+    index_path = tmp_path / "index.md"
+    index_path.write_text(
+        "# Best Practices Index\n\n"
+        f"{_MARKER_BEGIN}\n"
+        "| BP-ID | Topic | Status |\n"
+        "|-------|-------|--------|\n"
+        "| BP-001 | Alpha | CURRENT |\n",  # BEGIN with no END -> malformed
+        encoding="utf-8",
+    )
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta\n")
+
+    rc = _run(["--check", str(tmp_path)])
+    assert rc == 1
+    _, err = capsys.readouterr()
+    assert "refusing to write" not in err
+    assert "malformed bp-index markers" in err  # the specific hint still fires
+
+
+def test_check_non_bp_table_wrap_never_emits_refusing_to_write_wording(
+    tmp_path, capsys
+):
+    # Same wording guarantee for the other refuse site reachable from --check:
+    # markers wrap a table that isn't the best-practices table.
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_MARKERS_AROUND_NON_BP_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+
+    rc = _run(["--check", str(tmp_path)])
+    assert rc == 1
+    _, err = capsys.readouterr()
+    assert "refusing to write" not in err
+    assert "not the best-practices table" in err  # the specific hint still fires

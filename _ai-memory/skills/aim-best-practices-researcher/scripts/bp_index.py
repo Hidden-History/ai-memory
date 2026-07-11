@@ -221,7 +221,7 @@ def _anchor_match(stripped: str, anchor: str) -> bool:
     if not stripped.startswith(anchor):
         return False
     rest = stripped[len(anchor):]
-    return rest[:1].isspace() or rest.startswith("-->")
+    return rest[:1].isspace() or rest.startswith("-->") or rest == ""
 
 
 def _marker_region(tokens: list):
@@ -259,7 +259,8 @@ def _marker_region(tokens: list):
     print(
         "ERROR: malformed bp-index markers: expected exactly one "
         "'<!-- BEGIN bp-index ... -->' before one '<!-- END bp-index -->' "
-        f"(found {len(begins)} BEGIN, {len(ends)} END) — refusing to write.",
+        f"(found {len(begins)} BEGIN, {len(ends)} END) — the marker region "
+        "is unusable.",
         file=sys.stderr,
     )
     return _MALFORMED_MARKERS
@@ -331,7 +332,8 @@ def _find_bp_table(text: str):
                 print(
                     "ERROR: bp-index markers wrap a table that is not the "
                     "best-practices table (no BP-ID rows, no BP-ID header) — "
-                    "refusing to write. Move the markers around the BP table.",
+                    "refusing to treat it as canonical. Move the markers "
+                    "around the BP table.",
                     file=sys.stderr,
                 )
                 return None
@@ -363,8 +365,6 @@ def _render_row(header_cells: list[str], b: BPFile) -> str:
     for i, name in enumerate(header_cells):
         key = name.strip().lower()
         if i == 0:
-            cells.append(b.display_id)
-        elif key in ("bp-id", "bp id", "bp", "id"):
             cells.append(b.display_id)
         elif key in ("topic", "title"):
             cells.append(_table_cell(b.title))
