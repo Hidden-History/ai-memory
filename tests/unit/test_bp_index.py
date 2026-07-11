@@ -956,7 +956,12 @@ def test_marker_region_selects_in_region_over_second_top_level_table(tmp_path):
     assert beta_idx < new_idx < end_idx
     # The 2nd top-level table (outside the region) is untouched — BP-090 keeps
     # exactly one row and gained nothing.
-    assert after_lines.count("| BP-090 | Archived Topic | ARCHIVED | 2025-01-01 | Informed |") == 1
+    assert (
+        after_lines.count(
+            "| BP-090 | Archived Topic | ARCHIVED | 2025-01-01 | Informed |"
+        )
+        == 1
+    )
 
 
 # A renamed first-column header ("ID" instead of "BP-ID") fails the marker-free
@@ -1158,7 +1163,9 @@ def test_bootstrap_emits_begin_end_wrapping_table(tmp_path):
     assert rc == 0
 
     lines = (tmp_path / "index.md").read_text(encoding="utf-8").split("\n")
-    begin_idx = next(i for i, ln in enumerate(lines) if ln.startswith(mod._BEGIN_ANCHOR))
+    begin_idx = next(
+        i for i, ln in enumerate(lines) if ln.startswith(mod._BEGIN_ANCHOR)
+    )
     end_idx = lines.index(mod._END_MARKER)
     table_idx = lines.index("| BP | Topic | Date | File |")
     assert begin_idx < table_idx < end_idx  # markers wrap the table
@@ -1225,8 +1232,7 @@ def test_marker_seeded_template_appends_and_preserves(tmp_path):
     assert placeholder_idx < new_idx < end_idx  # inside the region
     # Status Legend (outside the region) untouched.
     assert (
-        "| **CURRENT** | Actively applicable, verified within 6 months |"
-        in after_lines
+        "| **CURRENT** | Actively applicable, verified within 6 months |" in after_lines
     )
 
 
