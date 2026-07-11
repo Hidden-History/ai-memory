@@ -83,6 +83,40 @@ class TestTaxonomyClassification:
         keys = [f["key"] for f in findings]
         assert len(keys) == len(set(keys)), "each key classified exactly once"
 
+    def test_secret_in_both_env_and_secrets_is_misplaced(self, tmp_path):
+        """BP-185 D8 is UNCONDITIONAL: a non-empty secret value in docker/.env is
+        SECRET_MISPLACED even when the same key ALSO exists in .env.secrets (the
+        'pasted into .env, later added to .env.secrets without removing the first
+        copy' mistake). The .env copy is still a cleartext exposure.
+        """
+        example = tmp_path / ".env.example"
+        example.write_text("# TOKEN_BUDGET=4000\n", encoding="utf-8")
+        docker = tmp_path / "install" / "docker"
+        docker.mkdir(parents=True)
+        # Same secret key present, non-empty, in BOTH files.
+        (docker / ".env").write_text(
+            f"GITHUB_TOKEN={FAKE_ENV_SECRET}\n", encoding="utf-8"
+        )
+        (docker / ".env.secrets").write_text(
+            f"GITHUB_TOKEN={FAKE_SECRETS_FILE_SECRET}\n", encoding="utf-8"
+        )
+
+        report = build_report(example, tmp_path / "install")
+        classes = _class_map(report)
+        severities = {f["key"]: f["severity"] for f in report["findings"]}
+        assert classes["GITHUB_TOKEN"] == "SECRET_MISPLACED"
+        assert severities["GITHUB_TOKEN"] == "ERROR"
+
+        rc = doctor_main(
+            [
+                "--install-dir",
+                str(tmp_path / "install"),
+                "--env-example",
+                str(example),
+            ]
+        )
+        assert rc == 1
+
 
 class TestSecretRedaction:
     def test_no_secret_value_in_json_or_human_output(self, tmp_path, capsys):
@@ -154,3 +188,30 @@ class TestExitCodes:
         out = capsys.readouterr().out
         assert rc == 0
         assert "deployed env not found" in out
+
+    def test_absent_deployed_env_exit_0_even_with_required_field(
+        self, tmp_path, monkeypatch
+    ):
+        """When the deployed env is entirely absent, a required schema field must
+        NOT count as MISSING_REQUIRED / exit 1 — that would contradict the human
+        output's 'classifying schema vs example only' graceful message. Injects a
+        synthetic required field (the live schema has none) to exercise the path.
+        """
+        from pydantic.fields import FieldInfo
+
+        patched = dict(check_env_parity.MemoryConfig.model_fields)
+        patched["FORCED_REQUIRED_TESTONLY"] = FieldInfo(annotation=str)
+        monkeypatch.setattr(check_env_parity.MemoryConfig, "model_fields", patched)
+
+        example = tmp_path / ".env.example"
+        example.write_text("# TOKEN_BUDGET=4000\n", encoding="utf-8")
+        empty_install = tmp_path / "nope"  # no docker/.env at all
+
+        report = build_report(example, empty_install)
+        classes = _class_map(report)
+        assert classes["FORCED_REQUIRED_TESTONLY"] != "MISSING_REQUIRED"
+
+        rc = doctor_main(
+            ["--install-dir", str(empty_install), "--env-example", str(example)]
+        )
+        assert rc == 0

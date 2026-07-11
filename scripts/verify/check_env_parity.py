@@ -50,6 +50,7 @@ except ImportError as exc:  # pragma: no cover - env-specific
     sys.exit(2)
 
 from check_env_completeness import (  # noqa: E402  (path set above)
+    EXCLUDED_FIELDS,
     _alias_env_names,
     _coerce_env_value,
     _parse_env_file_documented_keys,
@@ -211,6 +212,12 @@ def build_report(env_example: Path, install_dir: Path) -> dict:
 
     findings = []
     for key in sorted(universe):
+        # Internal/derived schema fields intentionally absent from .env.example
+        # (paths derived from INSTALL_DIR, fixed dims, derived flags). Reuse the
+        # Gate-1 exclusion set so they don't surface as MISSING_OPTIONAL_DEFAULTED
+        # noise in the doctor report.
+        if key in EXCLUDED_FIELDS:
+            continue
         field_info = env_to_field.get(key)
         in_schema = field_info is not None
         secret = _is_secret(key, field_info)
@@ -219,15 +226,16 @@ def build_report(env_example: Path, install_dir: Path) -> dict:
             cls = "DUPLICATE"
         elif key in hazards:
             cls = "INLINE_COMMENT_HAZARD"
-        elif (
-            secret
-            and key in env_active
-            and env_active[key] != ""
-            and key not in sec_active
-        ):
+        elif secret and key in env_active and env_active[key] != "":
             # Secret-class key with a real value sitting in the non-secret .env
-            # file (and not shadowed by a .env.secrets entry). Emptiness is read
-            # only to decide this — the value itself is never emitted.
+            # file. BP-185 D8 is UNCONDITIONAL: a cleartext secret value in
+            # docker/.env is a real exposure even when the same key is ALSO
+            # present correctly in .env.secrets (the "pasted into .env out of
+            # habit, later added to .env.secrets without removing the first
+            # copy" mistake) — that duplicate case is still SECRET_MISPLACED.
+            # An EMPTY residual key in .env is NOT misplaced (benign BUG-296
+            # residue), hence the non-empty guard. Emptiness is read only to
+            # decide this — the value itself is never emitted.
             cls = "SECRET_MISPLACED"
         elif key in deployed_keys:
             if key not in known_keys:
@@ -237,6 +245,10 @@ def build_report(env_example: Path, install_dir: Path) -> dict:
             elif (
                 in_schema
                 and not secret
+                # NB: both scripts use the "D6" label for DIFFERENT comparisons.
+                # Gate-1 (check_env_completeness.py) D6 checks the commented
+                # example VALUE against schema bounds; this doctor's VALUE_DRIFT
+                # (also D6) checks the runtime VALUE against the schema default.
                 and _drifts_from_default(field_info, merged.get(key, ""))
             ):
                 cls = "VALUE_DRIFT_FROM_DEFAULT"
@@ -244,7 +256,12 @@ def build_report(env_example: Path, install_dir: Path) -> dict:
                 cls = "PRESENT_OK"
         else:  # absent from deployed env
             if in_schema:
-                if field_info.is_required():
+                if field_info.is_required() and deployed_present:
+                    # Only an ERROR when there is a deployed env to be missing
+                    # FROM. With no deployed env at all the human output already
+                    # says "classifying schema vs example only"; flagging every
+                    # required field MISSING_REQUIRED there would self-contradict
+                    # that (claim graceful, then exit 1).
                     cls = "MISSING_REQUIRED"
                 elif key in example_commented:
                     cls = "COMMENTED_DOCUMENTED"
