@@ -779,9 +779,7 @@ def test_nested_example_before_real_table_selects_and_appends_top_level(tmp_path
     assert ids == {"BP-001"}  # nested BP-999 example never selected
 
     index_path = tmp_path / "index.md"
-    index_path.write_text(
-        _NESTED_EXAMPLE_BEFORE_REAL_TABLE_FIXTURE, encoding="utf-8"
-    )
+    index_path.write_text(_NESTED_EXAMPLE_BEFORE_REAL_TABLE_FIXTURE, encoding="utf-8")
     _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
     _write_bp(tmp_path, "BP-002-new.md", "# Beta Topic\n**Date**: 2026-02-01\n")
 
@@ -797,9 +795,7 @@ def test_nested_example_before_real_table_selects_and_appends_top_level(tmp_path
     )
     assert new_idx > real_idx
     # The blockquoted example is untouched — never selected, never gained a row.
-    assert (
-        "> | BP-999 | Example Row | CURRENT | 2026-01-01 | Verified |" in after_lines
-    )
+    assert "> | BP-999 | Example Row | CURRENT | 2026-01-01 | Verified |" in after_lines
     assert after.count("BP-999") == 1
 
 
