@@ -824,6 +824,9 @@ def integration_test_env():
         "QDRANT_PORT": os.environ.get("QDRANT_PORT"),
         "SIMILARITY_THRESHOLD": os.environ.get("SIMILARITY_THRESHOLD"),
         "EMBEDDING_DIMENSION": os.environ.get("EMBEDDING_DIMENSION"),
+        "EMBEDDING_CLIENT_MAX_TXT_PER_SEC": os.environ.get(
+            "EMBEDDING_CLIENT_MAX_TXT_PER_SEC"
+        ),
     }
 
     # Set integration test environment
@@ -837,6 +840,10 @@ def integration_test_env():
     # DEC-010: Jina Embeddings v2 Base Code uses 768 dimensions
     # Fix per code review: store_async.py defaults to 3584 which causes dimension mismatch
     os.environ["EMBEDDING_DIMENSION"] = "768"
+    # PLAN-030 WI-10: disable client-side submit-rate shaping in tests so the
+    # process-global limiter never injects real sleeps into embed()-calling tests
+    # (its pacing math is covered deterministically in TestSubmitRateLimiter).
+    os.environ["EMBEDDING_CLIENT_MAX_TXT_PER_SEC"] = "0"
 
     yield
 
