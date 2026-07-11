@@ -1,8 +1,10 @@
-"""Soak pass/fail gate — BP-179 §4, assert ALL six criteria.
+"""Soak pass/fail gate — BP-179 §4, assert ALL criteria.
 
-The OOM signal is cgroup `memory.events:oom_kill` + dmesg ONLY (BP-179 §3/§5) —
-never the Docker `OOMKilled` flag or the app's own `oom_events_total` gauge,
-both of which are blind to a killed worker/child process.
+The OOM witnesses are cgroup `memory.events:oom_kill` + dmesg + the container
+restart-count (TD-792/789) — never the Docker `OOMKilled` flag or the app's own
+`oom_events_total` gauge. On the target host a real kill left oom_kill=0,
+OOMKilled=false, and the app counter=0; only dmesg and the container restart
+witnessed it, so both are asserted so a false-PASS cannot slip through.
 """
 
 from __future__ import annotations
@@ -81,7 +83,7 @@ class GateResult:
     @property
     def outcome(self) -> str:
         """PASS | FAIL | INVALID — INVALID means the load never landed, so the
-        other 6 criteria's trivial passes don't certify anything (BP-179 §4)."""
+        other 7 criteria's trivial passes don't certify anything (BP-179 §4)."""
         if not self.load_valid:
             return "INVALID"
         return "PASS" if self.passed else "FAIL"
@@ -94,6 +96,7 @@ def evaluate_gate(
     *,
     oom_kill_delta: int,
     dmesg_oom_count: int,
+    restart_count_delta: int,
     shed_delta: float,
     admission_wait_p95_seconds: float | None,
     client_read_timeout_seconds: float,
@@ -108,11 +111,12 @@ def evaluate_gate(
     min_success_ratio: float = 0.5,
     min_peak_above_base_ratio: float = 0.02,
 ) -> GateResult:
-    """Evaluate all 6 BP-179 §4 pass/fail criteria plus the load-validity guard.
+    """Evaluate all 7 BP-179 §4 pass/fail criteria plus the load-validity guard.
 
-    The gate only PASSes if the load-validity guard holds AND all 6 criteria
-    pass; if the guard fails, the outcome is the distinct INVALID (not PASS
-    or FAIL) — the run didn't prove anything either way.
+    The 7 are the 6 BP-179 §4 criteria plus the container restart-count OOM
+    witness (TD-792/789). The gate only PASSes if the load-validity guard holds
+    AND all 7 criteria pass; if the guard fails, the outcome is the distinct
+    INVALID (not PASS or FAIL) — the run didn't prove anything either way.
     """
     validity = evaluate_load_validity(
         total_requests=total_requests,
@@ -133,6 +137,11 @@ def evaluate_gate(
         "dmesg_oom_zero",
         dmesg_oom_count == 0,
         f"dmesg OOM-kill lines={dmesg_oom_count} (must be 0)",
+    )
+    gate.add(
+        "container_restart_zero",
+        restart_count_delta == 0,
+        f"container restart-count delta={restart_count_delta} (must be 0)",
     )
     gate.add(
         "backpressure_shed_zero",
