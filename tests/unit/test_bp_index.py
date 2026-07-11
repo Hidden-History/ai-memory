@@ -889,3 +889,496 @@ def test_atomic_write_through_symlink_writes_through(tmp_path):
     assert link.is_symlink()
     assert os.path.realpath(link) == str(real_file)
     assert real_file.read_text(encoding="utf-8") == "new"
+
+
+# ---------------------------------------------------------------------------
+# Marker-delimited managed region (BP-059 Part A). When BEGIN/END bp-index
+# sentinels are present, the span between them is canonical *by declaration*:
+# robust to a legitimate 2nd top-level BP table or a renamed header that
+# top-level header-sniffing (the marker-absent fallback) would refuse. Markers
+# change SELECTION only — the append-only / never-regenerate / splice-inside-END
+# write strategy is unchanged.
+# ---------------------------------------------------------------------------
+
+_MARKER_BEGIN = (
+    "<!-- BEGIN bp-index (generated; edit BP-*.md, then re-run "
+    "bp_index.py --write <this-dir>) -->"
+)
+_MARKER_END = "<!-- END bp-index -->"
+
+
+# A well-formed region wrapping the canonical 5-col table, PLUS a second
+# top-level BP-ID table (## Archived) OUTSIDE the region. This is exactly the
+# case marker-free top-level-only selection refuses (two top-level BP tables ->
+# ambiguous); the markers make it unambiguous.
+_REGION_PLUS_SECOND_TABLE_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+    "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |\n"
+    f"{_MARKER_END}\n"
+    "\n"
+    "## Archived\n"
+    "\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-090 | Archived Topic | ARCHIVED | 2025-01-01 | Informed |\n"
+)
+
+
+def test_marker_region_selects_in_region_over_second_top_level_table(tmp_path):
+    # Selection: only the in-region table's rows count; the 2nd top-level BP
+    # table (BP-090, outside the region) is excluded.
+    table = mod._find_bp_table(_REGION_PLUS_SECOND_TABLE_FIXTURE)
+    assert table is not None
+    _, _, ids = table
+    assert ids == {"BP-001", "BP-002"}  # BP-090 outside region, not a member
+
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_REGION_PLUS_SECOND_TABLE_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n**Date**: 2026-02-01\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    after_lines = index_path.read_text(encoding="utf-8").split("\n")
+    # BP-003 appended INSIDE the region: after BP-002's row, before END.
+    new_idx = after_lines.index("| BP-003 | Gamma Topic | TBD | 2026-02-01 | TBD |")
+    beta_idx = after_lines.index(
+        "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |"
+    )
+    end_idx = after_lines.index(_MARKER_END)
+    assert beta_idx < new_idx < end_idx
+    # The 2nd top-level table (outside the region) is untouched — BP-090 keeps
+    # exactly one row and gained nothing.
+    assert after_lines.count("| BP-090 | Archived Topic | ARCHIVED | 2025-01-01 | Informed |") == 1
+
+
+# A renamed first-column header ("ID" instead of "BP-ID") fails the marker-free
+# header sniff (_looks_like_bp_header accepts only bp-id/bp id/bp) -> top-level
+# selection would REFUSE. Inside a declared region the sniff is skipped, so the
+# table still resolves; _render_row still maps "id" -> display_id.
+_RENAMED_HEADER_REGION_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| ID | Topic | Status | Last Verified | Confidence |\n"
+    "|----|-------|--------|---------------|------------|\n"
+    "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+    f"{_MARKER_END}\n"
+)
+
+
+def test_marker_region_resolves_renamed_header_where_fallback_refuses(tmp_path):
+    # Marker-free variant (strip the sentinels): renamed "ID" header fails the
+    # sniff -> refuse (None). This is the case markers rescue.
+    marker_free = "".join(
+        line + "\n"
+        for line in _RENAMED_HEADER_REGION_FIXTURE.splitlines()
+        if not line.startswith("<!-- ")
+    )
+    assert mod._find_bp_table(marker_free) is None
+
+    # With the region declared, selection succeeds regardless of header name.
+    table = mod._find_bp_table(_RENAMED_HEADER_REGION_FIXTURE)
+    assert table is not None
+    _, _, ids = table
+    assert ids == {"BP-001"}
+
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_RENAMED_HEADER_REGION_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n**Date**: 2026-02-01\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+    after_lines = index_path.read_text(encoding="utf-8").split("\n")
+    # "id" header column still renders the BP-ID; unknown columns get TBD.
+    new_idx = after_lines.index("| BP-002 | Beta Topic | TBD | 2026-02-01 | TBD |")
+    end_idx = after_lines.index(_MARKER_END)
+    assert new_idx < end_idx
+
+
+def test_malformed_markers_refuse_with_hint_and_no_write(tmp_path, capsys):
+    # Any marker configuration that is not exactly one BEGIN before one END is
+    # malformed -> refuse (no write), with a specific detection-site hint.
+    malformed = {
+        "begin_only": (
+            "# Best Practices Index\n\n"
+            f"{_MARKER_BEGIN}\n"
+            "| BP-ID | Topic | Status |\n"
+            "|-------|-------|--------|\n"
+            "| BP-001 | Alpha | CURRENT |\n"
+        ),
+        "end_only": (
+            "# Best Practices Index\n\n"
+            "| BP-ID | Topic | Status |\n"
+            "|-------|-------|--------|\n"
+            "| BP-001 | Alpha | CURRENT |\n"
+            f"{_MARKER_END}\n"
+        ),
+        "end_before_begin": (
+            "# Best Practices Index\n\n"
+            f"{_MARKER_END}\n"
+            "| BP-ID | Topic | Status |\n"
+            "|-------|-------|--------|\n"
+            "| BP-001 | Alpha | CURRENT |\n"
+            f"{_MARKER_BEGIN}\n"
+        ),
+        "duplicate_begin": (
+            "# Best Practices Index\n\n"
+            f"{_MARKER_BEGIN}\n"
+            f"{_MARKER_BEGIN}\n"
+            "| BP-ID | Topic | Status |\n"
+            "|-------|-------|--------|\n"
+            "| BP-001 | Alpha | CURRENT |\n"
+            f"{_MARKER_END}\n"
+        ),
+    }
+    for name, fixture in malformed.items():
+        # Selection refuses.
+        assert mod._find_bp_table(fixture) is None, f"{name}: should return None"
+
+        d = tmp_path / name
+        d.mkdir()
+        idx = d / "index.md"
+        idx.write_text(fixture, encoding="utf-8")
+        _write_bp(d, "BP-001-a.md", "# Alpha\n")
+        before = idx.read_text(encoding="utf-8")
+
+        rc = _run(["--write", str(d)])
+        assert rc == 1, f"{name}: --write should refuse"
+        assert idx.read_text(encoding="utf-8") == before, f"{name}: file mutated"
+        _, err = capsys.readouterr()
+        assert "malformed bp-index markers" in err, f"{name}: no specific hint"
+
+
+# Two blank-separated BP tables BOTH inside one region -> ambiguous -> refuse.
+_TWO_TABLES_INSIDE_REGION_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+    "\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-002 | Beta | CURRENT |\n"
+    f"{_MARKER_END}\n"
+)
+
+
+def test_stray_second_bp_table_inside_region_refuses(tmp_path, capsys):
+    # refuse-on-ambiguity is preserved WITHIN a region: two in-region tables
+    # -> None (not the malformed-marker path; markers themselves are well
+    # formed, so the caller's generic refusal message fires).
+    assert mod._find_bp_table(_TWO_TABLES_INSIDE_REGION_FIXTURE) is None
+
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_TWO_TABLES_INSIDE_REGION_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta\n")
+    before = index_path.read_text(encoding="utf-8")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 1
+    assert index_path.read_text(encoding="utf-8") == before  # byte-identical
+    _, err = capsys.readouterr()
+    assert "refusing to overwrite" in err
+
+
+# A curated 5-col region: append must splice inside END, TBD the curated-only
+# columns, and leave existing rows + everything outside the region byte-for-byte.
+_CURATED_REGION_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| BP-ID | Topic | Status | Last Verified | Confidence |\n"
+    "|-------|-------|--------|---------------|------------|\n"
+    "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |\n"
+    "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |\n"
+    f"{_MARKER_END}\n"
+    "\n"
+    "*Total findings: 2*\n"
+)
+
+
+def test_marker_region_append_splices_inside_end_and_preserves(tmp_path):
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_CURATED_REGION_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n**Date**: 2026-02-01\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    after = index_path.read_text(encoding="utf-8")
+    after_lines = after.split("\n")
+
+    # New row spliced inside END; curated-only columns -> TBD.
+    new_idx = after_lines.index("| BP-003 | Gamma Topic | TBD | 2026-02-01 | TBD |")
+    last_orig_idx = after_lines.index(
+        "| BP-002 | Beta Topic | CURRENT | 2026-01-02 | Informed |"
+    )
+    end_idx = after_lines.index(_MARKER_END)
+    assert last_orig_idx < new_idx < end_idx
+    # END marker present exactly once (never duplicated / regenerated).
+    assert after_lines.count(_MARKER_END) == 1
+    # Existing curated row untouched byte-for-byte; footer count bumped.
+    assert "| BP-001 | Alpha Topic | CURRENT | 2026-01-01 | Verified |" in after_lines
+    assert "*Total findings: 3*" in after_lines
+
+
+def test_marker_region_rerun_is_byte_identical_noop(tmp_path):
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_CURATED_REGION_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n")
+    _write_bp(tmp_path, "BP-003-c.md", "# Gamma Topic\n")
+
+    _run(["--write", str(tmp_path)])
+    first = index_path.read_text(encoding="utf-8")
+    _run(["--write", str(tmp_path)])
+    second = index_path.read_text(encoding="utf-8")
+    assert first == second  # idempotent: second run finds nothing missing
+
+
+def test_bootstrap_emits_begin_end_wrapping_table(tmp_path):
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n**Date**: 2026-01-01\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    lines = (tmp_path / "index.md").read_text(encoding="utf-8").split("\n")
+    begin_idx = next(i for i, ln in enumerate(lines) if ln.startswith(mod._BEGIN_ANCHOR))
+    end_idx = lines.index(mod._END_MARKER)
+    table_idx = lines.index("| BP | Topic | Date | File |")
+    assert begin_idx < table_idx < end_idx  # markers wrap the table
+
+
+def test_bootstrap_empty_dir_emits_no_markers(tmp_path):
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+    text = (tmp_path / "index.md").read_text(encoding="utf-8")
+    assert "No best practices recorded yet" in text
+    # No table to wrap -> no lone/mismatched markers.
+    assert mod._BEGIN_ANCHOR not in text
+    assert mod._END_MARKER not in text
+
+
+def test_bootstrap_then_add_bp_reappends_into_region(tmp_path):
+    # Bootstrap (promoted markers), then a NEW BP file: the re-append keys off
+    # the bootstrap markers and lands inside the region.
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    _run(["--write", str(tmp_path)])  # bootstrap
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta\n**Date**: 2026-02-01\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    lines = (tmp_path / "index.md").read_text(encoding="utf-8").split("\n")
+    new_idx = next(i for i, ln in enumerate(lines) if ln.startswith("| BP-002 |"))
+    end_idx = lines.index(mod._END_MARKER)
+    assert new_idx < end_idx  # appended inside the region, not after END
+
+
+# The actual shipped template must work end-to-end with the tool: its seeded
+# region is selected, the '-' placeholder row is not a member, and the first
+# --write appends inside the region while leaving the Status Legend untouched.
+_TEMPLATE_INDEX = (
+    Path(__file__).resolve().parents[2]
+    / "templates"
+    / "oversight"
+    / "knowledge"
+    / "best-practices"
+    / "index.md"
+)
+
+
+def test_marker_seeded_template_appends_and_preserves(tmp_path):
+    import shutil
+
+    idx = tmp_path / "index.md"
+    shutil.copyfile(_TEMPLATE_INDEX, idx)
+
+    table = mod._find_bp_table(idx.read_text(encoding="utf-8"))
+    assert table is not None
+    _, _, ids = table
+    assert ids == set()  # '-' placeholder first cell is not a BP-ID
+
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha Topic\n**Date**: 2026-02-01\n")
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+
+    after_lines = idx.read_text(encoding="utf-8").split("\n")
+    new_idx = after_lines.index("| BP-001 | Alpha Topic | TBD | 2026-02-01 | TBD |")
+    placeholder_idx = after_lines.index("| - | No findings yet | - | - | - |")
+    end_idx = after_lines.index(mod._END_MARKER)
+    assert placeholder_idx < new_idx < end_idx  # inside the region
+    # Status Legend (outside the region) untouched.
+    assert (
+        "| **CURRENT** | Actively applicable, verified within 6 months |"
+        in after_lines
+    )
+
+
+# ---------------------------------------------------------------------------
+# Marker-region robustness regressions (S140 L8): the region path is canonical
+# by declaration (no in-region header sniff), so three failure modes need
+# explicit guards.
+# ---------------------------------------------------------------------------
+
+
+# Markers misplaced around a NON-BP table (the Status Legend), with the real BP
+# table outside the region. The region path must refuse (not splice TBD rows
+# into the legend, not silently retarget the outside table).
+_MARKERS_AROUND_NON_BP_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| Status | Meaning |\n"
+    "|--------|---------|\n"
+    "| CURRENT | Actively applicable |\n"
+    f"{_MARKER_END}\n"
+    "\n"
+    "## Findings\n"
+    "\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+)
+
+
+# A BP-header table with only the declared-empty placeholder row: no BP-IDs, but
+# a BP-ID header -> accepted (declared-empty), NOT treated as a wrong table.
+_DECLARED_EMPTY_REGION_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| - | No findings yet | - |\n"
+    f"{_MARKER_END}\n"
+)
+
+
+def test_markers_around_non_bp_table_refuse_with_hint(tmp_path, capsys):
+    # Wrong table inside the region -> refuse (None), with a specific hint, and
+    # no mutation of the file (the real outside table is not silently dropped
+    # into, and the legend is not corrupted).
+    assert mod._find_bp_table(_MARKERS_AROUND_NON_BP_FIXTURE) is None
+
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_MARKERS_AROUND_NON_BP_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    before = index_path.read_text(encoding="utf-8")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 1
+    assert index_path.read_text(encoding="utf-8") == before  # byte-identical
+    _, err = capsys.readouterr()
+    assert "not the best-practices table" in err
+
+
+def test_declared_empty_placeholder_region_is_accepted(tmp_path):
+    # The '-' placeholder row is declared-empty, NOT a wrong table: selection
+    # succeeds with zero members (distinguishes it from the legend above).
+    table = mod._find_bp_table(_DECLARED_EMPTY_REGION_FIXTURE)
+    assert table is not None
+    _, _, ids = table
+    assert ids == set()
+
+
+# A renamed first-column header NOT in the render key set ("Ref", unlike "ID"
+# which the name map already handled). The old code sent the BP-ID to the "else
+# -> TBD" branch, so col 0 held "TBD", membership (read from col 0) never saw
+# the BP-ID, and every run re-appended the same file -> unbounded growth.
+_RENAMED_NONKEY_HEADER_REGION_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| Ref | Topic | Status |\n"
+    "|-----|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+    f"{_MARKER_END}\n"
+)
+
+
+def test_renamed_nonkey_header_converges_no_growth(tmp_path):
+    index_path = tmp_path / "index.md"
+    index_path.write_text(_RENAMED_NONKEY_HEADER_REGION_FIXTURE, encoding="utf-8")
+    _write_bp(tmp_path, "BP-001-a.md", "# Alpha\n")
+    _write_bp(tmp_path, "BP-002-b.md", "# Beta Topic\n**Date**: 2026-02-01\n")
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+    first = index_path.read_text(encoding="utf-8")
+    # BP-002 landed in col 0 by position (not "TBD"), so it is now a member.
+    assert "| BP-002 | Beta Topic | TBD |" in first
+
+    rc = _run(["--write", str(tmp_path)])
+    assert rc == 0
+    second = index_path.read_text(encoding="utf-8")
+    assert first == second  # idempotent: second run appends nothing
+    assert second.count("| BP-002 |") == 1  # no re-append / growth
+
+
+# An unrelated comment sharing the anchor prefix must NOT be read as a marker:
+# a bare startswith("<!-- BEGIN bp-index") would phantom-trigger a one-sided
+# (malformed) region and make the real BP table refuse.
+_EXPERIMENTAL_COMMENT_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    "<!-- BEGIN bp-index-experimental -->\n"
+    "\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+)
+
+
+# A hand-authored END with no space before "-->" is still a marker (the "-->"
+# boundary is accepted alongside whitespace).
+_NOSPACE_END_REGION_FIXTURE = (
+    "# Best Practices Index\n"
+    "\n"
+    f"{_MARKER_BEGIN}\n"
+    "| BP-ID | Topic | Status |\n"
+    "|-------|-------|--------|\n"
+    "| BP-001 | Alpha | CURRENT |\n"
+    "<!-- END bp-index-->\n"
+)
+
+
+def test_experimental_comment_does_not_phantom_trigger_region():
+    # bp-index-experimental has "-e..." after the prefix (no boundary) -> not a
+    # marker -> no region -> the real BP table resolves via the fallback sniff.
+    tokens = mod._MD.parse(_EXPERIMENTAL_COMMENT_FIXTURE)
+    assert mod._marker_region(tokens) is None
+    table = mod._find_bp_table(_EXPERIMENTAL_COMMENT_FIXTURE)
+    assert table is not None
+    _, _, ids = table
+    assert ids == {"BP-001"}
+
+
+def test_real_begin_anchor_still_triggers_region():
+    # The boundary refinement must not break a genuine marker: a real BEGIN
+    # (space after bp-index) still delimits a region.
+    region = mod._marker_region(mod._MD.parse(_CURATED_REGION_FIXTURE))
+    assert isinstance(region, tuple)
+
+
+def test_nospace_end_marker_still_resolves():
+    # "<!-- END bp-index-->" (no space) is a valid END via the "-->" boundary.
+    table = mod._find_bp_table(_NOSPACE_END_REGION_FIXTURE)
+    assert table is not None
+    _, _, ids = table
+    assert ids == {"BP-001"}
