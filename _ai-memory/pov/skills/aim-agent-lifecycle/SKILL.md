@@ -41,19 +41,13 @@ For BMAD agents, the tmux bmad-dispatch workflow handles two-phase activation (p
 
 For generic agents, the tmux-dispatch workflow sends the instruction directly.
 
-**Activation gate (MANDATORY before first instruction):**
-
-**Two-phase activation (GC-20):** send the activation command (e.g. `/bmad-agent-dev`), optionally plus a reporting-routing directive -- stating only where to send the activation reply and to wait for instructions, nothing else -- never the task instruction -- as its own message. Wait for the persona greeting/menu. Send the task instruction as a SEPARATE, follow-up message -- never bundled with activation. Bundling a task instruction into the activation message is a failed process: re-activate cleanly (fresh activation command, wait again), don't patch around it. See GC-20 (`_ai-memory/pov/constraints/global/GC-20-no-instruction-in-activation.md`) for the full rule and rationale.
-
-**Readiness-ack:** before sending any task content, require the teammate to confirm role + CWD + "READY FOR INSTRUCTION" (the BMAD persona greeting + numbered menu satisfies this for BMAD agents).
-
-**Never nudge:** never send a repeat of the activation command. An idle ping or notification means the teammate is working -- wait, don't react. If there is no activation output at all, verify by `tmux capture-pane` -- never by nudging. Only if that confirms a genuine stall -- defined by state, not time, and covering two forms: (a) no activation output AND no sign of in-progress loading/work (no partial persona text, no pane activity since spawn), or (b) activation output appeared but has stopped progressing -- shows a crash-or-error signature (e.g. a render-crash pane) with no persona greeting/menu having appeared, and no further pane activity since. A slow persona load is NOT a stall. When uncertain, inspect again before respawning. Only then spawn a FRESH agent. This governs the activation / idle-notification phase only; a mid-task, diagnosed-stuck status request is a distinct case, not covered by this rule.
-
-**Idle vs. stall:** distinguish a normal between-turn idle (teammate finished its turn, awaiting the next message) from a real stall by checking work-state (git status / files written since spawn). Distinguish a system task-auto-replay (harness re-delivering a prior message) from genuine new direction before re-acting on it.
-
-Do NOT send the task instruction until `tmux capture-pane` shows the teammate's activation output -- BMAD persona greeting plus numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Then send the task as a SEPARATE message (one task per instruction) including an explicit "do not idle until X" plus a concrete numbered step list. If `tmux capture-pane` confirms no genuine activation output (a real stall, not a normal idle/notification), shut down (Step 4) and spawn FRESH. Never instruct an unverified agent.
-
-See `/aim-agent-dispatch`'s Dispatch & Coordination Playbook for the reporting-address convention, spawn-prompt wording, and one-message-then-wait coordination cadence that apply once activation completes.
+**Activation gate (MANDATORY — two-phase, GC-20):** spawn prompt = BMAD command + the required
+report-to-lead line (report to the spawning lead by name — Parzival = `team-lead`, a Manager = its own
+name; never `main`). `mode: auto`. Wait for the greeting/menu via `tmux capture-pane`; idle output is
+NOISE (no nudges). Then SendMessage the task as a SEPARATE message. Reporting-by-name, idle-is-noise,
+one-message-then-wait, cold-verify acceptance, and state-based stall/respawn are the shared Dispatch &
+Coordination Playbook in `/aim-agent-dispatch` — follow it; the only tmux difference is inspection via
+`tmux capture-pane`.
 
 **Handle clarification requests:**
 - Agent asks BEFORE starting: provide clarification with citation. Never guess.

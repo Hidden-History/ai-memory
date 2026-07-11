@@ -42,6 +42,10 @@ CWD drifts across Bash calls, so re-run this gate immediately before EACH spawn 
 - The agent is a generic worker spawned for a specific task
 - Examples: code-reviewer agent, verify-implementation agent, skill-creator agent
 
+**Mandatory (BMAD-or-fail):** if the task maps to any BMAD role/skill above, you MUST dispatch that
+BMAD persona. A generic/no-persona agent on BMAD-shaped work is a FAILED dispatch — shut it down and
+respawn via the correct `/bmad-*`. Generic dispatch is only for work with no BMAD role.
+
 ---
 
 ## Generic Agent Dispatch
@@ -189,20 +193,20 @@ Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
 > **Maintenance check:** `scripts/check_bmad_commands.sh` verifies every `/bmad-*` command in the tables above resolves to an installed skill under `.claude/skills/` (fire-only-if-missing: silent when all resolve, non-zero listing any that don't; degrades gracefully when BMAD is not installed). Run it after editing these tables or updating the BMAD module.
 
-#### B4. Verify Activation (MANDATORY gate before first instruction)
+#### B4. Verify Activation (MANDATORY — two-phase)
 
-**Two-phase activation (GC-20):** send the activation command (e.g. `/bmad-agent-dev`), optionally plus a reporting-routing directive -- stating only where to send the activation reply and to wait for instructions, nothing else -- never the task instruction -- as its own message. Wait for the persona greeting/menu. Send the task instruction as a SEPARATE, follow-up message -- never bundled with activation. Bundling a task instruction into the activation message is a failed process: re-activate cleanly (fresh activation command, wait again), don't patch around it. See GC-20 (`_ai-memory/pov/constraints/global/GC-20-no-instruction-in-activation.md`) for the full rule and rationale. (Scope: this two-phase send applies to interactive/tmux dispatch, where the pane can't self-sequence; a programmatic Agent-tool spawn whose prompt says "load the skill, THEN read your brief" satisfies GC-20 via self-sequencing in one turn -- see GC-20's Scope note.)
+**Sentinel (GC-19):** before every spawn, as its own Bash step, assert workspace root:
+`test -d _ai-memory && test -d _bmad && test -d oversight`. FAIL → ABORT.
 
-**Readiness-ack:** before sending any task content, require the teammate to confirm role + CWD + "READY FOR INSTRUCTION" (the BMAD persona greeting + numbered menu satisfies this for BMAD agents).
+**Spawn (two-phase, GC-20):** the spawn prompt is ONLY the BMAD command (`/bmad-agent-dev`,
+`/bmad-create-story`, `/bmad-code-review`) + one line — "You're activated as a teammate under Parzival
+(team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent
+asks) to team-lead, then wait for my instructions before doing any work." Never the task. `mode: auto`.
 
-**Never nudge:** never send a repeat of the activation command. An idle ping or notification means the teammate is working -- wait, don't react. If there is no activation output at all, verify the teammate's actual state by inspection (the spawn's first response for Claude-native dispatch; `tmux capture-pane` for tmux dispatch) -- never by nudging. Only if that inspection confirms a genuine stall -- defined by state, not time, and covering two forms: (a) no activation output AND no sign of in-progress loading/work (no partial persona text, no file/tool activity since spawn), or (b) activation output appeared but has stopped progressing -- shows a crash-or-error signature (e.g. the BMAD render-crash pane text) with no persona greeting/menu having appeared, and no further activity since. A slow persona load is NOT a stall. When uncertain, inspect again before respawning. Only then spawn a FRESH agent. This governs the activation / idle-notification phase only; a mid-task, diagnosed-stuck status request is a distinct case, not covered by this rule.
+**Wait:** idle pings (`idle_notification "available"`) are NOISE — no reaction, no on-disk checks, no
+nudges; the teammate sends a real message when it has one.
 
-**Idle vs. stall:** distinguish a normal between-turn idle (teammate finished its turn, awaiting the next message) from a real stall by checking work-state (git status / files written since spawn). Distinguish a system task-auto-replay (harness re-delivering a prior message) from genuine new direction before re-acting on it.
-
-Do NOT send any task instruction until the teammate has emitted its activation output -- the BMAD persona greeting plus its numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Verify by reading the spawn's first response (Claude-native) or `tmux capture-pane` (tmux).
-
-- Activated (greeting + menu, clean state, no prior task context) -> send the task as a SEPARATE message (one task per instruction), and include an explicit "do not idle until X" plus a concrete numbered step list. BMAD `bmad-agent-dev`/reviewers early-idle otherwise.
-- Not activated -- inspection (spawn's first response / `tmux capture-pane`) confirms no genuine activation output -> spawn a FRESH agent. Never send an instruction to an unverified agent; check configuration if it repeats.
+**Instruct:** read the menu, then SendMessage the task — one task per message, never bundled (GC-20).
 
 #### B5. Dispatch Complete
 
@@ -210,15 +214,18 @@ Agent selection and instruction complete. Downstream skill handles spawn and act
 
 ---
 
-## Dispatch & Coordination Playbook
+## Dispatch & Coordination Playbook (life of the teammate)
 
-Applies for the life of the teammate, once spawned:
-
-- **Reporting address:** a dispatched teammate reports to the lead by handle (e.g. `team-lead`), never `to:"main"` -- `"main"` is valid only for background subagents; a team teammate is rejected.
-- **Spawn prompt:** send the activation command plus a reporting-routing directive -- one line telling the teammate to send its activation reply (greeting + menu, and anything it asks) to the lead's handle, then wait for instructions before doing any work -- state only the where-to-reply and wait-for-instructions, no task/target content -- never the task instruction (GC-20). Wait for that reply to land: an idle ping or notification means the teammate is working -- do not react, no nudges. If no activation output arrives at all, verify the teammate's actual state by inspection (its spawn output / first response for Claude-native dispatch, `tmux capture-pane` for tmux dispatch) rather than nudging, and respawn FRESH only if genuinely stalled -- state-based, never time-based, covering both no activation output at all AND stopped-progress cases (activation output appeared but shows a crash-or-error signature with no menu/greeting and no further activity) -- no sign of in-progress loading/work in either case; a slow persona load is NOT a stall; when uncertain, inspect again before respawning. Once the activation reply lands, send the task as a separate message (GC-20), one task per message.
-- **Coordination cadence:** send ONE message to a teammate, then wait for its reply -- a teammate does not receive a new message until it stops and replies, so sending another before then just re-triggers its current work. Coordinate turn-by-turn; never fire multiple messages at one teammate in a row.
-- **Acceptance:** accept work ONLY against the lead's own on-disk cold verification -- never a teammate's "done"/idle signal.
-- **Reviewer disagreement:** on reviewer disagreement, apply the adjudication rule in `_ai-memory/pov/workflows/cycles/review-cycle/workflow.md` -- do not resolve it ad hoc.
+- **Reporting address (mandatory-for-function):** a teammate reaches the lead only by name —
+  `team-lead`. `to:"main"` is background-subagents-only; a teammate using it is rejected and the lead
+  receives nothing (plain text is invisible between agents). Every report/answer → `team-lead`.
+- **One message, then wait:** send ONE message, then wait for the reply. A teammate gets a new message
+  only after it stops and replies; another before then just re-triggers its work. Never multiple in a row.
+- **Acceptance:** accept ONLY against Parzival's own cold on-disk verification (re-read the files) —
+  never a "done"/idle signal.
+- **Reviewer disagreement:** adjudicate via `review-cycle/workflow.md` (## Reviewer Disagreement).
+- **Stall (state-based, not time-based):** respawn FRESH only on a genuine stall — no activation output
+  and no loading/work, or output stopped at a crash/error signature with no menu. A slow load ≠ stall.
 
 ---
 

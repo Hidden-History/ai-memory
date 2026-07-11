@@ -37,11 +37,11 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 - Rule 5: /bmad-code-review for reviews, /bmad-agent-dev for implementation only
 - Rule 6: Dual review mandatory (Sonnet + Opus)
 - Rule 7: One story per story-creation dispatch — shutdown after each
-- Rule 8: Don't rush-nudge idle agents
+- Rule 8: Idle is noise — an idle ping means the teammate is working; wait, no nudges, no on-disk checks (see /aim-agent-dispatch Playbook)
 - Rule 9: Two-phase BMAD activation (activate → wait for idle → send instruction)
 - Rule 11: ALWAYS include explicit story ID + file list in instruction
-- Rule 13: mode: bypassPermissions for ALL agent spawns
-- Rule 14: Send workflow command + instruction in same message after activation menu
+- Rule 13: mode: auto for ALL agent spawns
+- Rule 14: In planning mode, send the workflow command after the menu; the task/recommendation-request follows as its own message (GC-20) — never bundled with activation
 - Rule 15: Claude models MUST use Agent Teams
 - Rule 16: Team-builder is the mandatory entry point
 
@@ -136,9 +136,9 @@ Agent:
   name: "dev-pipeline"
   team_name: "sprint-2-story-4.1"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "[activation command or full instruction]"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 ```
 
 Spawn multiple teammates in parallel by including multiple Agent calls in the same message.
@@ -184,7 +184,7 @@ Agent:
   model: opus
   mode: plan
   run_in_background: true
-  prompt: "/bmad-agent-architect"
+  prompt: "Use the Skill tool to load bmad-agent-architect (the BMAD architect persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 ```
 
 Teammate sends plan_approval_request when ready. Lead reviews and approves or rejects with feedback.
@@ -194,7 +194,7 @@ Teammate sends plan_approval_request when ready. Lead reviews and approves or re
 ## Monitor Teammates
 
 - Teammates work in their own tmux panes — visible to user
-- Idle notifications are normal — teammate finished its turn, waiting for input
+- Idle is noise; teammate finished its turn, waiting for input — do not nudge
 - TaskList shows progress across all tasks
 - Shift+Down cycles through teammates; click tmux pane for direct interaction
 - SendMessage for status checks or intervention
@@ -239,9 +239,9 @@ Agent:
   name: "dev-pipeline"
   team_name: "sprint-2-story-4.1"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 # Wait for idle (persona loaded, menu shown)
 
@@ -275,17 +275,17 @@ Agent:
   name: "review-sonnet"
   team_name: "sprint-2-review-4.1"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-code-review"
+  prompt: "Use the Skill tool to load bmad-code-review (the BMAD code-review persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 Agent:
   name: "review-opus"
   team_name: "sprint-2-review-4.1"
   model: opus
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-code-review"
+  prompt: "Use the Skill tool to load bmad-code-review (the BMAD code-review persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 # After both load, send the review instruction directly (review workflow takes it — no CR menu code)
 SendMessage:
@@ -321,25 +321,25 @@ Agent:
   name: "dev-pipeline"
   team_name: "sprint-2-parallel"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 Agent:
   name: "dev-services"
   team_name: "sprint-2-parallel"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 Agent:
   name: "dev-observability"
   team_name: "sprint-2-parallel"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 # After idle, send instructions — each owns different files
 ```

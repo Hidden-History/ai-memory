@@ -17,10 +17,7 @@ context: fork
 
 ## Fast Path: Single Agent
 
-The fast path bypasses the full 6-step design process for dispatches that a
-single agent can execute without coordination. It still produces a structured
-dispatch plan and still routes through the full pipeline — ceremony is trimmed,
-the contract is not.
+The fast path trims the 6-step design for a single uncoordinated agent — it still emits a structured dispatch plan and routes through the full pipeline.
 
 ### Trigger Criteria (ALL must hold)
 
@@ -90,7 +87,7 @@ provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | m
 model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
 agent: <role-name>                   # dev | pm | architect | analyst | ux-designer | tech-writer | code-reviewer | <generic>
 agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "architect-design"
-bmad_agent_type: <agent-type>        # intended BMAD agent type: dev | pm | architect | analyst | ux-designer | tech-writer | null (null for generic, non-BMAD agents)
+bmad_agent_type: <type> | null       # null ONLY for genuine non-BMAD work (code-reviewer, verify). If a BMAD role fits, null is a FAIL — assign the persona.
 task_summary: <one-line>
 files:
   - <absolute-path-1>
@@ -224,7 +221,6 @@ Store provider and model selections in the dispatch plan.
    - **Numbered** (for generic work): `dev-1`, `dev-2`, `review-1` -- interchangeable agents
    - **Single-instance**: `pm`, `architect` -- use role name directly
    - Same `AI_MEMORY_AGENT_ID` across sessions enables cross-session memory accumulation
-   - Naming rules: domain-named agents always work the same domain/files across sessions; numbered agents are interchangeable for generic parallel work; single-instance agents use role name directly
 4. Select models per agent role:
    - Planning agents (Analyst, PM, Architect): Opus
    - Execution agents (DEV, review): Sonnet

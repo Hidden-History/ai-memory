@@ -58,8 +58,8 @@ Agent roles map to BMAD agents:
 **Claude-native path** — Use the `Agent` tool to spawn the teammate with these MANDATORY parameters:
 - `name`: unique per task (e.g., "dev-1-4", "rev-s-1415", "sm-7-3") — makes agent addressable via `SendMessage`
 - `model`: from aim-model-dispatch selection (e.g., "sonnet", "opus")
-- `mode`: "acceptEdits" (MUST — enables permission delegation, prevents blocking prompts)
-- MUST verify working directory is the **project root** (directory containing `_ai-memory/`) before spawning — agents inherit CWD and need access to BMAD skills
+- `mode`: "auto" (MUST — auto-approve permissions, no blocking prompts)
+- MUST run the 3-marker sentinel: `test -d _ai-memory && test -d _bmad && test -d oversight` (single-marker is a false-positive; see GC-19) before spawning — agents inherit CWD and need access to BMAD skills
 
 **Non-Claude path** — Delegate to aim-model-dispatch tmux sub-workflows. Communication via `tmux send-keys`.
 
@@ -82,7 +82,6 @@ Agent roles map to BMAD agents:
   - **Numbered** (for generic parallel work): `dev-1`, `dev-2`, `review-1` — agents are interchangeable.
   - **Single-instance** agents use role name directly: `pm`, `architect`
   - Same `AI_MEMORY_AGENT_ID` across sessions enables cross-session memory accumulation via agent-scoped compact restore
-  - Naming rules: domain-named agents always work the same domain/files across sessions; numbered agents are interchangeable for generic parallel work; single-instance agents use role name directly
 
 ---
 

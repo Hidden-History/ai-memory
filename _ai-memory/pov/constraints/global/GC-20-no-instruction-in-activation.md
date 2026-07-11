@@ -10,11 +10,9 @@ phase: global
 
 ## Rule
 
-When activating a BMAD agent, the activation message MUST NOT contain the task instruction.
-It may contain the BMAD activation command (e.g., `/bmad-agent-dev`) plus a reporting-routing
-directive — telling the teammate where to send its activation reply — but never the task
-itself. The task instruction is sent ONLY after the agent has responded with its menu/greeting
-confirming it has fully loaded its persona.
+When activating a BMAD teammate, the activation message MUST contain the BMAD command + the required
+reporting-routing line (report the activation reply to the lead by name — `team-lead` — then wait) and
+MUST NOT contain the task. The task is sent only after the greeting/menu confirms the persona loaded.
 
 **Bright line for the reporting-routing directive:** it may state ONLY (a) where to send the
 activation reply, and (b) to wait for instructions after that. It MUST NOT contain any task,
@@ -57,15 +55,10 @@ it does not corrupt persona loading the way a bundled task instruction does.
 
 ## Scope: Interactive vs. Programmatic Activation
 
-This rule governs **interactive/tmux two-phase activation**, where a pane cannot self-sequence its
-own turns -- the activation command and the task instruction MUST be sent as two separate messages
-because nothing in the pane enforces order between them.
-
-A **programmatic Agent-tool spawn** whose prompt reads "load the skill/persona, THEN read your
-brief/task" satisfies this rule's intent without a second message: the agent runs both steps inside
-its own single turn, self-sequencing persona-load before task-processing, so there is no window
-where an unloaded persona receives task content. This does not loosen the rule for interactive
-activation -- the no-task-in-the-activation-message floor still applies there without exception.
+Interactive/tmux activation needs two separate messages — a pane cannot self-sequence, so the
+activation command and the task MUST be sent separately. A programmatic Agent-tool spawn whose prompt
+says "load the persona, THEN read your brief" self-sequences both in one turn and needs no second
+message. The interactive no-task-in-the-activation-message floor is absolute — this does not loosen it.
 
 ## Self-Check
 
@@ -81,9 +74,3 @@ activation -- the no-task-in-the-activation-message floor still applies there wi
 2. Send the activation command (with routing directive if applicable) alone
 3. Wait for the agent's menu/greeting response
 4. Send the instruction as a follow-up message
-
-## Operational Home
-
-Operationalized as the activation-gate checklist in:
-- `_ai-memory/pov/skills/aim-agent-dispatch/SKILL.md` (B4. Verify Activation)
-- `_ai-memory/pov/skills/aim-agent-lifecycle/SKILL.md` (Step 1, Activation gate)
