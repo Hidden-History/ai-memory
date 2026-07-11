@@ -1,6 +1,6 @@
 ---
 name: "team-prompt-2tier"
-description: "Output format for assembling a 2-tier (flat) agent team prompt — Lead coordinates Workers (teammates) directly via Agent tool + team_name"
+description: "Output format for assembling a 2-tier (flat) agent team prompt — Lead coordinates Workers (teammates) directly via the Agent tool with a unique name"
 ---
 
 # 2-Tier Team Prompt Assembly Format
@@ -8,7 +8,7 @@ description: "Output format for assembling a 2-tier (flat) agent team prompt —
 Use this template when assembling the final copy-pasteable prompt for a 2-tier team.
 
 **Claude Code tool mapping**:
-- **Lead** uses `TeamCreate` to create the team, then `Agent` tool with `team_name` + `name` to spawn each worker as a **teammate**
+- **Lead** spawns each worker as a **teammate** via the `Agent` tool with a unique `name` (single implicit team — `TeamCreate` not required)
 - **Communication** uses `SendMessage` (type: "message" for DMs, "shutdown_request" for shutdown)
 - **Task coordination** uses `TaskCreate`, `TaskUpdate`, `TaskList`
 - **Cleanup** uses `TeamDelete` (after all teammates shut down)
@@ -20,7 +20,7 @@ activates Parzival, not the persona). After the teammate replies with its greeti
 8-section task block as ONE SendMessage.
 
 ```
-Create a team called "{team_name}" with the description "{team_objective}".
+Create a team with the description "{team_objective}" — **not required (single implicit team)**; the Agent-tool spawns below are sufficient.
 Then spawn {teammate_count} teammates to {team_objective}.
 Use {default_model} for each teammate.
 {plan_approval_instruction}

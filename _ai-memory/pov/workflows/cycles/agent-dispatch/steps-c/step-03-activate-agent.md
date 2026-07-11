@@ -28,19 +28,7 @@ Once the teammate is spawned with fresh context, activate the correct agent. For
 
 ### 1. Activate the BMAD Agent
 
-Use the appropriate agent activation command within the teammate context:
-- Analyst: /bmad-agent-analyst
-- PM: /bmad-agent-pm
-- Architect: /bmad-agent-architect
-- UX Designer: /bmad-agent-ux-designer
-- Sprint/story/retro: direct skills /bmad-sprint-planning, /bmad-create-story, /bmad-retrospective (no SM agent in v6.9.0)
-- DEV (implementation): /bmad-agent-dev
-- DEV (code review): /bmad-code-review
-- Tech Writer: /bmad-agent-tech-writer
-
-MUST use /bmad-code-review for ALL review agents. /bmad-agent-dev is for implementation ONLY.
-MUST use /bmad-agent-tech-writer for ALL documentation tasks (writing, updating, reviewing docs).
-MUST use /bmad-help whenever unsure which BMAD agent or workflow to use -- the list above is NOT exhaustive. Many more agents and workflows are available.
+BMAD activation is embedded in the spawn prompt as a **Skill-tool-load** (`Use the Skill tool to load bmad-<role>`) — never a bare `/bmad-*` sent to an already-spawned teammate. See `/aim-agent-dispatch` **B4 (Verify Activation)** as the single source for the two-phase Skill-tool-load-in-the-spawn-prompt form. Agent selection — which persona, plus the MUST-use rules (`/bmad-code-review` for ALL reviews, `/bmad-agent-tech-writer` for ALL docs, `/bmad-help` when unsure) — lives in `/aim-agent-dispatch` **B1 / Quick Selection Matrix**.
 
 ---
 
@@ -72,9 +60,10 @@ Confirm the agent is active and ready:
 
 ### 3. Do Not Proceed Until Verified (BMAD Agents Only)
 
-If activation fails or agent does not respond correctly:
-- Retry the activation command
-- If repeated failure, check team configuration
+If activation fails or agent does not respond correctly (state-based, not time-based):
+- Idle is noise — a slow load is not a stall; the teammate is working. Do NOT retry the activation command or nudge.
+- Inspect first: Claude-native = the spawn's first response / SendMessage reply; tmux = `tmux capture-pane`.
+- Only on a genuine stall (no activation output and no loading/work, or output stopped at a crash/error signature with no menu) respawn a FRESH teammate.
 - Do not send instruction to an unverified agent
 
 ---

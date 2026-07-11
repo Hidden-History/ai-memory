@@ -10,7 +10,7 @@ Use this template when assembling the final copy-pasteable prompt for a 3-tier t
 **Nesting structure**:
 ```
 Outer prompt (Parzival assembles -> User pastes into new session)
-  Manager 1 context (10 elements) — spawned as teammate (Agent tool + team_name)
+  Manager 1 context (10 elements) — spawned as teammate (Agent tool + unique name)
     Element 4: Worker 1 prompt (8 elements) — spawned as tmux teammate (aim-agent-lifecycle)
     Element 4: Worker 2 prompt (8 elements) — spawned as tmux teammate
     Element 5: Review agent prompt — spawned as tmux teammate
@@ -22,18 +22,18 @@ Outer prompt (Parzival assembles -> User pastes into new session)
 ```
 
 **Claude Code tool mapping**:
-- **Lead** uses `TeamCreate` to create the team, then `Agent` tool with `team_name` + `name` to spawn each manager as a **teammate**
+- **Lead** spawns each manager as a **teammate** via the `Agent` tool with a unique `name` (single implicit team — `TeamCreate` not required)
 - **Managers** (teammates) spawn worker **tmux teammates** via `/aim-agent-lifecycle` and coordinate with them via the built-in messaging system (`tmux send-keys` / `tmux capture-pane`)
 - **Communication** uses `SendMessage` (type: "message" for DMs, "shutdown_request" for shutdown)
 - **Task coordination** uses `TaskCreate`, `TaskUpdate`, `TaskList`
 - **Cleanup** uses `TeamDelete` (after all teammates shut down)
 
-**Key principle**: Managers spawn worker **teammates via tmux** (aim-agent-lifecycle) and coordinate via the built-in messaging system. Each worker starts fresh with its own context and reports back to its manager by name. (This does not violate "only the lead spawns claude-native teammates" — workers are tmux teammates, not Claude Agent-Teams `team_name` members.)
+**Key principle**: Managers spawn worker **teammates via tmux** (aim-agent-lifecycle) and coordinate via the built-in messaging system. Each worker starts fresh with its own context and reports back to its manager by name. (This does not violate "only the lead spawns claude-native teammates" — workers are tmux teammates, not Claude Agent-Teams `name`-based members.)
 
 **Two-phase BMAD activation (GC-20):** every spawn `prompt` — Lead→Manager and Manager→Worker — carries ONLY its BMAD activation + a report-to-<spawning-lead> one-line (report by name: Parzival = `team-lead`, a Manager = its own name; never `main`), never the task. `{*_activation}` is the Skill-tool-load form: `Use the Skill tool to load bmad-<role> (the BMAD <role> persona).` (a bare `/bmad-*` at spawn activates Parzival, not the persona). Send the task/brief block as ONE SendMessage after the greeting/menu lands; `mode: auto`.
 
 ```
-Create a team called "{team_name}" with the description "{team_objective}".
+Create a team with the description "{team_objective}" — **not required (single implicit team)**; the Agent-tool spawns below are sufficient.
 Then spawn {manager_count} manager teammates to {team_objective}.
 Use {default_model} for each teammate.
 Work only through managers -- do not implement directly (use delegate mode).

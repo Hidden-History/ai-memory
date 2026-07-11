@@ -195,7 +195,7 @@ Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
 #### B4. Verify Activation (MANDATORY — two-phase)
 
-**Sentinel (GC-19):** before every spawn, as its own Bash step, assert workspace root:
+**Sentinel (CLAUDE.md workspace-root):** before every spawn, as its own Bash step, assert workspace root:
 `test -d _ai-memory && test -d _bmad && test -d oversight`. FAIL → ABORT.
 
 **Spawn (two-phase, GC-20):** the spawn prompt loads the BMAD persona via the Skill tool (e.g.
@@ -223,11 +223,14 @@ Agent selection and instruction complete. Downstream skill handles spawn and act
   receives nothing (plain text is invisible between agents). Every report/answer → `team-lead`.
 - **One message, then wait:** send ONE message, then wait for the reply. A teammate gets a new message
   only after it stops and replies; another before then just re-triggers its work. Never multiple in a row.
+- **Task-auto-replay:** the harness sometimes re-delivers a prior message; distinguish a re-delivered
+  prior message from genuine new direction before re-acting.
 - **Acceptance:** accept ONLY against Parzival's own cold on-disk verification (re-read the files) —
   never a "done"/idle signal.
 - **Reviewer disagreement:** adjudicate via `review-cycle/workflow.md` (## Reviewer Disagreement).
 - **Stall (state-based, not time-based):** respawn FRESH only on a genuine stall — no activation output
   and no loading/work, or output stopped at a crash/error signature with no menu. A slow load ≠ stall.
+  (Inspect: Claude-native = the spawn's first response / SendMessage reply; tmux = `tmux capture-pane`.)
 
 ---
 

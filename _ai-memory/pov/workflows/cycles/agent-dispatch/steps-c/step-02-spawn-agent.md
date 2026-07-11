@@ -59,7 +59,7 @@ Agent roles map to BMAD agents:
 - `name`: unique per task (e.g., "dev-1-4", "rev-s-1415", "sm-7-3") — makes agent addressable via `SendMessage`
 - `model`: from aim-model-dispatch selection (e.g., "sonnet", "opus")
 - `mode`: "auto" (MUST — auto-approve permissions, no blocking prompts)
-- MUST run the 3-marker sentinel: `test -d _ai-memory && test -d _bmad && test -d oversight` (single-marker is a false-positive; see GC-19) before spawning — agents inherit CWD and need access to BMAD skills
+- MUST run the 3-marker sentinel: `test -d _ai-memory && test -d _bmad && test -d oversight` (single-marker is a false-positive; this is the CLAUDE.md workspace-root sentinel) before spawning — agents inherit CWD and need access to BMAD skills
 
 **Non-Claude path** — Delegate to aim-model-dispatch tmux sub-workflows. Communication via `tmux send-keys`.
 

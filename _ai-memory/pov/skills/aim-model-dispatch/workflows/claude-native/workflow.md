@@ -38,7 +38,7 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 - Rule 6: Dual review mandatory (Sonnet + Opus)
 - Rule 7: One story per story-creation dispatch — shutdown after each
 - Rule 8: Idle is noise — an idle ping means the teammate is working; wait, no nudges, no on-disk checks (see /aim-agent-dispatch Playbook)
-- Rule 9: Two-phase BMAD activation (activate → wait for idle → send instruction)
+- Rule 9: Two-phase BMAD activation (activate → wait for the teammate's greeting/menu SendMessage reply → send instruction)
 - Rule 11: ALWAYS include explicit story ID + file list in instruction
 - Rule 13: mode: auto for ALL agent spawns
 - Rule 14: In planning mode, send the workflow command after the menu; the task/recommendation-request follows as its own message (GC-20) — never bundled with activation
@@ -99,17 +99,17 @@ for tmux dispatch, so both dispatch paths enforce the identical prerequisites.
 
 ---
 
-## Create a Team
+## Create a Team (not required — single implicit team)
 
-TeamCreate establishes the team and shared task list. Parzival becomes team lead.
+A session has a single implicit team; `TeamCreate` is **not required** and the per-spawn team-name
+param is deprecated/ignored. Spawning a teammate via the Agent tool (below) is sufficient — the shared task
+list exists without an explicit team. Parzival is team lead. If you do call TeamCreate, pass only a
+`description`.
 
 ```
 TeamCreate:
-  team_name: "sprint-2-story-4.1"
   description: "Story 4.1: Base Stage Class and Pipeline Message Schemas"
 ```
-
-One team per session. Clean up previous team before creating new.
 
 ---
 
@@ -129,12 +129,11 @@ Use addBlockedBy for dependencies between tasks. The system unblocks automatical
 
 ## Spawn Teammates
 
-Agent tool with team_name spawns a visible teammate in its own tmux pane.
+The Agent tool with a unique `name` spawns a visible teammate in its own tmux pane.
 
 ```
 Agent:
   name: "dev-pipeline"
-  team_name: "sprint-2-story-4.1"
   model: sonnet
   mode: auto
   run_in_background: true
@@ -180,7 +179,6 @@ Use `mode: plan` when teammates should plan before implementing. Teammate works 
 ```
 Agent:
   name: "architect"
-  team_name: "architecture-review"
   model: opus
   mode: plan
   run_in_background: true
@@ -228,7 +226,6 @@ Always clean up from the lead session, not from a teammate.
 
 ```
 TeamCreate:
-  team_name: "sprint-2-story-4.1"
   description: "Story 4.1: Base Stage Class"
 
 TaskCreate:
@@ -237,13 +234,12 @@ TaskCreate:
 
 Agent:
   name: "dev-pipeline"
-  team_name: "sprint-2-story-4.1"
   model: sonnet
   mode: auto
   run_in_background: true
   prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
-# Wait for idle (persona loaded, menu shown)
+# Wait for the greeting/menu SendMessage reply (idle is noise — see /aim-agent-dispatch Playbook)
 
 SendMessage:
   to: "dev-pipeline"
@@ -259,7 +255,6 @@ TaskUpdate:
 
 ```
 TeamCreate:
-  team_name: "sprint-2-review-4.1"
   description: "Story 4.1 dual review"
 
 TaskCreate:
@@ -273,7 +268,6 @@ TaskCreate:
 # Spawn both in same message for parallel launch
 Agent:
   name: "review-sonnet"
-  team_name: "sprint-2-review-4.1"
   model: sonnet
   mode: auto
   run_in_background: true
@@ -281,13 +275,12 @@ Agent:
 
 Agent:
   name: "review-opus"
-  team_name: "sprint-2-review-4.1"
   model: opus
   mode: auto
   run_in_background: true
   prompt: "Use the Skill tool to load bmad-code-review (the BMAD code-review persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
-# After both load, send the review instruction directly (review workflow takes it — no CR menu code)
+# After both send their greeting/menu reply, send the review instruction directly (review workflow takes it — no CR menu code)
 SendMessage:
   to: "review-sonnet"
   message: "[review instruction]"
@@ -301,7 +294,6 @@ SendMessage:
 
 ```
 TeamCreate:
-  team_name: "sprint-2-parallel"
   description: "Parallel: Track A (4.2) + Track B (11.1) + Track C (14.2)"
 
 TaskCreate:
@@ -319,7 +311,6 @@ TaskCreate:
 # Spawn 3 teammates in parallel
 Agent:
   name: "dev-pipeline"
-  team_name: "sprint-2-parallel"
   model: sonnet
   mode: auto
   run_in_background: true
@@ -327,7 +318,6 @@ Agent:
 
 Agent:
   name: "dev-services"
-  team_name: "sprint-2-parallel"
   model: sonnet
   mode: auto
   run_in_background: true
@@ -335,13 +325,12 @@ Agent:
 
 Agent:
   name: "dev-observability"
-  team_name: "sprint-2-parallel"
   model: sonnet
   mode: auto
   run_in_background: true
   prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
-# After idle, send instructions — each owns different files
+# After the greeting/menu SendMessage reply, send instructions — each owns different files
 ```
 
 ---

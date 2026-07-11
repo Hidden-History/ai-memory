@@ -17,12 +17,12 @@ dispatch paths. AI_MEMORY_AGENT_ID is mandatory on all paths for cross-session m
 
 ### Claude provider path (Claude Code Agent Teams)
 
-Spawn via TeamCreate + Agent tool with a unique agent `name` field serving as AI_MEMORY_AGENT_ID.
+Spawn via the Agent tool with a unique agent `name` field serving as AI_MEMORY_AGENT_ID, in the
+session's single implicit team. The per-spawn team-name param is deprecated/ignored and TeamCreate is not required.
 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 must be enabled in settings.
 
 ```
-TeamCreate: team_name=[session-team-name]
-Agent: subagent_type=[agent-type], name=[ai-memory-agent-id], team_name=[session-team-name]
+Agent: subagent_type=[agent-type], name=[ai-memory-agent-id]
   [BMAD agents: use /bmad-agent-{name} as prompt, two-phase activation]
 ```
 
@@ -45,7 +45,7 @@ the configured provider.
 ## Forbidden Pattern
 
 - Spawning any agent without AI_MEMORY_AGENT_ID set
-- Using the Agent tool without a team_name (bypasses Claude-native tracking)
+- Spawning without a unique agent name / AI_MEMORY_AGENT_ID (bypasses Claude-native tracking)
 - Spawning outside tmux on non-Claude paths (bypassing aim-model-dispatch)
 - Skipping aim-agent-lifecycle after spawn on non-Claude paths (lifecycle is [ALWAYS-MANDATORY-4])
 
