@@ -28,6 +28,14 @@ These apply across ALL steps in this workflow:
 
 ---
 
+## Reviewer Disagreement
+
+When reviewers disagree, or a teammate disputes a finding, engage them turn-by-turn to determine who is correct -- evidence settles it, never average or pick arbitrarily. The disagreement is the highest-value output of a review pass.
+
+For hard or recurring disputes that don't resolve that way, break the tie via best-practices research: a cited best practice plus a verifiable fix (e.g. a test that proves it). Parzival always makes -- and documents -- the final call, grounded in that evidence.
+
+---
+
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
