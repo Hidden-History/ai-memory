@@ -30,18 +30,34 @@ results = search_memories(
     collection="conventions",
     group_id=project_id,
     memory_type=["guideline", "rule"],
-    limit=5
+    limit=5,
+    attach_raw_cosine=True,  # BP-058/#317: needed for the relevance gate below
 )
+
+top_hit = results[0] if results else None
+raw_cosine = top_hit.get("raw_score", 0.0) if top_hit else 0.0
 ```
 
 ### Decision Matrix
 
-| Score | Age | Action |
-|-------|-----|--------|
-| >0.7 | <6 months | Use it, skip to Phase 5 |
-| >0.7 | 6-12 months | Mark "needs refresh", proceed to Phase 2 |
-| >0.7 | >12 months | Mark "outdated", proceed to Phase 2 |
-| <0.7 | Any | Proceed to Phase 2 |
+`score` is the RRF-fused / rank-normalized ordering value — it is **not** a
+calibrated similarity (BP-058) and must never gate an accept/skip decision
+(a garbage query and a perfect query both land a top-1 `score` near 0.95).
+Gate on `raw_score` (raw cosine, requires `attach_raw_cosine=True` above)
+instead, as an uncalibrated coarse prefilter, then confirm with a
+content-relevance judgment — read the top hit's content and judge whether it
+actually addresses the current query topic. The `raw_score` floor below
+(~0.7) is a starting point, not swept for the `conventions` collection the
+way the injection gate's 0.76 floor was (DEC-PM343-D7) — **the
+content-relevance judgment is the authoritative gate**, not the number.
+
+| Raw Cosine (`raw_score`) | Content Match | Age | Action |
+|---|---|---|---|
+| ≥0.7 | Yes | <6 months | Use it, skip to Phase 5 |
+| ≥0.7 | Yes | 6-12 months | Mark "needs refresh", proceed to Phase 2 |
+| ≥0.7 | Yes | >12 months | Mark "outdated", proceed to Phase 2 |
+| ≥0.7 | No | Any | Proceed to Phase 2 |
+| <0.7 | — | Any | Proceed to Phase 2 |
 
 ---
 
