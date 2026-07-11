@@ -101,8 +101,8 @@ for tmux dispatch, so both dispatch paths enforce the identical prerequisites.
 
 ## Create a Team (not required — single implicit team)
 
-A session has a single implicit team; `TeamCreate` is **not required** and the per-spawn team-name
-param is deprecated/ignored. Spawning a teammate via the Agent tool (below) is sufficient — the shared task
+A session has a single implicit team; `TeamCreate` is **not required** and the `team_name` param is
+deprecated/ignored. Spawning a teammate via the Agent tool (below) is sufficient — the shared task
 list exists without an explicit team. Parzival is team lead. If you do call TeamCreate, pass only a
 `description`.
 
