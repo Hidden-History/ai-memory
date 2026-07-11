@@ -7,9 +7,10 @@ Covers: valid payload routing, Qdrant unavailable handling, payload validation
 
 import io
 import json
+import os
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -331,3 +332,50 @@ class TestPostStoreMetricLabels:
             collection="unknown",
         )
         assert child._value.get() == 1.0
+
+
+class TestPostWorkHookTimeoutCoherence:
+    """TD-782/788: the post-work store path must inherit the SAME coherent HOOK_TIMEOUT
+    ceiling as store_async/error_store_async, so its outer asyncio.wait_for cannot fire
+    mid-embed (< the embedding client's coordinated budget) and cancel the store. The
+    old local get_timeout() duplicate (default 60s) was consolidated onto
+    memory.hooks_common.get_hook_timeout() (default 90s).
+    """
+
+    def test_uses_shared_hook_timeout_helper_not_local_duplicate(self):
+        """The path routes through the consolidated helper, and the stale local
+        get_timeout() duplicate is gone."""
+        import memory.hooks_common as hc
+
+        assert pwsav.get_hook_timeout is hc.get_hook_timeout
+        assert not hasattr(pwsav, "get_timeout")
+
+    def test_default_ceiling_is_coherent_90s(self, monkeypatch):
+        """With HOOK_TIMEOUT unset, the post-work path's ceiling is the coherent 90s
+        (was an incoherent 60s before consolidation)."""
+        monkeypatch.delenv("HOOK_TIMEOUT", raising=False)
+        assert pwsav.get_hook_timeout() == 90
+
+    def test_main_applies_hook_timeout_to_wait_for(self, valid_decision_payload):
+        """main_async() passes get_hook_timeout()'s value to the outer wait_for that
+        bounds the whole store (incl. the embedding call)."""
+        captured = {}
+
+        async def fake_wait_for(coro, timeout=None):
+            captured["timeout"] = timeout
+            return await coro
+
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch.object(
+                pwsav.sys, "stdin", io.StringIO(json.dumps(valid_decision_payload))
+            ),
+            patch.object(pwsav, "get_hook_timeout", return_value=4242),
+            patch.object(pwsav, "store_memory_async", new=AsyncMock()),
+            patch.object(pwsav.asyncio, "wait_for", side_effect=fake_wait_for),
+        ):
+            rc = pwsav.main()
+
+        assert rc == 0
+        # The coordinated ceiling (not a hardcoded 60) bounds the store coroutine.
+        assert captured["timeout"] == 4242
