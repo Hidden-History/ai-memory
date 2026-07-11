@@ -64,14 +64,8 @@ Research Progress:
 
 ### Phase 1: Check Database
 
-Query conventions collection via semantic search. `score` is RRF-fused /
-rank-normalized (BP-058) — not a calibrated similarity, never gate on it.
-Gate on `raw_score` (raw cosine, needs `attach_raw_cosine=True`) as an
-uncalibrated coarse prefilter, then confirm with a content-relevance
-judgment (read the top hit's content, judge whether it actually addresses
-the query). The ~0.7 `raw_score` floor is a starting point, not swept for
-this collection — **the content-relevance judgment is the authoritative
-gate**. Decision rules:
+Query conventions collection via semantic search. Gate on `raw_score` not
+`score` — see RESEARCH-METHODOLOGY.md ("Phase 1"). Decision rules:
 - `raw_score` ≥0.7 AND content addresses the query AND <6 months old → Use it, skip to Phase 5
 - `raw_score` ≥0.7 AND content addresses the query AND 6-12 months old → Mark "needs refresh", proceed to Phase 2
 - `raw_score` ≥0.7 AND content addresses the query AND >12 months old → Mark "outdated", proceed to Phase 2
