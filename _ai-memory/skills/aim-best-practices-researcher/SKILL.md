@@ -63,7 +63,7 @@ Research Progress:
 
 **Write scope (this skill writes ONLY these):** the BP file
 (`oversight/knowledge/best-practices/BP-XXX-[topic].md`), its INDEX row
-(`oversight/knowledge/best-practices/INDEX.md`, appended in
+(`oversight/knowledge/best-practices/index.md`, appended in
 Phase 3), and the conventions-collection store (Phase 4). Do NOT edit
 roadmaps, SoT files, or any other oversight file.
 
@@ -98,7 +98,7 @@ When presenting each finding, state why it is the current gold standard and cite
        --write oversight/knowledge/best-practices
    ```
 
-   `bp_index.py` appends any `BP-*.md` file missing from `INDEX.md` (matched
+   `bp_index.py` appends any `BP-*.md` file missing from `index.md` (matched
    by BP-ID) without touching existing rows — idempotent, non-destructive.
    Swap `--write` for `--check` to verify every BP file has a matching
    INDEX row (silent when all present; non-zero and lists offenders when not).

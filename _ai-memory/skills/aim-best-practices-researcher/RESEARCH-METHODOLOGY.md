@@ -88,7 +88,7 @@ Prioritize results published within the last ~6 months relative to today.
 
 ### Write scope
 
-This skill writes ONLY the BP file, `INDEX.md` (regenerated in step 4), and the
+This skill writes ONLY the BP file, `index.md` (regenerated in step 4), and the
 conventions-DB store (Phase 4). Do NOT edit roadmaps, SoT, or any other
 oversight file.
 

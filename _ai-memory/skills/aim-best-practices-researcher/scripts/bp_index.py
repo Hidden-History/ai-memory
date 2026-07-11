@@ -2,17 +2,17 @@
 # _ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py
 """Update the best-practices INDEX for BP-*.md files.
 
-``--write`` appends any BP-*.md files missing from the existing INDEX.md
+``--write`` appends any BP-*.md files missing from the existing index.md
 table (matched by BP-ID) without touching already-present rows or any other
-content in the file — it never regenerates a curated INDEX. If no INDEX.md
+content in the file — it never regenerates a curated INDEX. If no index.md
 exists yet, a fresh one is generated from disk (bootstrap only).
 
 Modes (mutually exclusive):
-  --write  Append missing BP rows to an existing INDEX.md (idempotent,
-           non-destructive); bootstrap a fresh INDEX.md if none exists yet.
+  --write  Append missing BP rows to an existing index.md (idempotent,
+           non-destructive); bootstrap a fresh index.md if none exists yet.
   --check  Fire-only-if-missing: silent on the happy path (every BP file has an
            INDEX row, matched by BP-ID); prints offenders to stderr and exits
-           non-zero when a BP file has no INDEX row (or INDEX.md is absent
+           non-zero when a BP file has no INDEX row (or index.md is absent
            while BP files exist).
 
 Usage:
@@ -21,13 +21,15 @@ Usage:
 """
 
 import argparse
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 from markdown_it import MarkdownIt
 
-INDEX_NAME = "INDEX.md"
+INDEX_NAME = "index.md"
 BP_GLOB = "BP-*.md"
 
 # CommonMark base plus the built-in GFM `table` block rule. Not the "gfm-like"
@@ -112,7 +114,7 @@ def scan_bp_files(bp_dir: Path) -> list[BPFile]:
 
 
 def render_index(bp_files: list[BPFile], script_hint: str) -> str:
-    """Render the full text of INDEX.md from the scanned BP files."""
+    """Render the full text of index.md from the scanned BP files."""
     lines = [
         "# Best Practices Index",
         "",
@@ -136,35 +138,8 @@ def render_index(bp_files: list[BPFile], script_hint: str) -> str:
     return "\n".join(lines)
 
 
-def _split_row_cells(line: str) -> list[str]:
-    """Split a markdown table row into trimmed cell strings, dropping the
-    empty leading/trailing cells produced by a row's outer pipes."""
-    parts = line.strip().split("|")
-    if parts and parts[0] == "":
-        parts = parts[1:]
-    if parts and parts[-1] == "":
-        parts = parts[:-1]
-    return [p.strip() for p in parts]
-
-
 def _looks_like_bp_header(cells: list[str]) -> bool:
     return bool(cells) and cells[0].strip().lower() in ("bp-id", "bp id", "bp")
-
-
-def _row_ids(lines: list[str]) -> set[str]:
-    """Return every BP-ID found in a table row's first cell, across all
-    tables in ``lines`` (id-keyed — immune to BP-IDs mentioned in prose)."""
-    ids: set[str] = set()
-    for line in lines:
-        if not line.strip().startswith("|"):
-            continue
-        cells = _split_row_cells(line)
-        if not cells:
-            continue
-        m = _ROW_ID_RE.match(cells[0])
-        if m:
-            ids.add(f"BP-{int(m.group(1)):03d}")
-    return ids
 
 
 def _header_cells_of(tokens: list, table_open_idx: int) -> list[str]:
@@ -185,40 +160,82 @@ def _header_cells_of(tokens: list, table_open_idx: int) -> list[str]:
     return header
 
 
+def _row_ids_of(tokens: list, table_open_idx: int) -> set[str]:
+    """Return every BP-ID found in the first cell of each row of the table
+    whose ``table_open`` is at ``table_open_idx``, read from the parser's
+    row/cell tokens (not raw source lines). Reading membership this way is
+    container-agnostic — the parser has already unwrapped the inline cell
+    content, so a ``> `` blockquote or list-item prefix on the source line is
+    gone (id-keyed — header/divider first cells and BP-IDs mentioned in
+    non-first cells never match). This reads whatever table it is handed;
+    canonical *selection* is top-level-only, so ``_find_bp_table`` never hands
+    it a nested table — nested tables are intentionally not selected as
+    canonical."""
+    ids: set[str] = set()
+    cell_idx = -1
+    j = table_open_idx + 1
+    while j < len(tokens) and tokens[j].type != "table_close":
+        tok = tokens[j]
+        if tok.type == "tr_open":
+            cell_idx = -1
+        elif tok.type in ("td_open", "th_open"):
+            cell_idx += 1
+        elif tok.type == "inline" and cell_idx == 0:
+            m = _ROW_ID_RE.match(tok.content.strip())
+            if m:
+                ids.add(f"BP-{int(m.group(1)):03d}")
+        j += 1
+    return ids
+
+
 def _find_bp_table(text: str):
     """Locate the canonical best-practices table with a spec-compliant GFM
     parser and return ``(header_cells, last_table_line_idx, existing_ids)``,
-    or ``None`` if no BP-ID-headed table is present.
+    or ``None`` when there is not exactly one canonical table (see below).
 
     The boundary comes from the parser's source map (``table_open.map =
     [start_line, end_line)``), not a hand-rolled line scan: the parser
     implements the GFM tables grammar, so contiguous pipe rows (no blank
     line between them) are one table by definition.
 
-    - ``header_cells`` are the first table's header-row cells.
+    - ``header_cells`` are the canonical table's header-row cells.
     - ``last_table_line_idx`` is ``end_line - 1`` — the last source line of
       the table; new rows splice in right after it (the spec table end).
-    - ``existing_ids`` are the BP-IDs found in the table's own source lines
-      (first cell matches the BP-ID pattern) — header/separator/divider rows
-      don't match, and BP-IDs mentioned in prose are outside a row's first
-      cell, so neither corrupts membership.
+    - ``existing_ids`` are the BP-IDs found in the first cell of each of the
+      table's own row tokens (parser-derived, not raw source lines) — header/
+      separator/divider rows don't match, and BP-IDs mentioned in prose are
+      outside a row's first cell, so neither corrupts membership.
 
-    Only the first BP-ID-headed table is canonical: a second table separated
-    from it by a blank line (a distinct ``table_open``) is not merged — a
-    documented limitation. A table butted directly against the canonical one
-    with no blank line is, per GFM, part of the same table, so its rows fall
-    within this span."""
-    lines = text.split("\n")
+    Canonical selection is **top-level-only and fail-safe**: only a
+    ``table_open`` at the document top level (``token.level == 0`` — the
+    parser's container-nesting depth; a table nested inside a blockquote or
+    list item is level >= 1) with a BP-ID header is eligible. If exactly one
+    such table exists it is canonical; if **zero or more than one** do, this
+    returns ``None`` and callers refuse to write / report every BP file as
+    missing rather than guess (BP-059 refuse-on-ambiguity). A table butted
+    directly against the canonical one with no blank line is, per GFM, part of
+    the same ``table_open`` span, so its rows fall within this table; a
+    blank-line-separated second BP-ID table is a distinct top-level
+    ``table_open`` and therefore makes selection ambiguous (refuse)."""
     tokens = _MD.parse(text)
+    matches = []
     for k, tok in enumerate(tokens):
-        if tok.type != "table_open":
+        # Only a top-level table is canonical. ``token.level`` is the parser's
+        # container-nesting depth: a top-level ``table_open`` is level 0; one
+        # nested inside a blockquote/list item is level >= 1. Using the
+        # parser's own container context avoids any per-shape heuristic.
+        if tok.type != "table_open" or tok.level != 0:
             continue
         header_cells = _header_cells_of(tokens, k)
         if not _looks_like_bp_header(header_cells):
             continue
-        start, end = tok.map  # [start_line, end_line)
-        existing_ids = _row_ids(lines[start:end])
-        return header_cells, end - 1, existing_ids
+        _, end = tok.map  # [start_line, end_line)
+        matches.append((header_cells, end - 1, _row_ids_of(tokens, k)))
+    # Fail-safe: canonical only when unambiguous. Exactly one top-level BP-ID
+    # table -> that is canonical; zero or more than one -> None (callers refuse
+    # to write / report all-missing, never guess).
+    if len(matches) == 1:
+        return matches[0]
     return None
 
 
@@ -251,8 +268,49 @@ def _bump_total_findings(text: str, new_total: int) -> str:
     return _TOTAL_FINDINGS_RE.sub(rf"\g<1>{new_total}", text, count=1)
 
 
+def atomic_write_text(target: Path, data: str) -> None:
+    """Write ``data`` to ``target`` atomically: a same-directory temp file +
+    ``os.replace()``. ``os.replace`` is an atomic rename within one filesystem,
+    so a crash / full disk / SIGKILL mid-write leaves either the intact old
+    file or the complete new file — never a truncated one (a plain
+    ``write_text`` truncates first). The temp file must share ``target``'s
+    directory so the rename stays on one filesystem. ``newline=""`` writes
+    ``data`` byte-for-byte (this repo is LF-only, matching the previous
+    ``write_text`` behavior on this platform); ``fsync`` adds durability across
+    power loss (not atomicity). ``target`` is resolved through symlinks first,
+    so a symlinked target is written through (the link stays intact) rather
+    than clobbered by the replace. The temp file's permission bits are set to
+    match ``target``'s existing permission bits (or the umask-respecting
+    default for a new file) before the swap, so ``os.replace``'s fresh inode
+    doesn't silently change permissions. Stdlib only — zero new dependency."""
+    real_target = Path(os.path.realpath(target))
+    try:
+        mode = os.stat(real_target).st_mode & 0o777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
+
+    fd, tmp = tempfile.mkstemp(
+        dir=str(real_target.parent), prefix=real_target.name, suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, real_target)  # atomic swap
+    finally:
+        if os.path.exists(tmp):
+            try:
+                os.unlink(tmp)  # don't leak the temp file on failure
+            except OSError:
+                pass
+
+
 def _write_append(bp_files: list[BPFile], index_path: Path) -> int:
-    """Append BP files missing (by BP-ID) from an existing INDEX.md, leaving
+    """Append BP files missing (by BP-ID) from an existing index.md, leaving
     every existing row and all surrounding content byte-for-byte untouched.
 
     Limitation: read_text()/write_text() use Python's universal-newline
@@ -272,9 +330,10 @@ def _write_append(bp_files: list[BPFile], index_path: Path) -> int:
             )
             return 0
         print(
-            f"ERROR: {index_path} exists but no BP-ID table could be "
-            "parsed — refusing to overwrite curated content. Fix the table "
-            "by hand, or remove the file to bootstrap a fresh INDEX.",
+            f"ERROR: {index_path} exists but no single top-level BP-ID table "
+            "could be identified (none found, or more than one) — refusing to "
+            "overwrite curated content. Fix the table by hand, or remove the "
+            "file to bootstrap a fresh INDEX.",
             file=sys.stderr,
         )
         return 1
@@ -294,7 +353,7 @@ def _write_append(bp_files: list[BPFile], index_path: Path) -> int:
     out_text = _bump_total_findings(
         "\n".join(spliced), len(existing_ids) + len(missing)
     )
-    index_path.write_text(out_text, encoding="utf-8")
+    atomic_write_text(index_path, out_text)
     print(
         f"INDEX appended: {len(missing)} new best practice(s), "
         f"{len(existing_ids)} preserved -> {index_path}",
@@ -308,7 +367,7 @@ def cmd_write(bp_dir: Path, index_path: Path, script_hint: str) -> int:
 
     if not index_path.is_file():
         # Bootstrap: nothing curated exists yet to protect.
-        index_path.write_text(render_index(bp_files, script_hint), encoding="utf-8")
+        atomic_write_text(index_path, render_index(bp_files, script_hint))
         print(
             f"INDEX regenerated: {len(bp_files)} best practice(s) -> {index_path}",
             file=sys.stderr,
@@ -333,7 +392,7 @@ def cmd_check(bp_dir: Path, index_path: Path) -> int:
             print(f"  - {b.path.name}", file=sys.stderr)
         return 1
     # Scoped to the canonical BP table (same table --write appends to), not
-    # whole-document _row_ids — otherwise a BP-ID first-cell in any other
+    # whole-document membership — otherwise a BP-ID first-cell in any other
     # pipe-table would falsely mask a genuinely-missing canonical row. No
     # canonical table found -> empty membership (fail-safe: everything
     # reports missing, mirroring _write_append's refusal in that case).
@@ -356,7 +415,7 @@ def cmd_check(bp_dir: Path, index_path: Path) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Append missing BP-*.md rows to the best-practices INDEX.md "
+            "Append missing BP-*.md rows to the best-practices index.md "
             "(--write) or verify every BP-*.md has a matching BP-ID row "
             "(--check)."
         )
@@ -366,8 +425,8 @@ def main() -> int:
         "--write",
         action="store_true",
         help=(
-            "Append missing BP-*.md rows to INDEX.md (idempotent, "
-            "non-destructive); bootstrap a fresh INDEX.md if none exists."
+            "Append missing BP-*.md rows to index.md (idempotent, "
+            "non-destructive); bootstrap a fresh index.md if none exists."
         ),
     )
     mode.add_argument(
@@ -381,7 +440,7 @@ def main() -> int:
     parser.add_argument(
         "bp_dir",
         metavar="BP_DIR",
-        help="Directory holding BP-*.md and INDEX.md "
+        help="Directory holding BP-*.md and index.md "
         "(e.g. oversight/knowledge/best-practices).",
     )
     args = parser.parse_args()

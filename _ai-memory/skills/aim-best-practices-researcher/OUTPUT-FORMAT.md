@@ -79,12 +79,12 @@ Template for best practices research reports.
 
 Enumerate every file this run created or modified, taken from `git status --porcelain`
 (or `git diff --name-only`). Per the skill's write scope, this list must contain
-ONLY the BP file, `INDEX.md`, and no other oversight files.
+ONLY the BP file, `index.md`, and no other oversight files.
 
 | File | Change |
 |------|--------|
 | oversight/knowledge/best-practices/BP-XXX-[topic].md | new |
-| oversight/knowledge/best-practices/INDEX.md | appended |
+| oversight/knowledge/best-practices/index.md | appended |
 
 ---
 
