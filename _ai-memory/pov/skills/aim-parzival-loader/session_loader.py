@@ -49,6 +49,13 @@ TRACKING_DROP = ["Resolved", "Closed", "Previous Sprint", "Risk Categories"]
 # step-01 spec: the task-tracker ``## Done`` section loads only the last N rows.
 DONE_KEEP_ROWS = 3
 
+# Fire-only-if-missing markers for the bugs/tech-debt INDEX files (fresh installs
+# lack both until the first ``aim-tracking-freshness --write`` run).
+_INDEX_ABSENT_MARKERS = {
+    "bugs/INDEX.md": "bugs INDEX absent — bug counts unavailable; run /aim-tracking-freshness",
+    "tech-debt/INDEX.md": "tech-debt INDEX absent — TD counts unavailable; run /aim-tracking-freshness",
+}
+
 
 def _emit(title: str, body: str) -> str:
     return f"## [loader] {title}\n\n{body.rstrip()}\n"
@@ -78,13 +85,12 @@ def _oversight_blocks(paths: dict[str, Path]) -> list[str]:
 
     for rel in ("bugs/INDEX.md", "tech-debt/INDEX.md"):
         text = read_text(oversight / rel)
-        if text:
-            blocks.append(
-                _emit(
-                    f"oversight/{rel} (Quick Stats)",
-                    select_sections(text, keep=["Quick Stats"]),
-                )
-            )
+        body = (
+            select_sections(text, keep=["Quick Stats"])
+            if text
+            else _INDEX_ABSENT_MARKERS[rel]
+        )
+        blocks.append(_emit(f"oversight/{rel} (Quick Stats)", body))
     return blocks
 
 

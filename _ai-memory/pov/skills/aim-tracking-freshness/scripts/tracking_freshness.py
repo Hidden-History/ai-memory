@@ -78,14 +78,16 @@ _SEV_PRIORITY: dict[str, int] = {
 # Three colon-format variants confirmed in live oversight tree (PM #297):
 #   **Status**: value   — colon outside bold (most common)
 #   **Status:** value   — colon inside bold (10 files, e.g. BUG-044, TECH-DEBT-089)
+#   - **Status**: value — optional leading list marker (-, *, +) tolerated (#290)
 # Pattern: \*\*Status:?\*\*:?\s*(.+) matches both; the two :? slots cover each position.
-_STATUS_COLON_RE = re.compile(r"^\*\*Status:?\*\*:?\s*(.+)$", re.MULTILINE)
+_STATUS_COLON_RE = re.compile(r"^(?:[-*+]\s+)?\*\*Status:?\*\*:?\s*(.+)$", re.MULTILINE)
 _STATUS_TABLE_RE = re.compile(r"^\|\s*\*\*Status\*\*\s*\|\s*(.+?)\s*\|", re.MULTILINE)
 
-# Severity: same colon-outside / colon-inside dual pattern as Status.
-# **Severity**: value  or  **Severity:** value
+# Severity: same colon-outside / colon-inside dual pattern as Status, plus the
+# same optional leading list marker (#290).
+# **Severity**: value  or  **Severity:** value  or  - **Severity**: value
 _SEV_COLON_RE = re.compile(
-    r"^\*\*Severity:?\*\*:?\s*(.+)$", re.MULTILINE | re.IGNORECASE
+    r"^(?:[-*+]\s+)?\*\*Severity:?\*\*:?\s*(.+)$", re.MULTILINE | re.IGNORECASE
 )
 _SEV_TABLE_RE = re.compile(
     r"^\|\s*\*\*Severity\*\*\s*\|\s*(.+?)\s*\|", re.MULTILINE | re.IGNORECASE

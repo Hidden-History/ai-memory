@@ -1,6 +1,6 @@
 ---
 name: 'step-02-spawn-agent'
-description: 'Spawn agent via TeamCreate + Agent tool (Claude-native) or tmux (non-Claude backends)'
+description: 'Spawn agent via the Agent tool (Claude-native) or tmux (non-Claude backends)'
 nextStepFile: './step-03-activate-agent.md'
 ---
 
@@ -10,7 +10,7 @@ nextStepFile: './step-03-activate-agent.md'
 
 ## STEP GOAL:
 
-Each agent is spawned via the backend-appropriate mechanism determined by aim-model-dispatch. For Claude-native backend: `TeamCreate` + `Agent` tool (enables `SendMessage` communication). For non-Claude backends: tmux sub-workflows. Each agent starts with fresh context to prevent contamination between tasks.
+Each agent is spawned via the backend-appropriate mechanism determined by aim-model-dispatch. For Claude-native backend: the `Agent` tool (enables `SendMessage` communication). For non-Claude backends: tmux sub-workflows. Each agent starts with fresh context to prevent contamination between tasks.
 
 **Scope:**
 - Available context: The verified instruction from step-01, the target agent identity, team configuration
@@ -32,7 +32,7 @@ aim-model-dispatch determines the spawn mechanism based on backend:
 
 | Backend | Spawn Mechanism | Communication |
 |---------|----------------|---------------|
-| Claude-native (`claude`) | `TeamCreate` + `Agent` tool | `SendMessage` |
+| Claude-native (`claude`) | `Agent` tool | `SendMessage` |
 | Non-Claude (openrouter, ollama, etc.) | tmux sub-workflows | `tmux send-keys` |
 
 Agent roles map to BMAD agents:
@@ -45,11 +45,11 @@ Agent roles map to BMAD agents:
 
 ---
 
-### 2. Create Team or Use Existing (Claude-Native Path)
+### 2. Spawn the Teammate (Claude-Native Path)
 
-**MANDATORY for Claude-native backend**: Use `TeamCreate` to create the team if it does not already exist for this project. If the team is already active, use the existing team. This enables `SendMessage` communication in aim-agent-lifecycle.
+**Claude-native backend**: Use the `Agent` tool with a unique `name`; the team forms automatically. This enables `SendMessage` communication.
 
-**Non-Claude backends**: Skip `TeamCreate`. Agents are spawned in tmux panes via model-dispatch sub-workflows. Communication via `tmux send-keys`.
+**Non-Claude backends**: Agents are spawned in tmux panes via model-dispatch sub-workflows. Communication via `tmux send-keys`.
 
 ---
 
@@ -58,8 +58,8 @@ Agent roles map to BMAD agents:
 **Claude-native path** — Use the `Agent` tool to spawn the teammate with these MANDATORY parameters:
 - `name`: unique per task (e.g., "dev-1-4", "rev-s-1415", "sm-7-3") — makes agent addressable via `SendMessage`
 - `model`: from aim-model-dispatch selection (e.g., "sonnet", "opus")
-- `mode`: "acceptEdits" (MUST — enables permission delegation, prevents blocking prompts)
-- MUST verify working directory is the **project root** (directory containing `_ai-memory/`) before spawning — agents inherit CWD and need access to BMAD skills
+- `mode`: "auto" (MUST — auto-approve permissions, no blocking prompts)
+- MUST run the 3-marker sentinel: `test -d _ai-memory && test -d _bmad && test -d oversight` (single-marker is a false-positive; this is the CLAUDE.md workspace-root sentinel) before spawning — agents inherit CWD and need access to BMAD skills
 
 **Non-Claude path** — Delegate to aim-model-dispatch tmux sub-workflows. Communication via `tmux send-keys`.
 
@@ -82,7 +82,6 @@ Agent roles map to BMAD agents:
   - **Numbered** (for generic parallel work): `dev-1`, `dev-2`, `review-1` — agents are interchangeable.
   - **Single-instance** agents use role name directly: `pm`, `architect`
   - Same `AI_MEMORY_AGENT_ID` across sessions enables cross-session memory accumulation via agent-scoped compact restore
-  - Naming rules: domain-named agents always work the same domain/files across sessions; numbered agents are interchangeable for generic parallel work; single-instance agents use role name directly
 
 ---
 
@@ -108,7 +107,7 @@ For **Claude-native agents**: aim-agent-lifecycle is NOT used. Lifecycle is hand
 - `SendMessage` for `Agent` tool-spawned agents
 - `tmux send-keys` / `tmux capture-pane` for tmux-spawned agents
 
-**MANDATORY**: BMAD two-phase activation applies to BOTH paths. Phase 1 sends `/bmad-agent-{type}` (activation). Phase 2 sends workflow command after menu appears. For Agent-tool path: both phases via `SendMessage`. For tmux path: both phases via `tmux send-keys`. Sending both phases in a single message breaks BMAD persona loading.
+**MANDATORY**: BMAD activation differs by path. For the Agent-tool (Claude-native) path, activation is the Skill-tool-load embedded in the spawn `prompt` (`Use the Skill tool to load bmad-<role>`, per `/aim-agent-dispatch` B4); after the teammate replies with its greeting/menu, send the workflow command via `SendMessage` — never a bare `/bmad-*`. For the tmux path only, two-phase activation sends a live command via `tmux send-keys` (persona command → wait for menu → workflow command). Never send task content in the activation message.
 
 ---
 

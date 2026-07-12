@@ -416,8 +416,17 @@ def _warn_on_env_cwd_mismatch(cwd: str | None) -> None:
     except (OSError, ValueError):
         cwd_id = None
     if cwd_id and cwd_id != env_id:
+        # Carry the env-vs-cwd ids + remedy in the MESSAGE itself, not only in
+        # extra=: the TextFormatter (fmt=%(message)s) and Python's lastResort
+        # handler both render message-only and drop extra=, so a text/unconfigured
+        # consumer would otherwise see a bare event name with no context (I3).
+        # extra= stays intact for the StructuredFormatter (JSON) consumers.
         logger.warning(
-            "project_env_cwd_mismatch",
+            "project_env_cwd_mismatch: AI_MEMORY_PROJECT_ID=%s disagrees with cwd "
+            "git slug=%s; preferring the env id. Unset AI_MEMORY_PROJECT_ID or run "
+            "from the matching workspace if this is unintended.",
+            env_id,
+            cwd_id,
             extra={
                 "env_project": env_id,
                 "cwd_project": cwd_id,

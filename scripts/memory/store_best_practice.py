@@ -37,7 +37,9 @@ def main() -> int:
     """Entry point for storing a single best practice.
 
     Returns:
-        0 on success (stored or duplicate).
+        0 on success (stored with a complete embedding, or duplicate).
+        3 when stored but the embedding degraded to a zero-vector placeholder
+          (embedding_status != "complete") — not semantically searchable.
         2 on project-scope resolution failure or storage validation error.
         1 on unexpected storage error.
     """
@@ -138,6 +140,16 @@ Examples:
         return 1
 
     if result.get("status") == "stored":
+        embedding_status = result.get("embedding_status")
+        if embedding_status != "complete":
+            print(
+                f"WARNING: stored {result['memory_id']} but embedding is "
+                f"{embedding_status!r} — a zero-vector placeholder was saved; "
+                "this best practice is NOT semantically searchable until "
+                "backfilled (run backfill_pending_embeddings.py).",
+                file=sys.stderr,
+            )
+            return 3
         print(f"Stored: {result['memory_id']}")
     elif result.get("status") == "duplicate":
         print("Duplicate skipped")

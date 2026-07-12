@@ -348,6 +348,11 @@ class TestStatusClassification:
         text = "**Status**: FIXED\n" "| **Status** | OPEN |\n"
         assert extract_raw_status(text) == "FIXED"
 
+    def test_extract_colon_with_leading_list_marker(self) -> None:
+        """A leading `- ` list marker before **Status** must still parse (#290)."""
+        text = "# TECH-DEBT-100: Some title\n\n- **Status**: In Progress\n"
+        assert extract_raw_status(text) == "In Progress"
+
 
 # ---------------------------------------------------------------------------
 # TestCompanionExclusion
@@ -723,6 +728,10 @@ class TestSeverityNormalization:
         """``LOW.`` (period after token) normalizes to ``LOW``."""
         text = "**Severity**: LOW. Theoretical bypass not observed.\n"
         assert extract_severity(text) == "LOW"
+
+    def test_leading_list_marker(self) -> None:
+        """A leading `- ` list marker before **Severity** must still parse (#290)."""
+        assert extract_severity("- **Severity**: High\n") == "HIGH"
 
 
 # ---------------------------------------------------------------------------

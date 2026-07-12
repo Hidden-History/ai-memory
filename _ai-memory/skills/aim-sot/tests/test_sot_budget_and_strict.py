@@ -136,20 +136,57 @@ def test_run_shadow_pass_signals_digest_truncation(tmp_path, monkeypatch):
 
 
 def test_scan_budget_dir_count_exceeded():
+    # F-SOT-CAP: exceeded() counts cumulatively (one dir per call). max_dirs=2
+    # allows two dirs; the third call trips the cap.
     budget = dp._ScanBudget(max_dirs=2, max_seconds=0)
-    assert budget.exceeded(1) is False
-    assert budget.exceeded(2) is True
+    assert budget.exceeded() is False
+    assert budget.exceeded() is False
+    assert budget.exceeded() is True
     assert budget.truncated is True
     assert budget.reason == "max_dirs"
+    assert budget.visited == 2
 
 
 def test_scan_budget_wall_time_exceeded(monkeypatch):
     # construct at t=100 (deadline=105); check at t=200 → wall-time exceeded.
     monkeypatch.setattr(dp, "time", _Clock([100.0, 200.0]))
     budget = dp._ScanBudget(max_dirs=10000, max_seconds=5.0)
-    assert budget.exceeded(0) is True
+    assert budget.exceeded() is True
     assert budget.truncated is True
     assert budget.reason == "wall_time"
+
+
+def test_scan_budget_dir_count_is_cumulative_across_walks(tmp_path):
+    # F-SOT-CAP: one shared budget spanning three separate _pruned_walk calls must
+    # enforce max_dirs on the CUMULATIVE dir count, not per-walk. Three trees of
+    # 2 dirs each (root + one subdir) under a max_dirs=3 budget: the scan stops
+    # mid-way (does NOT allow ~3x the cap by resetting per walk).
+    roots = []
+    for i in range(3):
+        r = tmp_path / f"tree{i}"
+        _populate(r, {"sub/a.txt": "x"})
+        roots.append(r)
+    budget = dp._ScanBudget(max_dirs=3, max_seconds=0)
+    total = sum(len(list(dp._pruned_walk(r, budget))) for r in roots)
+    assert budget.truncated is True
+    assert budget.reason == "max_dirs"
+    # 3 dirs scanned before the cap trips — NOT 6 (2 per walk x 3 walks).
+    assert total <= 3
+
+
+def test_truncation_warning_fires_once_across_walks(tmp_path, capsys):
+    # I1: a shared budget stays tripped, so every later _pruned_walk would re-emit
+    # the TRUNCATED warning on its first dir. It must fire at most once per scan.
+    roots = []
+    for i in range(3):
+        r = tmp_path / f"tree{i}"
+        _populate(r, {"sub/a.txt": "x"})
+        roots.append(r)
+    budget = dp._ScanBudget(max_dirs=1, max_seconds=0)
+    for r in roots:
+        list(dp._pruned_walk(r, budget))
+    err = capsys.readouterr().err
+    assert err.count("TRUNCATED") == 1
 
 
 def test_pruned_walk_stops_on_wall_time_budget(tmp_path, monkeypatch, capsys):
