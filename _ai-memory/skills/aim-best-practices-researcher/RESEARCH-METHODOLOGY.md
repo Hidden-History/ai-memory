@@ -102,6 +102,12 @@ Prioritize results published within the last ~6 months relative to today.
 4. Regenerate the INDEX from disk (idempotent, not append-only):
    `"${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python" "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" --write oversight/knowledge/best-practices`
 
+   `index.md`'s table is wrapped in a `<!-- BEGIN bp-index (...) -->` /
+   `<!-- END bp-index -->` marker pair; `--write`/`--check` key canonical-table
+   selection off this region, so a renamed header or a second top-level table
+   doesn't break selection. Markers absent → falls back to header-sniffing and
+   refuses (writes/reports nothing) on ambiguity. Never remove the markers by hand.
+
 ### Write scope
 
 This skill writes ONLY the BP file, `index.md` (regenerated in step 4), and the
