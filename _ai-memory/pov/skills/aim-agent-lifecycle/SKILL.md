@@ -41,14 +41,15 @@ For BMAD agents, the tmux bmad-dispatch workflow handles two-phase activation (p
 
 For generic agents, the tmux-dispatch workflow sends the instruction directly.
 
-**Activation gate (MANDATORY — two-phase, GC-20):** spawn prompt loads the BMAD persona via the Skill
-tool (e.g. `Use the Skill tool to load bmad-agent-dev`; a bare `/bmad-*` at spawn activates the lead,
-not the persona) + the required report-to-lead line (report to the spawning lead by name — Parzival =
-`team-lead`, a Manager = its own name; never `main`). `mode: auto`. Wait for the greeting/menu via `tmux capture-pane`; idle output is
-NOISE (no nudges). Then SendMessage the task as a SEPARATE message. Reporting-by-name, idle-is-noise,
-one-message-then-wait, cold-verify acceptance, and state-based stall/respawn are the shared Dispatch &
-Coordination Playbook in `/aim-agent-dispatch` — follow it; the only tmux difference is inspection via
-`tmux capture-pane`.
+**Activation gate (MANDATORY — two-phase, GC-20):** launch the agent in a fresh pane with
+`--allowedTools`, then activate with `tmux send-keys` — the live `/bmad-<role>` command into the pane
+(bare slash is correct here: the pane is a fresh interactive session, so the command activates the
+persona directly). Wait for the greeting/menu via `tmux capture-pane`; idle output is NOISE (no nudges).
+Then send the task with a SEPARATE `tmux send-keys` — never bundled with activation. /aim-model-dispatch
+(bmad-dispatch) performs these steps; do not hand-roll them. Idle-is-noise, one-message-then-wait,
+cold-verify acceptance, and state-based stall/respawn are the shared Dispatch & Coordination Playbook in
+`/aim-agent-dispatch` — follow it; the tmux difference is that activation, task delivery, and inspection
+all use `tmux send-keys` / `tmux capture-pane` (no `mode`, no Skill-tool-load, no SendMessage).
 
 **Handle clarification requests:**
 - Agent asks BEFORE starting: provide clarification with citation. Never guess.

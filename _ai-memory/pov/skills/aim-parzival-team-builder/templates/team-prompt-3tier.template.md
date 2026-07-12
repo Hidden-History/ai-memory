@@ -30,7 +30,7 @@ Outer prompt (Parzival assembles -> User pastes into new session)
 
 **Key principle**: Managers spawn worker **teammates via tmux** (aim-agent-lifecycle) and coordinate via the built-in messaging system. Each worker starts fresh with its own context and reports back to its manager by name. (This does not violate "only the lead spawns claude-native teammates" — workers are tmux teammates, not Claude Agent-Teams `name`-based members.)
 
-**Two-phase BMAD activation (GC-20):** every spawn `prompt` — Lead→Manager and Manager→Worker — carries ONLY its BMAD activation + a report-to-<spawning-lead> one-line (report by name: Parzival = `team-lead`, a Manager = its own name; never `main`), never the task. `{*_activation}` is the Skill-tool-load form: `Use the Skill tool to load bmad-<role> (the BMAD <role> persona).` (a bare `/bmad-*` at spawn activates Parzival, not the persona). Send the task/brief block as ONE SendMessage after the greeting/menu lands; `mode: auto`.
+**Two-phase BMAD activation (GC-20):** every spawn carries ONLY its BMAD activation + a report-to-<spawning-lead> one-line (report by name: Parzival = `team-lead`, a Manager = its own name; never `main`), never the task. **Lead→Manager (claude-native):** the `prompt` is the Skill-tool-load form `Use the Skill tool to load bmad-<role> (the BMAD <role> persona).` (a bare `/bmad-*` in an Agent-tool prompt activates Parzival, not the persona); `mode: auto`; send the manager brief as ONE SendMessage after the greeting/menu lands. **Manager→Worker (tmux, /aim-agent-lifecycle):** launch the worker's pane with `--allowedTools`, activate by `tmux send-keys` of the live `/bmad-<role>` command (bare slash is correct in a fresh pane), detect the menu via `tmux capture-pane`, then send the worker task with a separate `tmux send-keys` (no `mode`, no Skill-tool-load, no SendMessage).
 
 ```
 Spawn each teammate via the `Agent` tool (below).
@@ -69,14 +69,15 @@ MANAGER 1: {manager_1_name}
 
 4. WORKER ROSTER:
    For each task, spawn a worker teammate via tmux (/aim-agent-lifecycle) using
-   two-phase BMAD activation — the spawn prompt loads the BMAD persona via the
-   Skill tool (the `{worker_1_activation}` Skill-load form; a bare `/bmad-*` at
-   spawn activates the lead, not the persona) + a report-to-{manager_1_name}
-   one-line (workers report to you by name, never 'main'); mode: auto; send the
-   worker task as a SEPARATE message after the greeting/menu lands:
+   two-phase BMAD activation — launch the worker's pane with `--allowedTools`, then
+   `tmux send-keys` the live `/bmad-<role>` command into it (the `{worker_1_activation}`
+   command form; bare slash is correct in a fresh pane) so the persona activates
+   there; workers report to {manager_1_name} by name; detect the menu via `tmux
+   capture-pane`, then send the worker task with a separate `tmux send-keys` after
+   the menu appears:
 
    Worker 1: {worker_1_role}
-   Spawn via /aim-agent-lifecycle, model='{worker_1_model}', mode: auto.
+   Spawn via /aim-agent-lifecycle, model='{worker_1_model}' (launches `claude --model {worker_1_model} --allowedTools …` in a pane; no `mode` — tmux, not Agent-tool).
    Activation prompt: '{worker_1_activation}
    You're activated as a worker under {manager_1_name}. Once activated, report your
    activation reply to {manager_1_name}, then wait for instructions.'
@@ -96,13 +97,13 @@ MANAGER 1: {manager_1_name}
       Do NOT report done until all checks pass.'
 
    Worker 2: {worker_2_role}
-   Spawn via /aim-agent-lifecycle, model='{worker_2_model}', mode: auto (same two-phase structure).
+   Spawn via /aim-agent-lifecycle, model='{worker_2_model}' (same two-phase structure; no `mode` — tmux).
    '{same_8_element_structure}'
 
 5. REVIEW PROTOCOL:
    After EACH worker completes work:
-   a. Spawn a review worker teammate via tmux (/aim-agent-lifecycle, two-phase,
-      mode: auto) and send it this review task:
+   a. Spawn a review worker teammate via tmux (/aim-agent-lifecycle, two-phase;
+      no `mode` — tmux) and send it this review task:
       '{review_prompt_for_this_domain}'
    b. If review verdict is NEEDS REVISION:
       - Distill findings into a targeted fix prompt

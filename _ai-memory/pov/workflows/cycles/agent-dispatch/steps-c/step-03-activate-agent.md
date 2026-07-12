@@ -10,7 +10,7 @@ nextStepFile: './step-04-send-instruction.md'
 
 ## STEP GOAL:
 
-Once the teammate is spawned with fresh context, activate the correct agent. For BMAD agents, use the appropriate activation command and verify readiness. For generic (non-BMAD) agents, no activation command is needed — proceed directly with instruction delivery.
+Once the teammate is spawned with fresh context, verify the correct agent activated. For BMAD agents, activation is embedded in the spawn prompt (Skill-tool-load; see §1) — this step verifies readiness, it does not send a separate activation command. For generic (non-BMAD) agents, no activation is needed — proceed directly with instruction delivery.
 
 **Scope:**
 - Available context: The spawned teammate from step-02, the target agent identity
