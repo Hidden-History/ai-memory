@@ -7,6 +7,25 @@ All notable changes to the Parzival Oversight Agent will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-07-11
+
+### Added
+
+- **GC-19 redefined: Spawn Agents as Teammates via `Agent(name=...)`** -- teams now form implicitly when a teammate is spawned via the `Agent` tool with a unique `name`; there is no `TeamCreate`/`TeamDelete`, and no `team_name` parameter (#302)
+- **Claude-native vs non-Claude-provider dispatch split documented** -- Claude-native agents spawn as teammates via the `Agent` tool with no visible tmux pane, driven by `SendMessage`; non-Claude-provider agents run in a visible tmux pane via `/aim-agent-lifecycle` (`tmux send-keys` the live `/bmad-*` command plus `--allowedTools`, monitored via `tmux capture-pane`) (#302)
+- **`shutdown_request` handshake** -- teammate shutdown now uses an explicit `shutdown_request`/`shutdown_response` handshake instead of an implicit close
+
+### Changed
+
+- **GC-20 clarified for two-phase activation** -- Claude-native activation is a Skill-tool-load instruction embedded in the spawn prompt; tmux activation is the live `/bmad-<role>` sent via `tmux send-keys` after launch. Task instructions always follow activation as a separate message (#302)
+
+### Removed
+
+- **`TeamCreate`/`TeamDelete`** -- team lifecycle is now implicit: a team forms when the first teammate is spawned via `Agent(name=...)`, with no explicit create/delete step (#302)
+- **`team_name` parameter** -- replaced by the `Agent` tool's `name` parameter (#302)
+
+---
+
 ## [2.1.0] - 2026-03-15
 
 ### Added
@@ -158,6 +177,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Highlights |
 |---------|------|------------|
+| 2.2.0 | 2026-07-11 | Dispatch model modernization -- `Agent(name=...)` replaces `TeamCreate`/`team_name`, `shutdown_request` handshake, Claude-native/tmux dispatch split |
 | 2.1.0 | 2026-03-15 | Shim architecture, dispatch skills, GC-19/GC-20, 15-item menu, agent management identity |
 | 1.1.0 | 2026-01-27 | Public release, C7 observability, task tracking, ecosystem docs |
 | 1.0.0 | 2026-01-18 | Initial release with 7 commands, 2 subagents, 13 templates |
@@ -165,6 +185,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## Upgrade Guide
+
+### From 2.1.0 to 2.2.0
+
+1. Replace any `team_name` usage with the `Agent` tool's `name` parameter -- the team now forms implicitly, no `TeamCreate`/`TeamDelete` step
+2. Address teammates by `name` via `SendMessage`; the lead is `team-lead`
+3. Shutdown now uses the `shutdown_request`/`shutdown_response` handshake
+4. For Claude-native agents, activation (Skill-tool-load) is embedded in the spawn prompt itself, not sent as a separate follow-up message; for non-Claude providers, activation is still sent via `tmux send-keys` after spawn
 
 ### From 1.1.0 to 2.1.0
 
