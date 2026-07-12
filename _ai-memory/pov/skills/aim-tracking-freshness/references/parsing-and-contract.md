@@ -56,16 +56,19 @@ historical context clause (e.g. `REOPENED (PM #295) — Previously: FIXED`).
 
 ## Status Header Parsing
 
-The script handles three formats found in the live oversight tree:
+The script handles four formats found in the live oversight tree:
 
 | Format | Example |
 |--------|---------|
 | Colon outside bold | `**Status**: FIXED` |
 | Colon inside bold | `**Status:** FIXED` |
+| Leading list marker (`-`/`*`/`+`) | `- **Status**: FIXED` |
 | Table row | `\| **Status** \| FIXED \|` |
 
-Both colon formats are matched by a single regex with two optional-colon slots.
-The table-row format is tried as a fallback.
+Both colon formats are matched by a single regex with two optional-colon
+slots, with an optional leading list marker (`-`, `*`, `+`) tolerated before
+`**Status**`/`**Severity**` (#290). The table-row format is tried as a
+fallback.
 
 `LIKELY FIXED` remains open: `LIKELY` is not a closed-class token, so
 `classify_status` finds no leading closed-class match and treats the record as
