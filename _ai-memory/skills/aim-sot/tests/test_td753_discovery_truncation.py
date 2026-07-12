@@ -1,7 +1,9 @@
 """TD-753: discovery must not truncate SILENTLY, and the default skip-set must
 spend the budget on real source dirs.
 
-Two levers (NOT a budget raise — 6.0s/5000 stays, Lane A coupling):
+Two levers (TD-753 itself raises no budget — it only adds the warning
+and narrows the skip-set; the dir-count default is set elsewhere and is
+currently 15000):
   (a) a prominent truncation warning naming the dirs scanned, which budget
       tripped, and the exact env knob to raise it;
   (b) a narrowed default skip-set (generic build / cache / tool trees) so the

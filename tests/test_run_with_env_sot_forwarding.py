@@ -29,7 +29,7 @@ from pathlib import Path
 SCRIPT = Path(__file__).parent.parent / "scripts" / "memory" / "run-with-env.sh"
 
 
-def _run(tmp_path: Path, env_content: str) -> dict:
+def _run(tmp_path: Path, env_content: str, extra_env: dict | None = None) -> dict:
     """Run run-with-env.sh against a stub install and return the child's environment.
 
     Builds a fake install dir (docker/.env + an executable .venv/bin/python stub
@@ -58,14 +58,17 @@ def _run(tmp_path: Path, env_content: str) -> dict:
 
     # Controlled parent env: no AI_MEMORY_PROJECT_ID, so any occurrence in the
     # child must have come from the script forwarding it (it must not).
+    parent_env = {
+        "PATH": "/usr/bin:/bin",
+        "AI_MEMORY_INSTALL_DIR": str(install),
+    }
+    if extra_env:
+        parent_env.update(extra_env)
     result = subprocess.run(
         ["bash", str(SCRIPT), str(engine)],
         capture_output=True,
         text=True,
-        env={
-            "PATH": "/usr/bin:/bin",
-            "AI_MEMORY_INSTALL_DIR": str(install),
-        },
+        env=parent_env,
     )
     assert (
         result.returncode == 0
@@ -128,3 +131,36 @@ def test_project_id_not_forwarded(tmp_path):
     )
     assert env.get("AI_MEMORY_PROJECT_ID") != "should-not-leak"
     assert env.get("AI_MEMORY_SOT_DISCOVERY_MAX_DIRS") == "1"
+
+
+def test_caller_exported_sot_var_wins_over_file(tmp_path):
+    """I2: a caller-exported AI_MEMORY_SOT_* value is NOT clobbered by docker/.env.
+
+    The install-global docker/.env value is a service default; a per-invocation
+    caller export (e.g. a workspace tuning a discovery budget) is an intentional
+    override and must win. Without the caller-wins guard the file value silently
+    overwrote it (confused-deputy for the SOT tuning surface).
+    """
+    env = _run(
+        tmp_path,
+        "QDRANT_API_KEY=k\n"
+        "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=1\n",  # install-global default
+        extra_env={"AI_MEMORY_SOT_DISCOVERY_MAX_DIRS": "42"},  # caller override
+    )
+    assert env.get("AI_MEMORY_SOT_DISCOVERY_MAX_DIRS") == "42"
+
+
+def test_secret_is_file_loaded_even_when_caller_exported_empty(tmp_path):
+    """I2 scope guard: the caller-wins guard is SOT-only — secrets stay file-wins.
+
+    A caller-exported *empty* QDRANT_API_KEY must NOT block the docker/.env value
+    (the whole point of the gateway is to inject Docker-managed secrets into host
+    scripts). This pins the scoping: universal caller-wins with the ${!name+x}
+    (set-including-empty) test would break auth here.
+    """
+    env = _run(
+        tmp_path,
+        "QDRANT_API_KEY=realkey\n" "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=1\n",
+        extra_env={"QDRANT_API_KEY": ""},  # caller exported it empty
+    )
+    assert env.get("QDRANT_API_KEY") == "realkey"
