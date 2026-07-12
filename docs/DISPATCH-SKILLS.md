@@ -26,7 +26,11 @@ The Parzival dispatch skill suite is a set of 7 skills that enable multi-agent o
 - **Route tasks to different LLM providers** -- Claude (native), Ollama, OpenRouter, and 8 additional backends
 - **Manage the full agent lifecycle** -- instruction delivery, progress monitoring, output review, correction loops, and shutdown
 
-Each dispatched agent runs in a visible tmux pane with the full Claude Code TUI, so you can watch progress in real time. Results are delivered automatically to the team inbox.
+Two dispatch paths, kept separate:
+- **Claude-native** agents spawn as teammates via the `Agent` tool -- no visible tmux pane, driven by `SendMessage`.
+- **Non-Claude-provider** agents run in a visible tmux pane via `/aim-agent-lifecycle` (`tmux send-keys` the live `/bmad-*` command plus `--allowedTools`, monitored via `tmux capture-pane`).
+
+Results are delivered automatically to the team inbox.
 
 Model Dispatch is entirely optional. Claude Code works perfectly without it. It adds value when you want to use non-Claude models, run agents on cheaper backends, access multimodal capabilities (image/audio/video), or use ultra-fast inference providers for simple tasks.
 

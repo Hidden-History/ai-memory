@@ -27,7 +27,7 @@ When Parzival executes work, 3 skills are used in sequence:
 
 ### Core Rules
 
-1. **All agents are teammates in parallel** — spawned via Agent tool with `team_name`
+1. **All agents are teammates in parallel** — spawned via the `Agent` tool with a unique `name`; the team forms implicitly (no `TeamCreate`/`TeamDelete`, no `team_name` parameter)
 2. **BMAD agents follow their own workflow** — persona activation, menu, two-phase interaction
 3. **Regular agents receive direct instructions** — full instruction template, one-shot execution
 4. **Non-Claude providers** — when the user specifies a provider (e.g., "use openrouter"), the model-dispatch skill handles provider routing and terminal launch via tmux
@@ -93,7 +93,7 @@ Layer 4 — Model & Provider Selection (loaded on-demand)
 - For BMAD roles, selects the correct agent using the Quick Selection Matrix and agent-selection-guide, then determines **dispatch mode**:
   - **Execution mode**: one-shot instruction (DEV implementing, DEV reviewing, SM creating stories)
   - **Planning mode**: interactive relay protocol (PM creating PRD, Architect designing, Analyst researching)
-- Spawns agent as **teammate in parallel** (Agent tool with team_name)
+- Spawns agent as **teammate in parallel** (`Agent` tool with a unique `name`; team forms implicitly, no `team_name`)
 - Activates BMAD persona with the correct command (e.g., `/bmad-agent-bmm-dev`)
 - For planning mode, follows the **Relay Protocol**: agent asks questions, Parzival researches answers from project files, presents recommendations with confidence levels to user, relays confirmed answers back to agent
 - For non-Claude providers, delegates terminal launch to the model-dispatch skill

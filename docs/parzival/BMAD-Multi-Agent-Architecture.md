@@ -4,7 +4,7 @@
 **Status**: Design & Planning (aspirational web UI); Parzival 2.1 agent dispatch operational via Claude Code teams
 **Target**: Parzival Module v2.0 (web UI); Parzival 2.1 (current CLI-based orchestration)
 
-> **Note -- Parzival 2.1 Current State**: As of v2.1, Parzival operates entirely within Claude Code. He activates and manages all agents himself via Claude Code teams (TeamCreate + Agent with team_name). The user interacts with Parzival only. Agent dispatch uses a skill-based architecture with content in `_ai-memory/pov/skills/` and shims in `.claude/skills/`. The web UI architecture described in this document (React multi-terminal, FastAPI backend, PostgreSQL orchestration) remains the aspirational design for a future standalone module. See `_ai-memory/pov/agents/parzival.md` for the current agent definition and `_ai-memory/pov/constraints/global/constraints.md` for GC-01 through GC-15, GC-19, GC-20.
+> **Note -- Parzival 2.1 Current State**: As of v2.1, Parzival operates entirely within Claude Code. He activates and manages all agents himself via Claude Code teams (the `Agent` tool with a unique `name`; the team forms implicitly -- no `TeamCreate`/`TeamDelete`, no `team_name`). The user interacts with Parzival only. Agent dispatch uses a skill-based architecture with content in `_ai-memory/pov/skills/` and shims in `.claude/skills/`. The web UI architecture described in this document (React multi-terminal, FastAPI backend, PostgreSQL orchestration) remains the aspirational design for a future standalone module. See `_ai-memory/pov/agents/parzival.md` for the current agent definition and `_ai-memory/pov/constraints/global/constraints.md` for GC-01 through GC-15, GC-19, GC-20.
 
 ---
 
@@ -108,7 +108,7 @@ Phase 4: Parzival Enforces Quality
   Only then: Parzival marks story complete
 ```
 
-**Technology**: Claude Agent SDK instance with orchestration system prompt. In Parzival 2.1, agents are spawned as Claude Code teammates (GC-19: TeamCreate + Agent with team_name), not standalone subagents. BMAD agent activation and instruction must be separate messages (GC-20).
+**Technology**: Claude Agent SDK instance with orchestration system prompt. In Parzival 2.1, agents are spawned as Claude Code teammates (GC-19: the `Agent` tool with a unique `name`; the team forms implicitly, no `TeamCreate`/`TeamDelete` or `team_name`), not standalone subagents. BMAD agent activation and instruction must be separate messages (GC-20).
 
 **Configuration**: `_ai-memory/pov/agents/parzival.md`
 

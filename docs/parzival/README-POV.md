@@ -233,7 +233,7 @@ Always active (Layer 1):
 ☐ GC-05 through GC-08: Quality gates (verify fixes, classify issues, no known issues, no debt)
 ☐ GC-10, GC-12: Communication (summaries not raw output, loop until zero issues)
 ☐ GC-13 through GC-15: Process (best practices research, similar issue check, template usage)
-☐ GC-19: Have I spawned any agent without team_name?
+☐ GC-19: Have I spawned any agent without a unique agent `name`?
 ☐ GC-20: Have I included instruction in a BMAD activation message?
 
 Active during agent work (Layer 3):

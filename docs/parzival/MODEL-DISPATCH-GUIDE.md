@@ -2,7 +2,7 @@
 
 **Optional multi-provider LLM routing for Parzival and Claude Code agents**
 
-Model Dispatch is a skill that lets Parzival select different LLM backends — Claude (native), Ollama, OpenRouter, and seven additional providers — based on task complexity, agent role, and user preference. Each dispatched agent runs in a visible tmux pane with full Claude Code TUI, and results are delivered automatically to the team inbox.
+Model Dispatch is a skill that lets Parzival select different LLM backends — Claude (native), Ollama, OpenRouter, and seven additional providers — based on task complexity, agent role, and user preference. Two dispatch paths, kept separate: **Claude-native** agents spawn as teammates via the `Agent` tool — no visible tmux pane, driven by `SendMessage`. **Non-Claude-provider** agents run in a visible tmux pane via `/aim-agent-lifecycle` (`tmux send-keys` the live `/bmad-*` command plus `--allowedTools`, monitored via `tmux capture-pane`). Results are delivered automatically to the team inbox either way.
 
 **This capability is entirely optional.** Claude Code works perfectly without it. Model Dispatch adds value when you want to use non-Claude models, run agents on cheaper backends, access multimodal capabilities (image/audio/video), or leverage ultra-fast inference providers for simple tasks.
 

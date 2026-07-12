@@ -40,7 +40,7 @@ The full dispatch cycle consists of nine steps, divided between dispatch (steps 
 |------|------|-------|-------------|
 | 1 | Prepare Instruction | `aim-agent-dispatch` | Build the full instruction using the template. Every requirement cites a project file. |
 | 2 | Verify Instruction | `aim-agent-dispatch` | Run the quality checklist. Fix any failures before proceeding. |
-| 3 | Spawn Agent | `aim-agent-dispatch` | Spawn the agent as a teammate using the Agent tool with `team_name`. Select model via `aim-model-dispatch`. |
+| 3 | Spawn Agent | `aim-agent-dispatch` | Spawn the agent as a teammate using the `Agent` tool with a unique `name` -- the team forms implicitly, no `team_name`. Select model via `aim-model-dispatch`. |
 | 4 | Send Instruction | `aim-agent-lifecycle` | Send the complete instruction via `SendMessage`. Do not abbreviate or add preamble. Wait for acknowledgment. |
 | 5 | Monitor Progress | `aim-agent-lifecycle` | Track progress. Intervene on scope breaches or unreported blockers. Relay clarifications with citations. |
 | 6 | Review Output | `aim-agent-lifecycle` | Evaluate output against DONE WHEN criteria, OUTPUT EXPECTED, cited requirements, and standards. |
@@ -300,36 +300,40 @@ This constraint is enforced at Layer 3 (embedded in the dispatch skills) and ver
 
 ### GC-19: Spawn Agents as Teammates
 
-**Rule:** When dispatching any agent, Parzival must spawn the agent as a teammate using the Agent tool with the `team_name` parameter.
+**Rule:** When dispatching any agent, Parzival must spawn the agent as a teammate using the `Agent` tool with a unique `name`. The team forms implicitly -- there is no `TeamCreate`/`TeamDelete`, and no `team_name` parameter.
 
 **Required pattern:**
 ```
 Agent tool:
-  team_name: [descriptive name for the team/task]
+  name: [unique descriptive name for the agent]
   model: [appropriate model for the role]
 ```
 
-**Forbidden:** Agent tool called without `team_name` (standalone subagent). Standalone dispatches lack the Edit and Write tool permissions required for implementation work, and prevent Parzival from sending follow-up instructions or managing the agent lifecycle.
+**Forbidden:** Agent tool called without a `name` (standalone subagent). Standalone dispatches lack the Edit and Write tool permissions required for implementation work, and prevent Parzival from sending follow-up instructions or managing the agent lifecycle.
 
-**Self-check:** Am I about to spawn an agent without a `team_name`? If yes -- stop and add `team_name`.
+**Self-check:** Am I about to spawn an agent without a unique `name`? If yes -- stop and add one.
 
 ### GC-20: Activation and Instruction Are Separate
 
-**Rule:** The activation command and the task instruction must be sent as separate messages. The activation message contains only the activation command. The instruction is sent only after the agent has responded with its menu/greeting confirming it has fully loaded its persona.
+**Rule:** The activation step and the task instruction must be sent as separate messages. The instruction is sent only after the agent has responded with its menu/greeting confirming it has fully loaded its persona.
+
+**Two dispatch paths, kept separate:**
+- **Claude-native** agents spawn as teammates via the `Agent` tool -- no visible tmux pane. Activation is a Skill-tool-load instruction embedded in the spawn prompt itself; the agent loads its persona and responds with its greeting/menu via `SendMessage`.
+- **Non-Claude-provider** agents run in a visible tmux pane via `/aim-agent-lifecycle`: spawn the pane, then `tmux send-keys` the live `/bmad-<role>` activation command, monitored via `tmux capture-pane` until the menu/greeting appears.
 
 **Required sequence:**
 
-| Step | Action | Content |
-|------|--------|---------|
-| 1 | Spawn | Agent tool with `team_name` (GC-19) |
-| 2 | Activate | Send activation command only (e.g., `/bmad-agent-bmm-dev`) |
-| 3 | Wait | Wait for agent menu/greeting -- do not send anything yet |
-| 4 | Instruct | Send task instruction as a separate message |
+| Step | Action | Claude-native | Non-Claude (tmux) |
+|------|--------|----------------|--------------------|
+| 1 | Spawn | `Agent` tool with unique `name`, Skill-tool-load embedded in the spawn prompt (GC-19) | Launch tmux pane |
+| 2 | Activate | (embedded in step 1) | `tmux send-keys` the live `/bmad-<role>` command |
+| 3 | Wait | Wait for agent menu/greeting via `SendMessage` -- do not send anything yet | Wait for menu/greeting via `tmux capture-pane` |
+| 4 | Instruct | Send task instruction as a separate `SendMessage` | Send task instruction via `tmux send-keys` |
 
-**Forbidden:** Combining activation command and task instruction in a single message. Sending any task content before the agent has displayed its greeting/menu.
+**Forbidden:** Combining activation and task instruction in a single message/keystroke. Sending any task content before the agent has displayed its greeting/menu.
 
-**Why:** BMAD agents must load their full persona, skills, and workflow context during the activation step. Sending instructions before this loading completes causes the agent to operate with incomplete configuration.
+**Why:** BMAD agents must load their full persona, skills, and workflow context during activation. Sending instructions before this loading completes causes the agent to operate with incomplete configuration.
 
-**Self-check:** Am I about to send an activation command that also contains task instructions? If yes -- split into two messages: activate first, wait for menu, then instruct.
+**Self-check:** Am I about to send task instructions before the agent has activated and greeted? If yes -- wait for the greeting/menu first.
 
 **Note:** GC-20 applies specifically to BMAD agents that require persona activation. Generic agents dispatched through `aim-agent-dispatch` do not have an activation step and receive their instruction directly after spawning.
