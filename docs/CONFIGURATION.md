@@ -495,6 +495,177 @@ export EMBEDDING_MODEL_DENSE_CODE=jinaai/jina-embeddings-v2-base-code
 
 ---
 
+#### EMBEDDING_MAX_INPUT_CHARS
+**Purpose:** Max total input characters accepted per embedding request; an over-cap request is rejected up front with HTTP 413
+
+**Default:** `200000`
+
+**Format:** Integer (characters). Must not exceed `EMBEDDING_SAFE_INFLIGHT_CHARS` — a load-time check clamps it down (with a warning) if configured higher
+
+**Example:**
+```bash
+export EMBEDDING_MAX_INPUT_CHARS=200000
+```
+
+**Related:**
+- `EMBEDDING_SAFE_INFLIGHT_CHARS` - concurrent in-flight char budget this must stay within
+- `EMBEDDING_MAX_TEXT_CHARS` - per-text char cap
+
+---
+
+#### EMBEDDING_MAX_TEXT_CHARS
+**Purpose:** Max characters allowed in a single text within a request; an over-cap text is rejected with HTTP 413. Per-text memory is super-linear, so one huge text costs far more than the same characters split across texts
+
+**Default:** `8192`
+
+**Format:** Integer (characters)
+
+**Example:**
+```bash
+export EMBEDDING_MAX_TEXT_CHARS=8192
+```
+
+**Related:**
+- `EMBEDDING_MAX_INPUT_CHARS` - total-request char cap
+
+---
+
+#### EMBEDDING_SAFE_INFLIGHT_CHARS
+**Purpose:** Byte-aware admission envelope — bounds the sum of in-flight characters across concurrently held request slots, so peak server memory tracks byte-work rather than text count. The server enforces the same envelope and sheds an over-envelope request
+
+**Default:** `200000` (sized against `EMBEDDING_MEMORY_LIMIT=10G`: ~5.6 GiB transient + ~2.35 GiB warm base = ~7.95 GiB peak, ~20% headroom)
+
+**Format:** Integer (characters)
+
+**Example:**
+```bash
+export EMBEDDING_SAFE_INFLIGHT_CHARS=200000
+```
+
+**Related:**
+- `EMBEDDING_MAX_INPUT_CHARS` - must stay <= this value
+- `EMBEDDING_MEMORY_LIMIT` - the container memory limit this envelope is sized against
+
+---
+
+#### EMBEDDING_SAFE_INFLIGHT_TEXTS
+**Purpose:** Count-based admission envelope — caps concurrent in-flight texts the client admits before back-pressuring; the server enforces the same envelope and rejects an over-envelope request with HTTP 413
+
+**Default:** `48`
+
+**Format:** Integer (text count). Hierarchy: `EMBEDDING_SAFE_INFLIGHT_TEXTS (48) <= EMBEDDING_CLIENT_SUBBATCH (128) <= EMBEDDING_MAX_BATCH_TEXTS (256)`
+
+**Example:**
+```bash
+export EMBEDDING_SAFE_INFLIGHT_TEXTS=48
+```
+
+**Related:**
+- `EMBEDDING_SAFE_INFLIGHT_CHARS` - the companion byte-aware envelope
+- `EMBEDDING_CLIENT_SUBBATCH` - client-side sub-batch size
+
+---
+
+#### EMBEDDING_MEMORY_HIGH_RATIO
+**Purpose:** `memory.current`/`limit` ratio above which the AIMD memory-pressure controller collapses effective concurrency toward 1 (the shed threshold)
+
+**Default:** `0.80` (trips at ~8 GiB of the 10 GiB `EMBEDDING_MEMORY_LIMIT` default)
+
+**Format:** Float (0.0 to 1.0)
+
+**Example:**
+```bash
+export EMBEDDING_MEMORY_HIGH_RATIO=0.80
+```
+
+**Related:**
+- `EMBEDDING_MEMORY_OK_RATIO` - the recovery threshold below this one
+
+---
+
+#### EMBEDDING_MEMORY_OK_RATIO
+**Purpose:** `memory.current`/`limit` ratio below which the service is considered healthy enough to grow concurrency again
+
+**Default:** `0.65` (recovers at ~6.5 GiB; kept 0.15 below `EMBEDDING_MEMORY_HIGH_RATIO` to preserve the AIMD hysteresis gap)
+
+**Format:** Float (0.0 to 1.0)
+
+**Example:**
+```bash
+export EMBEDDING_MEMORY_OK_RATIO=0.65
+```
+
+**Related:**
+- `EMBEDDING_MEMORY_HIGH_RATIO` - the shed threshold above this one
+
+---
+
+#### EMBEDDING_INFERENCE_THREADS
+**Purpose:** Bounds the onnxruntime intra-op thread pool used for model inference
+
+**Default:** `4` (measured throughput sweet-spot; kept in lockstep with `OMP_NUM_THREADS`)
+
+**Format:** Integer (thread count)
+
+**Example:**
+```bash
+export EMBEDDING_INFERENCE_THREADS=4
+```
+
+**Related:**
+- `OMP_NUM_THREADS` - OpenMP/BLAS thread pool, kept in lockstep with this value
+
+---
+
+#### EMBEDDING_INFERENCE_TIMEOUT
+**Purpose:** Realistic worst-case single-request inference time (seconds), used to compute the client's coherent read-timeout floor (added to the server's `EMBEDDING_ACQUIRE_TIMEOUT`)
+
+**Default:** `30.0`
+
+**Format:** Float (seconds)
+
+**Example:**
+```bash
+export EMBEDDING_INFERENCE_TIMEOUT=30.0
+```
+
+**Related:**
+- `EMBEDDING_TOTAL_TIMEOUT` - floored to the same combined budget
+- `EMBEDDING_ACQUIRE_TIMEOUT` - server admission-wait timeout added to this value
+
+---
+
+#### EMBEDDING_TOTAL_TIMEOUT
+**Purpose:** Overall wall-clock deadline (seconds) for the client's `embed()` retry loop; floored to `EMBEDDING_ACQUIRE_TIMEOUT + EMBEDDING_INFERENCE_TIMEOUT` so it cannot clip a legitimate attempt. Not an exact ceiling on wall-clock time — fixed per-attempt httpx connect/write/pool overhead (~11s) sits outside the capped budget
+
+**Default:** `60.0`
+
+**Format:** Float (seconds). Must stay below the store hooks' `HOOK_TIMEOUT` (coherent default 90s) once the ~11s overhead is accounted for, or the hook's own timeout can fire first
+
+**Example:**
+```bash
+export EMBEDDING_TOTAL_TIMEOUT=60.0
+```
+
+**Related:**
+- `EMBEDDING_INFERENCE_TIMEOUT` - combines with `EMBEDDING_ACQUIRE_TIMEOUT` to form this value's floor
+
+---
+
+#### EMBEDDING_CLIENT_MAX_TXT_PER_SEC
+**Purpose:** Caps the rate (texts/sec) at which the client submits embeddings, so bulk consumers (GitHub/Jira sync) apply patient backpressure instead of overrunning the server's sustainable compute ceiling
+
+**Default:** `9.6` (matches the measured sustainable throughput at `EMBEDDING_INFERENCE_THREADS=4`)
+
+**Format:** Float (texts/sec). `<= 0` disables shaping
+
+**Example:**
+```bash
+export EMBEDDING_CLIENT_MAX_TXT_PER_SEC=9.6
+```
+
+---
+
 ### Search & Retrieval
 
 #### MAX_RETRIEVALS
@@ -1843,6 +2014,30 @@ Two checks:
   subprocess environment, not just that they're present in `docker/.env`.
 
 Not yet wired into `install.sh` — run it manually post-install or on demand.
+
+### Diagnostics: env-parity doctor
+
+`scripts/verify/check_env_parity.py` is an on-demand, report-only doctor that
+classifies every key across three sources — the typed schema (`MemoryConfig`),
+the committed `docker/.env.example`, and the deployed runtime env
+(`docker/.env` + `docker/.env.secrets` under `$AI_MEMORY_INSTALL_DIR`, default
+`~/.ai-memory`) — so drift between them doesn't go unnoticed:
+
+```bash
+python3 scripts/verify/check_env_parity.py                # human-readable report
+python3 scripts/verify/check_env_parity.py --json          # machine-readable report
+python3 scripts/verify/check_env_parity.py --install-dir /path/to/install
+```
+
+Each key is classified into exactly one status: `PRESENT_OK`,
+`COMMENTED_DOCUMENTED`, `MISSING_REQUIRED`, `MISSING_OPTIONAL_DEFAULTED`,
+`ORPHAN_UNKNOWN`, `VALUE_DRIFT_FROM_DEFAULT`, `PLACEHOLDER_RESIDUE`,
+`SECRET_MISPLACED`, `DUPLICATE`, or `INLINE_COMMENT_HAZARD`. The script never
+edits or writes an env file, and never prints an environment value — output is
+key names, classifications, and booleans only, so it is safe to run against a
+real install. It exits `1` only when an ERROR-class finding
+(`MISSING_REQUIRED`, `PLACEHOLDER_RESIDUE`, `SECRET_MISPLACED`, `DUPLICATE`,
+`INLINE_COMMENT_HAZARD`) is present; otherwise it exits `0`.
 
 ---
 

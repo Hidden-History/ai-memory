@@ -11,7 +11,6 @@ description: 'Agent dispatch lifecycle: prepare instruction, create team, dispat
 - Parzival oversight session active
 - The target BMAD agent is identified and available
 - A task instruction has been prepared (or is being prepared in step 1)
-- TeamCreate capability is available (required for teammate-based dispatch)
 
 ## Workflow Overview
 
@@ -24,7 +23,7 @@ This cycle enforces that no agent is dispatched without a complete instruction a
 | Step | File | Purpose |
 |------|------|---------|
 | 1 | `step-01-prepare-instruction.md` | Compose a complete, unambiguous instruction for the target agent |
-| 2 | `step-02-spawn-agent.md` | Spawn the agent via TeamCreate + Agent tool (Claude-native) or tmux (non-Claude backends) |
+| 2 | `step-02-spawn-agent.md` | Spawn via the `Agent` tool (Claude-native) or tmux (non-Claude backends) |
 | 3 | `step-03-activate-agent.md` | Activate the agent within the team context |
 | 4 | `step-04-send-instruction.md` | Send the prepared instruction to the active agent via SendMessage |
 | 5 | `step-05-monitor-progress.md` | Monitor agent progress; intervene if the agent stalls or deviates |

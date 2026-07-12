@@ -33,7 +33,11 @@ _COL_DISC = "discussions"
 
 
 def _direct_entry(entry_id: str, group_id: str) -> dict:
-    """A queue entry in the direct (content) payload format."""
+    """A queue entry in the direct (content) payload format.
+
+    Self-contained per BP-180: carries a persisted group_id AND source_hook so
+    the fixed drain reads scope/provenance from the entry (never re-resolves).
+    """
     return {
         "id": entry_id,
         "retry_count": 0,
@@ -42,6 +46,7 @@ def _direct_entry(entry_id: str, group_id: str) -> dict:
             "content": "x" * 50,
             "type": "implementation",
             "group_id": group_id,
+            "source_hook": "manual",
         },
     }
 
@@ -191,12 +196,27 @@ class TestExtractGroupId:
         entry = {"memory_data": {"payload": {"metadata": {"group_id": "proj-b"}}}}
         assert mod.extract_group_id(entry) == "proj-b"
 
-    def test_hook_input_format_uses_resolver(self, monkeypatch):
+    def test_hook_input_format_reads_persisted_group_id(self, monkeypatch):
+        """BP-180/BUG-522: hook_input group is read from the persisted field,
+        NEVER re-resolved from the stored cwd at drain time."""
+        mod = _load_module(monkeypatch)
+        entry = {
+            "memory_data": {
+                "group_id": "persisted-x",
+                "hook_input": {"cwd": "/some/where"},
+            }
+        }
+        # A drain-time resolver call would be the BUG-522 regression — spy proves none.
+        sys.modules["memory.project"].resolve_project_id.reset_mock()
+        assert mod.extract_group_id(entry) == "persisted-x"
+        sys.modules["memory.project"].resolve_project_id.assert_not_called()
+
+    def test_hook_input_without_persisted_group_id_returns_none(self, monkeypatch):
+        """A legacy hook_input entry lacking a persisted group_id yields None
+        (poison → DLQ), instead of a drain-time cwd re-resolution."""
         mod = _load_module(monkeypatch)
         entry = {"memory_data": {"hook_input": {"cwd": "/some/where"}}}
-        # extract_group_id imports resolve_project_id from the injected module.
-        sys.modules["memory.project"].resolve_project_id.return_value = "resolved-x"
-        assert mod.extract_group_id(entry) == "resolved-x"
+        assert mod.extract_group_id(entry) is None
 
     def test_unknown_format_returns_none(self, monkeypatch):
         mod = _load_module(monkeypatch)
@@ -249,6 +269,7 @@ def _exhausted_entry(entry_id: str, group_id: str) -> dict:
             "content": "x" * 50,
             "type": "implementation",
             "group_id": group_id,
+            "source_hook": "manual",
         },
     }
 
@@ -335,6 +356,7 @@ class TestDeadLetterQueue:
                 "content": "x" * 50,
                 "type": "implementation",
                 "group_id": "g",
+                "source_hook": "manual",
             },
         }
         queue, storage = _wire_queue_storage(mod, [entry])
@@ -361,11 +383,13 @@ class TestL5RecoverableForms:
     """
 
     def test_store_async_hook_input_wrapper_drains_via_format2(self, monkeypatch):
-        """A {"hook_input": <PostToolUse event>} entry stores the extracted content."""
+        """A {"hook_input": <PostToolUse event>} entry stores the extracted content.
+
+        BP-180/BUG-522: group_id is read from the entry's persisted field, not
+        re-resolved from the stored cwd at drain time.
+        """
         mod = _load_module(monkeypatch)
-        sys.modules["memory.project"].resolve_project_id.return_value = (
-            "resolved-project"
-        )
+        sys.modules["memory.project"].resolve_project_id.reset_mock()
         storage = MagicMock()
         storage.store_memory.return_value = {"status": "stored", "memory_id": "m1"}
 
@@ -374,6 +398,7 @@ class TestL5RecoverableForms:
             "retry_count": 0,
             "max_retries": 3,
             "memory_data": {
+                "group_id": "persisted-project",
                 "hook_input": {
                     "tool_name": "Edit",
                     "tool_input": {
@@ -382,7 +407,7 @@ class TestL5RecoverableForms:
                     },
                     "session_id": "sess-1",
                     "cwd": "/repo",
-                }
+                },
             },
         }
 
@@ -397,9 +422,11 @@ class TestL5RecoverableForms:
             "content"
         ]
         assert kwargs["content"] == expected_content
-        assert kwargs["group_id"] == "resolved-project"
+        assert kwargs["group_id"] == "persisted-project"
         assert kwargs["memory_type"] == "implementation"
         assert kwargs["session_id"] == "sess-1"
+        # No drain-time cwd re-resolution (the BUG-522 regression).
+        sys.modules["memory.project"].resolve_project_id.assert_not_called()
 
     def test_error_store_direct_payload_drains_via_format1(self, monkeypatch):
         """A direct error-store payload stores its content/type/group_id/session_id."""
@@ -416,6 +443,7 @@ class TestL5RecoverableForms:
                 "type": "error_pattern",
                 "group_id": "myorg-myrepo",
                 "session_id": "sess-2",
+                "source_hook": "manual",
             },
         }
 
@@ -453,7 +481,6 @@ class TestFormatTwoTypeCoercion:
         """Write tool: stored content == extract_patterns enriched, type == implementation,
         collection derived from type (not hardcoded)."""
         mod = _load_module(monkeypatch)
-        sys.modules["memory.project"].resolve_project_id.return_value = "proj-td728"
         storage = MagicMock()
         storage.store_memory.return_value = {"status": "stored", "memory_id": "m-td728"}
 
@@ -467,12 +494,13 @@ class TestFormatTwoTypeCoercion:
             "retry_count": 0,
             "max_retries": 3,
             "memory_data": {
+                "group_id": "proj-td728",
                 "hook_input": {
                     "tool_name": "Write",
                     "tool_input": {"file_path": "api/users.py", "content": code},
                     "session_id": "sess-td728",
                     "cwd": "/myproject",
-                }
+                },
             },
         }
 
@@ -496,7 +524,6 @@ class TestFormatTwoTypeCoercion:
     def test_edit_tool_field_level_fidelity(self, monkeypatch):
         """Edit tool: enriched content + correct collection via get_collection_for_type."""
         mod = _load_module(monkeypatch)
-        sys.modules["memory.project"].resolve_project_id.return_value = "proj-edit"
         storage = MagicMock()
         storage.store_memory.return_value = {"status": "stored", "memory_id": "m-edit"}
 
@@ -509,6 +536,7 @@ class TestFormatTwoTypeCoercion:
             "retry_count": 0,
             "max_retries": 3,
             "memory_data": {
+                "group_id": "proj-edit",
                 "hook_input": {
                     "tool_name": "Edit",
                     "tool_input": {
@@ -517,7 +545,7 @@ class TestFormatTwoTypeCoercion:
                     },
                     "session_id": "sess-edit",
                     "cwd": "/myproject",
-                }
+                },
             },
         }
 
@@ -566,3 +594,131 @@ class TestFormatTwoTypeCoercion:
         ), f"decision type must land in {_COL_DISC!r}, got {call_kw['collection']!r}"
         assert call_kw["memory_type"] == "decision"
         assert call_kw["group_id"] == "proj-arch"
+
+
+class TestDrainLock:
+    """The shared drain lock makes the in-stack daemon and an on-session-start
+    drain mutually exclusive (never drain concurrently)."""
+
+    def test_second_acquire_is_nonblocking_false(self, monkeypatch, tmp_path):
+        mod = _load_module(monkeypatch)
+        monkeypatch.setattr(mod, "DRAIN_LOCK_FILE", tmp_path / "retry_drain.lock")
+
+        with mod.drain_lock() as first:
+            assert first is True
+            # A second acquisition while the first is held returns False (NB).
+            with mod.drain_lock() as second:
+                assert second is False
+
+        # Once released, the lock can be acquired again.
+        with mod.drain_lock() as third:
+            assert third is True
+
+
+class TestDrainScopeFidelity:
+    """BUG-522 regression: the drain scopes each entry by its PERSISTED group_id
+    and NEVER re-derives scope from a stored cwd at drain time.
+
+    The autouse _isolate_env fixture guarantees AI_MEMORY_PROJECT_ID is unset —
+    the exact contextless-cron environment where the old drain fail-louded.
+    """
+
+    def test_drains_under_persisted_group_id_without_cwd_redetect(self, monkeypatch):
+        """Persisted group_id wins; resolve_project_id is never called even though
+        the entry carries a stored cwd that does not resolve here."""
+        mod = _load_module(monkeypatch)
+
+        # Any drain-time resolve_project_id() call blows up — mirroring the
+        # contextless cron that could not resolve the producer's workspace (the
+        # very failure that made Fix B recover ≈0). If the drain calls it, the
+        # test fails loudly.
+        def _boom(*args, **kwargs):
+            raise ValueError(
+                "project detection failed — drain must not re-resolve at drain time"
+            )
+
+        sys.modules["memory.project"].resolve_project_id.side_effect = _boom
+
+        entry = {
+            "id": "scope-1",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "group_id": "proj-A",  # captured under proj-A
+                "hook_input": {
+                    "tool_name": "Write",
+                    "tool_input": {
+                        "file_path": "svc/app.py",
+                        "content": "def run():\n    return compute()\n",
+                    },
+                    "session_id": "s-scope",
+                    # cwd belongs to a different, unresolvable workspace — ignored.
+                    "cwd": "/mnt/e/projects/some-other-unresolvable-project",
+                },
+            },
+        }
+        queue, storage = _wire_queue_storage(mod, [entry])
+
+        stats = mod.process_queue()  # global drain, AI_MEMORY_PROJECT_ID unset
+
+        assert stats["success"] == 1, stats
+        kwargs = storage.store_memory.call_args.kwargs
+        assert kwargs["group_id"] == "proj-A"  # persisted, NOT cwd-derived
+        sys.modules["memory.project"].resolve_project_id.assert_not_called()
+        queue.dequeue.assert_called_once_with("scope-1")
+
+    def test_missing_source_hook_is_poison_never_stored_under_default(
+        self, monkeypatch, tmp_path
+    ):
+        """BUG-521: an entry without persisted source_hook is dead-lettered, never
+        stored with a synthesized 'retry' source_hook."""
+        mod = _load_module(monkeypatch)
+        dlq = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq)
+
+        entry = {
+            "id": "poison-hook",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "content": "x" * 50,
+                "type": "implementation",
+                "group_id": "g",
+                # no source_hook
+            },
+        }
+        queue, storage = _wire_queue_storage(mod, [entry])
+
+        stats = mod.process_queue()
+
+        assert stats["moved_to_dlq"] == 1
+        storage.store_memory.assert_not_called()
+        queue.dequeue.assert_called_once_with("poison-hook")
+        queue.mark_failed.assert_not_called()
+
+    def test_missing_group_id_never_stored_under_catch_all(self, monkeypatch, tmp_path):
+        """BUG-522/PM #380: an entry without persisted group_id is dead-lettered,
+        never stored under an 'unknown' catch-all group."""
+        mod = _load_module(monkeypatch)
+        dlq = tmp_path / "dlq.jsonl"
+        monkeypatch.setattr(mod, "DLQ_FILE", dlq)
+
+        entry = {
+            "id": "poison-grp",
+            "retry_count": 0,
+            "max_retries": 3,
+            "memory_data": {
+                "content": "x" * 50,
+                "type": "implementation",
+                "source_hook": "manual",
+                # no group_id
+            },
+        }
+        queue, storage = _wire_queue_storage(mod, [entry])
+
+        stats = mod.process_queue()
+
+        assert stats["moved_to_dlq"] == 1
+        storage.store_memory.assert_not_called()
+        queue.dequeue.assert_called_once_with("poison-grp")
+        queue.mark_failed.assert_not_called()

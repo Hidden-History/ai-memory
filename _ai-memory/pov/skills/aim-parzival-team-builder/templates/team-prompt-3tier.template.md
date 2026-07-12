@@ -1,6 +1,6 @@
 ---
 name: "team-prompt-3tier"
-description: "Output format for assembling a 3-tier (hierarchical) agent team prompt — Lead coordinates Managers (teammates) who spawn Workers (subagents) via Agent tool"
+description: "Output format for assembling a 3-tier (hierarchical) agent team prompt — Lead coordinates Managers (teammates) who spawn Workers (tmux teammates) via aim-agent-lifecycle"
 ---
 
 # 3-Tier Team Prompt Assembly Format
@@ -10,28 +10,30 @@ Use this template when assembling the final copy-pasteable prompt for a 3-tier t
 **Nesting structure**:
 ```
 Outer prompt (Parzival assembles -> User pastes into new session)
-  Manager 1 context (10 elements) — spawned as teammate (Agent tool + team_name)
-    Element 4: Worker 1 prompt (8 elements) — spawned as subagent (Agent tool, no team_name)
-    Element 4: Worker 2 prompt (8 elements) — spawned as subagent
-    Element 5: Review agent prompt — spawned as subagent
+  Manager 1 context (10 elements) — spawned as teammate (Agent tool + unique name)
+    Element 4: Worker 1 prompt (8 elements) — spawned as tmux teammate (aim-agent-lifecycle)
+    Element 4: Worker 2 prompt (8 elements) — spawned as tmux teammate
+    Element 5: Review agent prompt — spawned as tmux teammate
   Manager 2 context (10 elements) — spawned as teammate
-    Element 4: Worker prompts — spawned as subagents
-    Element 5: Review agent prompt — spawned as subagent
-  Lead Instructions (TeamCreate, TaskCreate, SendMessage, TeamDelete)
+    Element 4: Worker prompts — spawned as tmux teammates
+    Element 5: Review agent prompt — spawned as tmux teammate
+  Lead Instructions (Agent spawn, TaskCreate, SendMessage, shutdown_request)
   Task List
 ```
 
 **Claude Code tool mapping**:
-- **Lead** uses `TeamCreate` to create the team, then `Agent` tool with `team_name` + `name` to spawn each manager as a **teammate**
-- **Managers** (teammates) use `Agent` tool WITHOUT `team_name` to spawn workers as **subagents** — results return to manager, preventing context accumulation
+- **Lead** spawns each manager as a **teammate** via the `Agent` tool with a unique `name`
+- **Managers** (teammates) spawn worker **tmux teammates** via `/aim-agent-lifecycle` and coordinate with them via the built-in messaging system (`tmux send-keys` / `tmux capture-pane`)
 - **Communication** uses `SendMessage` (type: "message" for DMs, "shutdown_request" for shutdown)
 - **Task coordination** uses `TaskCreate`, `TaskUpdate`, `TaskList`
-- **Cleanup** uses `TeamDelete` (after all teammates shut down)
+- **Cleanup** uses the `shutdown_request` handshake, one per teammate (from the lead session)
 
-**Key principle**: Managers spawn workers as **Agent tool subagents** (not teammates). Each worker starts fresh with its own context. Results are summarized and returned to the manager.
+**Key principle**: Managers spawn worker **teammates via tmux** (aim-agent-lifecycle) and coordinate via the built-in messaging system. Each worker starts fresh with its own context and reports back to its manager by name. (This does not violate "only the lead spawns claude-native teammates" — workers are tmux teammates, not Claude Agent-Teams `name`-based members.)
+
+**Two-phase BMAD activation (GC-20):** every spawn carries ONLY its BMAD activation + a report-to-<spawning-lead> one-line (report by name: Parzival = `team-lead`, a Manager = its own name; never `main`), never the task. **Lead→Manager (claude-native):** the `prompt` is the Skill-tool-load form `Use the Skill tool to load bmad-<role> (the BMAD <role> persona).` (a bare `/bmad-*` in an Agent-tool prompt activates Parzival, not the persona); `mode: auto`; send the manager brief as ONE SendMessage after the greeting/menu lands. **Manager→Worker (tmux, /aim-agent-lifecycle):** launch the worker's pane with `--allowedTools`, activate by `tmux send-keys` of the live `/bmad-<role>` command (bare slash is correct in a fresh pane), detect the menu via `tmux capture-pane`, then send the worker task with a separate `tmux send-keys` (no `mode`, no Skill-tool-load, no SendMessage).
 
 ```
-Create a team called "{team_name}" with the description "{team_objective}".
+Spawn each teammate via the `Agent` tool (below).
 Then spawn {manager_count} manager teammates to {team_objective}.
 Use {default_model} for each teammate.
 Work only through managers -- do not implement directly (use delegate mode).
@@ -42,16 +44,19 @@ Manager 1: {manager_1_name}
 Spawn a teammate using the Agent tool with these parameters:
   name: "{manager_1_name}"
   model: "{manager_1_model}"
-  subagent_type: "general-purpose"
-  {manager_1_mode}
-  prompt: (below)
+  subagent_type: "{manager_1_subagent_type}"
+  mode: "auto"
+  prompt: "{manager_1_activation}
+You're activated as a manager teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
+
+Wait for {manager_1_name}'s activation reply. Then send the manager brief as ONE SendMessage — the 10-element block below, never bundled into the spawn prompt (GC-20):
 "
 MANAGER 1: {manager_1_name}
 
 1. ROLE: You are a workflow manager (foreman) for {manager_1_domain}. You spawn
-   workers using the Agent tool (subagent_type='general-purpose', no team_name),
-   enforce quality gates, and return verified work to the team lead.
-   You do NOT implement anything yourself. You do NOT write code,
+   worker teammates via tmux (/aim-agent-lifecycle) and coordinate with them via
+   the built-in messaging system, enforce quality gates, and return verified work
+   to the team lead. You do NOT implement anything yourself. You do NOT write code,
    edit files, or run tests directly.
 
 2. OBJECTIVE: {manager_1_objective}
@@ -63,13 +68,20 @@ MANAGER 1: {manager_1_name}
    Manager artifacts (if any): {manager_1_artifacts}
 
 4. WORKER ROSTER:
-   For each task, spawn a subagent using the Agent tool with
-   subagent_type='general-purpose' (do NOT pass team_name — workers are
-   subagents, not teammates):
+   For each task, spawn a worker teammate via tmux (/aim-agent-lifecycle) using
+   two-phase BMAD activation — launch the worker's pane with `--allowedTools`, then
+   `tmux send-keys` the live `/bmad-<role>` command into it (the `{worker_1_activation}`
+   command form; bare slash is correct in a fresh pane) so the persona activates
+   there; workers report to {manager_1_name} by name; detect the menu via `tmux
+   capture-pane`, then send the worker task with a separate `tmux send-keys` after
+   the menu appears:
 
    Worker 1: {worker_1_role}
-   Use: Agent tool, subagent_type='general-purpose', model='{worker_1_model}'
-   Prompt:
+   Spawn via /aim-agent-lifecycle, model='{worker_1_model}' (launches `claude --model {worker_1_model} --allowedTools …` in a pane; no `mode` — tmux, not Agent-tool).
+   Activation prompt: '{worker_1_activation}
+   You're activated as a worker under {manager_1_name}. Once activated, report your
+   activation reply to {manager_1_name}, then wait for instructions.'
+   Task message (sent after activation):
    'WORKER 1: {worker_1_role}
    1. ROLE: {worker_1_role_description}
    2. OBJECTIVE: {worker_1_objective}
@@ -78,30 +90,29 @@ MANAGER 1: {manager_1_name}
    4. CONSTRAINTS: {worker_1_constraints}
    5. BACKGROUND: {worker_1_context}
    6. DELIVERABLE: {worker_1_deliverable}
-   7. COORDINATION: Report completion to your caller (the manager) when done.
-      If blocked, report the blocker to your caller.
+   7. COORDINATION: Report completion to {manager_1_name} (your manager) by name when done.
+      If blocked, report the blocker to {manager_1_name}.
       Do NOT coordinate with other workers directly.
    8. SELF-VALIDATION: {worker_1_validation_checks}
       Do NOT report done until all checks pass.'
 
    Worker 2: {worker_2_role}
-   Use: Agent tool, subagent_type='general-purpose', model='{worker_2_model}'
-   Prompt:
+   Spawn via /aim-agent-lifecycle, model='{worker_2_model}' (same two-phase structure; no `mode` — tmux).
    '{same_8_element_structure}'
 
 5. REVIEW PROTOCOL:
    After EACH worker completes work:
-   a. Spawn a review subagent using the Agent tool
-      (subagent_type='general-purpose') with this prompt:
+   a. Spawn a review worker teammate via tmux (/aim-agent-lifecycle, two-phase;
+      no `mode` — tmux) and send it this review task:
       '{review_prompt_for_this_domain}'
    b. If review verdict is NEEDS REVISION:
       - Distill findings into a targeted fix prompt
-      - Spawn a new worker subagent with the fix prompt (fresh context)
-      - Worker fixes, re-spawn review subagent
+      - Spawn a FRESH worker teammate with the fix task (fresh context)
+      - Worker fixes, re-spawn a review worker
    c. Repeat steps b until review returns APPROVED (zero issues)
    d. HARD LIMIT: Maximum 3 review-fix cycles per deliverable.
-      If still failing after 3 cycles, ESCALATE to lead using
-      SendMessage (type: 'message', recipient: lead) with:
+      If still failing after 3 cycles, ESCALATE to team-lead using
+      SendMessage (to team-lead by name; never 'main') with:
       - What was attempted (3 cycle summaries)
       - What keeps failing and why
       - Your assessment of the blocker
@@ -117,9 +128,9 @@ MANAGER 1: {manager_1_name}
    {manager_1_quality_gates}
 
 8. CONSTRAINTS:
-   - DO NOT implement anything yourself -- spawn workers (Agent tool) for ALL implementation
+   - DO NOT implement anything yourself -- spawn worker teammates (tmux, /aim-agent-lifecycle) for ALL implementation
    - DO NOT skip review cycles -- every deliverable MUST pass review
-   - DO NOT communicate with other managers -- use SendMessage to report ONLY to lead
+   - DO NOT communicate with other managers -- use SendMessage to report ONLY to team-lead (by name; never 'main')
    - DO NOT exceed 3 review-fix cycles -- escalate after 3
    {manager_1_extra_constraints}
 
@@ -129,7 +140,7 @@ MANAGER 1: {manager_1_name}
 
 10. REPORTING:
     When all tasks complete and all reviews pass, use SendMessage
-    (type: 'message', recipient: lead) with:
+    (to team-lead by name; never 'main') with:
     - Summary of what was delivered (2-3 sentences)
     - List of files modified
     - Quality metrics: [X] tasks complete, [Y] review cycles total, [Z] issues found and fixed
@@ -141,9 +152,12 @@ Manager 2: {manager_2_name}
 Spawn a teammate using the Agent tool with:
   name: "{manager_2_name}"
   model: "{manager_2_model}"
-  subagent_type: "general-purpose"
-  {manager_2_mode}
-  prompt: (below)
+  subagent_type: "{manager_2_subagent_type}"
+  mode: "auto"
+  prompt: "{manager_2_activation}
+You're activated as a manager teammate under Parzival (team-lead). Once activated, SendMessage your activation reply to team-lead, then wait for my instructions before doing any work."
+
+Wait for the activation reply, then send the manager brief as ONE SendMessage (same 10-element structure as Manager 1):
 "{same_10_element_structure}"
 
 {repeat_for_each_manager}
@@ -166,7 +180,7 @@ Lead Instructions:
 - Synthesize results into {synthesis_deliverable}.
 - Report back with: {summary_format}.
 - After synthesis, shut down all managers using SendMessage (type: 'shutdown_request') to each manager.
-- After all managers confirm shutdown, clean up the team using TeamDelete.
+- After all managers confirm shutdown, cleanup is complete.
 
 {contract_first_addendum}
 ```
@@ -179,7 +193,7 @@ Add `isolation: "worktree"` to each manager's Agent tool spawn to give each mana
 Spawn a teammate using the Agent tool with:
   name: "{manager_name}"
   model: "{model}"
-  subagent_type: "general-purpose"
+  subagent_type: "{manager_subagent_type}"
   isolation: "worktree"
   prompt: "..."
 ```
@@ -192,7 +206,7 @@ Add `mode: "plan"` to each manager's Agent tool spawn to require the lead to app
 Spawn a teammate using the Agent tool with:
   name: "{manager_name}"
   model: "{model}"
-  subagent_type: "general-purpose"
+  subagent_type: "{manager_subagent_type}"
   mode: "plan"
   prompt: "..."
 ```

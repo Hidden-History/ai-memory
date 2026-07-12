@@ -60,9 +60,11 @@ ENV PYTHONUNBUFFERED=1 \
 # biggest easy win against that fragmentation. OMP_NUM_THREADS bounds OpenMP-governed
 # pools (BLAS, any OpenMP-built ONNX kernels), trading per-request throughput for a
 # lower, more predictable peak — acceptable since "process slowly" is the explicit goal.
-# Conservative image defaults; overridable via the compose env block / soak sizing.
+# TD-794 (PM #390 X1): 4 = the measured throughput sweet-spot (monotonic 2->3->4 gain, no
+# extra memory). This is the image fallback; compose overrides it via the env block, but
+# the baked default is kept in lockstep so the third thread-config location cannot drift.
 ENV MALLOC_ARENA_MAX=2 \
-    OMP_NUM_THREADS=2
+    OMP_NUM_THREADS=4
 
 # Install only runtime dependencies (curl for compose healthcheck)
 RUN apt-get update && \

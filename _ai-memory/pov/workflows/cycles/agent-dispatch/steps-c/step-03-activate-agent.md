@@ -10,7 +10,7 @@ nextStepFile: './step-04-send-instruction.md'
 
 ## STEP GOAL:
 
-Once the teammate is spawned with fresh context, activate the correct agent. For BMAD agents, use the appropriate activation command and verify readiness. For generic (non-BMAD) agents, no activation command is needed — proceed directly with instruction delivery.
+Once the teammate is spawned with fresh context, verify the correct agent activated. For BMAD agents the activation mechanic differs by dispatch path (see step-02 §5b): the Claude-native path embeds a Skill-tool-load in the spawn prompt; the tmux path sends the live `/bmad-<role>` command into the pane via `tmux send-keys`. Activation happens at spawn/launch — this step verifies readiness, it does not re-send activation. For generic (non-BMAD) agents, no activation is needed — proceed directly with instruction delivery.
 
 **Scope:**
 - Available context: The spawned teammate from step-02, the target agent identity
@@ -22,25 +22,13 @@ Once the teammate is spawned with fresh context, activate the correct agent. For
 **Behavioral Constraints:**
 - FORBIDDEN to send instruction before agent activation is verified (BMAD agents)
 - Approach: BMAD — activate, verify, then proceed. Generic — spawn and proceed to step-04. One agent per teammate only.
-- If BMAD activation fails, retry before proceeding — never send to unverified BMAD agent
+- If activation output doesn't arrive, apply the state-based stall check in §3 (idle is noise → inspect → respawn FRESH); never retry the activation command, never send to an unverified agent
 
 ## Sequence
 
 ### 1. Activate the BMAD Agent
 
-Use the appropriate agent activation command within the teammate context:
-- Analyst: /bmad-agent-analyst
-- PM: /bmad-agent-pm
-- Architect: /bmad-agent-architect
-- UX Designer: /bmad-agent-ux-designer
-- Sprint/story/retro: direct skills /bmad-sprint-planning, /bmad-create-story, /bmad-retrospective (no SM agent in v6.9.0)
-- DEV (implementation): /bmad-agent-dev
-- DEV (code review): /bmad-code-review
-- Tech Writer: /bmad-agent-tech-writer
-
-MUST use /bmad-code-review for ALL review agents. /bmad-agent-dev is for implementation ONLY.
-MUST use /bmad-agent-tech-writer for ALL documentation tasks (writing, updating, reviewing docs).
-MUST use /bmad-help whenever unsure which BMAD agent or workflow to use -- the list above is NOT exhaustive. Many more agents and workflows are available.
+BMAD activation is performed at spawn/launch and differs by dispatch path (see step-02 §5b): on the **Claude-native** path it is a **Skill-tool-load** embedded in the spawn prompt (`Use the Skill tool to load bmad-<role>`) — never a bare `/bmad-*` sent to an already-spawned Agent-tool teammate; on the **tmux** path the live `/bmad-<role>` command is sent into the fresh pane via `tmux send-keys` (see `/aim-agent-lifecycle`). See `/aim-agent-dispatch` **B4 (Verify Activation)** for the Claude-native two-phase form. Agent selection — which persona, plus the MUST-use rules (`/bmad-code-review` for ALL reviews, `/bmad-agent-tech-writer` for ALL docs, `/bmad-help` when unsure) — lives in `/aim-agent-dispatch` **B1 / Quick Selection Matrix**.
 
 ---
 
@@ -72,9 +60,10 @@ Confirm the agent is active and ready:
 
 ### 3. Do Not Proceed Until Verified (BMAD Agents Only)
 
-If activation fails or agent does not respond correctly:
-- Retry the activation command
-- If repeated failure, check team configuration
+If activation fails or agent does not respond correctly (state-based, not time-based):
+- Idle is noise — a slow load is not a stall; the teammate is working. Do NOT retry the activation command or nudge.
+- Inspect first: Claude-native = the spawn's first response / SendMessage reply; tmux = `tmux capture-pane`.
+- Only on a genuine stall (no activation output and no loading/work, or output stopped at a crash/error signature with no menu) respawn a FRESH teammate.
 - Do not send instruction to an unverified agent
 
 ---

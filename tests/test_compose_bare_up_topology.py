@@ -59,6 +59,31 @@ SECRET_CLASS_KEYS = [
 # Services that must declare env_file: with .env.secrets after TD-582.
 ENV_FILE_SERVICES = ["prometheus-init", "prometheus", "grafana", "qdrant"]
 
+# EmbeddingClient tunable knobs (src/memory/embeddings.py) that are documented in
+# docker/.env.example — the deliverable, effective-env-subset surface for TD-773.
+# Both classifier-worker (docker-compose.yml) and evaluator-scheduler
+# (docker-compose.langfuse.yml) bake src/memory and can call EmbeddingClient.embed(),
+# so both must receive the identical knob set (TD-773: evaluator-scheduler's
+# hand-maintained environment: allow-list never got EMBEDDING_TOTAL_TIMEOUT when
+# Fix A/PR #278 added it — a silent per-service divergence in embed wall-time
+# bounding). EMBEDDING_READ_TIMEOUT (TD-774) was consumed by embeddings.py but had
+# no docker/.env.example entry at all; now documented there and included here.
+EMBEDDING_CLIENT_KNOBS = {
+    "EMBEDDING_TOTAL_TIMEOUT",
+    "EMBEDDING_READ_TIMEOUT",
+    "EMBEDDING_READ_TIMEOUT_CODE",
+    "EMBEDDING_MAX_RETRIES",
+    "EMBEDDING_BACKOFF_BASE",
+    "EMBEDDING_BACKOFF_CAP",
+    # TD-782/788 timeout-coherence knobs: the acquire/inference terms feed the
+    # coherent read-timeout floor AND (BP-184) the reserved attempt window used by
+    # embed()'s submit-rate pacing; both baking services must receive them.
+    "EMBEDDING_ACQUIRE_TIMEOUT",
+    "EMBEDDING_INFERENCE_TIMEOUT",
+    # PLAN-030 WI-10 load-shaping: the client submit-rate ceiling.
+    "EMBEDDING_CLIENT_MAX_TXT_PER_SEC",
+}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -663,6 +688,17 @@ EXPECTED_CONSUMER_ENV_PER_SERVICE: dict[str, set[str]] = {
         "GF_SECURITY_SECRET_KEY",
         "PROMETHEUS_ADMIN_PASSWORD",
     },
+    # TD-773: services baking src/memory must both receive EmbeddingClient's knobs.
+    "classifier-worker": EMBEDDING_CLIENT_KNOBS,
+    "evaluator-scheduler": EMBEDDING_CLIENT_KNOBS,
+}
+
+# classifier-worker lives in docker-compose.yml; evaluator-scheduler lives in
+# docker-compose.langfuse.yml (TD-773 — the two-file split is the root cause:
+# YAML anchors/x-* fields are file-scoped, docker/compose#5621). Services not
+# listed here are assumed to live in docker-compose.yml (the pre-TD-773 default).
+SERVICE_COMPOSE_FILE = {
+    "evaluator-scheduler": DOCKER_COMPOSE_LANGFUSE_PATH,
 }
 
 # Path containing docker-compose.yml — env_file: paths are relative to it,
@@ -795,11 +831,24 @@ class TestEffectiveContainerEnvCoverage:
         with open(DOCKER_COMPOSE_PATH) as fh:
             return yaml.safe_load(fh)
 
+    @pytest.fixture(scope="class")
+    def langfuse_config(self):
+        with open(DOCKER_COMPOSE_LANGFUSE_PATH) as fh:
+            return yaml.safe_load(fh)
+
     @pytest.mark.parametrize("service", sorted(EXPECTED_CONSUMER_ENV_PER_SERVICE))
     def test_effective_env_satisfies_consumer_expectations(
-        self, source_config, service
+        self, source_config, langfuse_config, service
     ):
-        block = source_config["services"][service]
+        # TD-773: service may live in docker-compose.yml or docker-compose.langfuse.yml
+        # (SERVICE_COMPOSE_FILE) — anchors are file-scoped so the two files' services
+        # must be checked against their own source file.
+        config = (
+            langfuse_config
+            if SERVICE_COMPOSE_FILE.get(service) == DOCKER_COMPOSE_LANGFUSE_PATH
+            else source_config
+        )
+        block = config["services"][service]
         effective = _effective_env(block)
         expected = EXPECTED_CONSUMER_ENV_PER_SERVICE[service]
         missing = expected - effective
@@ -1222,4 +1271,40 @@ class TestEvaluatorSchedulerLangfuseEnv:
             f"evaluator-scheduler: LANGFUSE_ENABLED={langfuse_val!r}; expected 'true' — "
             "a false value disables the bounded atexit drain registered by "
             "_register_langfuse_shutdown() (TD-698, F-ADV-1)"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TD-773 — evaluator-scheduler env_file: replicated-anchor parity
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluatorSchedulerEnvFileAnchorParity:
+    """evaluator-scheduler's env_file: list must match x-python-service-defaults's
+    env_file: list path-for-path.
+
+    Anchors/x-* fields are file-scoped (docker/compose#5621) — evaluator-scheduler
+    (docker-compose.langfuse.yml) cannot reference the anchor defined in
+    docker-compose.yml, so its env_file: list is a literal duplicate (TD-773 fix).
+    This is the only static guard against the two lists silently drifting apart
+    again (e.g. a future knob added only to one file's env_file: list).
+    """
+
+    def test_env_file_matches_python_service_defaults_anchor(self):
+        with open(DOCKER_COMPOSE_PATH) as fh:
+            main_compose = yaml.safe_load(fh)
+        anchor_env_file = main_compose["x-python-service-defaults"]["env_file"]
+
+        with open(DOCKER_COMPOSE_LANGFUSE_PATH) as fh:
+            langfuse_compose = yaml.safe_load(fh)
+        evaluator_service = langfuse_compose["services"]["evaluator-scheduler"]
+
+        assert "env_file" in evaluator_service, (
+            "evaluator-scheduler must have an env_file: block (TD-773 fix) — "
+            "docker-compose.langfuse.yml structure changed?"
+        )
+        assert evaluator_service["env_file"] == anchor_env_file, (
+            "evaluator-scheduler's env_file: list has drifted from "
+            "x-python-service-defaults's anchor list in docker-compose.yml. "
+            f"anchor={anchor_env_file!r} evaluator={evaluator_service['env_file']!r}"
         )

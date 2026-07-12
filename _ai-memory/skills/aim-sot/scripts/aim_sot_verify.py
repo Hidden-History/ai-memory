@@ -71,6 +71,7 @@ _project_root_from_registry = _dp._project_root_from_registry
 _sha256_short = _dp._sha256_short
 _read_drift_cache = _dp._read_drift_cache
 _discover_candidates = _dp._discover_candidates
+_load_registry_config = _dp._load_registry_config
 _filter_new_candidates = _dp._filter_new_candidates
 _DRIFT_CACHE_DIR = _dp._DRIFT_CACHE_DIR
 # TD-749: single source of the promote-sentinel literal — S1 fails any entry
@@ -944,6 +945,7 @@ def _run_all_checks(
     project_id_resolved: bool = True,
     cache_populated: bool = False,
     discover: bool = True,
+    excludes: tuple = (),
 ) -> tuple[list[dict], list[dict]]:
     """Run checks S1-S4 / R1-R4 / C1-C4 / K1-K4.
 
@@ -956,6 +958,9 @@ def _run_all_checks(
     set for a non-conforming flat --registry root so verify matches
     detect-propose's M5 skip-discovery contract instead of scanning the
     registry's directory and emitting spurious C1 warnings.
+    excludes: the registry's committed ``exclude:`` set (effective_excludes) so
+    C1 discovery applies the SAME exclude semantics as detect-propose and never
+    flags an intentionally-excluded tree as an undeclared candidate (I6/BP-049).
     Returns (failures, warnings).
     """
     failures: list[dict] = []
@@ -985,7 +990,9 @@ def _run_all_checks(
     warnings.extend(w)
 
     # C1 / C2 (no-op) / C3 / C4 (no-op)
-    discovered = _discover_candidates(project_root) if discover else []
+    discovered = (
+        _discover_candidates(project_root, excludes=excludes) if discover else []
+    )
     f, w = _check_C1(entries, discovered)
     failures.extend(f)
     warnings.extend(w)
@@ -1214,6 +1221,12 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
             file=sys.stderr,
         )
 
+    # --- C1 discovery excludes: honor the committed registry `exclude:` config so
+    #     verify's discovery matches detect-propose's and never flags an excluded
+    #     tree as an undeclared candidate (I6/BP-049). Only a committed registry
+    #     carries the config; cold-start proposal discovery keeps the default. ---
+    excludes = _load_registry_config(registry_path)[0] if registry_exists else ()
+
     # --- Run all 16 checks ---
     failures, warnings = _run_all_checks(
         verify_entries,
@@ -1228,6 +1241,7 @@ def cmd_run(args: argparse.Namespace, *, _urlopen=None) -> int:
         project_id_resolved=project_id_resolved,
         cache_populated=cache_populated,
         discover=project_root is not None,
+        excludes=excludes,
     )
 
     # --- S3 was checked above and passed; include it in the full verdict ---
