@@ -114,6 +114,7 @@ See [agent-selection-guide.md](data/agent-selection-guide.md) for detailed role 
 | Write and run tests | `/bmad-qa-generate-e2e-tests` (direct skill) | DEV | Execution |
 | Design test architecture/strategy | `/bmad-tea` (direct skill) | DEV | Planning |
 | Small feature, solo workflow | `/bmad-quick-dev` (direct skill) | DEV | Execution |
+| Research best practices / conventions / coding standards | `/aim-best-practices-researcher` (direct skill) | hand-rolled web search | Research |
 
 ### Agent Combination Sequences
 
@@ -169,6 +170,8 @@ MUST spawn fresh agent for every task -- never reuse across roles or stories.
 
 MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-code-review` for ALL review agents (never `/bmad-agent-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
 
+MUST route ALL best-practice / conventions / coding-standard research through `/aim-best-practices-researcher` -- never hand-run web searches for this. The skill saves the finding to a BP file and stores it to the project-scoped conventions collection, so hand-rolling the research loses it to future sessions.
+
 **Workflow commands by phase** (sent AFTER activation, when in planning mode):
 
 | Phase | Agent | Workflow Command |
@@ -183,6 +186,7 @@ MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updatin
 | Planning | (direct skill) | `/bmad-sprint-planning`, `/bmad-create-story` |
 | Execution | DEV | `/bmad-dev-story` |
 | Execution | DEV | `/bmad-code-review` |
+| Research | (direct skill) | `/aim-best-practices-researcher` |
 | Release | (direct skill) | `/bmad-retrospective` |
 
 Set `AI_MEMORY_AGENT_ID` environment variable when spawning.

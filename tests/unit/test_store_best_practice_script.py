@@ -56,9 +56,16 @@ def _make_resolve_mock(
 def _make_store_mock(
     status: str = "stored",
     memory_id: str | None = "mem-abc-001",
+    embedding_status: str | None = "complete",
 ) -> MagicMock:
     m = MagicMock()
-    m.return_value = {"status": status, "memory_id": memory_id}
+    payload: dict[str, object] = {"status": status, "memory_id": memory_id}
+    # The real store_best_practice always returns embedding_status on a stored
+    # result; default to "complete" so the happy path is exercised. Pass None to
+    # simulate a legacy/absent field.
+    if embedding_status is not None:
+        payload["embedding_status"] = embedding_status
+    m.return_value = payload
     return m
 
 
@@ -260,6 +267,47 @@ def test_no_env_explicit_no_group_id_calls_resolver_without_explicit(monkeypatch
     resolve_mock.assert_called_once()
     # explicit= must be None — resolver handles env/marker/git tiers internally
     assert resolve_mock.call_args.kwargs.get("explicit") is None
+
+
+def test_stored_pending_embedding_warns_and_exits_3(monkeypatch, capsys):
+    """Stored but embedding_status='pending' → WARN to stderr, no green 'Stored',
+    exit 3 (#287: a zero-vector placeholder is not semantically searchable).
+    """
+    resolve_mock = _make_resolve_mock("any-project")
+    store_mock = _make_store_mock(
+        status="stored", memory_id="mem-pending-1", embedding_status="pending"
+    )
+    _inject_fakes(monkeypatch, resolve_mock, store_mock)
+    monkeypatch.setattr(sys, "argv", _BASE_ARGV)
+    monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
+
+    mod = _load_module()
+    rc = mod.main()
+
+    assert rc == 3
+    out, err = capsys.readouterr()
+    assert "Stored: mem-pending-1" not in out
+    assert "WARNING" in err
+    assert "pending" in err
+
+
+def test_stored_missing_embedding_status_treated_as_degraded(monkeypatch, capsys):
+    """A stored result with no embedding_status field is treated as degraded
+    (exit 3, WARN) rather than falsely reported complete."""
+    resolve_mock = _make_resolve_mock("any-project")
+    store_mock = _make_store_mock(
+        status="stored", memory_id="mem-none-1", embedding_status=None
+    )
+    _inject_fakes(monkeypatch, resolve_mock, store_mock)
+    monkeypatch.setattr(sys, "argv", _BASE_ARGV)
+    monkeypatch.delenv("AI_MEMORY_PROJECT_ID", raising=False)
+
+    mod = _load_module()
+    rc = mod.main()
+
+    assert rc == 3
+    _, err = capsys.readouterr()
+    assert "WARNING" in err
 
 
 def test_no_sys_path_insert_in_script():
