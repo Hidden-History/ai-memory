@@ -35,6 +35,7 @@ from memory.logging_config import StructuredFormatter
 from memory.metrics_push import push_skill_metrics_async
 from memory.project import resolve_project_id
 from memory.search import MemorySearch
+from memory.secrets_env import is_auth_error
 
 # Configure structured logging
 handler = logging.StreamHandler()
@@ -249,12 +250,12 @@ def main() -> int:
         # Initialize search
         memory_search = MemorySearch()
         all_results = []
+        auth_failed = False
 
         for collection in collections:
             try:
                 # Use current project's group_id for filtering
-                # conventions uses "universal" group_id
-                group_id = "universal" if collection == "conventions" else project_name
+                group_id = project_name
 
                 # Build search parameters
                 search_params = {
@@ -281,10 +282,32 @@ def main() -> int:
                     "collection_search_failed",
                     extra={"collection": collection, "error": str(e)},
                 )
-                print(f"⚠️  Could not search {collection}: {e}", file=sys.stderr)
+                if is_auth_error(str(e)):
+                    auth_failed = True
+                    print(
+                        f"❌ Memory search auth FAILED ({collection}): {e}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(f"⚠️  Could not search {collection}: {e}", file=sys.stderr)
 
         # Calculate duration
         duration_ms = (time.time() - start_time) * 1000
+
+        # Auth failure: do NOT present a clean "no results" success — the
+        # knowledge base was never consulted. Fail loud and exit non-zero.
+        if auth_failed:
+            print(
+                "\n❌ Memory search auth FAILED (401) — knowledge base NOT "
+                "consulted; results are incomplete",
+                file=sys.stderr,
+            )
+            push_skill_metrics_async(
+                skill_name="search-memory",
+                status="failed",
+                duration_seconds=duration_ms / 1000.0,
+            )
+            return 1
 
         # Summary
         if all_results:

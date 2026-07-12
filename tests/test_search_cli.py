@@ -231,6 +231,70 @@ class TestSearchCLIIntegration:
         )
 
     @patch("search_cli.push_skill_metrics_async")
+    @patch("search_cli.log_memory_search")
+    @patch("search_cli.MemorySearch")
+    @patch("search_cli.resolve_project_id")
+    def test_conventions_uses_project_group_id_not_universal(
+        self, mock_detect, mock_search_class, mock_log, mock_metrics
+    ):
+        """#271: conventions search must use the resolved project id, not "universal".
+
+        Regression for the store/search group_id mismatch: writes store under the
+        project id (resolve_project_id) while search read the literal "universal",
+        so conventions never matched. Store-form must equal search-form.
+        """
+        mock_detect.return_value = "lsp-app"
+        mock_search = MagicMock()
+        mock_search_class.return_value = mock_search
+        mock_search.search.return_value = []
+
+        with patch(
+            "sys.argv", ["search_cli.py", "auth", "--collection", "conventions"]
+        ):
+            result = search_cli.main()
+
+        call_args = mock_search.search.call_args_list
+        assert len(call_args) == 1, "Should search exactly one collection"
+        group_id = call_args[0].kwargs.get("group_id")
+        assert group_id == "lsp-app", f"Expected resolved project id, got {group_id}"
+        assert group_id != "universal", "conventions must not search under 'universal'"
+        assert result == 0
+
+    @patch("search_cli.push_skill_metrics_async")
+    @patch("search_cli.log_memory_search")
+    @patch("search_cli.MemorySearch")
+    @patch("search_cli.resolve_project_id")
+    def test_auth_failure_fails_loud_no_false_success(
+        self, mock_detect, mock_search_class, mock_log, mock_metrics, capsys
+    ):
+        """#270: a 401 must fail loud and NOT present a clean "no results" success."""
+        mock_detect.return_value = "lsp-app"
+        mock_search = MagicMock()
+        mock_search_class.return_value = mock_search
+        mock_search.search.side_effect = Exception(
+            "Search failed: Unexpected Response: 401 (Unauthorized)"
+        )
+
+        with patch(
+            "sys.argv", ["search_cli.py", "auth", "--collection", "conventions"]
+        ):
+            result = search_cli.main()
+
+        captured = capsys.readouterr()
+        combined = captured.out + captured.err
+        assert result == 1, "Auth failure must exit non-zero"
+        assert (
+            "auth FAILED" in combined
+        ), "Must print an unmistakable auth-failure marker"
+        assert (
+            "No memories found matching your query" not in combined
+        ), "Must NOT present the false 'no results' success on auth failure"
+        assert "✅ Total" not in combined
+        # Auth failure is reported as a failed search, not an empty success.
+        mock_metrics.assert_called_once()
+        assert mock_metrics.call_args.kwargs.get("status") == "failed"
+
+    @patch("search_cli.push_skill_metrics_async")
     @patch("search_cli.resolve_project_id")
     def test_invalid_type_rejected(self, mock_detect, mock_metrics):
         """Invalid --type value returns error."""
