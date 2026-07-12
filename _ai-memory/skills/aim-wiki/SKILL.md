@@ -125,7 +125,9 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 ```
 The engine extracts every inline source citation from the wiki pages and checks
 each cited path exists (a deterministic dead-citation precheck — dead paths are
-immediate drift; fix them). Then **dispatch a read-only verifier subagent** (via
+immediate drift; fix them). A citation is a full file path or a trailing-`/`
+directory reference (e.g. `` `src/handlers/` ``); both forms are checked. Then
+**dispatch a read-only verifier subagent** (via
 the `Task` tool, read-only) with the manifest: it cross-checks that each page's
 **claims** match the cited source — a claim can cite a real file yet misdescribe
 it. It inspects and reports only; it does not edit. One pass, not a multi-round

@@ -122,6 +122,58 @@ def test_slash_prose_not_flagged(tmp_path):
     assert m["dead_count"] == 1, "only src/gone.py is dead"
 
 
+def test_bare_basename_citation_flags_dead(tmp_path):
+    """Pins the pre-existing `_resolve` behavior that page-structure.md's
+    "citations must be full paths, never a bare filename" guidance documents:
+    a bare-basename backtick citation (no path) cannot resolve even when the
+    file exists elsewhere in the repo — only root-relative / page-relative
+    forms are supported. This behavior predates and is unchanged by that doc
+    update; it is not new-code coverage."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "storage.py").write_text("pass\n", encoding="utf-8")
+    _page(tmp_path, "quickstart.md", "See `storage.py` for the store.\n")
+    m = build_manifest(tmp_path)
+    dead_refs = {(d["page"], d["ref"]) for d in m["dead_citations"]}
+    assert ("wiki/quickstart.md", "storage.py") in dead_refs
+    assert m["dead_count"] == 1
+
+
+def test_dir_citation_resolves_and_flags(tmp_path):
+    """W5: a `/`-terminated backtick citation is checked for directory
+    existence — a real directory resolves live, a missing one is dead."""
+    (tmp_path / "src" / "handlers").mkdir(parents=True)
+    _page(
+        tmp_path,
+        "quickstart.md",
+        "Handlers live in `src/handlers/`. Missing: `src/absent/`.\n",
+    )
+    m = build_manifest(tmp_path)
+    refs = {c["ref"]: c["exists"] for p in m["pages"] for c in p["citations"]}
+    assert refs["src/handlers/"] is True
+    assert refs["src/absent/"] is False
+    assert m["dead_count"] == 1
+
+
+def test_dir_ref_overmatch_excluded(tmp_path):
+    """A `/`-terminated backtick token is only treated as a directory citation
+    when it plausibly is one: an absolute-path/API-route shape (`/api/v1/`),
+    a sed-style substitution (`s/foo/bar/`), and pure `.`/`..` traversal
+    (`../`) must NOT be flagged as dead citations — none of them are real
+    repo-relative directory references."""
+    _page(
+        tmp_path,
+        "quickstart.md",
+        "Route: `/api/v1/`. Substitution: `s/foo/bar/`. Parent: `../`.\n",
+    )
+    m = build_manifest(tmp_path)
+    refs = {c["ref"] for p in m["pages"] for c in p["citations"]}
+    assert "/api/v1/" not in refs
+    assert "s/foo/bar/" not in refs
+    assert "../" not in refs
+    assert m["citation_count"] == 0
+    assert m["dead_count"] == 0
+
+
 def test_empty_wiki(tmp_path):
     (tmp_path / "wiki").mkdir()
     m = build_manifest(tmp_path)
