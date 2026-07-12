@@ -526,6 +526,66 @@ def test_C1_unregistered(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# T-VF-C1-exclude — I6: real cmd_run discovery honors the committed exclude: set
+# ---------------------------------------------------------------------------
+
+
+def test_C1_honors_registry_exclude_via_cmd_run(tmp_path):
+    """I6: cmd_run's C1 discovery applies the registry's committed exclude: config,
+    so an excluded top-level dir is NOT flagged as an unregistered candidate.
+
+    Uses REAL discovery (not the mocked _discover_candidates in _run_cmd) to
+    exercise the excludes plumbing end-to-end: _load_registry_config → _run_all_checks
+    → _discover_candidates.
+    """
+    # A registered entry (so R1 resolves) + a stray top-level dir that discovery
+    # would otherwise surface as an unregistered C1 candidate.
+    entry = _good_entry(tmp_path, "core")
+    (tmp_path / "vendor").mkdir()
+    (tmp_path / "vendor" / "lib.py").write_text("x", encoding="utf-8")
+
+    sot_dir = tmp_path / ".sot"
+    sot_dir.mkdir(exist_ok=True)
+    reg = sot_dir / "registry.yaml"
+
+    def _write(exclude):
+        data = {"schema_version": "1.0", "entries": [entry]}
+        if exclude is not None:
+            data["exclude"] = exclude
+        reg.write_text(yaml.dump(data), encoding="utf-8")
+
+    def _run_real_discovery() -> dict:
+        import io
+        from contextlib import redirect_stdout
+
+        args = _make_args(registry=str(reg))
+        buf = io.StringIO()
+        with (
+            patch.object(vf, "_resolve_project_id", return_value="test-proj"),
+            patch.object(vf, "_read_drift_cache", return_value={"components": {}}),
+            patch.object(vf, "_drift_state_populated", return_value=False),
+            redirect_stdout(buf),
+        ):
+            vf.cmd_run(args)
+        return json.loads(buf.getvalue())
+
+    # Control: without exclude, 'vendor/' surfaces as an unregistered C1 candidate.
+    _write(None)
+    v_no_excl = _run_real_discovery()
+    assert any(
+        w["check"] == "C1" and "vendor" in w["detail"] for w in v_no_excl["warnings"]
+    ), "expected vendor/ to be an unregistered C1 candidate without an exclude"
+
+    # I6: with vendor/ excluded, discovery skips it → no C1 warning naming it.
+    _write(["vendor/"])
+    v_excl = _run_real_discovery()
+    assert not any(
+        w["check"] == "C1" and "vendor" in w.get("detail", "")
+        for w in v_excl["warnings"]
+    ), "registry exclude: vendor/ must suppress the C1 candidate (I6)"
+
+
+# ---------------------------------------------------------------------------
 # T-VF-C2-pass — no orphan entries (always PASS)
 # ---------------------------------------------------------------------------
 

@@ -395,7 +395,7 @@ values only — a blank/invalid value keeps the default):
 | `AI_MEMORY_SOT_DIGEST_MAX_SECONDS` | `10.0` | tree-digest wall-time |
 | `AI_MEMORY_SOT_DIGEST_MAX_FILES` | `20000` | tree-digest file count |
 | `AI_MEMORY_SOT_DISCOVERY_MAX_SECONDS` | `6.0` | discovery-scan wall-time |
-| `AI_MEMORY_SOT_DISCOVERY_MAX_DIRS` | `5000` | discovery-scan directory count |
+| `AI_MEMORY_SOT_DISCOVERY_MAX_DIRS` | `15000` | discovery-scan directory count |
 
 If you see the `budget-truncated` warning, raise the relevant budget **or**
 narrow the registry exclude set so fewer files are walked (operator-side exclude

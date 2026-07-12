@@ -28,7 +28,7 @@ When the agent signals completion, Parzival reviews the output before anything e
 
 ### 1. Run Output Review Checklist
 
-For the agent's output, verify:
+For the agent's output — re-read the produced files from disk (cold verification), never the agent's completion claim — verify:
 - Did the agent complete everything listed in DONE WHEN criteria?
 - Does the output match the OUTPUT EXPECTED specification?
 - Does the output comply with all cited requirements?

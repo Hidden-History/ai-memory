@@ -37,7 +37,7 @@ Send the complete instruction from step-01 using SendMessage:
 - Send once — do not re-send while agent is working
 - If instruction needs clarification, wait for agent to flag it
 
-#### For BMAD skill-driven agents (activated via `/bmad-agent-{type}`):
+#### For BMAD skill-driven agents (Skill-tool-load activation per /aim-agent-dispatch B4):
 
 First SendMessage asks for recommendation — do NOT send the full work plan:
 - Send: TASK (target) + CONTEXT (minimal) + DONE WHEN (from step-01 section 2b) + "What do you recommend and why?"

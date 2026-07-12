@@ -100,12 +100,12 @@ These checks apply only when agents are actively being dispatched or their outpu
   If NO: Revise before next dispatch.
   Ref: `{constraints_path}/global/GC-11-precise-instructions.md`
 
-- [ ] **GC-19: Have I spawned any agent without team_name (standalone subagent)?**
-  If YES: Stop. Recreate as teammate with team_name.
+- [ ] **GC-19: Have I spawned any agent without a unique `name` / AI_MEMORY_AGENT_ID (standalone subagent)?**
+  If YES: Stop. Recreate with a unique `name` / AI_MEMORY_AGENT_ID.
   Ref: `{constraints_path}/global/GC-19-spawn-agents-as-teammates.md`
 
-- [ ] **GC-20: Have I included instruction in a BMAD activation message?**
-  If YES: Re-send — activation first, wait for menu, then instruct separately.
+- [ ] **GC-20: Have I included a task instruction in a BMAD activation message?**
+  If YES: Re-send — activation (+ routing directive if needed) first, wait for menu, then instruct separately.
   Ref: `{constraints_path}/global/GC-20-no-instruction-in-activation.md`
 
 ---
@@ -139,7 +139,7 @@ These checks apply only when agents are actively being dispatched or their outpu
 |---|---|---|
 | GC-9 | Reviewed agent output? | Review now |
 | GC-11 | Instructions precise? | Revise |
-| GC-19 | Agent spawned without team_name? | Recreate as teammate |
-| GC-20 | Instruction in activation message? | Re-send separately after menu |
+| GC-19 | Agent spawned without a unique `name`? | Recreate with a unique name |
+| GC-20 | Task instruction in activation message? | Re-send separately after menu |
 
 **Any failure = immediate correction. No exceptions. No deferral.**

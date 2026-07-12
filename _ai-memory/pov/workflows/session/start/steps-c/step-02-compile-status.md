@@ -77,7 +77,7 @@ Flag if:
 - Task tracker shows a task as "doing" but handoff says it was completed
 - Blockers reference tasks that are marked as done
 - Risk register has not been updated recently
-- Any tracking file was missing
+- Any tracking file was missing — only when `project-status.md` frontmatter has `baseline_complete: true`. On a pre-baseline project (`baseline_complete: false` or absent), missing tracking files are expected setup state, not an anomaly — do not flag.
 - A bug/TD INDEX `**Last Updated**` date is well behind the current session — stale INDEX; flag it (run `/aim-tracking-freshness` to refresh)
 
 Note these as items to mention during presentation, not as recommendations.
