@@ -59,6 +59,9 @@ to these rules.
   filename** (`` `app.py` ``). The verifier only resolves those two forms; a bare
   basename cannot be matched to a real file and will show as a dead citation even
   when the file exists elsewhere in the repo.
+- A trailing-`/` directory citation (e.g. `` `src/handlers/` ``) is also a
+  recognized citation form — the verifier checks it against the repo tree the
+  same way as a full file path.
 - Prefer current source over stale docs. If existing docs conflict with the code or
   git history, flag the likely-stale doc and prefer the source evidence.
 - Explain **why** important code exists, not only what files contain. Use git
