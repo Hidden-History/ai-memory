@@ -2006,7 +2006,7 @@ def search_memories(
         attach_raw_cosine: When True, attach an absolute raw-cosine ``raw_score``
                    to each result (BUG-319/BP-058, GH #317) instead of relying on
                    the RRF-fused/rank-normalized ``score``. Off by default; set
-                   True only when the caller needs a calibrated absolute
+                   True only when the caller needs an uncalibrated, absolute
                    relevance signal (e.g. a Phase-1 accept/skip gate).
 
     Returns:
