@@ -54,6 +54,11 @@ to these rules.
 - Include inline source references (e.g. `` `src/app.py` `` or a link to the file)
   where they help a reader verify or continue exploring. These citations are what
   the `verify` manifest and the read-only verifier subagent check.
+- **Citations must be full paths** — repo-root-relative (`` `src/app.py` ``) or a
+  valid page-relative link (`` [readme](../README.md) ``) — **never a bare
+  filename** (`` `app.py` ``). The verifier only resolves those two forms; a bare
+  basename cannot be matched to a real file and will show as a dead citation even
+  when the file exists elsewhere in the repo.
 - Prefer current source over stale docs. If existing docs conflict with the code or
   git history, flag the likely-stale doc and prefer the source evidence.
 - Explain **why** important code exists, not only what files contain. Use git
