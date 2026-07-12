@@ -608,6 +608,91 @@ class TestSearchMemories:
                 or call_kwargs[1].get("source") == "github"
             )
 
+    def test_search_memories_attach_raw_cosine_passthrough(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories(attach_raw_cosine=True) surfaces raw_score (BP-058/#317)."""
+        from unittest import mock
+
+        from src.memory.search import MemorySearch, search_memories
+
+        with mock.patch.object(
+            MemorySearch,
+            "search",
+            return_value=[{"id": "1", "score": 0.95, "raw_score": 0.81}],
+        ) as mock_search:
+            results = search_memories(
+                query="test",
+                group_id="test-project",
+                collection="conventions",
+                attach_raw_cosine=True,
+            )
+            mock_search.assert_called_once()
+            call_kwargs = mock_search.call_args
+            assert (
+                call_kwargs.kwargs.get("attach_raw_cosine") is True
+                or call_kwargs[1].get("attach_raw_cosine") is True
+            )
+            assert results[0]["raw_score"] == 0.81
+
+    def test_search_memories_attach_raw_cosine_default_false(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories() defaults attach_raw_cosine to False (backward compatible)."""
+        from unittest import mock
+
+        from src.memory.search import MemorySearch, search_memories
+
+        with mock.patch.object(MemorySearch, "search", return_value=[]) as mock_search:
+            search_memories(
+                query="test",
+                group_id="test-project",
+                collection="conventions",
+            )
+            mock_search.assert_called_once()
+            call_kwargs = mock_search.call_args
+            assert (
+                call_kwargs.kwargs.get("attach_raw_cosine") is False
+                or call_kwargs[1].get("attach_raw_cosine") is False
+            )
+
+    def test_search_memories_cascading_attach_raw_cosine_passthrough(
+        self, mock_config, mock_qdrant_client, mock_embedding_client
+    ):
+        """search_memories(use_cascading=True, attach_raw_cosine=True) forwards
+        attach_raw_cosine=True into cascading_search() (BP-058/#317 cascading branch).
+
+        The existing passthrough tests only exercise the direct-collection branch
+        of search_memories(); this locks the search_memories() -> cascading_search()
+        boundary — i.e. that the kwarg is forwarded when the cascading branch is
+        taken. It mocks cascading_search() directly, so it does NOT exercise
+        cascading_search's internal threading of attach_raw_cosine into its own
+        .search() call; that internal behavior is source-visible/unchanged and not
+        re-tested here (proportionate).
+        """
+        from unittest import mock
+
+        from src.memory.search import MemorySearch, search_memories
+
+        with mock.patch.object(
+            MemorySearch,
+            "cascading_search",
+            return_value=[{"id": "1", "score": 0.95, "raw_score": 0.81}],
+        ) as mock_cascading_search:
+            results = search_memories(
+                query="how to implement caching",
+                group_id="test-project",
+                use_cascading=True,
+                attach_raw_cosine=True,
+            )
+            mock_cascading_search.assert_called_once()
+            call_kwargs = mock_cascading_search.call_args
+            assert (
+                call_kwargs.kwargs.get("attach_raw_cosine") is True
+                or call_kwargs[1].get("attach_raw_cosine") is True
+            )
+            assert results[0]["raw_score"] == 0.81
+
 
 class TestSearchParams:
     """Tests for hnsw_ef parameter tuning (TECH-DEBT-066)."""

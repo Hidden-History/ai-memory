@@ -64,6 +64,12 @@ dependencies = [
     "en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     # Cron schedule parsing for evaluator-scheduler daemon (S-16.5, DEC-110)
     "croniter>=2.0.0,<7.0.0",
+    # GFM table locating/bounding for the best-practices INDEX generator
+    # (bp_index.py): parses INDEX.md and reads each table's source-line range
+    # off token.map — spec-compliant boundaries instead of a hand-rolled line
+    # scan. API (MarkdownIt("commonmark").enable("table"), token.map) verified
+    # on 3.0.0 and 4.2.0; previously only present transitively via rich.
+    "markdown-it-py>=3.0.0,<5.0.0",
     # Auto-instrumentation for Anthropic SDK calls (SPEC-020 §6)
     "opentelemetry-instrumentation-anthropic>=0.1,<1.0.0",
 ]
