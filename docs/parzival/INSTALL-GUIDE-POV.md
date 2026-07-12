@@ -508,9 +508,11 @@ The unified `install.sh` guarantees your data is never accidentally lost:
 │  - Regenerates skill shims in .claude/skills/               │
 │  - Syncs config from .env (user_name only)                  │
 │  - Removes stale files from earlier versions automatically    │
-│  - Deploys oversight templates (no-clobber — never          │
-│    overwrites existing files)                               │
-│  - NEVER touches existing oversight/ data                   │
+│  - Syncs oversight templates (smart 4-way sync):            │
+│    new -> deploy; unmodified -> auto-sync to latest;        │
+│    known-stale -> auto-migrate; locally-modified ->         │
+│    never touched (loud warning)                             │
+│  - NEVER touches a locally-modified oversight/ file         │
 │  - Safe to run on existing installations                    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -519,14 +521,22 @@ The unified `install.sh` guarantees your data is never accidentally lost:
 
 The installer is safe to run multiple times:
 
-- **install.sh**: Overwrites module code, regenerates shims, deploys templates with no-clobber (skips existing files), cleans up stale files idempotently
+- **install.sh**: Overwrites module code, regenerates shims, syncs oversight templates via the smart 4-way sync (new → deploy, unmodified → auto-sync to latest, known-stale copy → auto-migrate, locally-modified → never touched + loud warning), cleans up stale files idempotently
+
+### 🔍 Checking Template Drift (CI)
+
+```bash
+./scripts/install.sh --check-templates
+```
+
+Dry-run check for oversight-template drift, with no install performed. Exits `0` when templates are in sync, `1` when drift is pending — use it as a CI gate to catch stale oversight templates before they reach an install.
 
 ### 🚨 Safety Guarantees
 
 | Scenario | What Happens | Your Data |
 |----------|--------------|-----------|
 | Run `install.sh` on existing installation | Module code updated, shims regenerated | ✅ Preserved |
-| Run `install.sh` with existing oversight/ | Templates deployed with no-clobber (existing files skipped) | ✅ Preserved |
+| Run `install.sh` with existing oversight/ | Templates synced via smart 4-way sync — unmodified files auto-sync to latest, **locally-modified files are never touched** (loud warning instead) | ✅ Preserved |
 | Accidental re-run of installer | Safe behavior, no data loss | ✅ Preserved |
 | `install.sh` fails mid-execution | Partial update, no oversight data touched | ✅ Preserved |
 
@@ -740,7 +750,9 @@ chmod +x scripts/install.sh
 
 **Fix:**
 ```bash
-# Re-run installer — it deploys oversight templates without overwriting existing files
+# Re-run installer — an unmodified template auto-syncs to the latest shipped
+# version, and a known-stale copy auto-migrates. A locally-modified template
+# is never touched; the installer warns loudly instead so you can merge by hand.
 ./scripts/install.sh
 ```
 </details>
