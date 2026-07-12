@@ -10,7 +10,7 @@ nextStepFile: './step-04-send-instruction.md'
 
 ## STEP GOAL:
 
-Once the teammate is spawned with fresh context, verify the correct agent activated. For BMAD agents, activation is embedded in the spawn prompt (Skill-tool-load; see §1) — this step verifies readiness, it does not send a separate activation command. For generic (non-BMAD) agents, no activation is needed — proceed directly with instruction delivery.
+Once the teammate is spawned with fresh context, verify the correct agent activated. For BMAD agents the activation mechanic differs by dispatch path (see step-02 §5b): the Claude-native path embeds a Skill-tool-load in the spawn prompt; the tmux path sends the live `/bmad-<role>` command into the pane via `tmux send-keys`. Activation happens at spawn/launch — this step verifies readiness, it does not re-send activation. For generic (non-BMAD) agents, no activation is needed — proceed directly with instruction delivery.
 
 **Scope:**
 - Available context: The spawned teammate from step-02, the target agent identity
@@ -28,7 +28,7 @@ Once the teammate is spawned with fresh context, verify the correct agent activa
 
 ### 1. Activate the BMAD Agent
 
-BMAD activation is embedded in the spawn prompt as a **Skill-tool-load** (`Use the Skill tool to load bmad-<role>`) — never a bare `/bmad-*` sent to an already-spawned teammate. See `/aim-agent-dispatch` **B4 (Verify Activation)** as the single source for the two-phase Skill-tool-load-in-the-spawn-prompt form. Agent selection — which persona, plus the MUST-use rules (`/bmad-code-review` for ALL reviews, `/bmad-agent-tech-writer` for ALL docs, `/bmad-help` when unsure) — lives in `/aim-agent-dispatch` **B1 / Quick Selection Matrix**.
+BMAD activation is performed at spawn/launch and differs by dispatch path (see step-02 §5b): on the **Claude-native** path it is a **Skill-tool-load** embedded in the spawn prompt (`Use the Skill tool to load bmad-<role>`) — never a bare `/bmad-*` sent to an already-spawned Agent-tool teammate; on the **tmux** path the live `/bmad-<role>` command is sent into the fresh pane via `tmux send-keys` (see `/aim-agent-lifecycle`). See `/aim-agent-dispatch` **B4 (Verify Activation)** for the Claude-native two-phase form. Agent selection — which persona, plus the MUST-use rules (`/bmad-code-review` for ALL reviews, `/bmad-agent-tech-writer` for ALL docs, `/bmad-help` when unsure) — lives in `/aim-agent-dispatch` **B1 / Quick Selection Matrix**.
 
 ---
 
