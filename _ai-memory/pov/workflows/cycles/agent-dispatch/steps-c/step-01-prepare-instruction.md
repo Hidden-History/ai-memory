@@ -31,7 +31,7 @@ Before creating any team or spawning any agent, Parzival prepares a complete, ve
 ### 1. Complete the Instruction Checklist
 
 Before constructing the instruction, verify:
-- **Agent type (do first):** Is this a BMAD skill-driven agent (activated via `/bmad-agent-{type}`)? → YES: use lightweight form in section 2b. NO (generic agent): use full template in section 2a.
+- **Agent type (do first):** Is this a BMAD skill-driven agent? → YES: use lightweight form in section 2b. NO (generic agent): use full template in section 2a.
 - Have I identified the correct agent for this task? (see Agent Selection Guide in workflow.md)
 - Have I read the relevant project files for this task?
 - Is every requirement cited with a specific file and section?
@@ -60,7 +60,7 @@ Using skills/aim-agent-dispatch/templates/agent-instruction.template.md, constru
 
 ### 2b. Lightweight Instruction Form (BMAD / Skill-Driven Agents)
 
-For agents activated via `/bmad-agent-{type}` — the skill defines requirements, standards, and approach. Provide:
+For BMAD skill-driven agents — the skill defines requirements, standards, and approach. Provide:
 - **TASK:** Single, specific, unambiguous description. One task per instruction.
 - **CONTEXT:** Only what the agent cannot get from project files. Be minimal.
 - **TARGET:** What to produce (file names, formats, key outputs)

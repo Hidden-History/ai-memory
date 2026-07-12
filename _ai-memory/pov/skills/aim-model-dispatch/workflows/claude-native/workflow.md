@@ -37,11 +37,11 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 - Rule 5: /bmad-code-review for reviews, /bmad-agent-dev for implementation only
 - Rule 6: Dual review mandatory (Sonnet + Opus)
 - Rule 7: One story per story-creation dispatch — shutdown after each
-- Rule 8: Don't rush-nudge idle agents
-- Rule 9: Two-phase BMAD activation (activate → wait for idle → send instruction)
+- Rule 8: Idle is noise — an idle ping means the teammate is working; wait, no nudges, no on-disk checks (see /aim-agent-dispatch Playbook)
+- Rule 9: Two-phase BMAD activation (activate → wait for the teammate's greeting/menu SendMessage reply → send instruction)
 - Rule 11: ALWAYS include explicit story ID + file list in instruction
-- Rule 13: mode: bypassPermissions for ALL agent spawns
-- Rule 14: Send workflow command + instruction in same message after activation menu
+- Rule 13: mode: auto for ALL agent spawns
+- Rule 14: In planning mode, send the workflow command after the menu; the task/recommendation-request follows as its own message (GC-20) — never bundled with activation
 - Rule 15: Claude models MUST use Agent Teams
 - Rule 16: Team-builder is the mandatory entry point
 
@@ -49,7 +49,7 @@ EC-01, EC-04, EC-05, EC-06, EC-09, EC-10
 
 ## MANDATORY: Verify Working Directory (Workspace Root Sentinel)
 
-**Before EVERY TeamCreate or Agent spawn, verify CWD is the workspace root.**
+**Before EVERY Agent spawn, verify CWD is the workspace root.**
 
 Teammates inherit the lead's working directory. If CWD is wrong, teammates
 cannot find BMAD skills, oversight docs, or project context. The workspace root
@@ -77,17 +77,31 @@ not just the first one in a session -- `cd` drifts silently across Bash calls.
 
 ---
 
-## Create a Team
+## MANDATORY: Verify Agent Teams Prerequisites
 
-TeamCreate establishes the team and shared task list. Parzival becomes team lead.
+**Before the first Agent spawn, verify the Agent Teams prerequisites above are live.**
+
+The Prerequisites list is not self-enforcing -- a missing
+`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` or a `teammateMode` set to a non-team
+mode (`in-process`) silently degrades parallel-team dispatch. This preflight is
+**fire-only-if-missing**: silent when the prerequisites hold, loud with exact
+remediation (and non-zero) when one is missing.
 
 ```
-TeamCreate:
-  team_name: "sprint-2-story-4.1"
-  description: "Story 4.1: Base Stage Class and Pipeline Message Schemas"
+Bash: bash "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/preflight_agent_teams.sh"
+# No output + exit 0 -> prerequisites satisfied, proceed.
+# Any output on stderr + exit 1 -> add the flag / fix teammateMode as instructed, then re-run.
 ```
 
-One team per session. Clean up previous team before creating new.
+**DO NOT PROCEED if this check fails.** Tell the user exactly what to add (the
+script prints the remediation). Same guard runs in `/aim-agent-lifecycle` Step 1
+for tmux dispatch, so both dispatch paths enforce the identical prerequisites.
+
+---
+
+## The Team
+
+Spawning a teammate with the `Agent` tool automatically forms the team and shared task list. This session is the lead.
 
 ---
 
@@ -107,16 +121,15 @@ Use addBlockedBy for dependencies between tasks. The system unblocks automatical
 
 ## Spawn Teammates
 
-Agent tool with team_name spawns a visible teammate in its own tmux pane.
+The Agent tool with a unique `name` spawns a visible teammate in its own tmux pane.
 
 ```
 Agent:
   name: "dev-pipeline"
-  team_name: "sprint-2-story-4.1"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "[activation command or full instruction]"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 ```
 
 Spawn multiple teammates in parallel by including multiple Agent calls in the same message.
@@ -158,11 +171,10 @@ Use `mode: plan` when teammates should plan before implementing. Teammate works 
 ```
 Agent:
   name: "architect"
-  team_name: "architecture-review"
   model: opus
   mode: plan
   run_in_background: true
-  prompt: "/bmad-agent-architect"
+  prompt: "Use the Skill tool to load bmad-agent-architect (the BMAD architect persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 ```
 
 Teammate sends plan_approval_request when ready. Lead reviews and approves or rejects with feedback.
@@ -172,7 +184,7 @@ Teammate sends plan_approval_request when ready. Lead reviews and approves or re
 ## Monitor Teammates
 
 - Teammates work in their own tmux panes — visible to user
-- Idle notifications are normal — teammate finished its turn, waiting for input
+- Idle is noise; teammate finished its turn, waiting for input — do not nudge
 - TaskList shows progress across all tasks
 - Shift+Down cycles through teammates; click tmux pane for direct interaction
 - SendMessage for status checks or intervention
@@ -189,14 +201,7 @@ SendMessage:
   message: {type: "shutdown_request", reason: "Task complete"}
 ```
 
-After ALL teammates shut down, clean up:
-
-```
-TeamDelete
-```
-
-TeamDelete fails if active teammates remain. Always shutdown all teammates first.
-Always clean up from the lead session, not from a teammate.
+Shut down each teammate this way once its work is accepted, from the lead session (not from a teammate).
 
 ---
 
@@ -205,23 +210,18 @@ Always clean up from the lead session, not from a teammate.
 ### Single DEV Story Implementation
 
 ```
-TeamCreate:
-  team_name: "sprint-2-story-4.1"
-  description: "Story 4.1: Base Stage Class"
-
 TaskCreate:
   subject: "Implement Story 4.1"
   description: "[full instruction]"
 
 Agent:
   name: "dev-pipeline"
-  team_name: "sprint-2-story-4.1"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
-# Wait for idle (persona loaded, menu shown)
+# Wait for the greeting/menu SendMessage reply (idle is noise — see /aim-agent-dispatch Playbook)
 
 SendMessage:
   to: "dev-pipeline"
@@ -236,10 +236,6 @@ TaskUpdate:
 ### Parallel Dual Review
 
 ```
-TeamCreate:
-  team_name: "sprint-2-review-4.1"
-  description: "Story 4.1 dual review"
-
 TaskCreate:
   subject: "Review Story 4.1 (Sonnet)"
   description: "[review instruction]"
@@ -251,21 +247,19 @@ TaskCreate:
 # Spawn both in same message for parallel launch
 Agent:
   name: "review-sonnet"
-  team_name: "sprint-2-review-4.1"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-code-review"
+  prompt: "Use the Skill tool to load bmad-code-review (the BMAD code-review persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 Agent:
   name: "review-opus"
-  team_name: "sprint-2-review-4.1"
   model: opus
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-code-review"
+  prompt: "Use the Skill tool to load bmad-code-review (the BMAD code-review persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
-# After both load, send the review instruction directly (review workflow takes it — no CR menu code)
+# After both send their greeting/menu reply, send the review instruction directly (review workflow takes it — no CR menu code)
 SendMessage:
   to: "review-sonnet"
   message: "[review instruction]"
@@ -278,10 +272,6 @@ SendMessage:
 ### Multi-Track Parallel Sprint
 
 ```
-TeamCreate:
-  team_name: "sprint-2-parallel"
-  description: "Parallel: Track A (4.2) + Track B (11.1) + Track C (14.2)"
-
 TaskCreate:
   subject: "Implement Story 4.2"
   description: "[instruction]"
@@ -297,29 +287,26 @@ TaskCreate:
 # Spawn 3 teammates in parallel
 Agent:
   name: "dev-pipeline"
-  team_name: "sprint-2-parallel"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 Agent:
   name: "dev-services"
-  team_name: "sprint-2-parallel"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
 Agent:
   name: "dev-observability"
-  team_name: "sprint-2-parallel"
   model: sonnet
-  mode: bypassPermissions
+  mode: auto
   run_in_background: true
-  prompt: "/bmad-agent-dev"
+  prompt: "Use the Skill tool to load bmad-agent-dev (the BMAD dev persona). You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
 
-# After idle, send instructions — each owns different files
+# After the greeting/menu SendMessage reply, send instructions — each owns different files
 ```
 
 ---
