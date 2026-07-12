@@ -870,11 +870,13 @@ In addition to slash commands, AI-Memory includes skills (auto-activated by Clau
 **What It Does:**
 1. Searches local conventions collection
 2. Performs web research (2024-2026 sources)
-3. Saves findings to `oversight/knowledge/best-practices/`
-4. Stores in Qdrant for future retrieval
-5. Evaluates if a reusable skill should be created
+3. Applies a `raw_score` relevance gate to filter low-relevance results before saving
+4. Saves findings to `oversight/knowledge/best-practices/`
+5. Stores in Qdrant for future retrieval
+6. Maintains the `bp_index` INDEX file (`--write` to regenerate, `--check` to verify it's current)
+7. Evaluates if a reusable skill should be created
 
-**Location:** `.claude/skills/aim-best-practices-researcher/`
+**Location:** `_ai-memory/skills/aim-best-practices-researcher/`
 
 ### skill-creator (Agent)
 
