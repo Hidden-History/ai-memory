@@ -32,8 +32,13 @@ import os
 import re
 from pathlib import Path
 
-# Auth-failure markers preserved in the wrapped QdrantUnavailable message.
-_AUTH_ERROR_MARKERS = ("401", "403", "unauthorized", "invalid api key")
+# Auth-failure phrase markers preserved in the wrapped QdrantUnavailable
+# message, matched as a plain substring.
+_AUTH_ERROR_MARKERS = ("unauthorized", "invalid api key")
+
+# HTTP auth status codes; word-boundary matched so a digit-run embedded in an
+# unrelated message (e.g. "timeout after 1403ms") doesn't false-positive.
+_AUTH_ERROR_CODE_RE = re.compile(r"\b(?:401|403)\b")
 
 # A dotenv inline comment requires whitespace before the `#`; a `#` glued to
 # the value (no preceding whitespace) is part of the value, not a comment.
@@ -55,8 +60,14 @@ def _read_env_key(env_path: Path, name: str) -> str | None:
         key, _, val = line.partition("=")
         if key.strip() != name:
             continue
-        val = _INLINE_COMMENT_RE.sub("", val)
-        val = val.strip().strip('"').strip("'")
+        val = val.strip()
+        if val[:1] in ('"', "'"):
+            # Quoted: the value is everything up to the matching close quote;
+            # a `#` inside the quotes is literal, not a comment.
+            quote = val[0]
+            val = val[1:].partition(quote)[0]
+        else:
+            val = _INLINE_COMMENT_RE.sub("", val).strip()
         if val:
             return val
     return None
@@ -87,6 +98,8 @@ def pin_qdrant_api_key() -> bool:
 
 
 def is_auth_error(msg: str) -> bool:
-    """True if ``msg`` looks like a Qdrant authentication failure (401)."""
+    """True if ``msg`` looks like a Qdrant authentication failure (401/403)."""
     lowered = msg.lower()
+    if _AUTH_ERROR_CODE_RE.search(lowered):
+        return True
     return any(marker in lowered for marker in _AUTH_ERROR_MARKERS)

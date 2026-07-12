@@ -97,6 +97,13 @@ class TestReadEnvKey:
 
         assert _read_env_key(env_path, "QDRANT_API_KEY") == "abc123"
 
+    def test_quoted_value_with_hash_not_truncated(self, tmp_path):
+        """A `#` inside quotes is literal, not an inline comment."""
+        env_path = tmp_path / ".env"
+        env_path.write_text('QDRANT_API_KEY="abc # def"\n')
+
+        assert _read_env_key(env_path, "QDRANT_API_KEY") == "abc # def"
+
 
 class TestIsAuthError:
     def test_detects_wrapped_401(self):
@@ -121,3 +128,19 @@ class TestIsAuthError:
             "Request forbidden by administrative rules",
         ):
             assert not is_auth_error(msg), msg
+
+    def test_ignores_embedded_digit_runs(self):
+        """A 401/403 digit-run embedded in an unrelated number is not a match."""
+        for msg in (
+            "timeout after 1403ms",
+            "collection has 4030 points",
+            "connect to node4013 refused",
+        ):
+            assert not is_auth_error(msg), msg
+
+    def test_detects_word_bounded_status_codes(self):
+        for msg in (
+            "Unexpected Response: 401 Unauthorized",
+            "403 Forbidden",
+        ):
+            assert is_auth_error(msg), msg
