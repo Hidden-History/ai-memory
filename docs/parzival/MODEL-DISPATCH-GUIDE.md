@@ -347,33 +347,33 @@ dispatch to <provider>: Activate <persona>, then <command>
 **Code Review (Dev agent):**
 
 ```
-dispatch to ollama: Activate /bmad-agent-bmm-dev, then CR to review auth module
+dispatch to ollama: Activate /bmad-agent-dev, then CR to review auth module
 send to openrouter with claude-sonnet-4-6: Activate dev agent, run CR on api/
 ```
 
 **Implement Story (Dev agent):**
 
 ```
-dispatch to ollama: Activate /bmad-agent-bmm-dev, then DS for story 1.5
+dispatch to ollama: Activate /bmad-agent-dev, then DS for story 1.5
 use openrouter with openai/gpt-4o: Activate dev agent, DS story-1-6.md
 ```
 
 **Create PRD (PM agent):**
 
 ```
-dispatch to claude: Activate /bmad-agent-bmm-pm, then CP for notification system
+dispatch to claude: Activate /bmad-agent-pm, then CP for notification system
 ```
 
 **Architecture Design (Architect agent):**
 
 ```
-dispatch to claude: Activate /bmad-agent-bmm-architect, design the payment service
+dispatch to claude: Activate /bmad-agent-architect, design the payment service
 ```
 
-**Sprint Planning (Scrum Master agent):**
+**Sprint Planning (no dedicated agent — workflow skill only):**
 
 ```
-dispatch to claude: Activate /bmad-agent-bmm-sm for sprint planning on epic 2
+dispatch to claude: Run /bmad-sprint-planning for epic 2
 ```
 
 **Documentation (Tech Writer agent):**
@@ -386,25 +386,25 @@ dispatch to openrouter: Activate tech-writer, VD to validate docs/
 
 | Agent | Activation Command | Primary Use |
 |-------|-------------------|-------------|
-| Dev | `/bmad-agent-bmm-dev` | Code, review, implementation |
-| PM | `/bmad-agent-bmm-pm` | PRD, epics, planning |
-| Architect | `/bmad-agent-bmm-architect` | System design, architecture |
-| Analyst | `/bmad-agent-bmm-analyst` | Research, analysis |
-| Tech Writer | `/bmad-agent-bmm-tech-writer` | Documentation |
-| Scrum Master | `/bmad-agent-bmm-sm` | Sprint planning, retrospectives |
-| QA | `/bmad-agent-bmm-qa` | Tests, automation |
-| UX Designer | `/bmad-agent-bmm-ux-designer` | User flow, design |
-| Quick Flow Solo Dev | `/bmad-agent-bmm-quick-flow-solo-dev` | Fast implementation |
-| TEA (Test Architect) | `/bmad-agent-tea-tea` | Test architecture |
-| Agent Builder | `/bmad-agent-bmb-agent-builder` | Create new agents |
-| Module Builder | `/bmad-agent-bmb-module-builder` | Build modules |
-| Workflow Builder | `/bmad-agent-bmb-workflow-builder` | Build workflows |
-| Brainstorming Coach | `/bmad-agent-cis-brainstorming-coach` | Ideation |
-| Creative Problem Solver | `/bmad-agent-cis-creative-problem-solver` | Problem solving |
-| Design Thinking Coach | `/bmad-agent-cis-design-thinking-coach` | Design thinking |
-| Innovation Strategist | `/bmad-agent-cis-innovation-strategist` | Innovation |
-| Presentation Master | `/bmad-agent-cis-presentation-master` | Presentations |
-| Storyteller | `/bmad-agent-cis-storyteller` | Narrative |
+| Dev | `/bmad-agent-dev` | Code, review, implementation |
+| PM | `/bmad-agent-pm` | PRD, epics, planning |
+| Architect | `/bmad-agent-architect` | System design, architecture |
+| Analyst | `/bmad-agent-analyst` | Research, analysis |
+| Tech Writer | `/bmad-agent-tech-writer` | Documentation |
+| Scrum Master | *(no dedicated agent persona)* | Use `/bmad-sprint-planning`, `/bmad-create-story` directly |
+| QA | `/bmad-tea` | Tests, automation |
+| UX Designer | `/bmad-agent-ux-designer` | User flow, design |
+| Quick Flow Solo Dev | `/bmad-quick-dev` | Fast implementation |
+| TEA (Test Architect) | `/bmad-tea` | Test architecture |
+| Agent Builder | `/bmad-agent-builder` | Create new agents |
+| Module Builder | `/bmad-module-builder` | Build modules |
+| Workflow Builder | `/bmad-workflow-builder` | Build workflows |
+| Brainstorming Coach | `/bmad-cis-agent-brainstorming-coach` | Ideation |
+| Creative Problem Solver | `/bmad-cis-agent-creative-problem-solver` | Problem solving |
+| Design Thinking Coach | `/bmad-cis-agent-design-thinking-coach` | Design thinking |
+| Innovation Strategist | `/bmad-cis-agent-innovation-strategist` | Innovation |
+| Presentation Master | `/bmad-cis-agent-presentation-master` | Presentations |
+| Storyteller | `/bmad-cis-agent-storyteller` | Narrative |
 
 ---
 
