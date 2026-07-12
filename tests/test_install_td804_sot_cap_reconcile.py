@@ -16,6 +16,7 @@ deliberate operator override (any other active value), a commented-out line, or
 an absent key are all left untouched.
 """
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -116,6 +117,69 @@ class TestReconcileSotDiscoveryCap:
             install_dir
         ), "no-op path must not create a backup (nothing is mutated)"
 
+    def test_50000_value_is_preserved(self, install_sh_no_main, tmp_path):
+        """AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=50000 must NOT be matched by the
+        =5000 substring — a whitespace-tolerant match must still be exact on
+        the numeric value, not merely a prefix match."""
+        install_dir = tmp_path / "install_dir"
+        env_file = _make_env(install_dir, "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=50000\n")
+
+        result = _run_reconcile(install_sh_no_main, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        assert (
+            env_file.read_text(encoding="utf-8")
+            == "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=50000\n"
+        )
+        assert not _env_backups(
+            install_dir
+        ), "no-op path must not create a backup (nothing is mutated)"
+
+    def test_trailing_whitespace_5000_is_reconciled(self, install_sh_no_main, tmp_path):
+        """A stale 5000 with trailing whitespace before the newline (e.g. from a
+        hand-edited .env) still shadows the code default and must be
+        reconciled to a clean 15000 line."""
+        install_dir = tmp_path / "install_dir"
+        env_file = _make_env(install_dir, "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000   \n")
+
+        result = _run_reconcile(install_sh_no_main, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        content = env_file.read_text(encoding="utf-8")
+        assert "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=15000\n" in content
+        assert "5000   " not in content
+        assert _env_backups(install_dir)
+
+    def test_space_after_equals_5000_is_reconciled(self, install_sh_no_main, tmp_path):
+        """A stale 5000 with a space after `=` still shadows the code default
+        and must be reconciled to a clean 15000 line."""
+        install_dir = tmp_path / "install_dir"
+        env_file = _make_env(install_dir, "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS= 5000\n")
+
+        result = _run_reconcile(install_sh_no_main, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        content = env_file.read_text(encoding="utf-8")
+        assert "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=15000\n" in content
+        assert "= 5000" not in content
+        assert _env_backups(install_dir)
+
+    def test_crlf_5000_is_reconciled(self, install_sh_no_main, tmp_path):
+        """A stale 5000 saved with CRLF line endings (real on WSL2 when a .env
+        is edited from Windows) still shadows the code default and must be
+        reconciled to a clean 15000 line with no stray CR left behind."""
+        install_dir = tmp_path / "install_dir"
+        env_file = _make_env(install_dir, "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000\r\n")
+
+        result = _run_reconcile(install_sh_no_main, install_dir)
+        assert result.returncode == 0, result.stderr
+
+        content = env_file.read_text(encoding="utf-8")
+        assert "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=15000" in content
+        assert "5000" not in content.replace("15000", "")
+        assert "\r" not in content, "rewritten line must not retain a stray CR"
+        assert _env_backups(install_dir)
+
     def test_absent_key_is_noop(self, install_sh_no_main, tmp_path):
         """Key entirely absent (new install seeded from the commented example) —
         no-op, file unchanged, no backup."""
@@ -175,19 +239,58 @@ class TestReconcileSotDiscoveryCap:
 
     def test_function_called_from_main(self):
         """Structural regression guard: reconcile_sot_discovery_cap must actually
-        be called from main()'s full-install branch — a defined-but-unreachable
-        function would silently leave every existing install's stale cap in
-        place."""
+        be called from WITHIN main()'s INSTALL_MODE == "full" if-block — a
+        defined-but-unreachable function, or one whose call was refactored
+        into the add-project branch (or anywhere outside the full-install
+        block), would silently leave every existing install's stale cap in
+        place. This tracks if/elif/fi nesting (tolerating trailing `#`
+        comments on `if ...; then` / `fi` lines) so a call merely appearing
+        somewhere in the file isn't mistaken for a call actually reachable
+        from the full-install branch."""
         text = _INSTALL_SH.read_text()
+        lines = text.splitlines()
         assert (
             "reconcile_sot_discovery_cap() {" in text
         ), "reconcile_sot_discovery_cap() function definition not found"
-        call_sites = [
-            line
-            for line in text.splitlines()
+
+        call_indices = [
+            i
+            for i, line in enumerate(lines)
             if line.strip() == "reconcile_sot_discovery_cap"
         ]
-        assert call_sites, (
+        assert call_indices, (
             "reconcile_sot_discovery_cap is defined but never called — "
             "it must be invoked from main()'s full-install branch."
         )
+
+        if_re = re.compile(r"^\s*if\s+(.*?)\s*;\s*then\s*(#.*)?$")
+        fi_re = re.compile(r"^\s*fi\s*(#.*)?$")
+
+        stack = []
+        call_enclosing_conditions = {}
+        for i, line in enumerate(lines):
+            m = if_re.match(line)
+            if m:
+                stack.append(m.group(1))
+            elif fi_re.match(line) and stack:
+                stack.pop()
+            if i in call_indices:
+                call_enclosing_conditions[i] = list(stack)
+
+        full_mode_check = '"$INSTALL_MODE" == "full"'
+        add_project_check = '"$INSTALL_MODE" == "add-project"'
+        for i in call_indices:
+            enclosing = call_enclosing_conditions[i]
+            assert any(full_mode_check in cond for cond in enclosing), (
+                f"reconcile_sot_discovery_cap call at install.sh:{i + 1} does not "
+                f'fall inside an INSTALL_MODE == "full" if-block (enclosing '
+                f"conditions: {enclosing!r}) — a refactor may have moved it "
+                "outside the full-install branch, which would silently leave "
+                "every existing install's stale "
+                "AI_MEMORY_SOT_DISCOVERY_MAX_DIRS cap in place."
+            )
+            assert not any(add_project_check in cond for cond in enclosing), (
+                f"reconcile_sot_discovery_cap call at install.sh:{i + 1} falls "
+                'inside an INSTALL_MODE == "add-project" if-block — TD-804\'s '
+                "reconciliation must only run in the full-install branch."
+            )
