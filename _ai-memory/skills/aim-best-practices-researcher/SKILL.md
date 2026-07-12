@@ -32,7 +32,8 @@ results = search_memories(
     collection="conventions",
     group_id=project_id,
     memory_type=["guideline", "rule"],
-    limit=5
+    limit=5,
+    attach_raw_cosine=True,  # BP-058/#317: needed for the relevance gate below
 )
 ```
 
@@ -69,10 +70,12 @@ roadmaps, SoT files, or any other oversight file.
 
 ### Phase 1: Check Database
 
-Query conventions collection via semantic search. Decision rules:
-- Score >0.7 and <6 months old → Use it, skip to Phase 5
-- Score >0.7 and >6 months old → Mark "needs refresh", proceed to Phase 2
-- Score <0.7 or not found → Proceed to Phase 2
+Query conventions collection via semantic search. Gate on `raw_score` not
+`score` — see RESEARCH-METHODOLOGY.md ("Phase 1"). Decision rules:
+- `raw_score` ≥0.7 AND content addresses the query AND <6 months old → Use it, skip to Phase 5
+- `raw_score` ≥0.7 AND content addresses the query AND 6-12 months old → Mark "needs refresh", proceed to Phase 2
+- `raw_score` ≥0.7 AND content addresses the query AND >12 months old → Mark "outdated", proceed to Phase 2
+- `raw_score` <0.7, OR content doesn't address the query, OR not found → Proceed to Phase 2
 
 ### Phase 2: Web Research
 
