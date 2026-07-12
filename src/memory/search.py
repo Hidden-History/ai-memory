@@ -1480,6 +1480,7 @@ class MemorySearch:
         memory_type: str | list[str] | None = None,
         fast_mode: bool = False,  # NEW: Pass through to search() for hnsw_ef tuning
         source: str | None = None,  # SPEC-005: Namespace filter (e.g., "github")
+        attach_raw_cosine: bool = False,  # BUG-319/BP-058: opt-in raw-cosine passthrough (GH #317)
     ) -> list[dict]:
         """Search primary collection first, expand to secondary if results insufficient.
 
@@ -1507,6 +1508,9 @@ class MemorySearch:
                       If False (default), use hnsw_ef=128 for accuracy (user searches).
             source: Optional source namespace filter (e.g., "github"). When set,
                    adds source and is_current filters per SPEC-005.
+            attach_raw_cosine: When True, attach raw-cosine ``raw_score`` to each
+                   result (BUG-319/BP-058, GH #317); threaded to both the primary
+                   and secondary search() calls.
 
         Returns:
             List of search results with collection attribution. Each result dict
@@ -1546,6 +1550,7 @@ class MemorySearch:
             memory_type=memory_type,
             fast_mode=fast_mode,
             source=source,
+            attach_raw_cosine=attach_raw_cosine,
         )
 
         # Step 2: Check if results are sufficient
@@ -1641,6 +1646,7 @@ class MemorySearch:
                 # collections (e.g., "implementation" in code-patterns but not conventions)
                 fast_mode=fast_mode,
                 source=source,
+                attach_raw_cosine=attach_raw_cosine,
             )
             all_results.extend(secondary_results)
 
@@ -1966,6 +1972,7 @@ def search_memories(
     fast_mode: bool = False,
     source: str | None = None,
     config: MemoryConfig | None = None,
+    attach_raw_cosine: bool = False,
 ) -> list[dict]:
     """Search memories with optional intent-based cascading.
 
@@ -1996,6 +2003,11 @@ def search_memories(
                   If False (default), use hnsw_ef_accurate for accuracy.
         source: Optional source filter (e.g., "github" for GitHub namespace isolation)
         config: Optional MemoryConfig instance
+        attach_raw_cosine: When True, attach an absolute raw-cosine ``raw_score``
+                   to each result (BUG-319/BP-058, GH #317) instead of relying on
+                   the RRF-fused/rank-normalized ``score``. Off by default; set
+                   True only when the caller needs an uncalibrated, absolute
+                   relevance signal (e.g. a Phase-1 accept/skip gate).
 
     Returns:
         List of memory dicts with score, id, collection, and payload fields.
@@ -2063,6 +2075,7 @@ def search_memories(
                 memory_type=memory_type,
                 fast_mode=fast_mode,
                 source=source,
+                attach_raw_cosine=attach_raw_cosine,
             )
             _log_search(results)
             return results
@@ -2085,6 +2098,7 @@ def search_memories(
                 memory_type=memory_type,
                 fast_mode=fast_mode,
                 source=source,
+                attach_raw_cosine=attach_raw_cosine,
             )
             _log_search(results)
             return results
@@ -2142,6 +2156,7 @@ def search_memories(
             memory_type=effective_types,
             fast_mode=fast_mode,
             source=source,
+            attach_raw_cosine=attach_raw_cosine,
         )
         _log_search(results)
         return results

@@ -88,6 +88,22 @@ def _looks_like_source(ref: str) -> bool:
     return bool(dot) and ext.lower() in _SOURCE_EXTS
 
 
+def _looks_like_dir_ref(ref: str) -> bool:
+    """True when a backtick token is a directory citation: `/`-terminated,
+    repo-relative (not an absolute-path/API-route shape like `/api/v1/`),
+    not pure `.`/`..` traversal (`../`), and every real path segment is at
+    least 2 chars — excludes single-letter delimiters from sed-style tokens
+    (`s/foo/bar/`). The 2-char minimum is a heuristic: a genuine one-letter
+    directory name would be under-flagged, which is the safe direction for
+    an advisory dead-citation check."""
+    if not ref.endswith("/") or len(ref) <= 1:
+        return False
+    if ref.startswith("/"):
+        return False
+    segments = [s for s in ref.rstrip("/").split("/") if s not in ("", ".", "..")]
+    return bool(segments) and all(len(s) >= 2 for s in segments)
+
+
 def _is_external(target: str) -> bool:
     return target.startswith(("http://", "https://", "mailto:", "#"))
 
@@ -113,7 +129,7 @@ def _extract_citations(page: Path, wiki_root: Path) -> list[str]:
         refs.add(norm)
     for m in _CODE_PATH_RE.finditer(text):
         norm = _normalize(m.group(1))
-        if _looks_like_source(norm):
+        if _looks_like_source(norm) or _looks_like_dir_ref(norm):
             refs.add(norm)
     return sorted(refs)
 

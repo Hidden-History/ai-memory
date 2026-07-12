@@ -122,23 +122,36 @@ services:
       - EMBEDDING_RETRY_AFTER=${EMBEDDING_RETRY_AFTER:-5}
       - EMBEDDING_MAX_BATCH_TEXTS=${EMBEDDING_MAX_BATCH_TEXTS:-256}
       - EMBEDDING_SAFE_INFLIGHT_TEXTS=${EMBEDDING_SAFE_INFLIGHT_TEXTS:-48}
-      - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-1000000}
+      # TD-783/795 (PM #390): byte/superlinear-aware caps. MAX_INPUT_CHARS shrunk from 1M
+      # (one request could reach ~28 GiB) to 200K; MAX_TEXT_CHARS caps a single super-linear
+      # text at the 8 KB measured anchor (~235 MiB); SAFE_INFLIGHT_CHARS bounds concurrent
+      # in-flight chars so peak memory tracks byte-work, not text count (10 GiB cap sizing).
+      - EMBEDDING_MAX_INPUT_CHARS=${EMBEDDING_MAX_INPUT_CHARS:-200000}
+      - EMBEDDING_MAX_TEXT_CHARS=${EMBEDDING_MAX_TEXT_CHARS:-8192}
+      - EMBEDDING_SAFE_INFLIGHT_CHARS=${EMBEDDING_SAFE_INFLIGHT_CHARS:-200000}
       # BUG-324 Phase 2: memory-aware AIMD self-throttle (the OOM-loop fix). The
       # controller reads cgroup-v2 memory signals and collapses effective concurrency
       # toward 1 under pressure. Thresholds are conservative; tune under the soak.
       - EMBEDDING_PRESSURE_INTERVAL=${EMBEDDING_PRESSURE_INTERVAL:-1.0}
       - EMBEDDING_PSI_THRESHOLD=${EMBEDDING_PSI_THRESHOLD:-10.0}
-      - EMBEDDING_MEMORY_HIGH_RATIO=${EMBEDDING_MEMORY_HIGH_RATIO:-0.9}
-      - EMBEDDING_MEMORY_OK_RATIO=${EMBEDDING_MEMORY_OK_RATIO:-0.75}
+      # TD-793/X5 (PM #390): lowered 0.9->0.80 as the PORTABLE memory.high fix (kernel
+      # memory.high is not settable via Docker/compose; the app-level ratio is the throttle
+      # threshold). AIMD sheds at ~8 GiB of the 10 GiB cap; OK_RATIO lowered in lockstep to
+      # keep the 0.15 hysteresis gap (recover at ~6.5 GiB).
+      - EMBEDDING_MEMORY_HIGH_RATIO=${EMBEDDING_MEMORY_HIGH_RATIO:-0.80}
+      - EMBEDDING_MEMORY_OK_RATIO=${EMBEDDING_MEMORY_OK_RATIO:-0.65}
       # BUG-324 (footprint): shrink anon-RSS under concurrent inference. MALLOC_ARENA_MAX
       # caps glibc malloc arenas (fragmentation is the prime suspect for the >cap anon-rss
       # overshoot); OMP_NUM_THREADS bounds OpenMP thread pools. Conservative defaults
       # (also baked into the image); tune under the sizing soak.
       - MALLOC_ARENA_MAX=${MALLOC_ARENA_MAX:-2}
-      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-2}
+      # TD-794 (PM #390 X1): 2->4 — the measured throughput sweet-spot (monotonic gain
+      # 2->3->4, no extra memory). OMP_NUM_THREADS and EMBEDDING_INFERENCE_THREADS kept in
+      # lockstep (the latter is the effective lever on a non-OpenMP onnxruntime build).
+      - OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
       # Bound the onnxruntime intra-op thread pool (effective lever on a non-OpenMP
       # onnxruntime build, where OMP_NUM_THREADS alone won't cap it).
-      - EMBEDDING_INFERENCE_THREADS=${EMBEDDING_INFERENCE_THREADS:-2}
+      - EMBEDDING_INFERENCE_THREADS=${EMBEDDING_INFERENCE_THREADS:-4}
       # Set fastembed cache to persistent volume location
       - FASTEMBED_CACHE_PATH=/home/embedding/.cache/fastembed
     restart: unless-stopped
@@ -151,11 +164,13 @@ services:
     deploy:
       resources:
         limits:
-          # SPEC-010 / BUG-324: 6G default for multi-project shared deployments. The
-          # shared service climbs well past the ~3GB model footprint under real mixed
-          # load (arena retention); 4G OOM-loops. Tune by concurrent-project count —
-          # see docs/EMBEDDING-SIZING.md. (Provisional pending the BUG-324 soak.)
-          memory: ${EMBEDDING_MEMORY_LIMIT:-6G}
+          # BUG-329 / DEC-PM386-D4 + PM #390: 10G is the design basis of the byte-aware
+          # envelope above — it is the denominator of the whole sizing (warm base ~2.35 GiB
+          # + ~5.6 GiB in-flight char budget = ~7.95 GiB peak, ~2 GiB headroom). Shipping the
+          # old 6G default under this envelope is a latent OOM on a fresh install (base +
+          # budget >> 6G), so the committed default must equal the sizing basis. Tune by
+          # concurrent-project count — see docs/EMBEDDING-SIZING.md.
+          memory: ${EMBEDDING_MEMORY_LIMIT:-10G}
 
   monitoring-api:
     build:
@@ -173,6 +188,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant       # container-internal hostname (not localhost)
       - QDRANT_PORT=6333         # container-internal port (not host port QDRANT_PORT)
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - VECTOR_DIMENSIONS=768    # hardcoded — not user-tunable via .env
     depends_on:
       qdrant:
@@ -409,6 +425,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                             # container-internal hostname
       - QDRANT_PORT=6333                               # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - QDRANT_EXTERNAL_PORT=26350                     # hardcoded external reference for UI links
       - EMBEDDING_SERVICE_URL=http://embedding:8080    # container-internal URL
       - AI_MEMORY_INSTALL_DIR=/app                     # container path override
@@ -461,6 +478,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                            # container-internal hostname
       - QDRANT_PORT=6333                              # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
       - LANGFUSE_BASE_URL=http://langfuse-web:3000    # container-internal URL
       # BUG-150: LANGFUSE_TRACING_ENABLED mirrors LANGFUSE_ENABLED — Docker-only alias,
@@ -513,6 +531,83 @@ services:
       retries: 3
       start_period: 60s  # F2/F9: Allow time for Python startup, logger init, and first health file creation (typically <5s, buffer for slow systems)
 
+  # BUG-522 / BP-181: in-stack retry-queue drain daemon. Replaces the WSL2 host
+  # cron (which recovered ≈0 because the distro idles out with no terminal open).
+  # Reuses Dockerfile.worker (bakes scripts/) with a command override; drains on
+  # a fixed interval, re-storing each entry under its own persisted group_id.
+  retry-queue-drain:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    container_name: ${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}-retry-queue-drain
+    labels:
+      <<: *ai-memory-labels
+      ai-memory.service: "retry-queue-drain"
+    <<: *python-service-defaults
+    command: ["python3", "scripts/memory/retry_drain_scheduler.py"]
+    environment:
+      # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
+      - QDRANT_HOST=qdrant                            # container-internal hostname
+      - QDRANT_PORT=6333                              # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
+      - EMBEDDING_HOST=embedding                      # container-internal hostname
+      - EMBEDDING_PORT=8080                           # container-internal port
+      - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL
+      - LANGFUSE_BASE_URL=http://langfuse-web:3000    # container-internal URL
+      # BUG-150: LANGFUSE_TRACING_ENABLED mirrors LANGFUSE_ENABLED — Docker-only alias.
+      - LANGFUSE_TRACING_ENABLED=${LANGFUSE_ENABLED:-false}
+      - AI_MEMORY_INSTALL_DIR=/app                    # container path override
+      - AI_MEMORY_QUEUE_DIR=/app/queue                # container path override
+      - RETRY_DRAIN_INTERVAL_SECONDS=${RETRY_DRAIN_INTERVAL_SECONDS:-900}  # BP-181: ~15-min cadence
+      - PUSHGATEWAY_ENABLED=${MONITORING_ENABLED:-false}
+    volumes:
+      - ../src:/app/src:ro
+      - ../scripts:/app/scripts:ro
+      # Writable: the drain dequeues recovered entries and appends to the DLQ.
+      - ${AI_MEMORY_QUEUE_DIR:-~/.ai-memory/queue}:/app/queue
+      # Shared trace buffer for store span emission (matches classifier-worker)
+      - ${AI_MEMORY_INSTALL_DIR:-~/.ai-memory}/trace_buffer:/app/trace_buffer
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      embedding:
+        condition: service_healthy
+    # Run as host user for queue file access (bind mount permissions)
+    user: "${UID:-1000}:${GID:-1000}"
+    stop_grace_period: 30s
+    restart: unless-stopped  # Dependable heartbeat across reboots/crashes (BP-181). Matches anchor; explicit for the DONE-WHEN gate.
+    # Security hardening (2026 best practices) — matches classifier-worker
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=50m
+    networks:
+      - default
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      # File-based heartbeat — daemon touches the health file on startup and after
+      # each successful drain cycle. Check: exists AND modified within last 3600s
+      # (accommodates the 900s interval plus buffer, without a false failure).
+      test: ["CMD-SHELL", "python3 -c \"import os,sys,time; f='/tmp/retry-queue-drain.health'; sys.exit(0 if os.path.exists(f) and time.time()-os.path.getmtime(f)<3600 else 1)\""]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 60s  # Python startup + first health-file write (typically <5s)
+
   github-sync:
     build:
       context: ..
@@ -527,6 +622,7 @@ services:
       # Service-specific overrides — all other config comes from env_file: (BP-152 §3.2/3.3)
       - QDRANT_HOST=qdrant                            # container-internal hostname
       - QDRANT_PORT=6333                              # container-internal port
+      - QDRANT_GRPC_PORT=6334                          # container-internal gRPC port
       - EMBEDDING_HOST=embedding                      # container-internal hostname
       - EMBEDDING_PORT=8080                           # container-internal port
       - PUSHGATEWAY_URL=pushgateway:9091              # container-internal URL

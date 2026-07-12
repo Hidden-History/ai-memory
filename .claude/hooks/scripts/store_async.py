@@ -8,7 +8,9 @@ This script runs in a detached background process, storing captured
 implementation patterns to Qdrant with proper error handling.
 
 Performance: Runs independently of hook (no <500ms constraint)
-Timeout: Configurable via HOOK_TIMEOUT env var (default: 60s)
+Timeout: Configurable via HOOK_TIMEOUT env var (default: 90s — TD-782/788 coherent
+    ceiling above the embedding client's coordinated timeout budget; see
+    memory.hooks_common.get_hook_timeout)
 
 Sources:
 - Qdrant AsyncQdrantClient: https://python-client.qdrant.tech/

@@ -24,7 +24,16 @@ export QDRANT_USE_HTTPS="${QDRANT_USE_HTTPS:-false}"
 
 load_env_var() {
     local name="$1"
+    local caller_wins="${2:-}"
     local value
+    # Caller-wins guard (I2): when the second arg is set, a value the caller
+    # already exported takes precedence over the file value (${!name+x} is set
+    # even for an intentional empty export). Scoped to the AI_MEMORY_SOT_* tuning
+    # family only — NOT the secrets/GitHub keys below, whose whole purpose is to
+    # inject Docker-managed values into host scripts (file-wins, BUG-292).
+    if [ -n "$caller_wins" ] && [ -n "${!name+x}" ]; then
+        return 0
+    fi
     # Secrets-first lookup: mirrors _env_split_helpers.sh::_read_env_key (BUG-292 fix)
     if [ -f "$SECRETS_FILE" ]; then
         value=$(grep "^${name}=" "$SECRETS_FILE" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"'"'" || true)
@@ -69,7 +78,10 @@ if [ -f "$ENV_FILE" ] || [ -f "$SECRETS_FILE" ]; then
     for sot_env_file in "$SECRETS_FILE" "$ENV_FILE"; do
         [ -f "$sot_env_file" ] || continue
         while IFS= read -r sot_key; do
-            load_env_var "$sot_key"
+            # caller_wins: a caller-exported AI_MEMORY_SOT_* (e.g. a per-invocation
+            # budget override) is an intentional tuning signal and must not be
+            # clobbered by the install-global docker/.env value (I2).
+            load_env_var "$sot_key" caller_wins
         done < <(grep -oE '^AI_MEMORY_SOT_[A-Z_]+=' "$sot_env_file" | cut -d= -f1 | sort -u)
     done
 else

@@ -629,13 +629,135 @@ class LockedReadModifyWrite:
             self.lock_file.close()
 
 
+def _extract_replay_fields(data: dict) -> tuple[str | None, dict]:
+    """Locate the replay fields across the known failed-store producer formats.
+
+    Producers are inconsistent (BUG-521/522 root surface): the type key is
+    ``type`` OR ``memory_type``, scope/provenance may sit at the top level or
+    nested under ``metadata``/``hook_input``. This normalises the read so the
+    guard resolves from a single place.
+
+    Returns ``(content, fields)`` where ``content`` is None for the hook_input
+    format (content is derived at drain time) and ``fields`` carries
+    ``explicit_gid``, ``cwd``, ``type``, ``source_hook``, ``session_id``.
+    """
+    if "hook_input" in data:
+        hi = data.get("hook_input", {})
+        return None, {
+            "explicit_gid": data.get("group_id"),
+            "cwd": hi.get("cwd"),
+            "type": data.get("type") or data.get("memory_type"),
+            # store_async is the only hook_input producer and only ever emits
+            # PostToolUse; when both keys are absent, default to it (matches
+            # the old drain's unconditional PostToolUse — Fix M1).
+            "source_hook": data.get("source_hook")
+            or hi.get("hook_event_name")
+            or "PostToolUse",
+            "session_id": data.get("session_id") or hi.get("session_id"),
+        }
+    if "payload" in data:
+        payload = data.get("payload", {})
+        meta = payload.get("metadata", {})
+        return payload.get("content"), {
+            "explicit_gid": meta.get("group_id"),
+            "cwd": meta.get("cwd"),
+            "type": meta.get("type") or meta.get("memory_type"),
+            "source_hook": meta.get("source_hook"),
+            "session_id": meta.get("session_id"),
+        }
+    # Direct format (may also carry a nested metadata dict, e.g. post_work).
+    meta = data.get("metadata", {})
+    return data.get("content"), {
+        "explicit_gid": data.get("group_id") or meta.get("group_id"),
+        "cwd": data.get("cwd") or meta.get("cwd"),
+        "type": data.get("type")
+        or data.get("memory_type")
+        or meta.get("type")
+        or meta.get("memory_type"),
+        "source_hook": data.get("source_hook") or meta.get("source_hook"),
+        "session_id": data.get("session_id") or meta.get("session_id"),
+    }
+
+
+def _prepare_failed_store_entry(data: dict) -> dict:
+    """Resolve scope + provenance in the producer's LIVE context and stamp a
+    self-contained, replay-valid entry (BP-180 / BUG-521 / BUG-522).
+
+    This is the failed-store producer boundary: every entry ENTERING the retry
+    queue is made self-contained here, in the producer's live context, so the
+    drainer is a pure function of the persisted entry and never re-derives scope
+    from an ambient cwd at drain time.
+
+    - ``group_id`` is resolved ONCE via the canonical resolver (explicit → env →
+      marker → cwd/git → fail-loud). The ``"unknown"`` catch-all sentinel is
+      treated as unset so it can be re-resolved from the live cwd.
+    - ``type``/``source_hook``/``session_id`` are read across the producer key
+      variants and stamped at the top level where the drainer reads them.
+    - The stamped entry must round-trip the SAME storage validation
+      (``validate_payload``) the drainer will apply; if it cannot, the entry is
+      NOT replay-valid and this raises ``ValueError`` (the caller rejects it,
+      loudly, at the boundary — never queuing a doomed entry).
+
+    Raises:
+        ValueError: If scope cannot be resolved or the entry is not replay-valid.
+    """
+    from .project import resolve_project_id
+    from .validation import validate_payload
+
+    content, f = _extract_replay_fields(data)
+
+    # Treat the forbidden 'unknown' catch-all as unset so scope is re-resolved
+    # from the producer's live context (Will PM #380 — no catch-all group_ids).
+    explicit = f["explicit_gid"]
+    if isinstance(explicit, str) and explicit.strip().lower() == "unknown":
+        explicit = None
+
+    # Resolve ONCE in the producer's live context; fail-loud if unresolvable.
+    group_id = resolve_project_id(f["cwd"], explicit=explicit, warn=False)
+
+    memory_type = f["type"] or "implementation"
+    source_hook = f["source_hook"]
+    session_id = f["session_id"]
+
+    # Replay-validity: round-trip the SAME validator the drainer/storage use.
+    # For hook_input the content is derived at drain, so validate scope/provenance
+    # with a length-valid placeholder (content fidelity is enforced at drain).
+    validation_payload = {
+        "content": content if content is not None else "x" * 10,
+        "group_id": group_id,
+        "type": memory_type,
+        "source_hook": source_hook,
+    }
+    errors = validate_payload(validation_payload)
+    if errors:
+        raise ValueError(f"entry is not replay-valid: {errors}")
+
+    # Stamp resolved scope + provenance at the top level (self-contained). The
+    # drainer reads group_id/source_hook/session_id/type from here and never
+    # re-resolves. Producer-specific extras (metadata, hook_input, turn_number)
+    # are preserved untouched.
+    prepared = dict(data)
+    prepared["group_id"] = group_id
+    prepared["type"] = memory_type
+    prepared["source_hook"] = source_hook
+    if session_id:
+        prepared["session_id"] = session_id
+    return prepared
+
+
 def queue_operation(
     data: dict, reason: str = "HOOK_STORAGE_FAILED", immediate: bool = False
 ) -> bool:
-    """Queue a memory operation for later retry.
+    """Queue a failed memory operation for later retry.
 
-    Simple wrapper for hooks that need to queue failed operations.
-    Provides graceful degradation by never raising exceptions.
+    The failed-store producer boundary (BP-180): resolves scope + provenance in
+    the producer's live context and persists a self-contained, replay-valid
+    entry before it enters the queue, so the contextless drainer never
+    re-derives scope from an ambient cwd (BUG-522) and never replays an entry
+    with missing/invalid provenance (BUG-521). An entry that cannot be made
+    replay-valid is rejected here, loudly, rather than queued to fail forever.
+
+    Provides graceful degradation: never raises — returns False on any error.
 
     Enhanced in CR-1.3 to consolidate queue_to_file() from hook scripts.
 
@@ -646,11 +768,29 @@ def queue_operation(
         immediate: If True, queued item is immediately ready for retry (no backoff)
 
     Returns:
-        True if queued successfully, False on any error
+        True if queued successfully, False if rejected or on any error
     """
     try:
+        prepared = _prepare_failed_store_entry(data)
+    except ValueError as e:
+        # Not replay-valid (unresolvable scope / missing-invalid provenance).
+        # Fail loud at the boundary — do NOT queue an entry that can never store.
+        logger.error(
+            "queue_operation_rejected_not_replay_valid",
+            extra={"error": str(e), "reason": reason},
+        )
+        return False
+    except Exception as e:
+        # Graceful degradation: never crash a capture hook.
+        logger.error(
+            "queue_operation_prepare_failed",
+            extra={"error": str(e), "error_type": type(e).__name__},
+        )
+        return False
+
+    try:
         queue = MemoryQueue()
-        queue.enqueue(data, reason, immediate=immediate)
+        queue.enqueue(prepared, reason, immediate=immediate)
         return True
     except Exception as e:
         # Graceful degradation: log error but never crash

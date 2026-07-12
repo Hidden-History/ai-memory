@@ -132,16 +132,29 @@ class TestMismatchPolicy:
         with caplog.at_level(logging.WARNING, logger="memory.project"):
             resolved = resolve_project_id(str(tmp_path))
         assert resolved == "workspace-a"
-        assert any(
-            r.msg == "project_env_cwd_mismatch" for r in caplog.records
-        ), "expected a loud env!=cwd mismatch warning"
+        # I3: the human-facing rendered message (not just extra=) must carry the
+        # event name + both ids + the remedy, so a text/lastResort consumer that
+        # drops extra= still sees the context.
+        mismatch = [
+            r
+            for r in caplog.records
+            if r.getMessage().startswith("project_env_cwd_mismatch")
+        ]
+        assert mismatch, "expected a loud env!=cwd mismatch warning"
+        rendered = mismatch[0].getMessage()
+        assert "workspace-a" in rendered  # env id
+        assert "acme/other-b" in rendered  # cwd git slug
+        assert "Unset AI_MEMORY_PROJECT_ID" in rendered  # remedy
 
     def test_env_agrees_with_cwd_no_warning(self, monkeypatch, tmp_path, caplog):
         monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "acme/same-repo")
         _make_git_repo(tmp_path, "https://github.com/Acme/Same-Repo.git")
         with caplog.at_level(logging.WARNING, logger="memory.project"):
             resolve_project_id(str(tmp_path))
-        assert not any(r.msg == "project_env_cwd_mismatch" for r in caplog.records)
+        assert not any(
+            r.getMessage().startswith("project_env_cwd_mismatch")
+            for r in caplog.records
+        )
 
     def test_env_set_no_git_cwd_no_warning(self, monkeypatch, tmp_path, caplog):
         # The common case: env set, cwd has no git remote -> not a disagreement.
@@ -150,7 +163,10 @@ class TestMismatchPolicy:
         plain.mkdir()
         with caplog.at_level(logging.WARNING, logger="memory.project"):
             assert resolve_project_id(str(plain)) == "workspace-a"
-        assert not any(r.msg == "project_env_cwd_mismatch" for r in caplog.records)
+        assert not any(
+            r.getMessage().startswith("project_env_cwd_mismatch")
+            for r in caplog.records
+        )
 
 
 class TestWrapperNonClobber:

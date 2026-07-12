@@ -44,6 +44,7 @@ from memory.config import (
     COLLECTION_CONVENTIONS,
     COLLECTION_DISCUSSIONS,
 )
+from memory.hooks_common import get_hook_timeout
 from memory.logging_config import StructuredFormatter
 from memory.qdrant_client import QdrantUnavailable
 from memory.storage import MemoryStorage
@@ -92,22 +93,11 @@ def _log_to_activity(message: str) -> None:
         pass
 
 
-def get_timeout() -> int:
-    """
-    Get timeout value from env var.
-
-    Returns:
-        Timeout in seconds (default: 60)
-    """
-    try:
-        timeout_str = os.getenv("HOOK_TIMEOUT", "60")
-        return int(timeout_str)
-    except ValueError:
-        logger.warning(
-            "invalid_timeout_env", extra={"value": timeout_str, "using_default": 60}
-        )
-        return 60
-
+# CR-1.4 consolidation: the local get_timeout() duplicate was removed in favour of
+# memory.hooks_common.get_hook_timeout() (same helper store_async/error_store_async use)
+# so this post-work store path inherits the coherent HOOK_TIMEOUT default (TD-782/788)
+# and cannot fire its outer wait_for mid-embed before the embedding client's coordinated
+# budget completes.
 
 # QUEUE-UNIFY: queue_to_file() removed - using consolidated queue_operation() from memory.queue
 # This provides automatic retry with exponential backoff via MemoryQueue class
@@ -358,7 +348,7 @@ async def main_async() -> int:
             return 1
 
         # Apply timeout
-        timeout = get_timeout()
+        timeout = get_hook_timeout()
 
         # Run storage with timeout
         await asyncio.wait_for(store_memory_async(payload), timeout=timeout)
@@ -367,7 +357,7 @@ async def main_async() -> int:
 
     except asyncio.TimeoutError:
         # Handle timeout
-        logger.error("storage_timeout", extra={"timeout_seconds": get_timeout()})
+        logger.error("storage_timeout", extra={"timeout_seconds": get_hook_timeout()})
         # Queue for retry
         if payload:
             queue_operation(payload, "timeout")

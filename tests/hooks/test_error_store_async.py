@@ -95,38 +95,38 @@ class TestBuildRecoverablePayload:
     memory-data key) and would rot unrecoverably; the rebuilt direct payload
     reconstructs what the main store path would have written and drains via
     process_retry_queue's format-1 handler.
+
+    BUG-523 fix: group_id is no longer resolved (or defaulted to "unknown")
+    here — the raw cwd is carried on the entry and resolved ONCE, canonically,
+    by the failed-store producer boundary (queue.py::_prepare_failed_store_entry).
     """
 
     def test_payload_is_faithful_to_main_store_path(self, error_context):
-        """content/type/group_id/session_id mirror the main (Qdrant-up) store path."""
-        with patch.object(esav, "resolve_project_id", return_value="myorg-myrepo"):
-            payload = esav._build_recoverable_payload(error_context)
+        """content/type/cwd/source_hook/session_id mirror the main store path."""
+        payload = esav._build_recoverable_payload(error_context)
 
         assert payload["content"] == esav.format_error_content(error_context)
         assert payload["type"] == "error_pattern"
-        assert payload["group_id"] == "myorg-myrepo"
+        assert payload["cwd"] == error_context["cwd"]
+        assert payload["source_hook"] == "PostToolUse"
         assert payload["session_id"] == error_context["session_id"]
 
     def test_payload_passes_queue_guard(self, error_context):
         """The rebuilt payload is accepted by the real queue guard (raw context isn't)."""
         from memory.queue import _is_memory_payload
 
-        with patch.object(esav, "resolve_project_id", return_value="myorg-myrepo"):
-            payload = esav._build_recoverable_payload(error_context)
+        payload = esav._build_recoverable_payload(error_context)
 
         assert _is_memory_payload(payload) is True
         # The raw error_context the hook used to enqueue would be rejected.
         assert _is_memory_payload(error_context) is False
 
-    def test_group_id_falls_back_when_resolution_fails(self, error_context):
-        """A ValueError from resolve_project_id degrades to the 'unknown' sentinel."""
-        with patch.object(
-            esav, "resolve_project_id", side_effect=ValueError("undetectable")
-        ):
-            payload = esav._build_recoverable_payload(error_context)
+    def test_never_fabricates_unknown_group_id(self, error_context):
+        """The payload never carries a group_id at all — never a fabricated
+        'unknown' catch-all (BUG-523; Will PM #380)."""
+        payload = esav._build_recoverable_payload(error_context)
 
-        assert payload["group_id"] == "unknown"
-        assert payload["content"] == esav.format_error_content(error_context)
+        assert "group_id" not in payload
 
 
 class TestErrorStoreAsync:

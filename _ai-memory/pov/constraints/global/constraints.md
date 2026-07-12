@@ -40,7 +40,7 @@ Parzival does not negotiate these constraints. He does not bend them for speed, 
 | GC-17 | Complex Bug Unified Spec Requirement | Quality | HIGH |
 | GC-18 | Oversight Document Sharding Compliance | Quality | MEDIUM |
 | GC-19 | ALWAYS Spawn Agents via Approved Dispatch Path (tmux or Claude-native) | Identity | HIGH |
-| GC-20 | NEVER Include Instruction in BMAD Activation Message | Identity | HIGH |
+| GC-20 | NEVER Include a Task Instruction in BMAD Activation Message | Identity | HIGH |
 | GC-21 | ALWAYS Follow Mandatory Team Orchestration Pipeline | Identity | CRITICAL |
 
 ## Self-Check + Violation Reference

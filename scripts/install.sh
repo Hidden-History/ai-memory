@@ -38,6 +38,21 @@ fi
 source "$_HELPERS"
 unset _HELPERS
 
+# --check-templates: CI-gateable dry-run of oversight-template drift (no install).
+# Scanned + stripped here so the positional PROJECT_PATH/PROJECT_NAME args below
+# are unaffected. The action runs at the bottom of the file (after all functions
+# are defined), just before main.
+CHECK_TEMPLATES_ONLY=false
+_pos_args=()
+for _a in "$@"; do
+    case "$_a" in
+        --check-templates) CHECK_TEMPLATES_ONLY=true ;;
+        *) _pos_args+=("$_a") ;;
+    esac
+done
+set -- "${_pos_args[@]+"${_pos_args[@]}"}"
+unset _pos_args _a
+
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
 PROJECT_PATH="${1:-.}"
@@ -825,6 +840,81 @@ else:
     echo ""
 }
 
+# load_persisted_config — Tier-2 (user-managed) prompt-suppression on reinstall.
+# BP-182 §2 / BUG-520: the shell analogue of debconf's "seen" flag — hydrate
+# prompt-gated vars from persisted docker/.env + docker/.env.secrets so
+# configure_options' `[[ -z "$VAR" ]]` guards skip already-answered questions.
+# Reuses the secrets-first _read_env_key idiom already proven in
+# configure_project_sources (BUG-309) and derive_and_persist_compose_profiles
+# (BP-160).
+#
+# Constraints (BP-182 §2.2): (1) only fill UNSET vars — preserves
+# shell > .env > default precedence; (2) all-or-nothing per feature — hydrate an
+# enable-flag only with its dependents present; (3) secrets from .env.secrets
+# first, never echoed; (4) gate on existing install — no-op on fresh.
+load_persisted_config() {
+    local env_file="$INSTALL_DIR/docker/.env"
+    local secrets_file="$INSTALL_DIR/docker/.env.secrets"
+
+    # (4) Gate on existing install — no-op on fresh (blank placeholders must prompt)
+    [[ -f "$env_file" ]] || return 0
+
+    local hydrated=()
+
+    # --- GitHub (all-or-nothing: enable-flag + repo + token) ---
+    if [[ -z "${GITHUB_SYNC_ENABLED:-}" ]]; then
+        local g_enabled g_repo g_token
+        g_enabled=$(_read_env_key "GITHUB_SYNC_ENABLED" "$secrets_file" "$env_file")
+        g_repo=$(_read_env_key    "GITHUB_REPO"         "$secrets_file" "$env_file")
+        g_token=$(_read_env_key   "GITHUB_TOKEN"        "$secrets_file" "$env_file")
+        if [[ "$g_enabled" == "true" && -n "$g_repo" && -n "$g_token" ]]; then
+            GITHUB_SYNC_ENABLED="$g_enabled"; GITHUB_REPO="$g_repo"; GITHUB_TOKEN="$g_token"
+            hydrated+=("GitHub")
+        elif [[ "$g_enabled" == "false" ]]; then
+            GITHUB_SYNC_ENABLED="false"; hydrated+=("GitHub(disabled)")
+        fi
+        # else: incomplete prior config → leave unset → prompt (all-or-nothing)
+    fi
+
+    # --- Jira (enable-flag + url + email + token + projects) ---
+    if [[ -z "${JIRA_SYNC_ENABLED:-}" ]]; then
+        local j_en j_url j_email j_tok j_proj
+        j_en=$(_read_env_key    "JIRA_SYNC_ENABLED" "$secrets_file" "$env_file")
+        j_url=$(_read_env_key   "JIRA_INSTANCE_URL" "$secrets_file" "$env_file")
+        j_email=$(_read_env_key "JIRA_EMAIL"        "$secrets_file" "$env_file")
+        j_tok=$(_read_env_key   "JIRA_API_TOKEN"    "$secrets_file" "$env_file")
+        j_proj=$(_read_env_key_json "JIRA_PROJECTS" "$secrets_file" "$env_file")
+        if [[ "$j_en" == "true" && -n "$j_url" && -n "$j_email" && -n "$j_tok" ]]; then
+            JIRA_SYNC_ENABLED="$j_en"; JIRA_INSTANCE_URL="$j_url"; JIRA_EMAIL="$j_email"
+            JIRA_API_TOKEN="$j_tok"; JIRA_PROJECTS="$j_proj"; hydrated+=("Jira")
+        elif [[ "$j_en" == "false" ]]; then
+            JIRA_SYNC_ENABLED="false"; hydrated+=("Jira(disabled)")
+        fi
+    fi
+
+    # --- Langfuse / monitoring (single-flag features) ---
+    if [[ -z "${LANGFUSE_ENABLED:-}" ]]; then
+        LANGFUSE_ENABLED=$(_read_env_key "LANGFUSE_ENABLED" "$secrets_file" "$env_file")
+        [[ -n "$LANGFUSE_ENABLED" ]] && hydrated+=("Langfuse")
+    fi
+    if [[ -z "${INSTALL_MONITORING:-}" ]]; then
+        INSTALL_MONITORING=$(_read_env_key "MONITORING_ENABLED" "$secrets_file" "$env_file")
+        [[ -n "$INSTALL_MONITORING" ]] && hydrated+=("Monitoring")
+    fi
+
+    # SEED_BEST_PRACTICES is an action, not persisted state — default to skip
+    # re-seed on reinstall (an existing install already has the DB seeded).
+    if [[ -z "${SEED_BEST_PRACTICES:-}" ]]; then
+        SEED_BEST_PRACTICES="false"
+    fi
+
+    # (5) Transparency — make the skipped prompts obviously intentional
+    if (( ${#hydrated[@]} )); then
+        log_info "Reusing existing config from ${env_file}: ${hydrated[*]}"
+        log_info "  (to change any value, edit docker/.env(.secrets) or export the var before install)"
+    fi
+}
+
 # Interactive configuration prompts
 configure_options() {
     # Skip prompts if running non-interactively or if all options pre-set
@@ -1305,6 +1395,7 @@ main() {
 
     # Full install steps - create shared infrastructure
     if [[ "$INSTALL_MODE" == "full" ]]; then
+        load_persisted_config          # BP-182 §2.4 / BUG-520 — hydrate before prompt
         # Interactive configuration (unless non-interactive mode)
         configure_options
 
@@ -1349,6 +1440,9 @@ main() {
 
             # BUG-125: Drain queued events that failed during service startup
             drain_pending_queue
+            # TD-710 cron→daemon migration: retry-queue draining now runs as an
+            # in-stack daemon (docker-compose.yml); remove any legacy host cron.
+            remove_legacy_retry_drain_cron
         fi
     else
         log_info "Skipping shared infrastructure setup (add-project mode)"
@@ -4220,6 +4314,39 @@ verify_embedding_readiness() {
     log_warning "Embedding service slow to respond — GitHub sync may have embedding timeouts"
 }
 
+# Remove the legacy retry-queue-drain host cron (TD-710 cron→daemon migration).
+# TD-710 originally installed a host cron entry (marker "# ai-memory-retry-drain")
+# to run process_retry_queue.py every 15 minutes. That standing scheduler has
+# moved to an in-stack daemon container (docker-compose.yml) so it runs under the
+# same lifecycle as the rest of the stack. This function no longer installs any
+# cron — it ONLY removes a prior installation's tagged entry, so an operator
+# upgrading doesn't end up with BOTH the old host cron and the new daemon
+# draining the queue concurrently. Idempotent: no-op on a fresh install or a
+# host with no crontab, and no-op on a second run once the entry is already
+# gone. Matches ONLY the "# ai-memory-retry-drain" marker line — never touches
+# any other crontab entry, including an operator's own unrelated cron jobs.
+remove_legacy_retry_drain_cron() {
+    # crontab may not exist on this host at all (e.g. a minimal container) —
+    # nothing to migrate.
+    command -v crontab >/dev/null 2>&1 || return 0
+
+    local existing_crontab
+    existing_crontab=$(crontab -l 2>/dev/null || true)
+    [[ -z "$existing_crontab" ]] && return 0
+
+    # Nothing to remove — never installed, or already migrated.
+    echo "$existing_crontab" | grep -q "ai-memory-retry-drain" || return 0
+
+    local filtered_crontab
+    filtered_crontab=$(echo "$existing_crontab" | grep -v "ai-memory-retry-drain" || true)
+
+    if printf '%s\n' "$filtered_crontab" | crontab - 2>/dev/null; then
+        log_success "Removed legacy retry-queue drain cron (now handled by the in-stack daemon)"
+    else
+        log_warning "Failed to remove legacy retry-drain cron entry — remove manually: crontab -e"
+    fi
+}
+
 drain_pending_queue() {
     local queue_file="$INSTALL_DIR/queue/pending_queue.jsonl"
     if [[ ! -f "$queue_file" ]] || [[ ! -s "$queue_file" ]]; then
@@ -5383,34 +5510,172 @@ setup_parzival() {
 }
 
 
-deploy_oversight_templates() {
+# ---------------------------------------------------------------------------
+# Oversight-template sync (issue #295 / PR #296 Part C)
+#
+# The installer stamps each shipped oversight template with a content hash and
+# records the deployed hash per project. On re-run, an unchanged project copy is
+# auto-synced to the new shipped version; a locally-modified copy is left alone
+# with a loud warning. New template files are deployed into existing projects.
+# A drifted copy that byte-matches a KNOWN prior-shipped version (no recorded
+# baseline) is auto-migrated — this is how the historical PLAN_TEMPLATE drift
+# self-heals rather than being warned forever.
+#
+# State files (both machine-local, alongside the runtime / project audit dir):
+#   $INSTALL_DIR/templates/known-oversight-template-versions.txt
+#       registry of prior-shipped hashes  —  "<rel_path>\t<sha256>" per version
+#   $PROJECT_PATH/.audit/state/oversight-templates.manifest
+#       JSON { "<rel_path>": "<last-deployed-sha256>" }  (gitignored, chmod 700)
+# ---------------------------------------------------------------------------
+
+# Portable SHA-256 of a file's contents → stdout (hex, no filename).
+_sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# Prior-shipped hashes recorded for a template rel_path (newline-separated).
+_known_template_hashes() {
+    local rel_path="$1" registry="$2"
+    [[ -f "$registry" ]] || return 0
+    awk -F'\t' -v p="$rel_path" '$1 == p {print $2}' "$registry"
+}
+
+# Read the recorded deployed-hash for a rel_path from the JSON manifest.
+_template_manifest_get() {
+    local manifest="$1" key="$2"
+    [[ -f "$manifest" ]] || return 0
+    python3 - "$manifest" "$key" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as fh:
+        d = json.load(fh)
+    if not isinstance(d, dict):
+        d = {}
+except Exception:
+    d = {}
+print(d.get(sys.argv[2], ""))
+PY
+}
+
+# Record the deployed-hash for a rel_path into the JSON manifest.
+_template_manifest_set() {
+    local manifest="$1" key="$2" val="$3"
+    mkdir -p "$(dirname "$manifest")"
+    python3 - "$manifest" "$key" "$val" <<'PY'
+import json, sys
+p, k, v = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(p) as fh:
+        d = json.load(fh)
+    if not isinstance(d, dict):
+        d = {}
+except Exception:
+    d = {}
+d[k] = v
+with open(p, "w") as fh:
+    json.dump(d, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+PY
+}
+
+# Core engine. $1 = "deploy" (apply) | "check" (dry-run, report + exit code).
+# Uses globals INSTALL_DIR + PROJECT_PATH. Silent when everything is in-sync.
+_sync_oversight_templates() {
+    local mode="$1"
     local tmpl_source="$INSTALL_DIR/templates/oversight"
     local oversight_dest="$PROJECT_PATH/oversight"
+    local registry="$INSTALL_DIR/templates/known-oversight-template-versions.txt"
+    local manifest="$PROJECT_PATH/.audit/state/oversight-templates.manifest"
+    local n_new=0 n_sync=0 n_migrate=0 n_warn=0
 
     if [[ ! -d "$tmpl_source" ]]; then
         log_warning "Oversight templates not found at $tmpl_source"
-        return
+        return 0
     fi
 
-    # Create oversight directory structure (skip existing files)
-    mkdir -p "$oversight_dest"
+    [[ "$mode" == "deploy" ]] && mkdir -p "$oversight_dest"
 
-    # Copy templates, preserving directory structure, skip existing
     while read -r tmpl_file; do
-        local rel_path="${tmpl_file#$tmpl_source/}"
+        local rel_path="${tmpl_file#"$tmpl_source"/}"
         local dest_file="$oversight_dest/$rel_path"
-        local dest_dir
-        dest_dir="$(dirname "$dest_file")"
+        local h_shipped h_project h_recorded
+        h_shipped="$(_sha256_file "$tmpl_file")"
 
-        mkdir -p "$dest_dir"
-
+        # NEW file — not present in the project yet → deploy it.
         if [[ ! -f "$dest_file" ]]; then
-            cp "$tmpl_file" "$dest_file"
+            n_new=$((n_new + 1))
+            if [[ "$mode" == "deploy" ]]; then
+                mkdir -p "$(dirname "$dest_file")"
+                cp "$tmpl_file" "$dest_file"
+                _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+            else
+                echo "  [new]     oversight/$rel_path (would deploy)"
+            fi
+            continue
         fi
+
+        h_project="$(_sha256_file "$dest_file")"
+
+        # Already current → silent (Design Standard: fire only on drift).
+        if [[ "$h_project" == "$h_shipped" ]]; then
+            [[ "$mode" == "deploy" ]] && _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+            continue
+        fi
+
+        h_recorded="$(_template_manifest_get "$manifest" "$rel_path")"
+
+        # Unmodified since our last deploy (matches recorded hash) → auto-sync.
+        if [[ -n "$h_recorded" && "$h_project" == "$h_recorded" ]]; then
+            n_sync=$((n_sync + 1))
+            if [[ "$mode" == "deploy" ]]; then
+                cp "$tmpl_file" "$dest_file"
+                _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+                log_info "template synced (unmodified → current): oversight/$rel_path"
+            else
+                echo "  [sync]    oversight/$rel_path (unmodified-stale → safe-sync)"
+            fi
+            continue
+        fi
+
+        # No recorded baseline, but the copy byte-matches a known prior-shipped
+        # version → provably stale old-shipped, not user-modified → migrate.
+        if [[ -z "$h_recorded" ]] && _known_template_hashes "$rel_path" "$registry" | grep -qxF "$h_project"; then
+            n_migrate=$((n_migrate + 1))
+            if [[ "$mode" == "deploy" ]]; then
+                cp "$tmpl_file" "$dest_file"
+                _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+                log_info "template migrated (stale old-shipped → current): oversight/$rel_path"
+            else
+                echo "  [migrate] oversight/$rel_path (stale old-shipped → safe-sync)"
+            fi
+            continue
+        fi
+
+        # Otherwise the copy is locally modified → never clobber; warn loudly.
+        n_warn=$((n_warn + 1))
+        log_warning "template drifted + upstream changed; review + merge: oversight/$rel_path"
+        [[ "$mode" == "check" ]] && echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
     done < <(find "$tmpl_source" -type f)
 
-    log_debug "Oversight templates deployed to $oversight_dest (existing files preserved)"
+    if [[ "$mode" == "check" ]]; then
+        if (( n_new + n_sync + n_migrate + n_warn == 0 )); then
+            return 0  # silent-when-clean
+        fi
+        echo "Oversight-template drift: new=$n_new safe-sync=$n_sync migrate=$n_migrate needs-merge=$n_warn"
+        return 1
+    fi
+
+    log_debug "Oversight templates synced to $oversight_dest (new=$n_new sync=$n_sync migrate=$n_migrate warn=$n_warn)"
+    return 0
 }
+
+# Public entrypoints.
+deploy_oversight_templates() { _sync_oversight_templates deploy; }
+check_oversight_templates() { _sync_oversight_templates check; }
 
 configure_parzival_env() {
     local env_file="$INSTALL_DIR/docker/.env"
@@ -5526,6 +5791,13 @@ run_aim_doctor_advisory() {
         log_warning "aim doctor: advisory check did not complete cleanly (non-fatal) — run: $INSTALL_DIR/scripts/aim_doctor.py --install-dir $INSTALL_DIR"
     fi
 }
+
+# --check-templates short-circuit: report oversight-template drift and exit
+# WITHOUT running the installer. Exit 0 = in-sync (silent), 1 = drift pending.
+if [[ "$CHECK_TEMPLATES_ONLY" == "true" ]]; then
+    check_oversight_templates
+    exit $?
+fi
 
 # Execute main function with all arguments
 main "$@"
