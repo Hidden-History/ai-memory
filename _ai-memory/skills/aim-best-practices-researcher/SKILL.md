@@ -106,6 +106,12 @@ When presenting each finding, state why it is the current gold standard and cite
    Swap `--write` for `--check` to verify every BP file has a matching
    INDEX row (silent when all present; non-zero and lists offenders when not).
 
+   `index.md`'s table is wrapped in a `<!-- BEGIN bp-index (...) -->` /
+   `<!-- END bp-index -->` marker pair; `--write`/`--check` key canonical-table
+   selection off this region, so a renamed header or a second top-level table
+   doesn't break selection. Markers absent → falls back to header-sniffing and
+   refuses (writes/reports nothing) on ambiguity. Never remove the markers by hand.
+
 ### Phase 4: Store to Database (MANDATORY)
 
 **CRITICAL**: You MUST run this command to store findings to the database.
