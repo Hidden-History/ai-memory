@@ -4,9 +4,11 @@ This index tracks all researched best practices for this project.
 
 ## Quick Reference
 
+<!-- BEGIN bp-index (generated; edit BP-*.md, then re-run bp_index.py --write <this-dir>) -->
 | BP-ID | Topic | Status | Last Verified | Confidence |
 |-------|-------|--------|---------------|------------|
 | - | No findings yet | - | - | - |
+<!-- END bp-index -->
 
 ## Status Legend
 
