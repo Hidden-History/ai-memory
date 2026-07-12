@@ -78,10 +78,9 @@ The auto-reply monitor detects and notifies. To approve:
 tmux send-keys -t "$PANE_TARGET" Enter
 ```
 
-**Agent appears stuck:**
-1. Capture pane output for diagnosis
-2. Send nudge: `Continue with the task. If blocked, report what is blocking you.`
-3. If still stuck after another cycle, report failure to caller
+**Teammate appears idle:** idle is noise — do not nudge. Inspect actual state via `tmux capture-pane`.
+Respawn FRESH only on a state-based stall (no output + no work activity, or a crash/error signature) —
+never on an idle ping alone. A slow load is not a stall.
 
 ### 4. Detect Completion
 

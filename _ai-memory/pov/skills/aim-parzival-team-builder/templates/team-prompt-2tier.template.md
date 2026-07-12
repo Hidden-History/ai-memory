@@ -1,6 +1,6 @@
 ---
 name: "team-prompt-2tier"
-description: "Output format for assembling a 2-tier (flat) agent team prompt — Lead coordinates Workers (teammates) directly via Agent tool + team_name"
+description: "Output format for assembling a 2-tier (flat) agent team prompt — Lead coordinates Workers (teammates) directly via the Agent tool with a unique name"
 ---
 
 # 2-Tier Team Prompt Assembly Format
@@ -8,13 +8,19 @@ description: "Output format for assembling a 2-tier (flat) agent team prompt —
 Use this template when assembling the final copy-pasteable prompt for a 2-tier team.
 
 **Claude Code tool mapping**:
-- **Lead** uses `TeamCreate` to create the team, then `Agent` tool with `team_name` + `name` to spawn each worker as a **teammate**
+- **Lead** spawns each worker as a **teammate** via the `Agent` tool with a unique `name`
 - **Communication** uses `SendMessage` (type: "message" for DMs, "shutdown_request" for shutdown)
 - **Task coordination** uses `TaskCreate`, `TaskUpdate`, `TaskList`
-- **Cleanup** uses `TeamDelete` (after all teammates shut down)
+- **Cleanup** uses the `shutdown_request` handshake, one per teammate (from the lead session)
+
+**Two-phase BMAD activation (GC-20):** each teammate's spawn `prompt` carries ONLY its BMAD activation
++ the report-to-team-lead one-line — never the task. `{teammate_N_activation}` is the Skill-tool-load
+form: `Use the Skill tool to load bmad-<role> (the BMAD <role> persona).` (a bare `/bmad-*` at spawn
+activates Parzival, not the persona). After the teammate replies with its greeting/menu, send the
+8-section task block as ONE SendMessage.
 
 ```
-Create a team called "{team_name}" with the description "{team_objective}".
+Spawn each teammate via the `Agent` tool (below).
 Then spawn {teammate_count} teammates to {team_objective}.
 Use {default_model} for each teammate.
 {plan_approval_instruction}
@@ -25,9 +31,12 @@ Teammate 1: {teammate_1_name}
 Spawn a teammate using the Agent tool with these parameters:
   name: "{teammate_1_name}"
   model: "{teammate_1_model}"
-  subagent_type: "general-purpose"
-  {teammate_1_mode}
-  prompt: (below)
+  subagent_type: "{teammate_1_subagent_type}"
+  mode: "auto"
+  prompt: "{teammate_1_activation}
+You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and anything the agent asks) to team-lead, then wait for my instructions before doing any work."
+
+Wait for {teammate_1_name}'s activation reply (greeting + menu). Then send the task as ONE SendMessage — the 8-section block below, never bundled into the spawn prompt (GC-20):
 "
 TEAMMATE 1: {teammate_1_name}
 
@@ -51,8 +60,9 @@ TEAMMATE 1: {teammate_1_name}
    {teammate_1_deliverable}
 
 7. COORDINATION:
-   - Use SendMessage (type: 'message', recipient: lead) when done with a summary
-   - If blocked, use SendMessage to message the lead with what you need
+   - SendMessage to team-lead (by name; never "main") when done with a summary
+   - One message, then wait for the reply
+   - If blocked, SendMessage the lead with what you need
    {teammate_1_coordination_notes}
 
 8. SELF-VALIDATION:
@@ -65,9 +75,12 @@ Teammate 2: {teammate_2_name}
 Spawn a teammate using the Agent tool with:
   name: "{teammate_2_name}"
   model: "{teammate_2_model}"
-  subagent_type: "general-purpose"
-  {teammate_2_mode}
-  prompt: (below)
+  subagent_type: "{teammate_2_subagent_type}"
+  mode: "auto"
+  prompt: "{teammate_2_activation}
+You're activated as a teammate under Parzival (team-lead). Once activated, SendMessage your activation reply to team-lead, then wait for my instructions before doing any work."
+
+Wait for the activation reply, then send the task as ONE SendMessage (same 8-section structure as Teammate 1):
 "{same_8_element_structure}"
 
 {repeat_for_each_teammate}
@@ -82,7 +95,7 @@ Lead Instructions:
 - When all teammates finish, synthesize their results into {synthesis_deliverable}.
 - Report back with: {summary_format}.
 - After synthesis, shut down all teammates using SendMessage (type: 'shutdown_request') to each.
-- After all teammates confirm shutdown, clean up the team using TeamDelete.
+- After all teammates confirm shutdown, cleanup is complete.
 
 {contract_first_addendum}
 ```
@@ -95,7 +108,7 @@ Add `isolation: "worktree"` to each teammate's Agent tool spawn to give each an 
 Spawn a teammate using the Agent tool with:
   name: "{teammate_name}"
   model: "{model}"
-  subagent_type: "general-purpose"
+  subagent_type: "{teammate_subagent_type}"
   isolation: "worktree"
   prompt: "..."
 ```
@@ -108,7 +121,7 @@ Add `mode: "plan"` to each teammate's Agent tool spawn:
 Spawn a teammate using the Agent tool with:
   name: "{teammate_name}"
   model: "{model}"
-  subagent_type: "general-purpose"
+  subagent_type: "{teammate_subagent_type}"
   mode: "plan"
   prompt: "..."
 ```

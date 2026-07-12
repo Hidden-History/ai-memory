@@ -29,7 +29,7 @@ Parzival monitors the teammate's progress while it works. Monitor via teammate i
 ### 1. Monitor via Idle Notifications and TaskList
 
 Track teammate progress through:
-- **Idle notifications:** Teammate signals when waiting for input or when done
+- **Idle notifications:** Teammate signals when waiting for input or when done — monitoring-phase idle (turn finished); distinct from activation-phase idle, which is noise (see /aim-agent-dispatch Playbook). Do not nudge a progressing teammate.
 - **TaskList:** Check task progress status periodically during long tasks
 
 Monitor for:
