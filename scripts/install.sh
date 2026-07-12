@@ -1412,6 +1412,7 @@ main() {
         install_python_dependencies
         step "Environment Configuration"
         migrate_existing_env_secrets
+        reconcile_sot_discovery_cap
         configure_environment
         validate_external_services
         configure_secrets_backend
@@ -2700,6 +2701,35 @@ migrate_existing_env_secrets() {
     # reader. purge_migrated_secret_keys_from_env removes the line entirely
     # for keys whose canonical value lives in .env.secrets. Idempotent.
     purge_migrated_secret_keys_from_env "$env_file" "$secrets_file"
+}
+
+# reconcile_sot_discovery_cap — TD-804: #305 raised the code default for
+# AI_MEMORY_SOT_DISCOVERY_MAX_DIRS from 5000 to 15000 (fixes a discovery-coverage
+# regression), but any docker/.env deployed before #305 still carries the retired
+# default ACTIVE (=5000), and run-with-env.sh forwards the whole AI_MEMORY_SOT_*
+# namespace to the engine — so the stale 5000 shadows the new code default and
+# #305's fix is inert on existing installs.
+# Reconciles ONLY the exact retired-default line (^AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000$)
+# to 15000. A deliberate operator override (any other value), a commented-out
+# line, or an absent key (new installs — code default applies) are left
+# untouched. Idempotent: no-op once reconciled or on a fresh install.
+reconcile_sot_discovery_cap() {
+    local env_file="$INSTALL_DIR/docker/.env"
+
+    [[ ! -f "$env_file" ]] && return 0
+
+    if ! grep -qE '^AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000$' "$env_file" 2>/dev/null; then
+        return 0
+    fi
+
+    local backup_file
+    backup_file="${env_file}.bak.$(date +%Y%m%d%H%M%S)"
+    cp -p "$env_file" "$backup_file"
+
+    sed -i.tmp "s|^AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000$|AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=15000|" "$env_file" \
+        && rm -f "${env_file}.tmp"
+
+    log_success "TD-804: reconciled stale AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000 -> 15000 (#305 discovery-cap fix now active; backup: $(basename "$backup_file"))"
 }
 
 # Environment configuration (AC 7.1.6)
