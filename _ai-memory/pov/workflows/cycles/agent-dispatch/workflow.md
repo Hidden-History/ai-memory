@@ -15,7 +15,7 @@ firstStep: './steps-c/step-01-prepare-instruction.md'
 **Claude-native path:**
 1. **aim-parzival-team-builder** → design team structure or fast path for single agent [MANDATORY]
 2. **aim-agent-dispatch** → select agent, prepare instruction (handles both BMAD and generic) [MANDATORY]
-3. **aim-model-dispatch** → select model + spawn via TeamCreate + Agent tool [MANDATORY]
+3. **aim-model-dispatch** → select model + spawn via the `Agent` tool [MANDATORY]
 4. Claude-native framework handles lifecycle — **aim-agent-lifecycle is NOT used on this path**
 
 **Non-Claude (tmux) path:**

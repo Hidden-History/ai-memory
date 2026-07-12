@@ -1,7 +1,7 @@
 ---
 name: aim-best-practices-researcher
 description: Research current best practices for any technology, pattern, or coding standard. Use when asking about best practices, conventions, coding standards, recommended approaches, or how should I questions. Searches local knowledge first, then web for current sources (prioritizing the last ~6 months relative to today). Evaluates if findings warrant a reusable skill.
-allowed-tools: Read, Grep, Glob, WebSearch, WebFetch, Bash(python3:*), Skill
+allowed-tools: Read, Write, Grep, Glob, WebSearch, WebFetch, Bash(python3:*), Skill
 context: fork
 ---
 
@@ -57,10 +57,16 @@ Copy this checklist and track progress:
 Research Progress:
 - [ ] Phase 1: Check database (conventions collection)
 - [ ] Phase 2: Web research (if needed)
-- [ ] Phase 3: Save to file (BP-XXX.md)
+- [ ] Phase 3: Save to file (BP-XXX.md) + append INDEX row
 - [ ] Phase 4: Store to database
 - [ ] Phase 5: Evaluate skill-worthiness
 ```
+
+**Write scope (this skill writes ONLY these):** the BP file
+(`oversight/knowledge/best-practices/BP-XXX-[topic].md`), its INDEX row
+(`oversight/knowledge/best-practices/index.md`, appended in
+Phase 3), and the conventions-collection store (Phase 4). Do NOT edit
+roadmaps, SoT files, or any other oversight file.
 
 ### Phase 1: Check Database
 
@@ -83,7 +89,22 @@ When presenting each finding, state why it is the current gold standard and cite
 
 ### Phase 3: Save to File
 
-Generate next BP-ID and create `oversight/knowledge/best-practices/BP-XXX-[topic].md`
+1. Generate the next BP-ID by scanning existing files with **Glob**
+   (`oversight/knowledge/best-practices/BP-*.md`) — take the highest ID + 1.
+2. **Write** `oversight/knowledge/best-practices/BP-XXX-[topic].md` using the
+   format from [OUTPUT-FORMAT.md](OUTPUT-FORMAT.md).
+3. Update the INDEX from disk:
+
+   ```bash
+   "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/.venv/bin/python" \
+       "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py" \
+       --write oversight/knowledge/best-practices
+   ```
+
+   `bp_index.py` appends any `BP-*.md` file missing from `index.md` (matched
+   by BP-ID) without touching existing rows — idempotent, non-destructive.
+   Swap `--write` for `--check` to verify every BP file has a matching
+   INDEX row (silent when all present; non-zero and lists offenders when not).
 
 ### Phase 4: Store to Database (MANDATORY)
 
@@ -106,6 +127,10 @@ Without this step, research is lost and BUG-048 occurs.
 - [ ] Ran store_best_practice.py via run-with-env.sh
 - [ ] Received "Stored: <id>" or "Duplicate skipped" confirmation
 - [ ] If duplicate, that's OK - finding already exists
+- [ ] If exit code 3 / WARNING (stored but embedding incomplete): the finding
+      IS stored but not yet semantically searchable — run
+      `backfill_pending_embeddings.py`, don't re-run store (it would just
+      report "Duplicate skipped")
 
 ### Phase 5: Skill Evaluation
 
