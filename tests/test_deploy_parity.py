@@ -126,12 +126,21 @@ def test_structural_passes_when_decoupled_and_pruned(tmp_path):
 
 
 def test_structural_gate_clean_on_real_repo():
-    """The shipped install.sh + registry must have zero structural ERRORs."""
+    """The shipped install.sh + registry must have zero structural ERRORs, and
+    the operator-facing `--check` entrypoint must pass (rc 0) on the real tree.
+
+    This is the CI-collected source-side gate (the unit-tests job runs `pytest
+    tests/`): a BUG-527/528-class regression — a refresh-class deploy cp
+    dominated by the hook-config force-gate, or a set/dir class with no prune
+    path — flips a structural ERROR and fails this test in CI.
+    """
     classes = dp.load_registry(REGISTRY)
     errors = [
         f for f in dp.source_side_findings(REPO, classes) if f.severity == dp.ERROR
     ]
     assert errors == [], [f.render() for f in errors]
+    rc = dp.main(["--check", "--repo", str(REPO), "--registry", str(REGISTRY)])
+    assert rc == 0
 
 
 # ── BUG-526: adapter entrypoints resolve to real files ──────────────────────
@@ -267,6 +276,49 @@ def test_runtime_stale_and_orphan_fail(tmp_path):
     verdicts = {f.verdict for f in findings if f.severity == dp.ERROR}
     assert "STALE_DRIFT" in verdicts  # F1: adapter drift
     assert "ORPHAN_RETIRED" in verdicts  # F3: un-pruned retired pov shim
+
+
+def test_runtime_shared_skills_dir_claims_only_own(tmp_path):
+    """BP-186 §3.5 — a skills dir shared with unrelated BMAD/WDS skills: the gate
+    claims ONLY AI-Memory's declared adapter skills, never the co-resident ones.
+
+    Regression guard for the whole-directory-ownership false positive (the
+    ~150 `.agents/skills/bmad-*` ORPHAN_RETIRED noise). The shipped runtime
+    fixtures used exclusively-owned dirs, so they missed this class entirely.
+    """
+    install = tmp_path / "install"
+    project = tmp_path / "project"
+    # Source: AI-Memory's own codex adapter skill.
+    src = install / "src/memory/adapters/templates/codex/search-memory"
+    src.mkdir(parents=True)
+    (src / "SKILL.md").write_text("# search-memory canonical\n")
+    # Deployed shared dir: our skill (drifted) + unrelated BMAD/WDS skills that
+    # are NOT ours (each with the SKILL.md + customize.toml the old sweep flagged).
+    dep = project / ".agents/skills"
+    (dep / "search-memory").mkdir(parents=True)
+    (dep / "search-memory" / "SKILL.md").write_text("# STALE deployed form\n")
+    for other in ("bmad-agent-dev", "bmad-architecture", "wds-0-project-setup"):
+        (dep / other).mkdir(parents=True)
+        (dep / other / "SKILL.md").write_text(f"# {other}\n")
+        (dep / other / "customize.toml").write_text("owner = 'not-ai-memory'\n")
+
+    cls = {
+        "id": "codex_skills",
+        "class": "MANAGED_REFRESH_SET",
+        "deploy_fn": "write_codex_config",
+        "ownership": {"kind": "directory"},
+        "source_dir": "{INSTALL_DIR}/src/memory/adapters/templates/codex",
+        "source_skill_dirs": ["search-memory", "memory-status"],
+        "target_dirs": ["{PROJECT}/.agents/skills"],
+    }
+    findings = dp.runtime_findings(str(install), str(project), [cls])
+    # Exactly one finding: our drifted skill. Zero false positives on BMAD/WDS.
+    assert {(f.verdict, f.path) for f in findings} == {
+        ("STALE_DRIFT", ".agents/skills/search-memory/SKILL.md")
+    }
+    assert not any("bmad" in f.path or "wds" in f.path for f in findings), [
+        f.render() for f in findings
+    ]
 
 
 def test_runtime_preserve_file_never_flagged(tmp_path):

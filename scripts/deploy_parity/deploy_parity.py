@@ -82,6 +82,11 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _is_build_artifact(path: Path) -> bool:
+    """Compiled bytecode / caches are never managed files — exclude everywhere."""
+    return "__pycache__" in path.parts or path.suffix in (".pyc", ".pyo")
+
+
 def _subst(template: str, **kw: str) -> str:
     out = template
     for key, val in kw.items():
@@ -126,12 +131,71 @@ def _cp_marker(cls: dict) -> str | None:
     if not locator:
         return None
     frag = locator.replace("{INSTALL_DIR}/", "")
-    # Trim a trailing glob so we match the directory fragment in the cp line.
-    return (
-        frag.rsplit("/*", 1)[0].rsplit("/", 1)[0]
-        if frag.endswith((".toml", ".md", ".mdc"))
-        else frag.split("*")[0].rstrip("/")
-    )
+    # Bind to the source directory that holds the file/glob — the segment
+    # containing the cp source — not one segment further up (which over-matched
+    # a parent template dir and could match the wrong cp line).
+    if frag.endswith((".toml", ".md", ".mdc")):
+        return frag.rsplit("/", 1)[0]
+    return frag.split("*")[0].rstrip("/")
+
+
+def _registered_roots(classes: list[dict]) -> list[str]:
+    """Every project-relative destination fragment the registry claims."""
+    roots: set[str] = set()
+    for cls in classes:
+        for key in ("target", "target_dir"):
+            t = cls.get(key)
+            if t:
+                roots.add(t.replace("{PROJECT}/", "").rstrip("/"))
+        for t in cls.get("target_dirs", []):
+            roots.add(t.replace("{PROJECT}/", "").rstrip("/"))
+    return sorted(roots)
+
+
+_PROJECT_DEST = re.compile(r"\$(?:PROJECT_PATH|project_path)/([^\s\"']+)")
+
+
+def _install_to_registry_findings(
+    install_sh: str, classes: list[dict]
+) -> list[Finding]:
+    """Best-effort install.sh → registry reconciliation (C6 reverse direction).
+
+    Flags install.sh writes into a project path that no registry class claims.
+    Best-effort + WARN (deduped by destination root): reliably distinguishing a
+    managed deploy from an incidental write in bash is non-trivial, so this never
+    blocks. Known-unmodelled writes surface here rather than being silently
+    skipped.
+    """
+    roots = _registered_roots(classes)
+    seen: set[str] = set()
+    findings: list[Finding] = []
+    for line in install_sh.splitlines():
+        if not (re.search(r"(?:^|\s)(?:cp|rsync|install|tee)\s", line) or ">" in line):
+            continue
+        for m in _PROJECT_DEST.finditer(line):
+            parts = [
+                p
+                for p in m.group(1).split("/")
+                if p and not p.startswith("$") and "*" not in p
+            ]
+            if not parts:
+                continue
+            frag = "/".join(parts)
+            if any(frag == r or frag.startswith(r + "/") for r in roots):
+                continue
+            if any(frag == s or frag.startswith(s + "/") for s in seen):
+                continue  # already reported this root (or a parent of it)
+            seen.add(frag)
+            findings.append(
+                Finding(
+                    WARN,
+                    "-",
+                    "INSTALL_UNREGISTERED",
+                    frag,
+                    "install.sh writes a project path with no registry class (registry drift?)",
+                )
+            )
+    return findings
 
 
 def source_side_findings(repo: Path, classes: list[dict]) -> list[Finding]:
@@ -292,6 +356,16 @@ def source_side_findings(repo: Path, classes: list[dict]) -> list[Finding]:
                     )
                 )
 
+    # C6-reverse — install.sh → registry (best-effort). Every project-dir write
+    # in install.sh that lands under a registry-managed root must have a class;
+    # a managed-looking cp with no registry class is an unmodelled deploy (the
+    # BUG-527/528 sibling: a new managed target the gate would never check).
+    # Best-effort: WARN, deduped by destination root. Known-unmodelled writes
+    # (.gitignore entry-merge, .audit, deploy_ai_memory_agents) surface here as
+    # WARN rather than blocking — see TD candidate for the full path-precise
+    # two-way diff + ERROR promotion.
+    findings.extend(_install_to_registry_findings(install_sh, classes))
+
     # C7 — no target path claimed by both a refresh and a preserve class.
     refresh_targets: dict[str, str] = {}
     preserve_targets: dict[str, str] = {}
@@ -329,7 +403,7 @@ def source_side_findings(repo: Path, classes: list[dict]) -> list[Finding]:
 def _iter_files(root: Path):
     if root.is_dir():
         for p in sorted(root.rglob("*")):
-            if p.is_file():
+            if p.is_file() and not _is_build_artifact(p):
                 yield p
 
 
@@ -391,6 +465,24 @@ def _adapter_set(cls: dict, install_dir: str, project: str) -> list[tuple[Path, 
     return pairs
 
 
+def _owned_units(cls: dict, install_dir: str) -> set[str]:
+    """Top-level names in a target dir that AI-Memory *declares* it owns.
+
+    Ownership is derived from the source template set, never inferred from the
+    shared target dir's contents (BP-186 §3.5): .agents/skills & .codex/skills
+    are co-resident with unrelated BMAD/WDS skills that are not ours to claim.
+
+      * skill-set classes → the declared skill directory names.
+      * flat glob classes → the filenames currently present in source.
+    """
+    if cls.get("source_skill_dirs"):
+        return set(cls["source_skill_dirs"])
+    if cls.get("source_glob"):
+        src = Path(_subst(cls["source_glob"], INSTALL_DIR=install_dir))
+        return {p.name for p in src.parent.glob(src.name)}
+    return set()
+
+
 def _ide_configured(project: Path, cls: dict) -> bool:
     marker = cls.get("config_marker")
     if not marker:
@@ -443,14 +535,20 @@ def runtime_findings(
                             "deployed adapter ≠ source template",
                         )
                     )
-            # Orphan owned files in the target dir(s).
+            # Orphan sweep — a deployed file with no source template, but ONLY
+            # within the units AI-Memory declares it owns. The target dir may be
+            # shared with unrelated skills (BMAD/WDS); claiming the whole dir
+            # would flag them as false orphans (BP-186 §3.5).
             expected = {dp.resolve() for _, dp in pairs}
+            owned = _owned_units(cls, install_dir)
             for tdir in cls.get("target_dirs") or (
                 [cls["target_dir"]] if cls.get("target_dir") else []
             ):
                 troot = Path(_subst(tdir, PROJECT=project))
                 pattern = (cls.get("ownership") or {}).get("pattern", "*")
                 for dep in _iter_files(troot):
+                    if dep.relative_to(troot).parts[0] not in owned:
+                        continue  # shared-dir member we don't own (BP-186 §3.5)
                     if pattern != "*" and not dep.match(pattern):
                         continue
                     if (
