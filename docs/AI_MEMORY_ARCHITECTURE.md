@@ -176,7 +176,7 @@ A **persistent semantic memory system** for Claude Code that provides:
 
 1. **Session Continuity** - Claude remembers what happened in previous sessions
 2. **Implementation Patterns** - Claude recalls how similar features were built before
-3. **Shared Learning** - Best practices learned in one project help all projects
+3. **Reusable Conventions** - Proven patterns and best practices are captured per project for reuse
 
 ### Why We're Building It
 
@@ -324,7 +324,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ### Collection 3: `conventions`
 
-**Purpose:** Store universal patterns that apply across ALL projects. Shared learning.
+**Purpose:** Store proven conventions and best-practice patterns for the project — coding standards, architecture patterns, and reusable approaches.
 
 **What Goes Here:**
 - Proven implementation patterns
@@ -333,17 +333,17 @@ Session summaries are **fundamentally different** from implementation patterns:
 - Architecture patterns
 - Error handling strategies
 
-**Scope:** Universal (`group_id = "universal"`) - NOT project-isolated
+**Scope:** Project-scoped — keyed by the resolved project `group_id`. Every read and write requires an explicit non-empty `group_id` (no cwd auto-detect, no cross-project fallback).
 
 **Searched By:** Best practices search (on-demand), can supplement pre-work search
 
-**Written By:** Manual curation, post-work-store (when pattern is universal)
+**Written By:** Manual curation, post-work-store (when a proven pattern is worth reusing)
 
 **Example Payload:**
 ```json
 {
   "content": "Token-Efficient Context Loading: Load only relevant context before agent work. Evidence: 95.2% token savings in production systems.",
-  "group_id": "universal",
+  "group_id": "ai-memory",
   "type": "best_practice",
   "category": "performance",
   "pattern": "Token-Efficient Context Loading",
@@ -411,9 +411,9 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 | Aspect | discussions | code-patterns | conventions | github | jira-data |
 |--------|--------------|-----------------|----------------|--------|-----------|
-| **Purpose** | Session continuity | Code patterns | Universal patterns | GitHub data | Jira data |
-| **Scope** | Per-project | Per-project | All projects | Per-project | Per-project |
-| **group_id** | Project name | Project name | "universal" | Project name | Project name |
+| **Purpose** | Session continuity | Code patterns | Project conventions | GitHub data | Jira data |
+| **Scope** | Per-project | Per-project | Per-project | Per-project | Per-project |
+| **group_id** | Project name | Project name | Project name | Project name | Project name |
 | **Content** | Summaries, decisions | Code with file:line | Patterns, evidence | PRs, issues, code | Issues, comments |
 | **SessionStart** | ✅ Primary source | ❌ Not searched | ⚠️ Non-Parzival path | ✅ Parzival L4 | ❌ Not searched |
 | **Pre-work** | ❌ Not searched | ✅ Primary source | ⚠️ Supplemental | ❌ Not searched | ❌ Not searched |
@@ -922,7 +922,7 @@ dev-story Step 6.5: post-work-store <story-id> <component> "<what-built>"
 - Previous documentation structures
 
 **Memory Writes:**
-- Documentation patterns (if universal)
+- Documentation patterns
 - Standards compliance findings
 
 **Primary Collection:** `conventions` (reads), `discussions` (writes)
@@ -1131,7 +1131,7 @@ All memories must include required metadata fields:
 │  ─────────────────────────────────────────────────────────  │
 │                                                              │
 │  WRITES TO conventions:                                   │
-│  └── Manual curation / post-work-store (universal patterns) │
+│  └── Manual curation / post-work-store (proven patterns)    │
 │                                                              │
 │  READS FROM conventions:                                  │
 │  ├── search-best-practices (on-demand)                      │
@@ -1203,11 +1203,11 @@ All memories must include required metadata fields:
 **Result:** Tool execution slows down, bad UX
 **Correct:** Fork to background, return immediately (<500ms)
 
-### Mistake 8: Mixing Universal and Project Patterns
+### Mistake 8: Expecting `conventions` to be shared across projects
 
-**Wrong:** Storing project-specific code in `conventions`
-**Result:** Irrelevant patterns appear in other projects
-**Correct:** Only universal, proven patterns go in `conventions`
+**Wrong:** Treating `conventions` as a global collection shared across all projects
+**Result:** Reads/writes without an explicit `group_id` fail; patterns never cross into another project
+**Correct:** `conventions` is project-scoped like every other collection — every read and write requires an explicit non-empty `group_id`; there is no universal tier or cross-project fallback
 
 ### Mistake 9: Using Stop Hook for Session Storage
 
@@ -1255,7 +1255,7 @@ A five-collection memory system:
 
 1. **Session Memory (discussions)** - "What did we do last time?"
 2. **Implementation Patterns (code-patterns)** - "How did we build similar features?"
-3. **Universal Patterns (conventions)** - "What works across all projects?"
+3. **Project Conventions (conventions)** - "What proven patterns and standards apply in this project?"
 4. **GitHub Data (github)** - "What changed in the repo recently?"
 5. **Jira Data (jira-data)** - "What are we supposed to be working on?"
 
@@ -1265,7 +1265,7 @@ A five-collection memory system:
 |-----------|---------------|
 | discussions collection | Session continuity - the "aha moment" |
 | code-patterns collection | Feature-specific code patterns |
-| conventions collection | Cross-project learning |
+| conventions collection | Project conventions and proven patterns |
 | github collection | GitHub PRs, issues, commits, code blobs |
 | jira-data collection | Jira issues and comments |
 | SessionStart hook | Load previous session context |

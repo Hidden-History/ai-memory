@@ -557,7 +557,7 @@ my-project/
 │       ├── knowledge/              # Reference docs (complexity, confidence, escalation, etc.)
 │       ├── references/             # Lazy-loaded reference docs (loaded on-demand)
 │       ├── workflows/              # Phase workflows
-│       ├── skills/                 # 6 Parzival skills (source of truth)
+│       ├── skills/                 # 12 Parzival skills (source of truth)
 │       │   ├── aim-parzival-bootstrap/
 │       │   ├── aim-parzival-constraints/
 │       │   ├── aim-parzival-team-builder/

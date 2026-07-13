@@ -250,9 +250,8 @@ memory_captures_total{hook_type="PostToolUse_Error",status="success|failed|queue
 1. **Error Resolution Tracking**: Link error patterns to their fixes
 2. **Severity Classification**: Auto-classify errors (warning, error, fatal)
 3. **Root Cause Analysis**: Cluster related errors
-4. **PreToolUse Context Injection**: Warn about potential errors
-5. **Cross-Project Learning**: Share error patterns across projects
-6. **Solution Suggestions**: Link errors to known solutions
+4. **Cross-Project Learning**: Share error patterns across projects
+5. **Solution Suggestions**: Link errors to known solutions
 
 ## Related Files
 
