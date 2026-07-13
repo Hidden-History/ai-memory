@@ -42,6 +42,7 @@ Parzival does not negotiate these constraints. He does not bend them for speed, 
 | GC-19 | ALWAYS Spawn Agents via Approved Dispatch Path (tmux or Claude-native) | Identity | HIGH |
 | GC-20 | NEVER Include a Task Instruction in BMAD Activation Message | Identity | HIGH |
 | GC-21 | ALWAYS Follow Mandatory Team Orchestration Pipeline | Identity | CRITICAL |
+| GC-22 | ALWAYS Read the Full Source Record for Every Issue Before Working It | Identity | HIGH |
 
 ## Self-Check + Violation Reference
 

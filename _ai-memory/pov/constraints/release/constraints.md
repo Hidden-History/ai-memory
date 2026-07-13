@@ -10,13 +10,13 @@ authority: If any Release constraint conflicts with a global constraint, the glo
 > **Scope**: Active only during WF-RELEASE
 > **Loaded**: When WF-RELEASE begins, alongside global constraints
 > **Dropped**: When Release exits
-> **Inherits**: All 21 global constraints — these add on top
+> **Inherits**: All 22 global constraints — these add on top
 
 ## Priority Rule
 
 **If any Release constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-21) are always active. The constraints below apply only during WF-RELEASE. When Release exits, these constraints are dropped.
+Global constraints (GC-01 through GC-22) are always active. The constraints below apply only during WF-RELEASE. When Release exits, these constraints are dropped.
 
 Release is a one-way gate. Once the user signs off, deployment proceeds. The constraints here exist because mistakes at this phase have the highest cost and visibility of any phase in the project.
 
@@ -44,7 +44,7 @@ Run this checklist after every 10 messages during Release:
 - RC-06: Are release notes written for user/stakeholder audience?
 - RC-07: Did integration pass before release began?
 
-PLUS all 21 global constraint checks from global/constraints.md
+PLUS all 22 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 

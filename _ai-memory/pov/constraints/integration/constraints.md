@@ -10,13 +10,13 @@ authority: If any Integration constraint conflicts with a global constraint, the
 > **Scope**: Active only during WF-INTEGRATION
 > **Loaded**: When WF-INTEGRATION begins, alongside global constraints
 > **Dropped**: When Integration exits
-> **Inherits**: All 21 global constraints — these add on top
+> **Inherits**: All 22 global constraints — these add on top
 
 ## Priority Rule
 
 **If any Integration constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-21) are always active. The constraints below apply only during WF-INTEGRATION. When Integration exits, these constraints are dropped.
+Global constraints (GC-01 through GC-22) are always active. The constraints below apply only during WF-INTEGRATION. When Integration exits, these constraints are dropped.
 
 Integration is a milestone gate. The constraints here are stricter than Execution because integration failures have wider blast radius — a problem found here affects everything downstream.
 
@@ -44,7 +44,7 @@ Run this checklist after every 10 messages during Integration:
 - IC-06: Does the DEV review cover all files in full milestone scope?
 - IC-07: Is security full-flow verification included for applicable integrations?
 
-PLUS all 21 global constraint checks from global/constraints.md
+PLUS all 22 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 
