@@ -558,12 +558,18 @@ my-project/
 │       ├── references/             # Lazy-loaded reference docs (loaded on-demand)
 │       ├── workflows/              # Phase workflows
 │       ├── skills/                 # 12 Parzival skills (source of truth)
-│       │   ├── aim-parzival-bootstrap/
-│       │   ├── aim-parzival-constraints/
-│       │   ├── aim-parzival-team-builder/
 │       │   ├── aim-agent-dispatch/
 │       │   ├── aim-agent-lifecycle/
-│       │   └── aim-model-dispatch/
+│       │   ├── aim-agent-sanctum-init/
+│       │   ├── aim-content-drift/
+│       │   ├── aim-lore-hygiene/
+│       │   ├── aim-model-dispatch/
+│       │   ├── aim-parzival-bootstrap/
+│       │   ├── aim-parzival-constraints/
+│       │   ├── aim-parzival-loader/
+│       │   ├── aim-parzival-team-builder/
+│       │   ├── aim-tracking-freshness/
+│       │   └── aim-tracking-rotate/
 │       └── templates/              # Oversight templates
 │
 ├── .claude/                        # Claude Code integration

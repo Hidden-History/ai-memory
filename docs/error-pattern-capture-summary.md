@@ -179,11 +179,10 @@ ls -lh .claude/hooks/scripts/error*.py
 
 ## Future Enhancements
 
-1. **PreToolUse Integration**: PreToolUse context injection to warn about potential errors before command execution
-2. **Error Resolution Linking**: Track which errors were fixed and how
-3. **Severity Classification**: Auto-classify as warning/error/fatal
-4. **Cross-Project Learning**: Share patterns across projects
-5. **Solution Suggestions**: Link errors to known fixes
+1. **Error Resolution Linking**: Track which errors were fixed and how
+2. **Severity Classification**: Auto-classify as warning/error/fatal
+3. **Cross-Project Learning**: Share patterns across projects
+4. **Solution Suggestions**: Link errors to known fixes
 
 ## Files Modified/Created
 
