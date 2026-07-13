@@ -6,7 +6,7 @@ Query: {{args}}
 Run this command to search (do not modify the path or arguments):
 
 ```shell
-"$AI_MEMORY_INSTALL_DIR/.venv/bin/python" "$AI_MEMORY_INSTALL_DIR/src/memory/search_cli.py" --query "{{args}}" --project "$AI_MEMORY_PROJECT_ID"
+"$AI_MEMORY_INSTALL_DIR/scripts/memory/run-with-env.sh" "$AI_MEMORY_INSTALL_DIR/scripts/memory/search_cli.py" "{{args}}" --group-id "$AI_MEMORY_PROJECT_ID"
 ```
 
 Present the results to the user organized by relevance, with source collection and confidence score for each result."""
