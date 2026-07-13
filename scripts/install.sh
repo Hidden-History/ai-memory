@@ -1412,6 +1412,7 @@ main() {
         install_python_dependencies
         step "Environment Configuration"
         migrate_existing_env_secrets
+        reconcile_sot_discovery_cap
         configure_environment
         validate_external_services
         configure_secrets_backend
@@ -2700,6 +2701,48 @@ migrate_existing_env_secrets() {
     # reader. purge_migrated_secret_keys_from_env removes the line entirely
     # for keys whose canonical value lives in .env.secrets. Idempotent.
     purge_migrated_secret_keys_from_env "$env_file" "$secrets_file"
+}
+
+# reconcile_sot_discovery_cap — TD-804: #305 raised the code default for
+# AI_MEMORY_SOT_DISCOVERY_MAX_DIRS from 5000 to 15000 (fixes a discovery-coverage
+# regression), but any docker/.env deployed before #305 still carries the retired
+# default ACTIVE (=5000), and run-with-env.sh forwards the whole AI_MEMORY_SOT_*
+# namespace to the engine — so the stale 5000 shadows the new code default and
+# #305's fix is inert on existing installs.
+# Reconciles ONLY the retired-default line (AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000,
+# tolerating incidental whitespace around the value and a trailing CR so a
+# CRLF-saved or hand-edited .env still matches) to a clean 15000. A deliberate
+# operator override (any other value, e.g. 50000), a commented-out line, or an
+# absent key (new installs — code default applies) are left untouched.
+# Idempotent: no-op once reconciled or on a fresh install.
+reconcile_sot_discovery_cap() {
+    local env_file="$INSTALL_DIR/docker/.env"
+
+    [[ ! -f "$env_file" ]] && return 0
+
+    # GNU grep/sed's documented `\r` escape is unreliable across shells for
+    # matching a literal carriage return, so build the pattern with an actual
+    # CR byte via bash's $'\r' ANSI-C quoting instead.
+    local cr=$'\r'
+    local stale_re="^AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=[[:blank:]]*5000[[:blank:]]*${cr}?\$"
+
+    if ! grep -qE "$stale_re" "$env_file" 2>/dev/null; then
+        return 0
+    fi
+
+    local backup_file
+    backup_file="${env_file}.bak.$(date +%Y%m%d%H%M%S)"
+    # docker/.env is non-secret (secret-class keys are blank here; real values
+    # live in docker/.env.secrets) — this timestamped backup mirrors the
+    # installer's own full-.env backup idiom, cp -p preserves 600 perms, and
+    # it's idempotent (at most one backup per real reconciliation, since the
+    # guard above no-ops once reconciled).
+    cp -p "$env_file" "$backup_file"
+
+    sed -i.bak -E "s|${stale_re}|AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=15000|" "$env_file" \
+        && rm -f "${env_file}.bak"
+
+    log_success "TD-804: reconciled stale AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000 -> 15000 (#305 discovery-cap fix now active; backup: $(basename "$backup_file"))"
 }
 
 # Environment configuration (AC 7.1.6)
