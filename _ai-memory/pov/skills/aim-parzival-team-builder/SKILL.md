@@ -261,7 +261,7 @@ Select from ranked strategies (highest effectiveness first):
 4. **Interface Contracts** -- For workers producing compatible code
 5. **Merge-on-Green** -- Code merges to main only when all tests pass
 
-**Shared review-workspace collision (#284):** BMAD Validate skills write fixed-slug output (`review-{slug}.md`, `validation-report.md`) into their `doc_workspace`. Two Validate skills dispatched in parallel into the SAME `doc_workspace` silently overwrite each other's reports — and `_bmad-output/` is git-untracked, so the loss is unrecoverable. When dispatching two or more workspace-writing Validate skills in parallel, you MUST isolate their outputs: a distinct per-validator `doc_workspace` subfolder OR a separate git worktree per validator (Strategy 1). Never point two parallel validators at one workspace.
+**Shared review-workspace collision (#284):** BMAD Validate skills write fixed-slug output (`review-{slug}.md`, `validation-report.md`) into their `doc_workspace`. Two Validate skills dispatched in parallel into the SAME `doc_workspace` silently overwrite each other's reports — and `_bmad-output/` is git-untracked, so the loss is unrecoverable. When dispatching two or more workspace-writing Validate skills in parallel, you MUST isolate their outputs: dispatch each validator in a separate git worktree (Strategy 1). A shared or subfoldered `doc_workspace` writes fixed-slug reports into git-untracked `_bmad-output/`, leaving cruft with no clean teardown; a worktree removes atomically. Never point two parallel validators at one workspace.
 
 **NEVER use file locking** -- collapsed 20 agents to throughput of 2-3 in production testing.
 
@@ -277,7 +277,7 @@ Before executing, verify:
 - [ ] Team size is 3-5 (split if larger)
 - [ ] Conflict avoidance strategy selected and documented
 - [ ] Context blocks are complete (no placeholders or TBDs)
-- [ ] No two parallel workspace-writing Validate skills share a `doc_workspace` (per-validator subfolder or worktree isolation — #284)
+- [ ] No two parallel workspace-writing Validate skills share a `doc_workspace` (each validator in a separate git worktree — #284)
 
 ---
 
