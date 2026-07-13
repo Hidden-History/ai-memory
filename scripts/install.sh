@@ -3925,6 +3925,14 @@ if 'AI-MEMORY.md' not in names:
 " "$config_file"
     fi
 
+    # BUG-527: refresh the AI-Memory-managed command templates on every install,
+    # BEFORE the hook-config force-gate below. These *.toml commands are
+    # installer-owned (no user customization); refreshing them here decouples
+    # their update from the user-owned settings.json skip-when-exists gate, so a
+    # shipped template fix reaches existing installs on a normal update.
+    mkdir -p "$project_path/.gemini/commands"
+    cp "$install_dir/src/memory/adapters/templates/gemini/"*.toml "$project_path/.gemini/commands/" 2>/dev/null || true
+
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
             log_warning "Gemini config already contains ai-memory hooks — skipping (use FORCE_IDE=true to overwrite)"
@@ -3997,9 +4005,6 @@ with open(config_path, 'w') as f:
     f.write('\n')
 " "$install_dir" "$project_id" "$py" "$ad" "$config_file"
 
-    mkdir -p "$project_path/.gemini/commands"
-    cp "$install_dir/src/memory/adapters/templates/gemini/"*.toml "$project_path/.gemini/commands/" 2>/dev/null || true
-
     log_success "Gemini CLI config written to $config_file"
 }
 
@@ -4019,6 +4024,18 @@ write_cursor_config() {
         cp "$guidance_src" "$project_path/.cursor/rules/ai-memory.mdc"
         log_success "Deployed agent-guidance rule to $project_path/.cursor/rules/ai-memory.mdc"
     fi
+
+    # BUG-527: refresh the AI-Memory-managed command skills on every install,
+    # BEFORE the hook-config force-gate below. These SKILL.md commands are
+    # installer-owned (no user customization); refreshing them here decouples
+    # their update from the user-owned hooks.json skip-when-exists gate, so a
+    # shipped template fix reaches existing installs on a normal update.
+    for skill in search-memory memory-status save-memory; do
+        if [[ -d "$install_dir/src/memory/adapters/templates/cursor/$skill" ]]; then
+            mkdir -p "$project_path/.cursor/skills/$skill"
+            cp "$install_dir/src/memory/adapters/templates/cursor/$skill/SKILL.md" "$project_path/.cursor/skills/$skill/" 2>/dev/null || true
+        fi
+    done
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
@@ -4057,13 +4074,6 @@ with open(sys.argv[4], 'w') as f:
     f.write('\n')
 " "$env_prefix" "$py" "$ad" "$config_file"
 
-    for skill in search-memory memory-status save-memory; do
-        if [[ -d "$install_dir/src/memory/adapters/templates/cursor/$skill" ]]; then
-            mkdir -p "$project_path/.cursor/skills/$skill"
-            cp "$install_dir/src/memory/adapters/templates/cursor/$skill/SKILL.md" "$project_path/.cursor/skills/$skill/" 2>/dev/null || true
-        fi
-    done
-
     log_success "Cursor IDE config written to $config_file"
 }
 
@@ -4097,6 +4107,20 @@ write_codex_config() {
             log_warning "merge_agents_md.py not found in $install_dir/scripts — skipping Codex guidance block"
         fi
     fi
+
+    # BUG-527: refresh the AI-Memory-managed command skills on every install,
+    # BEFORE the hook-config force-gate below. These SKILL.md commands are
+    # installer-owned (no user customization); refreshing them here decouples
+    # their update from the user-owned hooks.json skip-when-exists gate, so a
+    # shipped template fix reaches existing installs on a normal update.
+    for skill in search-memory memory-status; do
+        if [[ -d "$install_dir/src/memory/adapters/templates/codex/$skill" ]]; then
+            mkdir -p "$project_path/.agents/skills/$skill"
+            cp "$install_dir/src/memory/adapters/templates/codex/$skill/SKILL.md" "$project_path/.agents/skills/$skill/" 2>/dev/null || true
+            mkdir -p "$project_path/.codex/skills/$skill"
+            cp "$install_dir/src/memory/adapters/templates/codex/$skill/SKILL.md" "$project_path/.codex/skills/$skill/" 2>/dev/null || true
+        fi
+    done
 
     if [[ -f "$config_file" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$config_file" 2>/dev/null; then
         if [[ "$force" != "true" ]]; then
@@ -4132,15 +4156,6 @@ with open(sys.argv[4], 'w') as f:
     json.dump(config, f, indent=2)
     f.write('\n')
 " "$env_prefix" "$py" "$ad" "$config_file"
-
-    for skill in search-memory memory-status; do
-        if [[ -d "$install_dir/src/memory/adapters/templates/codex/$skill" ]]; then
-            mkdir -p "$project_path/.agents/skills/$skill"
-            cp "$install_dir/src/memory/adapters/templates/codex/$skill/SKILL.md" "$project_path/.agents/skills/$skill/" 2>/dev/null || true
-            mkdir -p "$project_path/.codex/skills/$skill"
-            cp "$install_dir/src/memory/adapters/templates/codex/$skill/SKILL.md" "$project_path/.codex/skills/$skill/" 2>/dev/null || true
-        fi
-    done
 
     log_success "Codex CLI config written to $config_file"
 }
@@ -4988,6 +5003,29 @@ deploy_parzival_v2() {
 }
 
 # Deploy Parzival-specific shims: .claude/agents/pov/ and .claude/commands/pov/
+# BUG-528: prune deployed pov shims that no longer exist in source (orphan-on-retire).
+# Generic replacement for the DEC-148 hardcoded parzival-team.md removal. Guarded:
+# only ever deletes inside a validated .claude/{agents,commands}/pov/ target dir.
+prune_pov_shims() {
+    local target_dir="$1"
+    local src_dir="$2"
+    [[ -d "$target_dir" ]] || return 0
+    for existing in "$target_dir"/*; do
+        [[ -e "$existing" ]] || continue
+        local bname
+        bname=$(basename "$existing")
+        if [[ ! -e "$src_dir/$bname" ]]; then
+            if [[ "$existing" == *"/.claude/agents/pov/"* || "$existing" == *"/.claude/commands/pov/"* ]]; then
+                rm -rf "$existing"
+                log_debug "Pruned retired pov shim: $bname"
+            else
+                log_error "Refusing to rm -rf unexpected pov shim target: $existing"
+                exit 1
+            fi
+        fi
+    done
+}
+
 deploy_parzival_shims() {
     local src_agents="$INSTALL_DIR/.claude/agents/pov"
     local src_commands="$INSTALL_DIR/.claude/commands/pov"
@@ -4995,6 +5033,10 @@ deploy_parzival_shims() {
     # Deploy pov agent shim
     if [[ -d "$src_agents" ]]; then
         mkdir -p "$PROJECT_PATH/.claude/agents/pov"
+        # BUG-528: prune retired pov agent shims absent from source before deploy.
+        # Generic replacement for the former hardcoded per-file removal — mirrors
+        # deploy_ai_memory_skills' guarded prune, scoped to the owned pov/ dir.
+        prune_pov_shims "$PROJECT_PATH/.claude/agents/pov" "$src_agents"
         if compgen -G "$src_agents/*" > /dev/null 2>&1; then
             cp -r "$src_agents/"* "$PROJECT_PATH/.claude/agents/pov/"
         fi
@@ -5004,6 +5046,9 @@ deploy_parzival_shims() {
     # Deploy pov command shims
     if [[ -d "$src_commands" ]]; then
         mkdir -p "$PROJECT_PATH/.claude/commands/pov"
+        # BUG-528: prune retired pov command shims absent from source before deploy
+        # (supersedes the DEC-148 parzival-team.md one-off).
+        prune_pov_shims "$PROJECT_PATH/.claude/commands/pov" "$src_commands"
         if compgen -G "$src_commands/*" > /dev/null 2>&1; then
             cp -r "$src_commands/"* "$PROJECT_PATH/.claude/commands/pov/"
         fi
@@ -5500,12 +5545,6 @@ setup_parzival() {
         if [[ -d "$PROJECT_PATH/_ai-memory/pov/workflows/session/team-prompt" ]]; then
             rm -rf "$PROJECT_PATH/_ai-memory/pov/workflows/session/team-prompt"
             log_debug "Cleaned up stale team-prompt workflow (superseded by aim-parzival-team-builder skill)"
-        fi
-
-        # Remove deleted parzival-team command (DEC-148, v2.2.6 — replaced by [TP] menu item)
-        if [[ -f "$PROJECT_PATH/.claude/commands/pov/parzival-team.md" ]]; then
-            rm -f "$PROJECT_PATH/.claude/commands/pov/parzival-team.md"
-            log_debug "Cleaned up stale parzival-team.md command (replaced by aim-parzival-team-builder skill)"
         fi
 
         # Remove stale teams archive
