@@ -163,15 +163,28 @@ This skill uses `search_memories()` from `src/memory/search.py`:
 
 ```python
 from memory.search import search_memories
+from memory.secrets_env import pin_qdrant_api_key, is_auth_error
 
-results = search_memories(
-    query="your search query",
-    collection="code-patterns",  # Optional
-    memory_type="implementation",  # Optional, can be list
-    use_cascading=True,  # Enable cascading search
-    intent="how",  # Optional: auto-detects from query
-    limit=5
-)
+# Pin QDRANT_API_KEY from .env.secrets so a stale exported key can't silently
+# fail auth and degrade this search to file-only (run-with-env.sh parity).
+pin_qdrant_api_key()
+
+try:
+    results = search_memories(
+        query="your search query",
+        collection="code-patterns",  # Optional
+        memory_type="implementation",  # Optional, can be list
+        use_cascading=True,  # Enable cascading search
+        intent="how",  # Optional: auto-detects from query
+        limit=5
+    )
+except Exception as e:
+    # Auth failure: the knowledge base was NOT consulted. Do not present this
+    # as "no results found" — results are file-only.
+    if is_auth_error(str(e)):
+        print("❌ Memory search auth FAILED (401) — knowledge base NOT "
+              "consulted; results are file-only")
+    raise
 ```
 
 ## Technical Details
@@ -188,5 +201,5 @@ results = search_memories(
 - Results sorted by relevance score (highest first)
 - Score threshold defaults to 0.7 (configurable in .env)
 - Project auto-detection uses git repository root
-- code-patterns filtered by project, conventions/discussions are cross-project
+- code-patterns, conventions, and discussions are all filtered by project
 - Decay scores displayed to 2 decimal places

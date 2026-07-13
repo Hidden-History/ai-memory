@@ -42,6 +42,10 @@ CWD drifts across Bash calls, so re-run this gate immediately before EACH spawn 
 - The agent is a generic worker spawned for a specific task
 - Examples: code-reviewer agent, verify-implementation agent, skill-creator agent
 
+**Mandatory (BMAD-or-fail):** if the task maps to any BMAD role/skill above, you MUST dispatch that
+BMAD persona. A generic/no-persona agent on BMAD-shaped work is a FAILED dispatch — shut it down and
+respawn via the correct `/bmad-*`. Generic dispatch is only for work with no BMAD role.
+
 ---
 
 ## Generic Agent Dispatch
@@ -114,6 +118,7 @@ See [agent-selection-guide.md](data/agent-selection-guide.md) for detailed role 
 | Write and run tests | `/bmad-qa-generate-e2e-tests` (direct skill) | DEV | Execution |
 | Design test architecture/strategy | `/bmad-tea` (direct skill) | DEV | Planning |
 | Small feature, solo workflow | `/bmad-quick-dev` (direct skill) | DEV | Execution |
+| Research best practices / conventions / coding standards | `/aim-best-practices-researcher` (direct skill) | hand-rolled web search | Research |
 
 ### Agent Combination Sequences
 
@@ -169,6 +174,8 @@ MUST spawn fresh agent for every task -- never reuse across roles or stories.
 
 MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-code-review` for ALL review agents (never `/bmad-agent-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
 
+MUST route ALL best-practice / conventions / coding-standard research through `/aim-best-practices-researcher` -- never hand-run web searches for this. The skill saves the finding to a BP file and stores it to the project-scoped conventions collection, so hand-rolling the research loses it to future sessions.
+
 **Workflow commands by phase** (sent AFTER activation, when in planning mode):
 
 | Phase | Agent | Workflow Command |
@@ -183,20 +190,51 @@ MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updatin
 | Planning | (direct skill) | `/bmad-sprint-planning`, `/bmad-create-story` |
 | Execution | DEV | `/bmad-dev-story` |
 | Execution | DEV | `/bmad-code-review` |
+| Research | (direct skill) | `/aim-best-practices-researcher` |
 | Release | (direct skill) | `/bmad-retrospective` |
 
 Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
-#### B4. Verify Activation (MANDATORY gate before first instruction)
+> **Maintenance check:** `scripts/check_bmad_commands.sh` verifies every `/bmad-*` command in the tables above resolves to an installed skill under `.claude/skills/` (fire-only-if-missing: silent when all resolve, non-zero listing any that don't; degrades gracefully when BMAD is not installed). Run it after editing these tables or updating the BMAD module.
 
-Do NOT send any task instruction until the teammate has emitted its activation output -- the BMAD persona greeting plus its numbered menu, or an explicit "ready" ack -- not idle, not mid-load. Verify by reading the spawn's first response (Claude-native) or `tmux capture-pane` (tmux).
+#### B4. Verify Activation (MANDATORY — two-phase)
 
-- Activated (greeting + menu, clean state, no prior task context) -> send the task as a SEPARATE message (one task per instruction), and include an explicit "do not idle until X" plus a concrete numbered step list. BMAD `bmad-agent-dev`/reviewers early-idle otherwise.
-- Not activated after one retry of the activation command -> spawn a FRESH agent. Never send an instruction to an unverified agent; check configuration if it repeats.
+**Sentinel (CLAUDE.md workspace-root):** before every spawn, as its own Bash step, assert workspace root:
+`test -d _ai-memory && test -d _bmad && test -d oversight`. FAIL → ABORT.
+
+**Spawn (two-phase, GC-20):** the spawn prompt loads the BMAD persona via the Skill tool (e.g.
+`Use the Skill tool to load bmad-agent-dev` — likewise `bmad-create-story`, `bmad-code-review`; a bare
+`/bmad-*` at spawn activates the lead, not the persona) + one line — "You're activated as a teammate
+under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and
+anything the agent asks) to team-lead, then wait for my instructions before doing any work." Never the
+task. `mode: auto`.
+
+**Wait:** idle pings (`idle_notification "available"`) are NOISE — no reaction, no on-disk checks, no
+nudges; the teammate sends a real message when it has one.
+
+**Instruct:** read the menu, then SendMessage the task — one task per message, never bundled (GC-20).
 
 #### B5. Dispatch Complete
 
 Agent selection and instruction complete. Downstream skill handles spawn and activation.
+
+---
+
+## Dispatch & Coordination Playbook (life of the teammate)
+
+- **Reporting address (mandatory-for-function):** a teammate reaches the lead only by name —
+  `team-lead`. `to:"main"` is background-subagents-only; a teammate using it is rejected and the lead
+  receives nothing (plain text is invisible between agents). Every report/answer → `team-lead`.
+- **One message, then wait:** send ONE message, then wait for the reply. A teammate gets a new message
+  only after it stops and replies; another before then just re-triggers its work. Never multiple in a row.
+- **Task-auto-replay:** the harness sometimes re-delivers a prior message; distinguish a re-delivered
+  prior message from genuine new direction before re-acting.
+- **Acceptance:** accept ONLY against Parzival's own cold on-disk verification (re-read the files) —
+  never a "done"/idle signal.
+- **Reviewer disagreement:** adjudicate via `review-cycle/workflow.md` (## Reviewer Disagreement).
+- **Stall (state-based, not time-based):** respawn FRESH only on a genuine stall — no activation output
+  and no loading/work, or output stopped at a crash/error signature with no menu. A slow load ≠ stall.
+  (Inspect: Claude-native = the spawn's first response / SendMessage reply; tmux = `tmux capture-pane`.)
 
 ---
 

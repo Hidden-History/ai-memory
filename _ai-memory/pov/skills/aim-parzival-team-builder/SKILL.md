@@ -17,10 +17,7 @@ context: fork
 
 ## Fast Path: Single Agent
 
-The fast path bypasses the full 6-step design process for dispatches that a
-single agent can execute without coordination. It still produces a structured
-dispatch plan and still routes through the full pipeline — ceremony is trimmed,
-the contract is not.
+The fast path trims the 6-step design for a single uncoordinated agent — it still emits a structured dispatch plan and routes through the full pipeline.
 
 ### Trigger Criteria (ALL must hold)
 
@@ -90,7 +87,7 @@ provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | m
 model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
 agent: <role-name>                   # dev | pm | architect | analyst | ux-designer | tech-writer | code-reviewer | <generic>
 agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "architect-design"
-bmad_agent_type: <agent-type>        # intended BMAD agent type: dev | pm | architect | analyst | ux-designer | tech-writer | null (null for generic, non-BMAD agents)
+bmad_agent_type: <type> | null       # null ONLY for genuine non-BMAD work (code-reviewer, verify). If a BMAD role fits, null is a FAIL — assign the persona.
 task_summary: <one-line>
 files:
   - <absolute-path-1>
@@ -224,7 +221,6 @@ Store provider and model selections in the dispatch plan.
    - **Numbered** (for generic work): `dev-1`, `dev-2`, `review-1` -- interchangeable agents
    - **Single-instance**: `pm`, `architect` -- use role name directly
    - Same `AI_MEMORY_AGENT_ID` across sessions enables cross-session memory accumulation
-   - Naming rules: domain-named agents always work the same domain/files across sessions; numbered agents are interchangeable for generic parallel work; single-instance agents use role name directly
 4. Select models per agent role:
    - Planning agents (Analyst, PM, Architect): Opus
    - Execution agents (DEV, review): Sonnet
@@ -265,6 +261,8 @@ Select from ranked strategies (highest effectiveness first):
 4. **Interface Contracts** -- For workers producing compatible code
 5. **Merge-on-Green** -- Code merges to main only when all tests pass
 
+**Shared review-workspace collision (#284):** BMAD Validate skills write fixed-slug output (`review-{slug}.md`, `validation-report.md`) into their `doc_workspace`. Two Validate skills dispatched in parallel into the SAME `doc_workspace` silently overwrite each other's reports — and `_bmad-output/` is git-untracked, so the loss is unrecoverable. When dispatching two or more workspace-writing Validate skills in parallel, you MUST isolate their outputs: dispatch each validator in a separate git worktree (Strategy 1). A shared or subfoldered `doc_workspace` writes fixed-slug reports into git-untracked `_bmad-output/`, leaving cruft with no clean teardown; a worktree removes atomically. Never point two parallel validators at one workspace.
+
 **NEVER use file locking** -- collapsed 20 agents to throughput of 2-3 in production testing.
 
 **WSL2 note**: In-process mode recommended for WSL2 environments. tmux works best on macOS.
@@ -279,6 +277,7 @@ Before executing, verify:
 - [ ] Team size is 3-5 (split if larger)
 - [ ] Conflict avoidance strategy selected and documented
 - [ ] Context blocks are complete (no placeholders or TBDs)
+- [ ] No two parallel workspace-writing Validate skills share a `doc_workspace` (each validator in a separate git worktree — #284)
 
 ---
 
@@ -304,6 +303,18 @@ The team design document (Steps 1-6) is the deliverable. It feeds into the agent
 **Templates:**
 - [`templates/team-prompt-2tier.template.md`](templates/team-prompt-2tier.template.md) — 2-tier team prompt format (lead + workers)
 - [`templates/team-prompt-3tier.template.md`](templates/team-prompt-3tier.template.md) — 3-tier team prompt format (lead + managers + workers)
+
+**Template placeholder fill-rules (dispatch-time assembly):** the 2-tier/3-tier templates carry two
+placeholder families that are NOT Step-4 context-block content — the dispatch-time assembler fills them
+from each agent's BMAD role so no raw placeholder survives into a rendered prompt:
+- `{*_activation}` (`{teammate_N_activation}`, `{manager_N_activation}`, `{worker_N_activation}`) =
+  the Skill-tool-load activation string for that agent's BMAD role — e.g. `Use the Skill tool to load
+  bmad-dev (the BMAD dev persona).` A bare `/bmad-*` at spawn activates the lead, not the persona, so
+  the persona MUST be loaded via the Skill tool.
+- `{*_subagent_type}` (`{teammate_N_subagent_type}` / `{teammate_subagent_type}`,
+  `{manager_N_subagent_type}` / `{manager_subagent_type}`) = `general-purpose` — the BMAD persona
+  activates via the in-prompt Skill-load, not a native `subagent_type`. (Workers spawn via tmux
+  `/aim-agent-lifecycle` and have no `subagent_type`.)
 
 Parzival activates all agents himself — the user does not run agents.
 

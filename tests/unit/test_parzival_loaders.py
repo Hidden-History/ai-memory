@@ -305,6 +305,56 @@ def test_first_breath_marker_blank_name_with_surviving_seed():
     assert lc.first_breath_marker(bond)
 
 
+def test_first_breath_marker_scaffold_substitution_shape():
+    # sanctum-init substitutes a real Name into the template at scaffold time,
+    # before First Breath ever runs, leaving the seed line untouched and no
+    # other Owner content. This must still report PRESENT (issue #269).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Developer\n\n"
+        "_Filled during First Breath: role, what they're trying to accomplish, "
+        "what success looks like for them, what they care about that surprises "
+        "others._\n"
+    )
+    assert lc.first_breath_marker(bond)
+
+
+def test_first_breath_marker_real_content_not_seed_prefixed():
+    # Genuine italic Owner content that does NOT match the literal seed
+    # substring (e.g. "_really_ hates surprises") must still count as real
+    # extra content -- the guard must not treat "any line starting with _" as
+    # seed-related.
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\n\n_really_ hates surprises.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert not lc.first_breath_marker(bond)
+
+
+def test_first_breath_marker_wrapped_seed_untouched_scaffold():
+    # Seed sentence hard-wrapped across physical lines on an otherwise
+    # untouched scaffold. The continuation line carries no seed substring of
+    # its own; it must still be classified as part of the seed paragraph, not
+    # counted as extra content (must still report PRESENT -> True).
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\n\n"
+        "_Filled during First Breath: role, what they are trying to accomplish,\n"
+        "what success looks like for them, what they care about that surprises others._\n"
+    )
+    assert lc.first_breath_marker(bond)
+
+
+def test_first_breath_marker_wrapped_real_content_still_extra():
+    # Genuine (non-seed) Owner content that happens to be wrapped across
+    # physical lines must still count as extra content on every line -- the
+    # paragraph grouping must not swallow real filled-in prose.
+    bond = (
+        "# Bond\n\n## Owner\n\n**Name:** Will\n\n"
+        "Role: founder, deeply committed\nto quality and craft.\n\n"
+        "_Filled during First Breath: role, what success looks like._\n"
+    )
+    assert not lc.first_breath_marker(bond)
+
+
 def test_resolve_paths_substitutes_root(workspace: Path):
     paths = lc.resolve_paths(workspace)
     assert paths["sanctum_path"] == workspace / "_ai-memory/sanctum"
@@ -351,6 +401,21 @@ def test_session_build_scopes(workspace: Path):
     sanctum_only = session_loader.build(workspace, scope="sanctum")
     assert "BLK-004 open." not in sanctum_only
     assert "Owner is wb." in sanctum_only
+
+
+def test_session_build_missing_bug_td_index_fires_marker(workspace: Path):
+    # #289 — an absent bugs/tech-debt INDEX must fire a marker, not be
+    # silently skipped (fire-only-if-missing).
+    (workspace / "oversight/bugs/INDEX.md").unlink()
+    (workspace / "oversight/tech-debt/INDEX.md").unlink()
+    out = session_loader.build(workspace, scope="oversight")
+    assert (
+        "bugs INDEX absent — bug counts unavailable; run /aim-tracking-freshness" in out
+    )
+    assert (
+        "tech-debt INDEX absent — TD counts unavailable; run /aim-tracking-freshness"
+        in out
+    )
 
 
 def test_vital_floor_present_across_phases(workspace: Path):

@@ -263,23 +263,48 @@ def _tail_entries(section_text: str, budget_bytes: int) -> tuple[str, int]:
 def _owner_needs_first_breath(owner_block: str) -> bool:
     """True when BOND's ``## Owner`` Name field still needs First Breath.
 
-    Combined rule (TD-737): the Owner needs First Breath iff the
-    ``**Name:** {user_name}`` placeholder token is still present, OR no real
-    Name value has been filled in *and* the ``_Filled during First Breath`` seed
-    line survives. A real Name alongside a surviving seed line must NOT
-    re-trigger -- gating on the seed string alone false-positives in that case.
+    Combined rule (TD-737 + scaffold-substitution fix): needs First Breath iff
+    the literal ``**Name:** {user_name}`` placeholder token is present, OR the
+    seed line (``_Filled during First Breath``) survives AND the Owner content
+    is not yet substantively filled -- i.e. lacks either a real Name value or
+    any content beyond the Name field and the seed line itself. If the seed
+    line is entirely absent, the Owner has already been edited/established by
+    some other path and must NOT re-trigger (fail-safe). A real Name with a
+    surviving seed line but no other content is the scaffold-substitution case
+    (sanctum-init substitutes a real Name at scaffold time, before First
+    Breath ever runs) and DOES still need First Breath.
     """
     if "**Name:** {user_name}" in owner_block:
         return True
+    if "_Filled during First Breath" not in owner_block:
+        return False
     has_real_name = False
+    has_extra_content = False
+    # Group into paragraphs (blank-line-delimited) so a hard-wrapped seed
+    # sentence -- its continuation lines carry no seed substring of their
+    # own -- is classified as a single seed unit, not per physical line.
+    paragraphs: list[list[str]] = [[]]
     for line in owner_block.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("**Name:**"):
-            value = stripped[len("**Name:**") :].strip()
-            if value and value != "{user_name}":
-                has_real_name = True
-                break
-    return not has_real_name and "_Filled during First Breath" in owner_block
+        if not line.strip():
+            paragraphs.append([])
+        else:
+            paragraphs[-1].append(line)
+    for para_lines in paragraphs:
+        if not para_lines:
+            continue
+        if any("_Filled during First Breath" in ln for ln in para_lines):
+            continue
+        for line in para_lines:
+            stripped = line.strip()
+            if stripped.startswith("## "):
+                continue
+            if stripped.startswith("**Name:**"):
+                value = stripped[len("**Name:**") :].strip()
+                if value and value != "{user_name}":
+                    has_real_name = True
+                continue
+            has_extra_content = True
+    return not (has_real_name and has_extra_content)
 
 
 def first_breath_marker(bond_text: str) -> bool:

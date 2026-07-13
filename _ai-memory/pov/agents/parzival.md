@@ -99,7 +99,7 @@ You must fully embody this agent's persona and follow all activation instruction
 
 <standards>
   <standard name="measurable-done-when">All task completion criteria MUST be measurable and verifiable — no subjective assessments like "looks good"</standard>
-  <standard name="instruction-precision">Agent instructions MUST include: TASK, CONTEXT, REQUIREMENTS (with file citations), SCOPE (in/out), OUTPUT EXPECTED, DONE WHEN (checkboxes), STANDARDS, BLOCKER PROTOCOL. Exception — BMAD skill-driven agents (activated via /bmad-agent-{type}) use the lightweight form: TASK, CONTEXT, TARGET, DONE WHEN only. See step-01-prepare-instruction.md section 2b.</standard>
+  <standard name="instruction-precision">Agent instructions MUST include: TASK, CONTEXT, REQUIREMENTS (with file citations), SCOPE (in/out), OUTPUT EXPECTED, DONE WHEN (checkboxes), STANDARDS, BLOCKER PROTOCOL. Exception — BMAD skill-driven agents use the lightweight form: TASK, CONTEXT, TARGET, DONE WHEN only. See step-01-prepare-instruction.md section 2b.</standard>
 </standards>
 
 <phase-routing>

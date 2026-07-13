@@ -38,6 +38,21 @@ fi
 source "$_HELPERS"
 unset _HELPERS
 
+# --check-templates: CI-gateable dry-run of oversight-template drift (no install).
+# Scanned + stripped here so the positional PROJECT_PATH/PROJECT_NAME args below
+# are unaffected. The action runs at the bottom of the file (after all functions
+# are defined), just before main.
+CHECK_TEMPLATES_ONLY=false
+_pos_args=()
+for _a in "$@"; do
+    case "$_a" in
+        --check-templates) CHECK_TEMPLATES_ONLY=true ;;
+        *) _pos_args+=("$_a") ;;
+    esac
+done
+set -- "${_pos_args[@]+"${_pos_args[@]}"}"
+unset _pos_args _a
+
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
 PROJECT_PATH="${1:-.}"
@@ -1397,6 +1412,7 @@ main() {
         install_python_dependencies
         step "Environment Configuration"
         migrate_existing_env_secrets
+        reconcile_sot_discovery_cap
         configure_environment
         validate_external_services
         configure_secrets_backend
@@ -2685,6 +2701,48 @@ migrate_existing_env_secrets() {
     # reader. purge_migrated_secret_keys_from_env removes the line entirely
     # for keys whose canonical value lives in .env.secrets. Idempotent.
     purge_migrated_secret_keys_from_env "$env_file" "$secrets_file"
+}
+
+# reconcile_sot_discovery_cap — TD-804: #305 raised the code default for
+# AI_MEMORY_SOT_DISCOVERY_MAX_DIRS from 5000 to 15000 (fixes a discovery-coverage
+# regression), but any docker/.env deployed before #305 still carries the retired
+# default ACTIVE (=5000), and run-with-env.sh forwards the whole AI_MEMORY_SOT_*
+# namespace to the engine — so the stale 5000 shadows the new code default and
+# #305's fix is inert on existing installs.
+# Reconciles ONLY the retired-default line (AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000,
+# tolerating incidental whitespace around the value and a trailing CR so a
+# CRLF-saved or hand-edited .env still matches) to a clean 15000. A deliberate
+# operator override (any other value, e.g. 50000), a commented-out line, or an
+# absent key (new installs — code default applies) are left untouched.
+# Idempotent: no-op once reconciled or on a fresh install.
+reconcile_sot_discovery_cap() {
+    local env_file="$INSTALL_DIR/docker/.env"
+
+    [[ ! -f "$env_file" ]] && return 0
+
+    # GNU grep/sed's documented `\r` escape is unreliable across shells for
+    # matching a literal carriage return, so build the pattern with an actual
+    # CR byte via bash's $'\r' ANSI-C quoting instead.
+    local cr=$'\r'
+    local stale_re="^AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=[[:blank:]]*5000[[:blank:]]*${cr}?\$"
+
+    if ! grep -qE "$stale_re" "$env_file" 2>/dev/null; then
+        return 0
+    fi
+
+    local backup_file
+    backup_file="${env_file}.bak.$(date +%Y%m%d%H%M%S)"
+    # docker/.env is non-secret (secret-class keys are blank here; real values
+    # live in docker/.env.secrets) — this timestamped backup mirrors the
+    # installer's own full-.env backup idiom, cp -p preserves 600 perms, and
+    # it's idempotent (at most one backup per real reconciliation, since the
+    # guard above no-ops once reconciled).
+    cp -p "$env_file" "$backup_file"
+
+    sed -i.bak -E "s|${stale_re}|AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=15000|" "$env_file" \
+        && rm -f "${env_file}.bak"
+
+    log_success "TD-804: reconciled stale AI_MEMORY_SOT_DISCOVERY_MAX_DIRS=5000 -> 15000 (#305 discovery-cap fix now active; backup: $(basename "$backup_file"))"
 }
 
 # Environment configuration (AC 7.1.6)
@@ -5495,34 +5553,172 @@ setup_parzival() {
 }
 
 
-deploy_oversight_templates() {
+# ---------------------------------------------------------------------------
+# Oversight-template sync (issue #295 / PR #296 Part C)
+#
+# The installer stamps each shipped oversight template with a content hash and
+# records the deployed hash per project. On re-run, an unchanged project copy is
+# auto-synced to the new shipped version; a locally-modified copy is left alone
+# with a loud warning. New template files are deployed into existing projects.
+# A drifted copy that byte-matches a KNOWN prior-shipped version (no recorded
+# baseline) is auto-migrated — this is how the historical PLAN_TEMPLATE drift
+# self-heals rather than being warned forever.
+#
+# State files (both machine-local, alongside the runtime / project audit dir):
+#   $INSTALL_DIR/templates/known-oversight-template-versions.txt
+#       registry of prior-shipped hashes  —  "<rel_path>\t<sha256>" per version
+#   $PROJECT_PATH/.audit/state/oversight-templates.manifest
+#       JSON { "<rel_path>": "<last-deployed-sha256>" }  (gitignored, chmod 700)
+# ---------------------------------------------------------------------------
+
+# Portable SHA-256 of a file's contents → stdout (hex, no filename).
+_sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# Prior-shipped hashes recorded for a template rel_path (newline-separated).
+_known_template_hashes() {
+    local rel_path="$1" registry="$2"
+    [[ -f "$registry" ]] || return 0
+    awk -F'\t' -v p="$rel_path" '$1 == p {print $2}' "$registry"
+}
+
+# Read the recorded deployed-hash for a rel_path from the JSON manifest.
+_template_manifest_get() {
+    local manifest="$1" key="$2"
+    [[ -f "$manifest" ]] || return 0
+    python3 - "$manifest" "$key" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1]) as fh:
+        d = json.load(fh)
+    if not isinstance(d, dict):
+        d = {}
+except Exception:
+    d = {}
+print(d.get(sys.argv[2], ""))
+PY
+}
+
+# Record the deployed-hash for a rel_path into the JSON manifest.
+_template_manifest_set() {
+    local manifest="$1" key="$2" val="$3"
+    mkdir -p "$(dirname "$manifest")"
+    python3 - "$manifest" "$key" "$val" <<'PY'
+import json, sys
+p, k, v = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(p) as fh:
+        d = json.load(fh)
+    if not isinstance(d, dict):
+        d = {}
+except Exception:
+    d = {}
+d[k] = v
+with open(p, "w") as fh:
+    json.dump(d, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+PY
+}
+
+# Core engine. $1 = "deploy" (apply) | "check" (dry-run, report + exit code).
+# Uses globals INSTALL_DIR + PROJECT_PATH. Silent when everything is in-sync.
+_sync_oversight_templates() {
+    local mode="$1"
     local tmpl_source="$INSTALL_DIR/templates/oversight"
     local oversight_dest="$PROJECT_PATH/oversight"
+    local registry="$INSTALL_DIR/templates/known-oversight-template-versions.txt"
+    local manifest="$PROJECT_PATH/.audit/state/oversight-templates.manifest"
+    local n_new=0 n_sync=0 n_migrate=0 n_warn=0
 
     if [[ ! -d "$tmpl_source" ]]; then
         log_warning "Oversight templates not found at $tmpl_source"
-        return
+        return 0
     fi
 
-    # Create oversight directory structure (skip existing files)
-    mkdir -p "$oversight_dest"
+    [[ "$mode" == "deploy" ]] && mkdir -p "$oversight_dest"
 
-    # Copy templates, preserving directory structure, skip existing
     while read -r tmpl_file; do
-        local rel_path="${tmpl_file#$tmpl_source/}"
+        local rel_path="${tmpl_file#"$tmpl_source"/}"
         local dest_file="$oversight_dest/$rel_path"
-        local dest_dir
-        dest_dir="$(dirname "$dest_file")"
+        local h_shipped h_project h_recorded
+        h_shipped="$(_sha256_file "$tmpl_file")"
 
-        mkdir -p "$dest_dir"
-
+        # NEW file — not present in the project yet → deploy it.
         if [[ ! -f "$dest_file" ]]; then
-            cp "$tmpl_file" "$dest_file"
+            n_new=$((n_new + 1))
+            if [[ "$mode" == "deploy" ]]; then
+                mkdir -p "$(dirname "$dest_file")"
+                cp "$tmpl_file" "$dest_file"
+                _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+            else
+                echo "  [new]     oversight/$rel_path (would deploy)"
+            fi
+            continue
         fi
+
+        h_project="$(_sha256_file "$dest_file")"
+
+        # Already current → silent (Design Standard: fire only on drift).
+        if [[ "$h_project" == "$h_shipped" ]]; then
+            [[ "$mode" == "deploy" ]] && _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+            continue
+        fi
+
+        h_recorded="$(_template_manifest_get "$manifest" "$rel_path")"
+
+        # Unmodified since our last deploy (matches recorded hash) → auto-sync.
+        if [[ -n "$h_recorded" && "$h_project" == "$h_recorded" ]]; then
+            n_sync=$((n_sync + 1))
+            if [[ "$mode" == "deploy" ]]; then
+                cp "$tmpl_file" "$dest_file"
+                _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+                log_info "template synced (unmodified → current): oversight/$rel_path"
+            else
+                echo "  [sync]    oversight/$rel_path (unmodified-stale → safe-sync)"
+            fi
+            continue
+        fi
+
+        # No recorded baseline, but the copy byte-matches a known prior-shipped
+        # version → provably stale old-shipped, not user-modified → migrate.
+        if [[ -z "$h_recorded" ]] && _known_template_hashes "$rel_path" "$registry" | grep -qxF "$h_project"; then
+            n_migrate=$((n_migrate + 1))
+            if [[ "$mode" == "deploy" ]]; then
+                cp "$tmpl_file" "$dest_file"
+                _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
+                log_info "template migrated (stale old-shipped → current): oversight/$rel_path"
+            else
+                echo "  [migrate] oversight/$rel_path (stale old-shipped → safe-sync)"
+            fi
+            continue
+        fi
+
+        # Otherwise the copy is locally modified → never clobber; warn loudly.
+        n_warn=$((n_warn + 1))
+        log_warning "template drifted + upstream changed; review + merge: oversight/$rel_path"
+        [[ "$mode" == "check" ]] && echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
     done < <(find "$tmpl_source" -type f)
 
-    log_debug "Oversight templates deployed to $oversight_dest (existing files preserved)"
+    if [[ "$mode" == "check" ]]; then
+        if (( n_new + n_sync + n_migrate + n_warn == 0 )); then
+            return 0  # silent-when-clean
+        fi
+        echo "Oversight-template drift: new=$n_new safe-sync=$n_sync migrate=$n_migrate needs-merge=$n_warn"
+        return 1
+    fi
+
+    log_debug "Oversight templates synced to $oversight_dest (new=$n_new sync=$n_sync migrate=$n_migrate warn=$n_warn)"
+    return 0
 }
+
+# Public entrypoints.
+deploy_oversight_templates() { _sync_oversight_templates deploy; }
+check_oversight_templates() { _sync_oversight_templates check; }
 
 configure_parzival_env() {
     local env_file="$INSTALL_DIR/docker/.env"
@@ -5638,6 +5834,13 @@ run_aim_doctor_advisory() {
         log_warning "aim doctor: advisory check did not complete cleanly (non-fatal) — run: $INSTALL_DIR/scripts/aim_doctor.py --install-dir $INSTALL_DIR"
     fi
 }
+
+# --check-templates short-circuit: report oversight-template drift and exit
+# WITHOUT running the installer. Exit 0 = in-sync (silent), 1 = drift pending.
+if [[ "$CHECK_TEMPLATES_ONLY" == "true" ]]; then
+    check_oversight_templates
+    exit $?
+fi
 
 # Execute main function with all arguments
 main "$@"
