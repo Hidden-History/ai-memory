@@ -192,6 +192,13 @@ _MEMORY_LOG_SHAPE_MAX_CHARS = 200  # total chars per entry in an index
 # per-file contract entry_pattern) for table-row formats (e.g. '^\\| ').
 DEFAULT_ENTRY_PATTERN = r"^### [A-Z]{2,4}-"
 
+# Fallback entry boundary for the session-block append-only-log format (#291):
+# a governed append-only-log may use a numbered session heading ('## S12 ...')
+# instead of id-prefixed H3 entries. When the default id-H3 pattern finds zero
+# entries in an append-only-log, retry with this pattern before reporting
+# "no entries detected" (see parse_entries_with_fallback).
+SESSION_BLOCK_ENTRY_PATTERN = r"^## S\d+ "
+
 # Idempotent live-pointer marker.
 POINTER_MARKER = "<!-- aim-tracking-rotate:pointer -->"
 
@@ -372,7 +379,9 @@ def rotation_can_help(
     the file over cap (preamble/open-set alone exceeds it) — i.e. the remedy is
     a hand-trim, not --apply.
     """
-    parsed = parse_entries(path.read_text(encoding="utf-8"), entry_pattern)
+    parsed, _ = parse_entries_with_fallback(
+        path.read_text(encoding="utf-8"), contract, entry_pattern
+    )
     if not parsed.entries:
         return False
     pointer_line = _pointer_line(contract, render_period(contract.archive_target, now))
@@ -522,6 +531,31 @@ def parse_entries(text: str, entry_pattern: str) -> ParsedFile:
         block = "".join(lines[start:end])
         entries.append(Entry(header=lines[start].rstrip("\n"), block=block))
     return ParsedFile(front_matter, preamble, entries)
+
+
+def parse_entries_with_fallback(
+    text: str, contract: Contract, entry_pattern: str
+) -> tuple[ParsedFile, str]:
+    """Parse entries; on zero matches with the default id-H3 pattern on an
+    append-only-log, retry with the session-block boundary (#291).
+
+    ``entry_pattern`` here is the already-resolved effective pattern
+    (explicit CLI flag > contract > default) — the fallback only triggers
+    when that resolution landed on the built-in default, so an explicit
+    override (CLI or contract ``entry_pattern``) is never second-guessed.
+
+    Returns ``(parsed, pattern_used)``.
+    """
+    parsed = parse_entries(text, entry_pattern)
+    if (
+        not parsed.entries
+        and entry_pattern == DEFAULT_ENTRY_PATTERN
+        and contract.klass == "append-only-log"
+    ):
+        fallback_parsed = parse_entries(text, SESSION_BLOCK_ENTRY_PATTERN)
+        if fallback_parsed.entries:
+            return fallback_parsed, SESSION_BLOCK_ENTRY_PATTERN
+    return parsed, entry_pattern
 
 
 def strip_pointer(body: str) -> str:
@@ -856,7 +890,7 @@ def run_apply(
     # strip: an unfenced ### DEC-[ID] example would be mis-parsed as Entry 0.
     text, _apply_fenced = _fence_for_apply(text, rel)
     before_lines, before_bytes = measure(text)
-    parsed = parse_entries(text, eff_pattern)
+    parsed, eff_pattern = parse_entries_with_fallback(text, contract, eff_pattern)
     if not parsed.entries:
         print(
             f"ERROR: no entries detected in {rel} with pattern "

@@ -22,12 +22,14 @@ id-H3 append-only log it was verified against:
 
 | File | `--apply` | Why |
 |------|-----------|-----|
-| `tracking/decision-log.md` | ✅ supported | `### DEC-…` id-H3 entries, newest-first; archives the oldest into a dated shard + manifest |
+| `tracking/decision-log.md` | ✅ supported | `### DEC-…` id-H3 entries **or** `## S{n}` session-blocks (auto-detected — see note below), newest-first; archives the oldest into a dated shard + manifest |
 | `tracking/blockers-log.md` | ⛔ refused → TD-655 | "Active Blockers" table + `### BLK-` detail H3 + "Resolved Blockers" table — archiving the H3 details orphans the matching table rows |
 | `tracking/risk-register.md` | ⛔ refused → TD-655 | table rows under `### Critical/High/Medium/Low` severity headers — the H3 boundary is a severity header, not a record |
 | `tracking/technical-debt.md` | ⛔ refused → TD-655 | `### TD-NNN` detail H3 entries + `### <Category>` summary tables in "Debt by Category" — archiving the H3 details orphans the table rows referencing those TDs |
 | `SESSION_WORK_INDEX.md` | ⛔ refused → TD-655 | four distinct tables (Active Task / Last 5 Sessions / Active Blockers / High Priority Risks); a bare `^\| ` match sheds rows from the wrong table, and the last-5 window is hand-managed |
 | `session-index/INDEX.md` | ⛔ refused → TD-655 | `### [Month YYYY]` H3 sections + Current-Year and Archive tables (mixed) |
+
+**Entry-format auto-detection (#291):** auto-rotation tries the default id-H3 boundary (`^### [A-Z]{2,4}-`) first; if a governed append-only-log contains zero id-H3 entries, it falls back to the session-block boundary (`^## S\d+ `) before reporting "no entries detected". This prevents a `## S{n}` decision-log from silently no-op'ing at closeout while its file grows past cap.
 
 For a ⛔ file, `--apply` makes **no changes** and exits non-zero with a manual
 remedy; run `python $SCRIPT --fix {file} --oversight-root {oversight_path}`

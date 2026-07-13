@@ -49,9 +49,11 @@ over_cap = _mod.over_cap
 split_front_matter = _mod.split_front_matter
 parse_contract_front_matter = _mod.parse_contract_front_matter
 parse_entries = _mod.parse_entries
+parse_entries_with_fallback = _mod.parse_entries_with_fallback
 is_resolved = _mod.is_resolved
 FALLBACK_REGISTRY = _mod.FALLBACK_REGISTRY
 DEFAULT_ENTRY_PATTERN = _mod.DEFAULT_ENTRY_PATTERN
+SESSION_BLOCK_ENTRY_PATTERN = _mod.SESSION_BLOCK_ENTRY_PATTERN
 POINTER_MARKER = _mod.POINTER_MARKER
 MANUAL_ROTATION_FILES = _mod.MANUAL_ROTATION_FILES
 append_to_shard = _mod.append_to_shard
@@ -328,6 +330,25 @@ def _decision_log_seed(n_entries: int) -> str:
     return head + blocks
 
 
+def _session_block_log(n_entries: int) -> str:
+    """Newest-first decision log using the alternate #291 session-block format:
+    '## S{n}' H2 headings with '- **WD-S{n}.x**' bullets, no id-H3 entries at
+    all — the default '^### [A-Z]{2,4}-' pattern matches zero entries here.
+    """
+    head = (
+        "# Decision Log\n\n"
+        "**Purpose**: Track all architectural and project decisions.\n\n"
+        "**Last Updated**: 2026-07-01\n\n"
+    )
+    blocks = "".join(
+        f"## S{i} — session {i}\n"
+        f"- **WD-S{i}.1**: did thing {i}.\n"
+        f"- **WD-S{i}.2**: did other thing {i}.\n\n"
+        for i in range(n_entries, 0, -1)
+    )
+    return head + blocks
+
+
 def test_apply_decision_log_seed_format(tmp_path: Path) -> None:
     """Verify --apply on a fixture matching the REAL decision-log seed: the
     OLDEST real decisions (tail) are archived, the NEWEST stay live, ids are
@@ -377,6 +398,140 @@ def test_apply_idempotent_pointer(tmp_path: Path) -> None:
     _run("--apply", str(log), "--oversight-root", str(root), "--period", "2026-06")
     # Re-running must not stack pointer lines.
     assert log.read_text(encoding="utf-8").count(POINTER_MARKER) == 1
+
+
+# ---------------------------------------------------------------------------
+# --apply : append-only-log session-block fallback (#291)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_decision_log_session_block_format(tmp_path: Path) -> None:
+    """#291: a decision-log using '## S{n}' session-blocks instead of id-H3
+    entries. The default id-H3 pattern matches zero entries here — before the
+    fix this errored 'no entries detected' (silent no-op at closeout); after
+    the fix it must fall back to the session-block boundary and rotate the
+    oldest blocks into a dated shard + update the manifest, same as the
+    default id-H3 path.
+    """
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_session_block_log(40), encoding="utf-8")
+
+    result = _run(
+        "--apply", str(log), "--oversight-root", str(root), "--period", "2026-07"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = log.read_text(encoding="utf-8")
+    lines, _ = measure(new_text)
+    assert lines <= FALLBACK_REGISTRY["tracking/decision-log.md"].cap_lines
+
+    # Thin pointer present (exactly one).
+    assert new_text.count(POINTER_MARKER) == 1
+
+    # Shard exists and holds the OLDEST session blocks (S1 archived).
+    shard = root / "tracking" / "archive" / "decision-log-ARCHIVE-2026-07.md"
+    assert shard.is_file()
+    shard_text = shard.read_text(encoding="utf-8")
+    assert "## S1 " in shard_text
+    assert "## S1 " not in new_text  # oldest left the live file
+
+    # Newest block stays live.
+    assert "## S40 " in new_text
+    assert "## S40 " not in shard_text
+
+    # Manifest updated with the archived shard location.
+    manifest = root / "tracking" / "decision-log-INDEX.md"
+    assert manifest.is_file()
+    manifest_text = manifest.read_text(encoding="utf-8")
+    assert "decision-log-ARCHIVE-2026-07.md" in manifest_text
+
+    # Count conservation: live entries + archived entries == original 40.
+    live_entries = parse_entries(new_text, SESSION_BLOCK_ENTRY_PATTERN).entries
+    archived_entries = parse_entries(
+        "## archive\n" + shard_text, SESSION_BLOCK_ENTRY_PATTERN
+    ).entries
+    assert len(live_entries) + len(archived_entries) == 40
+
+    # No entry split: every archived block starts with its own header.
+    for e in archived_entries:
+        assert e.block.lstrip().startswith("## S")
+
+
+def test_apply_decision_log_default_path_unaffected_by_fallback(
+    tmp_path: Path,
+) -> None:
+    """#291 regression guard: a decision-log with normal '### DEC-…' id-H3
+    entries must rotate on the FIRST parse pass (no fallback), exactly as
+    before the fix.
+    """
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_decision_log(80), encoding="utf-8")
+
+    result = _run(
+        "--apply", str(log), "--oversight-root", str(root), "--period", "2026-06"
+    )
+    assert result.returncode == 0, result.stderr
+
+    new_text = log.read_text(encoding="utf-8")
+    lines, _ = measure(new_text)
+    assert lines <= FALLBACK_REGISTRY["tracking/decision-log.md"].cap_lines
+    # Session-block markers never appear — the id-H3 path never touches them.
+    assert "## S" not in new_text
+
+
+def test_parse_entries_with_fallback_session_block() -> None:
+    """Direct unit coverage: zero id-H3 entries on an append-only-log falls
+    back to the session-block boundary and finds every '## S{n}' block."""
+    contract = FALLBACK_REGISTRY["tracking/decision-log.md"]
+    text = _session_block_log(3)
+    parsed, pattern_used = parse_entries_with_fallback(
+        text, contract, DEFAULT_ENTRY_PATTERN
+    )
+    assert pattern_used == SESSION_BLOCK_ENTRY_PATTERN
+    assert len(parsed.entries) == 3
+
+
+def test_parse_entries_with_fallback_default_path_no_retry() -> None:
+    """When the default id-H3 pattern already finds entries, the fallback must
+    not run a second parse pass or change the pattern used."""
+    contract = FALLBACK_REGISTRY["tracking/decision-log.md"]
+    text = _decision_log(5)
+    parsed, pattern_used = parse_entries_with_fallback(
+        text, contract, DEFAULT_ENTRY_PATTERN
+    )
+    assert pattern_used == DEFAULT_ENTRY_PATTERN
+    assert len(parsed.entries) == 5
+
+
+def test_parse_entries_with_fallback_scoped_to_append_only_log() -> None:
+    """Scope-out (TD-655): a register class file with zero id-H3 matches must
+    NOT fall back to session-block parsing — the #291 fallback is
+    append-only-log only, so blockers-log/risk-register/technical-debt stay
+    on the existing 'no entries detected' / manual-rotation behavior."""
+    contract = FALLBACK_REGISTRY["tracking/blockers-log.md"]
+    text = "## S1 — session 1\n- **WD-S1.1**: thing\n\n"
+    parsed, pattern_used = parse_entries_with_fallback(
+        text, contract, DEFAULT_ENTRY_PATTERN
+    )
+    assert pattern_used == DEFAULT_ENTRY_PATTERN
+    assert len(parsed.entries) == 0
+
+
+def test_check_remedy_apply_for_session_block_over_cap(tmp_path: Path) -> None:
+    """#291: --check's remedy simulation must also use the fallback, so an
+    over-cap session-block decision-log gets the '--apply' remedy (rotation
+    CAN help) rather than a hand-trim remedy (the pre-fix 'silent no-op'
+    symptom: --check couldn't tell --apply would actually work)."""
+    root = _make_oversight(tmp_path)
+    log = root / "tracking" / "decision-log.md"
+    log.write_text(_session_block_log(40), encoding="utf-8")
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1
+    assert "--apply" in result.stderr
+    assert "trim" not in result.stderr.split("remedy:")[1].split("\n")[0]
 
 
 # ---------------------------------------------------------------------------
