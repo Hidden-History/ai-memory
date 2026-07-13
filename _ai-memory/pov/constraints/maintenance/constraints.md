@@ -10,13 +10,13 @@ authority: If any Maintenance constraint conflicts with a global constraint, the
 > **Scope**: Active only during WF-MAINTENANCE
 > **Loaded**: When WF-MAINTENANCE begins, alongside global constraints
 > **Dropped**: When Maintenance routes to Planning or Execution
-> **Inherits**: All 21 global constraints — these add on top
+> **Inherits**: All 22 global constraints — these add on top
 
 ## Priority Rule
 
 **If any Maintenance constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-21) are always active. The constraints below apply only during WF-MAINTENANCE. When Maintenance routes to Planning or Execution, these constraints are dropped.
+Global constraints (GC-01 through GC-22) are always active. The constraints below apply only during WF-MAINTENANCE. When Maintenance routes to Planning or Execution, these constraints are dropped.
 
 Maintenance is the most scope-unstable phase. Issues arrive reactively. Fixes seem simple but often are not. The constraints here exist to prevent the most common maintenance failure modes: scope expansion, rushed reviews, and undocumented changes.
 
@@ -48,7 +48,7 @@ Run this checklist after every 10 messages during Maintenance:
 - MC-08: Are queued issues being addressed in severity order?
 - MC-09: Has any maintenance fix grown into an initiative? If so, is there an approved/active plan before I dispatch further?
 
-PLUS all 21 global constraint checks from global/constraints.md
+PLUS all 22 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 

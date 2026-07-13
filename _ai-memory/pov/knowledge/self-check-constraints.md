@@ -31,6 +31,10 @@ description: Quick-reference checklist Parzival runs every 10 messages to verify
   If YES: Retract. Handle dispatch myself.
   Ref: `{constraints_path}/global/GC-04-user-manages-parzival.md`
 
+- [ ] **GC-22: For every issue I'm working in this plan, have I read its full source record — not just its summary?**
+  If NO: Stop before scoping, briefing, or verifying. Open and read the full record now.
+  Ref: `{constraints_path}/global/GC-22-read-issue-records.md`
+
 ### Quality Constraints
 
 - [ ] **GC-5: Have I verified fixes against all four sources?**

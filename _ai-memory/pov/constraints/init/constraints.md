@@ -15,7 +15,7 @@ authority: These constraints supplement global constraints during init phase
 
 **If any Init constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-21) are always active. The constraints below are specific to the Init phase and add additional rules that apply only while WF-INIT-NEW or WF-INIT-EXISTING is running. When Init exits, these constraints are dropped.
+Global constraints (GC-01 through GC-22) are always active. The constraints below are specific to the Init phase and add additional rules that apply only while WF-INIT-NEW or WF-INIT-EXISTING is running. When Init exits, these constraints are dropped.
 
 ## Constraint Summary
 
