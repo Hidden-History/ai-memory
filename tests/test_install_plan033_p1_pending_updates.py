@@ -266,6 +266,50 @@ class TestFailSafeEmit:
         # The manifest was NOT written over the sabotaged path.
         assert pending.is_dir()
 
+    def test_temp_alloc_failure_does_not_abort_oversight_deploy(
+        self, install_sh_no_main, dirs
+    ):
+        """HIGH fail-safe (fix-r2): a temp-alloc failure in the PREP (mktemp) —
+        restricted/unwritable TMPDIR in a hardened container/CI — must NOT abort the
+        oversight-template deploy under ``set -euo pipefail``. Before the guard, the
+        ``pending_tsv="$(mktemp)"`` assignment was the command after the final ``&&``
+        (set-e-checked), so it aborted the WHOLE deploy: new/sync/migrate/warn all
+        skipped. The existing fail-safe test only covers the python-emit layer.
+
+        We shadow ``mktemp`` with a function that exits 1 (uid-independent stand-in
+        for the restricted-TMPDIR failure class; a chmod-000 TMPDIR would not fail
+        for root, as CI often runs). Assert the deploy still returns 0, surfaces the
+        non-fatal note, and COMPLETES — a new template deployed in the same run
+        proves the loop ran past the sabotaged prep.
+        """
+        install_dir, project_dir = dirs
+        # Drive one file into the both-changed (n_warn) state...
+        rel_warn, _, _, _ = _make_both_changed(
+            install_sh_no_main, install_dir, project_dir
+        )
+        # ...and add a fresh template so the same run must also do a [new] deploy.
+        _mk_shipped_template(install_dir, "conventions/new-conv.md", "NEW CONV\n")
+
+        # Sabotage the temp alloc: shadow mktemp so it exits 1 for the deploy call.
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            "mktemp() { return 1; }\ndeploy_oversight_templates",
+        )
+
+        # Install NOT aborted: deploy returns 0 despite the temp-alloc failure...
+        assert res.returncode == 0, res.stderr
+        # ...with the non-fatal temp-alloc note surfaced.
+        assert "temp alloc failed" in res.stdout or "temp alloc failed" in res.stderr
+        # The deploy COMPLETED past the sabotaged prep: the new file was deployed...
+        assert (project_dir / "oversight" / "conventions" / "new-conv.md").exists()
+        # ...and the warn path still ran (loud warning intact, copy never clobbered).
+        assert "review + merge" in res.stdout
+        assert (project_dir / "oversight" / rel_warn).read_text() == "MY LOCAL EDITS\n"
+        # Emit was skipped (no temp file to collect into); no crash, no manifest.
+        assert not _pending_path(project_dir).exists()
+
 
 class TestIdempotency:
     def test_rerun_replaces_never_appends_duplicates(self, install_sh_no_main, dirs):
