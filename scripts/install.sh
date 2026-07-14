@@ -3867,19 +3867,32 @@ detect_codex_cli() {
 # are already deployed in the *project* must be refreshed on a normal update,
 # even when its CLI is absent from the current machine's PATH — otherwise those
 # adapters permanently drift. Markers mirror what write_<ide>_config deploys.
+#
+# Detection requires AI-Memory *ownership*, not bare per-IDE path existence:
+# generic native configs (.gemini/settings.json, .cursor/hooks.json,
+# .codex/hooks.json) count only when they CONTAIN the AI_MEMORY_INSTALL_DIR
+# marker (mirroring the write_<ide>_config force-gate grep), and skill presence
+# is scoped to the ai-memory-named subskill dir (search-memory) rather than the
+# bare skills/ dir. This prevents a user's unrelated hand-written native config
+# from being selected and then wholesale-overwritten by write_<ide>_config.
 detect_gemini_project() {
     local project_path="$1"
-    [[ -f "$project_path/.gemini/settings.json" ]] || [[ -f "$project_path/AI-MEMORY.md" ]]
+    { [[ -f "$project_path/.gemini/settings.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.gemini/settings.json" 2>/dev/null; } \
+        || [[ -f "$project_path/AI-MEMORY.md" ]]
 }
 
 detect_cursor_project() {
     local project_path="$1"
-    [[ -f "$project_path/.cursor/hooks.json" ]] || [[ -d "$project_path/.cursor/skills" ]] || [[ -f "$project_path/.cursor/rules/ai-memory.mdc" ]]
+    { [[ -f "$project_path/.cursor/hooks.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.cursor/hooks.json" 2>/dev/null; } \
+        || [[ -d "$project_path/.cursor/skills/search-memory" ]] \
+        || [[ -f "$project_path/.cursor/rules/ai-memory.mdc" ]]
 }
 
 detect_codex_project() {
     local project_path="$1"
-    [[ -f "$project_path/.codex/hooks.json" ]] || [[ -d "$project_path/.codex/skills" ]] || [[ -d "$project_path/.agents/skills" ]]
+    { [[ -f "$project_path/.codex/hooks.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.codex/hooks.json" 2>/dev/null; } \
+        || [[ -d "$project_path/.codex/skills/search-memory" ]] \
+        || [[ -d "$project_path/.agents/skills/search-memory" ]]
 }
 
 parse_ide_flag() {

@@ -67,20 +67,32 @@ parse_ide_flag "{flag}" "{project}"
     return result.stdout.split()
 
 
+# A hooks.json / settings.json counts as an ai-memory adapter only when it
+# CONTAINS the AI_MEMORY_INSTALL_DIR marker (mirrors the write_<ide>_config
+# force-gate grep). These helpers deploy a genuine, marked install.
+_MARKED_HOOKS = '{"env": {"AI_MEMORY_INSTALL_DIR": "/home/u/.ai-memory"}}'
+
+
 def _deploy_cursor(project: Path) -> None:
     (project / ".cursor").mkdir(parents=True, exist_ok=True)
-    (project / ".cursor" / "hooks.json").write_text("{}", encoding="utf-8")
+    (project / ".cursor" / "hooks.json").write_text(_MARKED_HOOKS, encoding="utf-8")
+    (project / ".cursor" / "skills" / "search-memory").mkdir(
+        parents=True, exist_ok=True
+    )
 
 
 def _deploy_codex(project: Path) -> None:
     (project / ".codex").mkdir(parents=True, exist_ok=True)
-    (project / ".codex" / "hooks.json").write_text("{}", encoding="utf-8")
-    (project / ".agents" / "skills").mkdir(parents=True, exist_ok=True)
+    (project / ".codex" / "hooks.json").write_text(_MARKED_HOOKS, encoding="utf-8")
+    (project / ".codex" / "skills" / "search-memory").mkdir(parents=True, exist_ok=True)
+    (project / ".agents" / "skills" / "search-memory").mkdir(
+        parents=True, exist_ok=True
+    )
 
 
 def _deploy_gemini(project: Path) -> None:
     (project / ".gemini").mkdir(parents=True, exist_ok=True)
-    (project / ".gemini" / "settings.json").write_text("{}", encoding="utf-8")
+    (project / ".gemini" / "settings.json").write_text(_MARKED_HOOKS, encoding="utf-8")
 
 
 class TestProjectAdapterPresenceSelectsIDE:
@@ -145,6 +157,95 @@ parse_ide_flag "" "{project}"
         )
         assert result.returncode == 0, result.stderr
         assert result.stdout.split() == ["gemini"]
+
+
+class TestOwnershipMarkerRequiredForNativeConfig:
+    """BUG-529 fix-r1 (HIGH clobber defect): a generic per-IDE native config
+    (.gemini/settings.json, .cursor/hooks.json, .codex/hooks.json) is
+    AI-Memory-owned — and therefore selectable/refreshable — ONLY when it
+    contains the AI_MEMORY_INSTALL_DIR marker. A user's unrelated hand-written
+    native config lacking the marker must NOT be selected, because
+    write_<ide>_config would otherwise wholesale-overwrite it (silent data loss).
+    Skill presence is scoped to the ai-memory-named subskill dir, not bare skills/.
+    """
+
+    def test_unmarked_gemini_settings_not_selected(self, install_sh_no_main, tmp_path):
+        # A user's own .gemini/settings.json (no AI_MEMORY_INSTALL_DIR marker),
+        # no AI-MEMORY.md, no CLI → gemini must NOT be selected.
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        (project / ".gemini" / "settings.json").write_text(
+            '{"contextFileName": "GEMINI.md", "theme": "dark"}', encoding="utf-8"
+        )
+        assert _parse_ide(install_sh_no_main, "", project) == []
+
+    def test_unmarked_cursor_hooks_not_selected(self, install_sh_no_main, tmp_path):
+        # A user's own .cursor/hooks.json (no marker), no ai-memory skill subdir,
+        # no rules/ai-memory.mdc → cursor must NOT be selected.
+        project = tmp_path / "proj"
+        (project / ".cursor").mkdir(parents=True)
+        (project / ".cursor" / "hooks.json").write_text(
+            '{"hooks": {"beforeShellExecution": []}}', encoding="utf-8"
+        )
+        assert "cursor" not in _parse_ide(install_sh_no_main, "", project)
+
+    def test_unmarked_codex_hooks_not_selected(self, install_sh_no_main, tmp_path):
+        # A user's own .codex/hooks.json (no marker) + bare (non-ai-memory) skills
+        # dirs → codex must NOT be selected.
+        project = tmp_path / "proj"
+        (project / ".codex").mkdir(parents=True)
+        (project / ".codex" / "hooks.json").write_text(
+            '{"notify": ["say", "done"]}', encoding="utf-8"
+        )
+        (project / ".codex" / "skills" / "my-own-skill").mkdir(parents=True)
+        (project / ".agents" / "skills" / "unrelated").mkdir(parents=True)
+        assert "codex" not in _parse_ide(install_sh_no_main, "", project)
+
+    def test_marked_gemini_settings_selected(self, install_sh_no_main, tmp_path):
+        # Positive: a real ai-memory install's settings.json (contains the marker)
+        # IS selected even with no CLI on PATH.
+        project = tmp_path / "proj"
+        (project / ".gemini").mkdir(parents=True)
+        (project / ".gemini" / "settings.json").write_text(
+            '{"env": {"AI_MEMORY_INSTALL_DIR": "/home/u/.ai-memory"}}',
+            encoding="utf-8",
+        )
+        assert _parse_ide(install_sh_no_main, "", project) == ["gemini"]
+
+    def test_marked_hooks_select_cursor_and_codex(self, install_sh_no_main, tmp_path):
+        # Positive: real ai-memory install (marked hooks.json) selects both IDEs.
+        project = tmp_path / "proj"
+        (project / ".cursor").mkdir(parents=True)
+        (project / ".cursor" / "hooks.json").write_text(_MARKED_HOOKS, encoding="utf-8")
+        (project / ".codex").mkdir(parents=True)
+        (project / ".codex" / "hooks.json").write_text(_MARKED_HOOKS, encoding="utf-8")
+        selected = _parse_ide(install_sh_no_main, "", project)
+        assert "cursor" in selected
+        assert "codex" in selected
+
+    def test_ai_memory_skill_subdir_selects_ide(self, install_sh_no_main, tmp_path):
+        # Positive: the ai-memory-named skill subdir (search-memory) selects the
+        # IDE even when the hooks.json is absent/unmarked.
+        project = tmp_path / "proj"
+        (project / ".cursor" / "skills" / "search-memory").mkdir(parents=True)
+        (project / ".agents" / "skills" / "search-memory").mkdir(parents=True)
+        selected = _parse_ide(install_sh_no_main, "", project)
+        assert "cursor" in selected
+        assert "codex" in selected
+
+    def test_ai_memory_guidance_files_still_select(self, install_sh_no_main, tmp_path):
+        # The already-ai-memory-specific guidance markers are unchanged: bare
+        # existence of AI-MEMORY.md (gemini) / .cursor/rules/ai-memory.mdc still counts.
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "AI-MEMORY.md").write_text("guidance", encoding="utf-8")
+        (project / ".cursor" / "rules").mkdir(parents=True)
+        (project / ".cursor" / "rules" / "ai-memory.mdc").write_text(
+            "---\nalwaysApply: true\n---\n", encoding="utf-8"
+        )
+        selected = _parse_ide(install_sh_no_main, "", project)
+        assert "gemini" in selected
+        assert "cursor" in selected
 
 
 class TestExplicitFlagSemanticsPreserved:
