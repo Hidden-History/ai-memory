@@ -5871,8 +5871,16 @@ _sync_oversight_templates() {
     local n_new=0 n_sync=0 n_migrate=0 n_warn=0
 
     # Collect both-changed entries for the pending-change manifest (deploy only).
+    # Producer-only path: a temp-alloc failure (restricted/unwritable TMPDIR) must
+    # NOT abort the oversight-template deploy. The `if !` runs mktemp in a
+    # set-e-exempt context; on failure we degrade to a warning and skip the emit.
     local pending_tsv=""
-    [[ "$mode" == "deploy" ]] && pending_tsv="$(mktemp)"
+    if [[ "$mode" == "deploy" ]]; then
+        if ! pending_tsv="$(mktemp 2>/dev/null)"; then
+            log_warning "pending-updates: temp alloc failed (non-fatal); skipping emit"
+            pending_tsv=""
+        fi
+    fi
 
     if [[ ! -d "$tmpl_source" ]]; then
         log_warning "Oversight templates not found at $tmpl_source"
@@ -5956,7 +5964,9 @@ _sync_oversight_templates() {
                     old_base="$known_hashes"
                 fi
             fi
-            printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv"
+            # Skip when temp alloc failed (empty path); `|| true` tolerates a
+            # mid-loop write failure (e.g. ENOSPC) without aborting under set -e.
+            [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
         fi
         [[ "$mode" == "check" ]] && echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
     done < <(find "$tmpl_source" -type f)
@@ -5967,11 +5977,14 @@ _sync_oversight_templates() {
         # Producer-only + additive: the emit MUST NOT break the install. Guard it
         # so any failure degrades to a warning (the `if !` also runs it in a
         # set-e-checked context) instead of aborting the Parzival-setup sequence.
-        if ! _write_pending_updates "$pending_manifest" "$pending_tsv" \
-            "install.sh@${INSTALLER_VERSION}" "$INSTALLER_VERSION"; then
-            log_warning "pending-updates.json emit failed (non-fatal); continuing install"
+        # Empty path => temp alloc failed upstream: nothing to emit, skip entirely.
+        if [[ -n "$pending_tsv" ]]; then
+            if ! _write_pending_updates "$pending_manifest" "$pending_tsv" \
+                "install.sh@${INSTALLER_VERSION}" "$INSTALLER_VERSION"; then
+                log_warning "pending-updates.json emit failed (non-fatal); continuing install"
+            fi
+            rm -f "$pending_tsv"
         fi
-        rm -f "$pending_tsv"
     fi
 
     if [[ "$mode" == "check" ]]; then
