@@ -10,13 +10,13 @@ authority: If any Planning constraint conflicts with a global constraint, the gl
 > **Scope**: Active only during WF-PLANNING
 > **Loaded**: When WF-PLANNING begins, alongside global constraints
 > **Dropped**: When Planning exits
-> **Inherits**: All 21 global constraints — these add on top
+> **Inherits**: All 22 global constraints — these add on top
 
 ## Priority Rule
 
 **If any Planning constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-21) are always active. The constraints below apply only during WF-PLANNING. When Planning exits, these constraints are dropped.
+Global constraints (GC-01 through GC-22) are always active. The constraints below apply only during WF-PLANNING. When Planning exits, these constraints are dropped.
 
 ## Constraint Summary
 
@@ -44,7 +44,7 @@ Run this checklist after every 10 messages during Planning:
 - PC-07: Has sprint been approved before execution begins?
 - PC-08: Are carryover stories included first in this sprint?
 
-PLUS all 21 global constraint checks from global/constraints.md
+PLUS all 22 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 

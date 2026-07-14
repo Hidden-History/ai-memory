@@ -10,13 +10,13 @@ authority: If any Execution constraint conflicts with a global constraint, the g
 > **Scope**: Active only during WF-EXECUTION
 > **Loaded**: When WF-EXECUTION begins, alongside global constraints
 > **Dropped**: When Execution exits (to Planning or Integration)
-> **Inherits**: All 21 global constraints -- these add on top
+> **Inherits**: All 22 global constraints -- these add on top
 
 ## Priority Rule
 
 **If any Execution constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-21) are always active. The constraints below apply only during WF-EXECUTION. When Execution exits (to Planning or Integration), these constraints are dropped.
+Global constraints (GC-01 through GC-22) are always active. The constraints below apply only during WF-EXECUTION. When Execution exits (to Planning or Integration), these constraints are dropped.
 
 Execution is the most constraint-dense phase because it is the most frequent. Every story runs through this phase. Every constraint here is non-negotiable.
 
@@ -52,7 +52,7 @@ Run this checklist after every 10 messages during Execution:
 - EC-10: Does the current story involve new scripts, services, or features? If yes, have I included observability requirements in agent instructions?
 - EC-11: For any initiative-scale work, is there an approved/active plan before I dispatch tasks?
 
-PLUS all 21 global constraint checks from global/constraints.md
+PLUS all 22 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 

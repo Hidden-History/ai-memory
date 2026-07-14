@@ -10,13 +10,13 @@ authority: If any Discovery constraint conflicts with a global constraint, the g
 > **Scope**: Active only during WF-DISCOVERY
 > **Loaded**: When WF-DISCOVERY begins, alongside global constraints
 > **Dropped**: When Discovery exits
-> **Inherits**: All 21 global constraints -- these add on top
+> **Inherits**: All 22 global constraints -- these add on top
 
 ## Priority Rule
 
 **If any Discovery constraint conflicts with a global constraint — the global constraint wins.**
 
-Global constraints (GC-01 through GC-21) are always active. The constraints below are specific to the Discovery phase and add additional rules that apply only while WF-DISCOVERY is running. When Discovery exits, these constraints are dropped.
+Global constraints (GC-01 through GC-22) are always active. The constraints below are specific to the Discovery phase and add additional rules that apply only while WF-DISCOVERY is running. When Discovery exits, these constraints are dropped.
 
 ## Constraint Summary
 
@@ -44,7 +44,7 @@ Run this checklist after every 10 messages during Discovery:
 - DC-06: Is there an explicit out-of-scope section?
 - DC-07: Are there unresolved requirements questions still open?
 
-PLUS all 21 global constraint checks from global/constraints.md
+PLUS all 22 global constraint checks from global/constraints.md
 
 IF ANY CHECK FAILS: Course-correct IMMEDIATELY before continuing.
 

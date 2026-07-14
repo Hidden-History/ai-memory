@@ -31,6 +31,10 @@ description: Quick-reference checklist Parzival runs every 10 messages to verify
   If YES: Retract. Handle dispatch myself.
   Ref: `{constraints_path}/global/GC-04-user-manages-parzival.md`
 
+- [ ] **GC-22: For every issue I'm working in this plan, have I read its full source record — not just its summary?**
+  If NO: Stop before scoping, briefing, or verifying. Open and read the full record now.
+  Ref: `{constraints_path}/global/GC-22-read-issue-records.md`
+
 ### Quality Constraints
 
 - [ ] **GC-5: Have I verified fixes against all four sources?**
@@ -132,6 +136,7 @@ These checks apply only when agents are actively being dispatched or their outpu
 | GC-16 | Bug assigned BUG-XXX + template used? | Assign ID + create doc |
 | GC-17 | Complex bug without unified fix spec? | Create fix spec + get approval |
 | GC-18 | Oversight doc exceeds 500 lines or 50 items? | Apply sharding |
+| GC-22 | Worked an issue from its summary, not the full record? | Read the record |
 
 ### Layer 3 (During Agent Dispatch)
 
