@@ -5792,7 +5792,9 @@ except FileNotFoundError:
 if not rows:
     try:
         os.remove(out)
-    except FileNotFoundError:
+    except OSError:
+        # Absent (nothing to remove) or unremovable (e.g. read-only dir): the
+        # emit is best-effort and must never abort the install.
         pass
     sys.exit(0)
 
@@ -5836,14 +5838,24 @@ manifest = {
     "entries": entries,
 }
 
-os.makedirs(os.path.dirname(out), exist_ok=True)
 tmp = out + ".tmp"
-with open(tmp, "w") as fh:
-    json.dump(manifest, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-    fh.flush()
-    os.fsync(fh.fileno())
-os.replace(tmp, out)  # same-dir atomic rename (crash-safe; BP-187 write-safety)
+try:
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(tmp, "w") as fh:
+        json.dump(manifest, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, out)  # same-dir atomic rename (crash-safe; BP-187 write-safety)
+except Exception as e:  # noqa: BLE001 - emit is best-effort; never abort the install
+    # PermissionError / ENOSPC / os.replace failure etc.: clean up the temp and
+    # exit 0 so the producer-only emit can never propagate non-zero under set -e.
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    sys.stderr.write(f"pending-updates: emit failed (non-fatal): {e}\n")
+    sys.exit(0)
 PY
 }
 
@@ -5864,6 +5876,7 @@ _sync_oversight_templates() {
 
     if [[ ! -d "$tmpl_source" ]]; then
         log_warning "Oversight templates not found at $tmpl_source"
+        [[ -n "$pending_tsv" ]] && rm -f "$pending_tsv"
         return 0
     fi
 
@@ -5930,11 +5943,19 @@ _sync_oversight_templates() {
         log_warning "template drifted + upstream changed; review + merge: oversight/$rel_path"
         # Additionally record the three-state digest triple for the pending-change
         # manifest so the in-project Parzival can reconcile it under review (P2/P3).
-        # old_shipped_hash (base B): recorded deploy hash, else last known prior-shipped
-        # hash for this path, else "" for a legacy pre-manifest file.
+        # old_shipped_hash (base B): recorded deploy hash, else the sole known
+        # prior-shipped hash for this path. The registry is sort -u (lexicographic,
+        # not chronological), so if MULTIPLE prior hashes exist the latest-shipped
+        # is not identifiable — leave base B "" rather than guess a wrong base.
         if [[ "$mode" == "deploy" ]]; then
             local old_base="$h_recorded"
-            [[ -z "$old_base" ]] && old_base="$(_known_template_hashes "$rel_path" "$registry" | tail -n 1)"
+            if [[ -z "$old_base" ]]; then
+                local known_hashes
+                known_hashes="$(_known_template_hashes "$rel_path" "$registry")"
+                if [[ -n "$known_hashes" && "$(printf '%s\n' "$known_hashes" | wc -l)" -eq 1 ]]; then
+                    old_base="$known_hashes"
+                fi
+            fi
             printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv"
         fi
         [[ "$mode" == "check" ]] && echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
@@ -5943,8 +5964,13 @@ _sync_oversight_templates() {
     # Emit/replace the pending-change manifest from the collected both-changed
     # entries (empty => stale manifest removed). Additive; deploy path only.
     if [[ "$mode" == "deploy" ]]; then
-        _write_pending_updates "$pending_manifest" "$pending_tsv" \
-            "install.sh@${INSTALLER_VERSION}" "$INSTALLER_VERSION"
+        # Producer-only + additive: the emit MUST NOT break the install. Guard it
+        # so any failure degrades to a warning (the `if !` also runs it in a
+        # set-e-checked context) instead of aborting the Parzival-setup sequence.
+        if ! _write_pending_updates "$pending_manifest" "$pending_tsv" \
+            "install.sh@${INSTALLER_VERSION}" "$INSTALLER_VERSION"; then
+            log_warning "pending-updates.json emit failed (non-fatal); continuing install"
+        fi
         rm -f "$pending_tsv"
     fi
 

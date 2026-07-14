@@ -202,6 +202,71 @@ class TestEmitOnBothChanged:
         assert e["old_shipped_hash"] == prior_hash
 
 
+class TestBaseHashAmbiguity:
+    def test_multiple_registry_hashes_yield_empty_old_shipped_hash(
+        self, install_sh_no_main, dirs
+    ):
+        """The registry is built with ``sort -u`` (lexicographic, NOT chronological),
+        so when a legacy path has 2+ recorded prior-shipped hashes the latest-shipped
+        base is not identifiable -> old_shipped_hash must be "" (never a guessed base)
+        rather than the lexicographically-largest hash a ``tail -n 1`` would pick.
+
+        (The single-known-hash -> that-hash case is covered by
+        ``test_old_shipped_hash_falls_back_to_registry_known_hash``.)
+        """
+        install_dir, project_dir = dirs
+        rel = "plans/PLAN_TEMPLATE.md"
+        prior_a = _sha256("PRIOR SHIPPED A\n")
+        prior_b = _sha256("PRIOR SHIPPED B\n")
+        # Two prior-shipped hashes registered for the same path (2-entry legacy case).
+        _mk_registry(install_dir, [(rel, prior_a), (rel, prior_b)])
+        _mk_shipped_template(install_dir, rel, "CURRENT SHIPPED\n")
+
+        # User-modified copy matching neither shipped nor either prior hash, and with
+        # no manifest record -> warn path with an ambiguous base B.
+        copy = project_dir / "oversight" / rel
+        copy.parent.mkdir(parents=True)
+        copy.write_text("LOCALLY EDITED\n")
+
+        res = _deploy(install_sh_no_main, install_dir, project_dir)
+        assert res.returncode == 0, res.stderr
+
+        doc = json.loads(_pending_path(project_dir).read_text())
+        e = next(x for x in doc["entries"] if x["id"] == rel)
+        assert e["old_shipped_hash"] == ""
+        assert e["old_shipped_hash"] not in (prior_a, prior_b)
+
+
+class TestFailSafeEmit:
+    def test_unwritable_emit_target_does_not_abort_install(
+        self, install_sh_no_main, dirs
+    ):
+        """HIGH fail-safe: the producer-only emit MUST NOT break the install. When
+        the pending-updates.json target is unwritable, the deploy still returns 0
+        (with a non-fatal note) instead of aborting under ``set -euo pipefail`` and
+        skipping the rest of the Parzival-setup sequence.
+        """
+        install_dir, project_dir = dirs
+        _make_both_changed(install_sh_no_main, install_dir, project_dir)
+
+        # Sabotage the emit target: occupy the manifest path with a directory so the
+        # atomic write/replace fails (uid-independent stand-in for the read-only
+        # .audit/state / ENOSPC failure class the guard must swallow).
+        pending = _pending_path(project_dir)
+        pending.parent.mkdir(parents=True, exist_ok=True)
+        pending.mkdir()
+
+        res = _deploy(install_sh_no_main, install_dir, project_dir)
+
+        # Install NOT aborted: deploy returns 0 despite the emit failing...
+        assert res.returncode == 0, res.stderr
+        # ...with a non-fatal note surfaced, and the existing loud warning intact.
+        assert "non-fatal" in res.stderr or "non-fatal" in res.stdout
+        assert "review + merge" in res.stdout
+        # The manifest was NOT written over the sabotaged path.
+        assert pending.is_dir()
+
+
 class TestIdempotency:
     def test_rerun_replaces_never_appends_duplicates(self, install_sh_no_main, dirs):
         install_dir, project_dir = dirs
