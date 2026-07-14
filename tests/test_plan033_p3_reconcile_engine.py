@@ -53,12 +53,19 @@ Decision = engine.Decision
 # --------------------------------------------------------------------------- #
 # Helpers / fixtures
 # --------------------------------------------------------------------------- #
-def _entry(*, base: str, deployed: str, new: str, path: str = "tracking/x.md"):
+def _entry(
+    *,
+    base: str,
+    deployed: str,
+    new: str,
+    path: str = "tracking/x.md",
+    classification: str = "MANAGED_MERGE_REQUIRED",
+):
     """Build a ReconcileEntry with just the digest triple that matters."""
     return engine.ReconcileEntry(
         id=path,
         path=f"oversight/{path}",
-        classification="MANAGED_MERGE_REQUIRED",
+        classification=classification,
         old_shipped_hash=base,
         deployed_hash=deployed,
         new_template_hash=new,
@@ -437,6 +444,10 @@ def test_reconcile_preserve_keeps_deployed(tmp_path):
 
 
 def test_reconcile_refresh_overwrites_with_template(tmp_path):
+    # A raw refresh is only for a NON-data-bearing (fully installer-owned) file.
+    # "INSTALLER_OWNED" is a PLACEHOLDER token: P1's classification taxonomy is not
+    # yet formally defined (today P1 emits only MANAGED_MERGE_REQUIRED), so this
+    # exercises the defense-in-depth safe-refresh extension point, not a live path.
     dep = _deploy(tmp_path, "tracking/x.md", "old deployed\n")
     template = tmp_path / "new_template.md"
     template.write_text("NEW TEMPLATE\n", encoding="utf-8")
@@ -445,11 +456,50 @@ def test_reconcile_refresh_overwrites_with_template(tmp_path):
         deployed=engine.compute_hash(dep),
         new=engine.compute_hash(template),  # template changed
         path="tracking/x.md",
+        classification="INSTALLER_OWNED",  # placeholder overwrite-safe token
     )
     res = engine.reconcile_entry(e, project_root=tmp_path, new_template_path=template)
     assert res.decision == Decision.REFRESH
+    assert res.action_taken == "refreshed"
     assert dep.read_text(encoding="utf-8") == "NEW TEMPLATE\n"
     assert Path(res.backup_path).read_text(encoding="utf-8") == "old deployed\n"
+
+
+def test_reconcile_refresh_data_bearing_migrates_not_overwrites(tmp_path):
+    # F1 defense-in-depth: even in the REFRESH quadrant (deployed == base, template
+    # changed), a data-bearing/managed file must migrate STRUCTURE forward and
+    # preserve every operator DATA row — NOT be raw-overwritten with the new template.
+    dep = _deploy(tmp_path, "bugs/INDEX.md", INDEX_FIXTURE)
+    template = tmp_path / "new_template.md"
+    template.write_text("BRAND NEW EMPTY TEMPLATE\n", encoding="utf-8")
+    e = _entry(
+        base=engine.compute_hash(dep),  # deployed == base -> user NOT edited
+        deployed=engine.compute_hash(dep),
+        new=engine.compute_hash(template),  # template changed -> REFRESH quadrant
+        path="bugs/INDEX.md",
+        classification="MANAGED_MERGE_REQUIRED",  # data-bearing
+    )
+    assert engine.classify(e) == Decision.REFRESH  # genuinely the REFRESH quadrant
+
+    res = engine.reconcile_entry(e, project_root=tmp_path, new_template_path=template)
+
+    # Routed to the migrate path: template content is NOT written in.
+    assert res.decision == Decision.REFRESH
+    assert res.action_taken == "migrated"
+    after = dep.read_text(encoding="utf-8")
+    assert "BRAND NEW EMPTY TEMPLATE" not in after
+    # STRUCTURE advanced; every operator DATA row survives byte-for-byte.
+    assert engine.read_format_version(after) == 1
+    for row in (
+        "BUG-527 — deploy parity — Closed",
+        "BUG-528 — marker asymmetry — Open",
+        "BUG-529 — adapter refresh — Open",
+        "| Open   | 12    |",
+        "| Closed | 111   |",
+    ):
+        assert row in after
+    # Backup captured the pre-migration original exactly.
+    assert Path(res.backup_path).read_text(encoding="utf-8") == INDEX_FIXTURE
 
 
 def test_reconcile_conflict_migrates_structure_preserves_data(tmp_path):
@@ -533,3 +583,136 @@ def test_reconcile_refuses_stale_manifest(tmp_path):
     # Refused before any write: file untouched, no backup created.
     assert dep.read_text(encoding="utf-8") == INDEX_FIXTURE
     assert not (dep.parent / (dep.name + ".bak")).exists()
+
+
+# --------------------------------------------------------------------------- #
+# F2 — backup must NOT follow a symlink at <path>.bak (clobbers an unrelated
+# file the operator owns). BP-187 §4: backup-before-write is a safety net, never
+# a foot-gun that destroys data elsewhere.
+# --------------------------------------------------------------------------- #
+def test_atomic_write_backup_does_not_follow_symlink(tmp_path):
+    victim = tmp_path / "unrelated_precious.txt"
+    victim.write_text("PRECIOUS — MUST SURVIVE\n", encoding="utf-8")
+    f = tmp_path / "f.md"
+    f.write_text("ORIGINAL\n", encoding="utf-8")
+    # A pre-existing symlink sits where the backup would be written.
+    bak = Path(str(f) + ".bak")
+    bak.symlink_to(victim)
+
+    engine.atomic_write(f, "NEW CONTENT\n")
+
+    # The symlink's target (an unrelated file) is untouched — copy2 default
+    # follow_symlinks=True would have clobbered it with f.md's old bytes.
+    assert victim.read_text(encoding="utf-8") == "PRECIOUS — MUST SURVIVE\n"
+    # The write itself still succeeded.
+    assert f.read_text(encoding="utf-8") == "NEW CONTENT\n"
+
+
+# --------------------------------------------------------------------------- #
+# F3 — single-slot .bak must not silently clobber (a) an operator's pre-existing
+# sibling .bak or (b) an earlier backup on a 2nd write. BP-187 §4.5.
+# --------------------------------------------------------------------------- #
+def test_atomic_write_does_not_clobber_preexisting_bak(tmp_path):
+    f = tmp_path / "f.md"
+    f.write_text("V1\n", encoding="utf-8")
+    operator_bak = Path(str(f) + ".bak")
+    operator_bak.write_text("OPERATOR'S OWN BACKUP — KEEP\n", encoding="utf-8")
+
+    backup = engine.atomic_write(f, "V2\n")
+
+    # The operator's pre-existing .bak survives untouched.
+    assert operator_bak.read_text(encoding="utf-8") == "OPERATOR'S OWN BACKUP — KEEP\n"
+    # Our backup went to a collision-safe name (not the operator's .bak).
+    assert backup != str(operator_bak)
+    assert Path(backup).read_text(encoding="utf-8") == "V1\n"
+
+
+def test_atomic_write_second_write_does_not_selfclobber_backup(tmp_path):
+    f = tmp_path / "f.md"
+    f.write_text("V1\n", encoding="utf-8")
+    b1 = engine.atomic_write(f, "V2\n")  # backs up V1
+    b2 = engine.atomic_write(f, "V3\n")  # backs up V2 — must NOT overwrite b1
+    assert b1 != b2
+    assert Path(b1).read_text(encoding="utf-8") == "V1\n"
+    assert Path(b2).read_text(encoding="utf-8") == "V2\n"
+
+
+# --------------------------------------------------------------------------- #
+# F4 — a leading `---…---` markdown thematic break is NOT YAML frontmatter and
+# must never get a format_version stamp injected into operator content.
+# --------------------------------------------------------------------------- #
+def test_write_format_version_thematic_break_is_not_frontmatter():
+    # Opens with a thematic break; the block between the rules is prose, not
+    # key: value YAML.
+    doc = (
+        "---\n"
+        "A horizontal rule opens this note, not YAML frontmatter.\n"
+        "Just prose describing a decision.\n"
+        "---\n"
+        "Body content.\n"
+    )
+    with pytest.raises(engine.CannotStampError):
+        engine.write_format_version(doc, 1)
+
+
+def test_read_format_version_thematic_break_is_zero():
+    doc = "---\nnarrative prose, no keys here\n---\nbody\n"
+    assert engine.read_format_version(doc) == 0
+
+
+def test_apply_migrations_thematic_break_not_stamped(tmp_path):
+    # Through the real registry: a thematic-break doc is an N/A terminal — it
+    # comes out byte-identical, never with format_version injected.
+    doc = "---\nHorizontal rule, not frontmatter.\n---\n\nOperator body row.\n"
+    out = engine.apply_migrations(doc, engine.CURRENT_FORMAT_VERSION, engine.MIGRATIONS)
+    assert out == doc
+
+
+# --------------------------------------------------------------------------- #
+# F5 — the inserted stamp line must match the file's dominant newline; a CRLF
+# file must not gain a bare-LF line (mixed endings).
+# --------------------------------------------------------------------------- #
+def test_write_format_version_preserves_crlf_line_endings():
+    crlf = INDEX_FIXTURE.replace("\n", "\r\n")
+    stamped = engine.write_format_version(crlf, 1)
+    assert engine.read_format_version(stamped) == 1
+    # The inserted stamp line carries the file's CRLF ending.
+    assert "format_version: 1\r\n" in stamped
+    # No lone LF anywhere: every newline is a CRLF pair.
+    assert "\n" not in stamped.replace("\r\n", "")
+    # Re-stamp (the replace branch) must also keep CRLF.
+    restamped = engine.write_format_version(stamped, 2)
+    assert "\n" not in restamped.replace("\r\n", "")
+
+
+# --------------------------------------------------------------------------- #
+# F6 — load_manifest wraps parse/entry errors in ReconcileError so callers catch
+# one uniform type (fail-loud, no write — just a catchable type).
+# --------------------------------------------------------------------------- #
+def test_load_manifest_wraps_json_decode_error(tmp_path):
+    m = tmp_path / "pending-updates.json"
+    m.write_text("{ this is not valid json", encoding="utf-8")
+    with pytest.raises(engine.ReconcileError):
+        engine.load_manifest(m)
+
+
+def test_load_manifest_wraps_missing_entry_id(tmp_path):
+    m = tmp_path / "pending-updates.json"
+    m.write_text(
+        json.dumps(
+            {
+                "schema_version": "1.0",
+                "entries": [
+                    {  # no "id" key
+                        "path": "oversight/tracking/decision-log.md",
+                        "old_shipped_hash": "a",
+                        "deployed_hash": "b",
+                        "new_template_hash": "c",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(engine.ReconcileError):
+        engine.load_manifest(m)

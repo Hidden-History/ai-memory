@@ -70,6 +70,14 @@ class ReconcileError(Exception):
     """Base class for reconciliation failures."""
 
 
+class ManifestError(ReconcileError):
+    """The manifest is unparseable or an entry is missing a required field.
+
+    Wraps the low-level ``json.JSONDecodeError`` / ``KeyError`` so callers catch one
+    uniform :class:`ReconcileError` type (fail-loud, no write).
+    """
+
+
 class UnsupportedSchemaError(ReconcileError):
     """The manifest's schema_version MAJOR is newer than this engine supports."""
 
@@ -200,7 +208,10 @@ def classify(entry: ReconcileEntry) -> Decision:
 # --------------------------------------------------------------------------- #
 def load_manifest(path: str | os.PathLike[str]) -> Manifest:
     """Parse and validate ``pending-updates.json``."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ManifestError(f"manifest is not valid JSON: {exc}") from exc
 
     raw_version = str(data.get("schema_version", ""))
     try:
@@ -215,21 +226,24 @@ def load_manifest(path: str | os.PathLike[str]) -> Manifest:
             f"(engine supports <= {SUPPORTED_SCHEMA_MAJOR})"
         )
 
-    entries = tuple(
-        ReconcileEntry(
-            id=e["id"],
-            path=e["path"],
-            classification=e.get("classification", ""),
-            old_shipped_hash=e.get("old_shipped_hash", ""),
-            deployed_hash=e.get("deployed_hash", ""),
-            new_template_hash=e.get("new_template_hash", ""),
-            suggested_action=e.get("suggested_action", ""),
-            rationale=e.get("rationale", ""),
-            severity=e.get("severity", ""),
-            order=int(e.get("order", 0)),
+    try:
+        entries = tuple(
+            ReconcileEntry(
+                id=e["id"],
+                path=e["path"],
+                classification=e.get("classification", ""),
+                old_shipped_hash=e.get("old_shipped_hash", ""),
+                deployed_hash=e.get("deployed_hash", ""),
+                new_template_hash=e.get("new_template_hash", ""),
+                suggested_action=e.get("suggested_action", ""),
+                rationale=e.get("rationale", ""),
+                severity=e.get("severity", ""),
+                order=int(e.get("order", 0)),
+            )
+            for e in data.get("entries", [])
         )
-        for e in data.get("entries", [])
-    )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ManifestError(f"malformed manifest entry: {exc!r}") from exc
     return Manifest(
         schema_version=raw_version,
         generated_at=data.get("generated_at", ""),
@@ -270,18 +284,28 @@ def is_stale(
 # ``format_version`` stamp — lives in the YAML frontmatter block (BP-187 §3 stamp).
 # --------------------------------------------------------------------------- #
 _FRONTMATTER_RE = re.compile(r"\Aformat_version:\s*(\d+)\s*\Z")
+# A YAML frontmatter block carries ``key: value`` lines. This distinguishes a real
+# frontmatter block from a leading markdown thematic break (``---`` … ``---``) that
+# fences prose — the latter must never be treated as frontmatter (never stamped).
+_FRONTMATTER_KEY_RE = re.compile(r"\A[A-Za-z0-9_-]+:(\s|\Z)")
 
 
 def _frontmatter_bounds(lines: list[str]) -> tuple[int, int] | None:
     """Return (open_idx, close_idx) of the frontmatter fences, or None if absent.
 
-    A frontmatter block is a leading ``---`` line and the next ``---`` line.
+    A frontmatter block is a leading ``---`` line, a following ``---`` line, and at
+    least one ``key: value`` line between them. The key-line requirement rejects a
+    leading markdown thematic break wrapping prose, which would otherwise be
+    mis-stamped as frontmatter (F4).
     """
     if not lines or lines[0].strip() != "---":
         return None
     for idx in range(1, len(lines)):
         if lines[idx].strip() == "---":
-            return 0, idx
+            has_key = any(
+                _FRONTMATTER_KEY_RE.match(lines[i].strip()) for i in range(1, idx)
+            )
+            return (0, idx) if has_key else None
     return None
 
 
@@ -312,7 +336,12 @@ def write_format_version(text: str, version: int) -> str:
     if bounds is None:
         raise CannotStampError("file has no frontmatter block to stamp")
     open_idx, close_idx = bounds
-    stamp = f"format_version: {version}"
+    # Match the file's dominant newline so a CRLF file does not gain a bare-LF stamp
+    # line (mixed endings). Lines were split on "\n", so a CRLF line retains its
+    # trailing "\r"; the stamp must carry the same "\r" to rejoin cleanly (F5).
+    crlf = text.count("\r\n")
+    eol = "\r" if crlf > text.count("\n") - crlf else ""
+    stamp = f"format_version: {version}{eol}"
     for idx in range(open_idx + 1, close_idx):
         if re.match(r"\Aformat_version:\s*\d+\s*\Z", lines[idx].strip()):
             lines[idx] = stamp
@@ -389,6 +418,25 @@ MIGRATIONS: tuple[Migration, ...] = (
 # --------------------------------------------------------------------------- #
 # Atomic, backup-first write (BP-187 §4.1-§4.3).
 # --------------------------------------------------------------------------- #
+def _next_backup_path(target: Path) -> str:
+    """Return the first free, collision-safe backup path for ``target``.
+
+    Sequence ``<path>.bak``, ``<path>.bak.1``, ``<path>.bak.2`` … stopping at the
+    first name that does not already exist. ``os.path.lexists`` (not ``exists``) is
+    used so a *symlink* at the candidate counts as occupied — this both (BP-187 §4.5)
+    never silently clobbers an operator's own sibling ``.bak`` nor self-clobbers an
+    earlier backup, AND (BP-187 §4) guarantees the returned path is not an existing
+    symlink, so the subsequent copy cannot follow one into an unrelated file.
+    """
+    base = str(target) + ".bak"
+    if not os.path.lexists(base):
+        return base
+    i = 1
+    while os.path.lexists(f"{base}.{i}"):
+        i += 1
+    return f"{base}.{i}"
+
+
 def atomic_write(
     path: str | os.PathLike[str],
     data: str | bytes,
@@ -397,17 +445,17 @@ def atomic_write(
 ) -> str | None:
     """Write ``data`` to ``path`` crash-atomically, backing up any prior content.
 
-    backup-before-write (``path`` -> ``path.bak``) then write a temp file in the SAME
-    directory -> flush -> fsync -> ``os.replace`` (atomic rename on one filesystem) ->
-    fsync the directory. A crash never leaves a truncated hybrid. Returns the backup
-    path (or None if nothing was backed up).
+    backup-before-write (``path`` -> a collision-safe ``path.bak`` sibling) then write
+    a temp file in the SAME directory -> flush -> fsync -> ``os.replace`` (atomic rename
+    on one filesystem) -> fsync the directory. A crash never leaves a truncated hybrid.
+    Returns the backup path (or None if nothing was backed up).
     """
     target = Path(path)
     payload = data.encode("utf-8") if isinstance(data, str) else data
 
     backup_path: str | None = None
     if backup and target.exists():
-        backup_path = str(target) + ".bak"
+        backup_path = _next_backup_path(target)
         shutil.copy2(target, backup_path)
 
     directory = target.parent
@@ -440,6 +488,32 @@ def atomic_write(
 
 
 # --------------------------------------------------------------------------- #
+# Data-bearing classification — decides whether a REFRESH may raw-overwrite.
+# --------------------------------------------------------------------------- #
+# Classifications for files the operator holds NO data in (fully installer-owned):
+# for these a REFRESH may safely raw-overwrite with the new template. Everything else
+# is treated as data-bearing and migrated forward instead — mirroring the pristine-base
+# fail-safe in :func:`classify` (unknown provenance never takes the destructive path).
+#
+# NOTE (extension point): P1's classification taxonomy is not yet formally defined.
+# Today ``install.sh::_write_pending_updates`` emits only ``MANAGED_MERGE_REQUIRED``
+# (always the CONFLICT quadrant -> data-bearing -> migrate), so the raw-refresh path is
+# unreachable in production. ``INSTALLER_OWNED`` below is a documented PLACEHOLDER — the
+# defense-in-depth hook for a future installer-owned safe-refresh token, NOT an
+# authoritative P1 token.
+_OVERWRITE_SAFE_CLASSIFICATIONS = frozenset({"INSTALLER_OWNED"})
+
+
+def _is_data_bearing(classification: str) -> bool:
+    """True if the entry may carry operator data (=> migrate-forward, never overwrite).
+
+    Fail-safe: only an explicitly installer-owned classification is overwrite-safe;
+    any other, empty, or unknown value is treated as data-bearing.
+    """
+    return classification.strip() not in _OVERWRITE_SAFE_CLASSIFICATIONS
+
+
+# --------------------------------------------------------------------------- #
 # Top-level per-entry reconciliation — ties decision + migration + write together.
 # --------------------------------------------------------------------------- #
 def reconcile_entry(
@@ -452,11 +526,14 @@ def reconcile_entry(
 ) -> ReconcileResult:
     """Reconcile one manifest entry against the operator's on-disk file.
 
-    NO_OP / PRESERVE make no write. REFRESH overwrites with the new template (safe:
-    the user never edited it). CONFLICT — the both-changed case — migrates STRUCTURE
-    forward on the operator's file while preserving DATA; a file already current (or
-    one with no frontmatter to stamp) is a clean "preserved" terminal, never a
-    dead-end. Every write path runs the staleness re-check first and is crash-atomic.
+    NO_OP / PRESERVE make no write. A REFRESH raw-overwrites with the new template only
+    for a NON-data-bearing (fully installer-owned) file; a data-bearing REFRESH is
+    routed through the SAME migrate-forward/preserve path as CONFLICT so operator data
+    is never destroyed (F1 defense-in-depth, BP-187 §3). CONFLICT — the both-changed
+    case — migrates STRUCTURE forward on the operator's file while preserving DATA; a
+    file already current (or one with no frontmatter to stamp) is a clean "preserved"
+    terminal, never a dead-end. Every write path runs the staleness re-check first and
+    is crash-atomic.
     """
     deployed_path = Path(project_root) / entry.path
     decision = classify(entry)
@@ -466,15 +543,22 @@ def reconcile_entry(
     if decision is Decision.PRESERVE:
         return ReconcileResult(entry.id, decision, "preserved", None)
 
-    # REFRESH and CONFLICT both write — re-check staleness before touching disk.
-    check_template = new_template_path if decision is Decision.REFRESH else None
+    # A raw template overwrite is only safe for a REFRESH of a NON-data-bearing file.
+    # A data-bearing REFRESH (and every CONFLICT) migrates structure forward instead.
+    raw_refresh = decision is Decision.REFRESH and not _is_data_bearing(
+        entry.classification
+    )
+
+    # Writing paths re-check staleness before touching disk. Only a raw refresh reads
+    # the new template, so only it re-checks the template's staleness.
+    check_template = new_template_path if raw_refresh else None
     if is_stale(entry, deployed_path=deployed_path, new_template_path=check_template):
         raise StaleManifestError(
             f"{entry.id}: deployed file or template moved since manifest generation; "
             f"regenerate rather than apply stale"
         )
 
-    if decision is Decision.REFRESH:
+    if raw_refresh:
         if new_template_path is None:
             raise ReconcileError(
                 f"{entry.id}: REFRESH requires new_template_path (source content)"
@@ -483,7 +567,7 @@ def reconcile_entry(
         backup_path = atomic_write(deployed_path, content, backup=True)
         return ReconcileResult(entry.id, decision, "refreshed", backup_path)
 
-    # CONFLICT — migrate structure forward, preserve the operator's data.
+    # CONFLICT, or a data-bearing REFRESH — migrate structure forward, preserve data.
     original = deployed_path.read_text(encoding="utf-8")
     migrated = apply_migrations(original, target_version, migrations)
     if migrated == original:
