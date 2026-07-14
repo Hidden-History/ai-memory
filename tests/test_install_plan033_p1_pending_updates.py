@@ -310,6 +310,147 @@ class TestFailSafeEmit:
         # Emit was skipped (no temp file to collect into); no crash, no manifest.
         assert not _pending_path(project_dir).exists()
 
+    def test_temp_cleanup_failure_does_not_abort_oversight_deploy(
+        self, install_sh_no_main, dirs
+    ):
+        """HIGH fail-safe: a temp-CLEANUP failure — ``rm`` exiting non-zero on an
+        unremovable temp (read-only TMPDIR remounted mid-run / immutable bit / ACL) —
+        must NOT abort the oversight-template deploy under ``set -euo pipefail``.
+        Cleanup now runs in a RETURN trap (``rm -f "${pending_tsv:-}" … || true``)
+        whose ``|| true`` swallows the failure; before the fix the cleanup ``rm -f``
+        was a set-e-checked bare command, so an rm failure aborted the WHOLE deploy and
+        skipped the rest of the Parzival-setup sequence. The mktemp test covers the
+        PREP-alloc failure; this covers the CLEANUP failure.
+
+        We shadow ``rm`` with a function that exits 1 (uid-independent stand-in for the
+        unremovable-temp failure class; ``rm -f`` alone would succeed for root). Assert
+        the deploy still returns 0, the pending manifest was still emitted (the cleanup
+        trap fires AFTER the write, on return), and a fresh template in the same run
+        still deployed — proving the rm failure no longer aborts the deploy.
+        """
+        install_dir, project_dir = dirs
+        # Drive one file into the both-changed (n_warn) state so pending_tsv is
+        # populated and the cleanup rm is reached...
+        rel_warn, _, _, _ = _make_both_changed(
+            install_sh_no_main, install_dir, project_dir
+        )
+        # ...and add a fresh template so the same run must also do a [new] deploy.
+        _mk_shipped_template(install_dir, "conventions/new-conv.md", "NEW CONV\n")
+
+        # Sabotage the temp cleanup: shadow rm so it exits 1 for the deploy call.
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            "rm() { return 1; }\ndeploy_oversight_templates",
+        )
+
+        # Install NOT aborted: deploy returns 0 despite the cleanup rm failing...
+        assert res.returncode == 0, res.stderr
+        # ...the manifest was still emitted (the write precedes the cleanup rm)...
+        assert _pending_path(project_dir).exists()
+        # ...the deploy COMPLETED (the new file deployed, warn path intact, no clobber).
+        assert (project_dir / "oversight" / "conventions" / "new-conv.md").exists()
+        assert "review + merge" in res.stdout
+        assert (project_dir / "oversight" / rel_warn).read_text() == "MY LOCAL EDITS\n"
+
+    def test_printf_append_failure_does_not_abort_oversight_deploy(
+        self, install_sh_no_main, dirs
+    ):
+        """Producer-path op: the per-file TSV append ``printf … >> "$pending_tsv"``.
+        Shadow ``printf`` to exit 1 (its failure class: ENOSPC / read-only mid-write).
+        The append is guarded ``{ … || true; }``, so the deploy must still return 0 and
+        COMPLETE (a fresh [new] template deploys) rather than abort under set -e.
+        (log_* use ``echo``, not ``printf``, so shadowing printf touches only the
+        append + the base-B line-count, neither of which may abort.)
+        """
+        install_dir, project_dir = dirs
+        rel_warn, _, _, _ = _make_both_changed(
+            install_sh_no_main, install_dir, project_dir
+        )
+        _mk_shipped_template(install_dir, "conventions/new-conv.md", "NEW CONV\n")
+
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            "printf() { return 1; }\ndeploy_oversight_templates",
+        )
+
+        assert res.returncode == 0, res.stderr
+        assert (project_dir / "oversight" / "conventions" / "new-conv.md").exists()
+        assert "review + merge" in res.stdout
+        assert (project_dir / "oversight" / rel_warn).read_text() == "MY LOCAL EDITS\n"
+
+    def test_emit_writer_failure_does_not_abort_oversight_deploy(
+        self, install_sh_no_main, dirs
+    ):
+        """Producer-path op: the python emit ``_write_pending_updates``. Shadow it to
+        exit 1. The call sits under ``if !`` (set-e-exempt) which degrades to a
+        non-fatal warning, so the deploy must still return 0 and COMPLETE (a fresh
+        [new] template deploys). This is the direct shadow-the-op form of the
+        unwritable-target fail-safe test.
+        """
+        install_dir, project_dir = dirs
+        rel_warn, _, _, _ = _make_both_changed(
+            install_sh_no_main, install_dir, project_dir
+        )
+        _mk_shipped_template(install_dir, "conventions/new-conv.md", "NEW CONV\n")
+
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            "_write_pending_updates() { return 1; }\ndeploy_oversight_templates",
+        )
+
+        assert res.returncode == 0, res.stderr
+        assert "non-fatal" in res.stdout or "non-fatal" in res.stderr
+        assert (project_dir / "oversight" / "conventions" / "new-conv.md").exists()
+        assert "review + merge" in res.stdout
+        assert (project_dir / "oversight" / rel_warn).read_text() == "MY LOCAL EDITS\n"
+        # Emit failed => no manifest written this run.
+        assert not _pending_path(project_dir).exists()
+
+    def test_base_hash_lookup_failure_does_not_abort_oversight_deploy(
+        self, install_sh_no_main, dirs
+    ):
+        """Producer-path op: the base-B lookup
+        ``known_hashes="$(_known_template_hashes …)"`` — a bare (non-``local``)
+        assignment, so set-e-checked. Shadow ``_known_template_hashes`` to exit 1
+        (the unreadable-registry failure class). The ``|| true`` inside the
+        substitution degrades base-B to "" (never a guessed base), so the deploy must
+        still return 0 and COMPLETE (a fresh [new] template deploys).
+
+        Reaching this op requires the no-manifest-record path (old_base empty): a
+        user-modified copy with a registry entry but no prior deploy.
+        """
+        install_dir, project_dir = dirs
+        rel = "plans/PLAN_TEMPLATE.md"
+        _mk_registry(install_dir, [(rel, _sha256("PRIOR SHIPPED\n"))])
+        _mk_shipped_template(install_dir, rel, "CURRENT SHIPPED\n")
+        # User-modified copy, no prior deploy => no manifest record => old_base ""
+        # => the known_hashes lookup runs (and is the sabotaged op).
+        copy = project_dir / "oversight" / rel
+        copy.parent.mkdir(parents=True)
+        copy.write_text("LOCALLY EDITED\n")
+        # A fresh template so the same run must also do a [new] deploy.
+        _mk_shipped_template(install_dir, "conventions/new-conv.md", "NEW CONV\n")
+
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            "_known_template_hashes() { return 1; }\ndeploy_oversight_templates",
+        )
+
+        assert res.returncode == 0, res.stderr
+        assert (project_dir / "oversight" / "conventions" / "new-conv.md").exists()
+        # The warn entry still emits, with base-B degraded to "" (never guessed).
+        doc = json.loads(_pending_path(project_dir).read_text())
+        e = next(x for x in doc["entries"] if x["id"] == rel)
+        assert e["old_shipped_hash"] == ""
+
 
 class TestIdempotency:
     def test_rerun_replaces_never_appends_duplicates(self, install_sh_no_main, dirs):

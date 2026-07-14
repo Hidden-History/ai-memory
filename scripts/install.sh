@@ -5794,6 +5794,16 @@ _sync_oversight_templates() {
     # set-e-exempt context; on failure we degrade to a warning and skip the emit.
     local pending_tsv=""
     if [[ "$mode" == "deploy" ]]; then
+        # Temp cleanup runs on EVERY return path via a RETURN trap, so removing the
+        # temp can never abort the install under set -e: `rm -f` still exits non-zero
+        # on an unremovable temp (read-only TMPDIR remounted mid-run / immutable bit /
+        # ACL), but the trap's `|| true` makes cleanup abort-proof by construction.
+        # (Verified: a RETURN trap preserves the function's return status, so check
+        # mode's drift=1 signal is unaffected.) Without `functrace` the trap also
+        # fires once when the caller wrapper returns, where the local is out of
+        # scope — `${pending_tsv:-}` keeps that no-op firing safe under set -u; it
+        # does not leak to unrelated later calls.
+        trap 'rm -f "${pending_tsv:-}" 2>/dev/null || true' RETURN
         if ! pending_tsv="$(mktemp 2>/dev/null)"; then
             log_warning "pending-updates: temp alloc failed (non-fatal); skipping emit"
             pending_tsv=""
@@ -5802,8 +5812,7 @@ _sync_oversight_templates() {
 
     if [[ ! -d "$tmpl_source" ]]; then
         log_warning "Oversight templates not found at $tmpl_source"
-        [[ -n "$pending_tsv" ]] && rm -f "$pending_tsv"
-        return 0
+        return 0  # RETURN trap cleans up pending_tsv on this path
     fi
 
     [[ "$mode" == "deploy" ]] && mkdir -p "$oversight_dest"
@@ -5877,7 +5886,11 @@ _sync_oversight_templates() {
             local old_base="$h_recorded"
             if [[ -z "$old_base" ]]; then
                 local known_hashes
-                known_hashes="$(_known_template_hashes "$rel_path" "$registry")"
+                # Producer-only base-B lookup: `|| true` inside the substitution keeps
+                # an awk read error (unreadable registry) from propagating non-zero
+                # under set -e; on failure known_hashes="" degrades base B to empty
+                # (same as the ambiguous-base path) instead of aborting the deploy.
+                known_hashes="$(_known_template_hashes "$rel_path" "$registry" || true)"
                 if [[ -n "$known_hashes" && "$(printf '%s\n' "$known_hashes" | wc -l)" -eq 1 ]]; then
                     old_base="$known_hashes"
                 fi
@@ -5901,8 +5914,9 @@ _sync_oversight_templates() {
                 "install.sh@${INSTALLER_VERSION}" "$INSTALLER_VERSION"; then
                 log_warning "pending-updates.json emit failed (non-fatal); continuing install"
             fi
-            rm -f "$pending_tsv"
         fi
+        # pending_tsv cleanup happens in the RETURN trap (armed above), so it runs on
+        # every exit path and can never abort the install.
     fi
 
     if [[ "$mode" == "check" ]]; then
