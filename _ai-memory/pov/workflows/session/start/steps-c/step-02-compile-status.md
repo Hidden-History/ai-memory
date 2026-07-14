@@ -66,6 +66,11 @@ Compile each field from the loaded context:
 - Surface the one-line rollup from the output: `drift: <clean> clean, <stale> stale, <unverified> unverified, <changed> changed, <docs_stale> docs-stale` (the `changed` / `docs-stale` counts come from `drift_rollup`)
 - If no `.sot/registry.yaml` exists, surface the one-line G3 bootstrap nudge instead ("no SOT registry — run `aim-sot detect-propose` to start tracking") — do not fabricate counts
 
+**Pending Updates** (aim-content-drift reconciliation surface — PLAN-033; only when `<project-root>/.audit/state/pending-updates.json` exists):
+- Read-only rollup: `python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/pov/skills/aim-content-drift/scripts/reconcile_helper.py" pending --project-root <project-root> --format rollup`
+- Surface the single line it emits verbatim (e.g. `Pending Updates: 3 pending (3 high)`) — the count is severity-tallied and already excludes entries the operator applied/dismissed at the current template hash
+- Emits nothing when the manifest is absent OR every entry has been disposed — in that case surface NOTHING (fire-only-on-drift; do not fabricate a "0 pending" line). Detail (the entry list) is on-request only, in Step 3 — never inline it here
+
 **Continuation Point**:
 - Where work should resume based on handoff "Next Steps" or current task status
 
