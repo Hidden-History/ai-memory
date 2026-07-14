@@ -5625,6 +5625,146 @@ with open(p, "w") as fh:
 PY
 }
 
+# ---------------------------------------------------------------------------
+# Pending-change manifest (PLAN-033 P1 / BP-188)
+#
+# When _sync_oversight_templates finds an oversight file that is BOTH
+# user-modified AND changed upstream (the n_warn "needs-merge" branch), the
+# installer additionally emits a machine-readable pending-change manifest at a
+# fixed project-audit path. The long-lived in-project Parzival discovers it at
+# session-start (PLAN-033 P2) and reconciles each entry under human review
+# (P3) — so a shipped structural update reaches the operator's data-bearing
+# files WITHOUT the installer ever clobbering their data.
+#
+# This is additive/producer-only: it never mutates user data and never changes
+# the existing new/sync/migrate/warn behavior (the log_warning STAYS).
+#
+#   $PROJECT_PATH/.audit/state/pending-updates.json
+#       JSON, schema per BP-188 §3.2; sibling to oversight-templates.manifest.
+# ---------------------------------------------------------------------------
+
+# Manifest schema version (Terraform format_version semantics: bump MINOR for
+# backward-compatible additions; a consumer REJECTS an unknown MAJOR).
+_PENDING_UPDATES_SCHEMA_VERSION="1.0"
+
+# Consumer-side read guard (P1 fail-loud stub the P2 discovery builds on): read
+# pending-updates.json and REJECT an unknown MAJOR schema_version (accepts a
+# newer minor within the known major). Absent file => nothing pending => ok.
+# Returns non-zero + stderr on an unsupported major or unparseable manifest.
+_pending_updates_schema_ok() {
+    local manifest="$1"
+    [[ -f "$manifest" ]] || return 0
+    python3 - "$manifest" "$_PENDING_UPDATES_SCHEMA_VERSION" <<'PY'
+import json, sys
+path, known = sys.argv[1], sys.argv[2]
+known_major = int(known.split(".")[0])
+try:
+    with open(path) as fh:
+        d = json.load(fh)
+    major = int(str(d.get("schema_version", "")).split(".")[0])
+except Exception as e:  # noqa: BLE001 - fail loud on any malformed manifest
+    sys.stderr.write(f"pending-updates: invalid manifest/schema_version: {e}\n")
+    sys.exit(2)
+if major != known_major:
+    sys.stderr.write(
+        f"pending-updates: unsupported schema_version major {major} "
+        f"(this installer understands major {known_major})\n"
+    )
+    sys.exit(2)
+PY
+}
+
+# Emit/replace the pending-updates.json manifest from the collected both-changed
+# entries. $1 = manifest path, $2 = TSV entries file (one
+# "rel_path\told_shipped\tdeployed\tnew_template" line per both-changed file),
+# $3 = generated_by, $4 = source_version. An empty/absent entries file REMOVES
+# any stale manifest (level-triggered: absence = nothing pending, BP-188 §3.3).
+# manifest_id is content-derived so the same drift state always yields the same
+# id — a re-run REPLACES the whole file, never appends duplicate entries.
+_write_pending_updates() {
+    local out="$1" entries_tsv="$2" gen_by="$3" src_ver="$4"
+    python3 - "$out" "$entries_tsv" "$gen_by" "$src_ver" \
+        "$_PENDING_UPDATES_SCHEMA_VERSION" <<'PY'
+import datetime
+import hashlib
+import json
+import os
+import sys
+
+out, tsv, gen_by, src_ver, schema_version = sys.argv[1:6]
+
+rows = []
+try:
+    with open(tsv) as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            rel, old, dep, new = line.split("\t")
+            rows.append((rel, old, dep, new))
+except FileNotFoundError:
+    rows = []
+
+# Level-triggered: no pending entries => remove any stale manifest so the
+# consumer's presence-of-file discovery reads "nothing pending".
+if not rows:
+    try:
+        os.remove(out)
+    except FileNotFoundError:
+        pass
+    sys.exit(0)
+
+rows.sort(key=lambda r: r[0])
+entries = []
+for order, (rel, old, dep, new) in enumerate(rows):
+    entries.append(
+        {
+            "id": rel,
+            "path": f"oversight/{rel}",
+            # Both-changed = BP-187 4-outcome "conflict": user edits AND upstream
+            # both moved since the last-shipped base -> 3-way merge required.
+            "classification": "MANAGED_MERGE_REQUIRED",
+            "old_shipped_hash": old,  # base B (may be "" for a legacy pre-manifest file)
+            "deployed_hash": dep,
+            "new_template_hash": new,
+            "suggested_action": "merge",
+            "rationale": (
+                "Local edits and upstream template both changed since last "
+                "deploy; 3-way merge required to preserve user data while "
+                "adopting the structural update."
+            ),
+            "severity": "high",
+            "order": order,
+        }
+    )
+
+# Whole-manifest idempotency key: content-derived over the canonical entries, so
+# the same drift state always yields the same manifest_id.
+canon = json.dumps(entries, sort_keys=True, separators=(",", ":"))
+manifest_id = hashlib.sha256(canon.encode()).hexdigest()
+
+manifest = {
+    "schema_version": schema_version,
+    "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    ),
+    "generated_by": gen_by,
+    "source_version": src_ver,
+    "manifest_id": manifest_id,
+    "entries": entries,
+}
+
+os.makedirs(os.path.dirname(out), exist_ok=True)
+tmp = out + ".tmp"
+with open(tmp, "w") as fh:
+    json.dump(manifest, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+    fh.flush()
+    os.fsync(fh.fileno())
+os.replace(tmp, out)  # same-dir atomic rename (crash-safe; BP-187 write-safety)
+PY
+}
+
 # Core engine. $1 = "deploy" (apply) | "check" (dry-run, report + exit code).
 # Uses globals INSTALL_DIR + PROJECT_PATH. Silent when everything is in-sync.
 _sync_oversight_templates() {
@@ -5633,7 +5773,12 @@ _sync_oversight_templates() {
     local oversight_dest="$PROJECT_PATH/oversight"
     local registry="$INSTALL_DIR/templates/known-oversight-template-versions.txt"
     local manifest="$PROJECT_PATH/.audit/state/oversight-templates.manifest"
+    local pending_manifest="$PROJECT_PATH/.audit/state/pending-updates.json"
     local n_new=0 n_sync=0 n_migrate=0 n_warn=0
+
+    # Collect both-changed entries for the pending-change manifest (deploy only).
+    local pending_tsv=""
+    [[ "$mode" == "deploy" ]] && pending_tsv="$(mktemp)"
 
     if [[ ! -d "$tmpl_source" ]]; then
         log_warning "Oversight templates not found at $tmpl_source"
@@ -5701,8 +5846,25 @@ _sync_oversight_templates() {
         # Otherwise the copy is locally modified → never clobber; warn loudly.
         n_warn=$((n_warn + 1))
         log_warning "template drifted + upstream changed; review + merge: oversight/$rel_path"
+        # Additionally record the three-state digest triple for the pending-change
+        # manifest so the in-project Parzival can reconcile it under review (P2/P3).
+        # old_shipped_hash (base B): recorded deploy hash, else last known prior-shipped
+        # hash for this path, else "" for a legacy pre-manifest file.
+        if [[ "$mode" == "deploy" ]]; then
+            local old_base="$h_recorded"
+            [[ -z "$old_base" ]] && old_base="$(_known_template_hashes "$rel_path" "$registry" | tail -n 1)"
+            printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv"
+        fi
         [[ "$mode" == "check" ]] && echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
     done < <(find "$tmpl_source" -type f)
+
+    # Emit/replace the pending-change manifest from the collected both-changed
+    # entries (empty => stale manifest removed). Additive; deploy path only.
+    if [[ "$mode" == "deploy" ]]; then
+        _write_pending_updates "$pending_manifest" "$pending_tsv" \
+            "install.sh@${INSTALLER_VERSION}" "$INSTALLER_VERSION"
+        rm -f "$pending_tsv"
+    fi
 
     if [[ "$mode" == "check" ]]; then
         if (( n_new + n_sync + n_migrate + n_warn == 0 )); then
