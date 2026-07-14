@@ -206,5 +206,5 @@ All flags verified against `scripts/content_drift.py`:
 
 ## See Also
 
-- [`_ai-memory/pov/skills/aim-content-drift/SKILL.md`](_ai-memory/pov/skills/aim-content-drift/SKILL.md) — deterministic mechanics: unit parsing, fingerprint schema, classification rule, ack bookkeeping
+- [`_ai-memory/pov/skills/aim-content-drift/SKILL.md`](../_ai-memory/pov/skills/aim-content-drift/SKILL.md) — deterministic mechanics: unit parsing, fingerprint schema, classification rule, ack bookkeeping
 - [AI_MEMORY_ARCHITECTURE.md](AI_MEMORY_ARCHITECTURE.md) — overall system architecture

@@ -29,10 +29,10 @@ Prometheus requires basic auth. Use the helper script:
 
 ```bash
 # Instant query
-python3 scripts/monitoring/prometheus_query.py "ai_memory_collection_size"
+python3 scripts/monitoring/prometheus_query.py "aimemory_collection_size"
 
 # Range query (last hour)
-python3 scripts/monitoring/prometheus_query.py --range --start 1h "ai_memory_hook_duration_seconds_sum"
+python3 scripts/monitoring/prometheus_query.py --range --start 1h "aimemory_hook_duration_seconds_sum"
 
 # Raw JSON output
 python3 scripts/monitoring/prometheus_query.py --raw "up"
@@ -54,27 +54,27 @@ curl -u admin:$PROMETHEUS_PASSWORD "http://localhost:29090/api/v1/query?query=up
 
 ### Exposed Metrics
 
-AI Memory Module exposes metrics on port **28000** at `/metrics` endpoint. All metrics use the `ai_memory_*` naming convention (project convention: `snake_case`, `ai_memory_` prefix).
+AI Memory Module exposes metrics on port **28000** at `/metrics` endpoint. All metrics use the `aimemory_*` naming convention (project convention: `snake_case`, `aimemory_` prefix).
 
 **Metric Types:**
 
 | Type | Metric Name | Description | Labels |
 |------|-------------|-------------|--------|
-| **Counter** | `ai_memory_memory_captures_total` | Memory capture attempts | `hook_type`, `status`, `project` |
-| **Counter** | `ai_memory_memory_retrievals_total` | Memory retrieval attempts | `collection`, `status` |
-| **Counter** | `ai_memory_embedding_requests_total` | Embedding generation requests | `status`, `embedding_type` |
-| **Counter** | `ai_memory_deduplication_events_total` | Deduplicated memories | `project` |
-| **Counter** | `ai_memory_failure_events_total` | Failure events for alerting | `component`, `error_code` |
-| **Counter** | `ai_memory_tokens_consumed_total` | Token consumption tracking | `operation`, `direction`, `project` |
-| **Counter** | `ai_memory_trigger_fires_total` | Trigger activations | `trigger_type`, `status`, `project` |
-| **Gauge** | `ai_memory_collection_size` | Points in collection | `collection`, `project` |
-| **Gauge** | `ai_memory_queue_size` | Pending retry queue items | `status` |
-| **Histogram** | `ai_memory_hook_duration_seconds` | Hook execution time | `hook_type` |
-| **Histogram** | `ai_memory_embedding_duration_seconds` | Embedding generation time | `embedding_type` |
-| **Histogram** | `ai_memory_retrieval_duration_seconds` | Memory retrieval time | None |
-| **Histogram** | `ai_memory_context_injection_tokens` | Context injection token counts | `hook_type`, `collection`, `project` |
-| **Histogram** | `ai_memory_trigger_results_returned` | Results returned per trigger | `trigger_type` |
-| **Info** | `ai_memory_memory_system_info` | Static system metadata | `version`, `embedding_model`, `vector_dimensions`, `collections` |
+| **Counter** | `aimemory_memory_captures_total` | Memory capture attempts | `hook_type`, `status`, `project` |
+| **Counter** | `aimemory_memory_retrievals_total` | Memory retrieval attempts | `collection`, `status` |
+| **Counter** | `aimemory_embedding_requests_total` | Embedding generation requests | `status`, `embedding_type` |
+| **Counter** | `aimemory_deduplication_events_total` | Deduplicated memories | `project` |
+| **Counter** | `aimemory_failure_events_total` | Failure events for alerting | `component`, `error_code` |
+| **Counter** | `aimemory_tokens_consumed_total` | Token consumption tracking | `operation`, `direction`, `project` |
+| **Counter** | `aimemory_trigger_fires_total` | Trigger activations | `trigger_type`, `status`, `project` |
+| **Gauge** | `aimemory_collection_size` | Points in collection | `collection`, `project` |
+| **Gauge** | `aimemory_queue_size` | Pending retry queue items | `status` |
+| **Histogram** | `aimemory_hook_duration_seconds` | Hook execution time | `hook_type` |
+| **Histogram** | `aimemory_embedding_duration_seconds` | Embedding generation time | `embedding_type` |
+| **Histogram** | `aimemory_retrieval_duration_seconds` | Memory retrieval time | None |
+| **Histogram** | `aimemory_context_injection_tokens` | Context injection token counts | `hook_type`, `collection`, `project` |
+| **Histogram** | `aimemory_trigger_results_returned` | Results returned per trigger | `trigger_type` |
+| **Info** | `aimemory_memory_system_info` | Static system metadata | `version`, `embedding_model`, `vector_dimensions`, `collections` |
 
 **Performance NFRs:**
 - Hook overhead: <500ms (NFR-P1)
@@ -95,7 +95,7 @@ Histograms in Prometheus are cumulative counters stored in `_bucket` metrics wit
 
 ```promql
 # This will fail or return incorrect results
-histogram_quantile(0.95, rate(ai_memory_hook_duration_seconds_bucket[5m]))
+histogram_quantile(0.95, rate(aimemory_hook_duration_seconds_bucket[5m]))
 ```
 
 **Why it's wrong:**
@@ -107,7 +107,7 @@ histogram_quantile(0.95, rate(ai_memory_hook_duration_seconds_bucket[5m]))
 
 ```promql
 # Always use sum by (le) with histogram_quantile
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 ```
 
 **Why it's correct:**
@@ -121,20 +121,20 @@ If you need to preserve other labels (like `hook_type`), include them in the agg
 
 ```promql
 # Preserve hook_type to see p95 per hook type
-histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le, hook_type) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 ```
 
 ### Common Percentiles
 
 ```promql
 # p50 (median) - typical latency
-histogram_quantile(0.50, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.50, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # p95 - catches most outliers
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # p99 - extreme outliers
-histogram_quantile(0.99, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 ```
 
 ### Complete Example: Multi-Quantile Dashboard Panel
@@ -142,13 +142,13 @@ histogram_quantile(0.99, sum by (le) (rate(ai_memory_hook_duration_seconds_bucke
 ```promql
 # Panel with p50, p95, p99 (from memory-performance.json)
 # Query A - p50
-histogram_quantile(0.50, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.50, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # Query B - p95
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # Query C - p99
-histogram_quantile(0.99, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 ```
 
 ---
@@ -161,10 +161,10 @@ Use `rate()` when you want the **per-second rate of increase** over a time windo
 
 ```promql
 # Captures per second over last 5 minutes
-rate(ai_memory_memory_captures_total[5m])
+rate(aimemory_memory_captures_total[5m])
 
 # Typical use: dashboards showing ops/sec
-sum(rate(ai_memory_memory_captures_total[1h]))
+sum(rate(aimemory_memory_captures_total[1h]))
 ```
 
 **Characteristics:**
@@ -179,10 +179,10 @@ Use `increase()` when you want the **total increase** over a time window.
 
 ```promql
 # Total captures in last 1 hour
-increase(ai_memory_memory_captures_total[1h])
+increase(aimemory_memory_captures_total[1h])
 
 # Total failures in last 24 hours
-sum(increase(ai_memory_failure_events_total[24h]))
+sum(increase(aimemory_failure_events_total[24h]))
 ```
 
 **Characteristics:**
@@ -195,16 +195,16 @@ sum(increase(ai_memory_failure_events_total[24h]))
 
 ```promql
 # ❌ WRONG - Using increase() for per-second rate
-sum(increase(ai_memory_memory_captures_total[5m]))  # Returns total, not rate
+sum(increase(aimemory_memory_captures_total[5m]))  # Returns total, not rate
 
 # ✅ CORRECT - Using rate() for per-second rate
-sum(rate(ai_memory_memory_captures_total[5m]))  # Returns ops/sec
+sum(rate(aimemory_memory_captures_total[5m]))  # Returns ops/sec
 
 # ❌ WRONG - Using rate() when you want totals
-sum(rate(ai_memory_memory_captures_total[1h]))  # Returns ops/sec, not total
+sum(rate(aimemory_memory_captures_total[1h]))  # Returns ops/sec, not total
 
 # ✅ CORRECT - Using increase() for totals
-sum(increase(ai_memory_memory_captures_total[1h]))  # Returns total count
+sum(increase(aimemory_memory_captures_total[1h]))  # Returns total count
 ```
 
 ### Rule of Thumb
@@ -225,13 +225,13 @@ Keep only the specified labels, aggregate everything else:
 
 ```promql
 # Group by project only
-sum by (project) (rate(ai_memory_memory_captures_total[5m]))
+sum by (project) (rate(aimemory_memory_captures_total[5m]))
 
 # Group by collection and status
-sum by (collection, status) (rate(ai_memory_memory_retrievals_total[5m]))
+sum by (collection, status) (rate(aimemory_memory_retrievals_total[5m]))
 
 # Group by component and error_code
-sum by (component, error_code) (rate(ai_memory_failure_events_total[5m]))
+sum by (component, error_code) (rate(aimemory_failure_events_total[5m]))
 ```
 
 **Use when:** You want to see breakdowns by specific dimensions.
@@ -242,10 +242,10 @@ Remove specified labels, keep everything else:
 
 ```promql
 # Remove only the instance label
-sum without (instance) (ai_memory_collection_size)
+sum without (instance) (aimemory_collection_size)
 
 # Remove multiple labels
-sum without (instance, job) (rate(ai_memory_memory_captures_total[5m]))
+sum without (instance, job) (rate(aimemory_memory_captures_total[5m]))
 ```
 
 **Use when:** You want to aggregate across some labels but preserve most.
@@ -256,29 +256,29 @@ sum without (instance, job) (rate(ai_memory_memory_captures_total[5m]))
 
 ```promql
 # ❌ WRONG - Missing le aggregation
-histogram_quantile(0.95, rate(ai_memory_hook_duration_seconds_bucket[5m]))
+histogram_quantile(0.95, rate(aimemory_hook_duration_seconds_bucket[5m]))
 
 # ✅ CORRECT - sum by (le)
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # ✅ CORRECT - sum by (le, hook_type) to preserve hook_type dimension
-histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le, hook_type) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 ```
 
 ### Other Aggregation Operators
 
 ```promql
 # max - highest value across series
-max(ai_memory_queue_size{status="pending"})
+max(aimemory_queue_size{status="pending"})
 
 # min - lowest value
-min(ai_memory_collection_size)
+min(aimemory_collection_size)
 
 # avg - average value
-avg by (project) (ai_memory_collection_size)
+avg by (project) (aimemory_collection_size)
 
 # count - number of time series
-count(ai_memory_collection_size)
+count(aimemory_collection_size)
 ```
 
 ---
@@ -320,7 +320,7 @@ These are **safe** to use as labels:
 my_metric{user_id="user123", session_id="sess_456", memory_id="uuid-789"}
 
 # ✅ GOOD - Bounded labels only
-ai_memory_memory_captures_total{hook_type="PostToolUse", status="success", project="my-project"}
+aimemory_memory_captures_total{hook_type="PostToolUse", status="success", project="my-project"}
 ```
 
 **Problems with high cardinality:**
@@ -335,7 +335,7 @@ The `project` label is used for multi-tenancy:
 
 ```promql
 # Safe - project count is bounded to active projects
-ai_memory_collection_size{collection="code-patterns", project="my-project"}
+aimemory_collection_size{collection="code-patterns", project="my-project"}
 ```
 
 **Why it works:**
@@ -351,101 +351,101 @@ ai_memory_collection_size{collection="code-patterns", project="my-project"}
 
 ```promql
 # Capture rate by hook type
-sum by (hook_type) (rate(ai_memory_memory_captures_total[5m]))
+sum by (hook_type) (rate(aimemory_memory_captures_total[5m]))
 
 # Retrieval rate by collection
-sum by (collection) (rate(ai_memory_memory_retrievals_total[5m]))
+sum by (collection) (rate(aimemory_memory_retrievals_total[5m]))
 
 # Embedding request rate
-sum(rate(ai_memory_embedding_requests_total[5m]))
+sum(rate(aimemory_embedding_requests_total[5m]))
 
 # Deduplication rate by project
-sum by (project) (rate(ai_memory_deduplication_events_total[5m]))
+sum by (project) (rate(aimemory_deduplication_events_total[5m]))
 ```
 
 ### Error Rates
 
 ```promql
 # Total failure rate
-sum(rate(ai_memory_failure_events_total[5m]))
+sum(rate(aimemory_failure_events_total[5m]))
 
 # Failure rate by component
-sum by (component) (rate(ai_memory_failure_events_total[5m]))
+sum by (component) (rate(aimemory_failure_events_total[5m]))
 
 # Failure rate by error code
-sum by (error_code) (rate(ai_memory_failure_events_total[5m]))
+sum by (error_code) (rate(aimemory_failure_events_total[5m]))
 
 # Failure rate by component and error code
-sum by (component, error_code) (rate(ai_memory_failure_events_total[5m]))
+sum by (component, error_code) (rate(aimemory_failure_events_total[5m]))
 ```
 
 ### Success Rate Calculations
 
 ```promql
 # Overall capture success rate (percentage)
-sum(rate(ai_memory_memory_captures_total{status="success"}[1h])) / sum(rate(ai_memory_memory_captures_total[1h])) * 100
+sum(rate(aimemory_memory_captures_total{status="success"}[1h])) / sum(rate(aimemory_memory_captures_total[1h])) * 100
 
 # Success rate by hook type
-sum by (hook_type) (rate(ai_memory_memory_captures_total{status="success"}[1h])) / sum by (hook_type) (rate(ai_memory_memory_captures_total[1h])) * 100
+sum by (hook_type) (rate(aimemory_memory_captures_total{status="success"}[1h])) / sum by (hook_type) (rate(aimemory_memory_captures_total[1h])) * 100
 
 # Retrieval success rate by collection
-sum by (collection) (rate(ai_memory_memory_retrievals_total{status="success"}[5m])) / sum by (collection) (rate(ai_memory_memory_retrievals_total[5m])) * 100
+sum by (collection) (rate(aimemory_memory_retrievals_total{status="success"}[5m])) / sum by (collection) (rate(aimemory_memory_retrievals_total[5m])) * 100
 ```
 
 ### Latency Percentiles
 
 ```promql
 # Hook p50, p95, p99 (as shown in dashboards)
-histogram_quantile(0.50, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
-histogram_quantile(0.99, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.50, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # Embedding p95 (NFR-P2: <2s target)
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_embedding_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_embedding_duration_seconds_bucket[5m])))
 
 # Retrieval p95 (NFR-P3: <3s target)
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_retrieval_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_retrieval_duration_seconds_bucket[5m])))
 ```
 
 ### Collection Statistics
 
 ```promql
 # Current collection sizes
-ai_memory_collection_size
+aimemory_collection_size
 
 # Collection size by project
-ai_memory_collection_size{project="my-project"}
+aimemory_collection_size{project="my-project"}
 
 # Total points across all collections
-sum(ai_memory_collection_size)
+sum(aimemory_collection_size)
 
 # Queue size (pending items)
-ai_memory_queue_size{status="pending"}
+aimemory_queue_size{status="pending"}
 
 # Queue size (exhausted items)
-ai_memory_queue_size{status="exhausted"}
+aimemory_queue_size{status="exhausted"}
 ```
 
 ### Alerting Queries
 
 ```promql
 # Hook duration exceeds 500ms (NFR-P1)
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m]))) > 0.5
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m]))) > 0.5
 
 # Embedding duration exceeds 2s (NFR-P2)
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_embedding_duration_seconds_bucket[5m]))) > 2.0
+histogram_quantile(0.95, sum by (le) (rate(aimemory_embedding_duration_seconds_bucket[5m]))) > 2.0
 
 # Retrieval duration exceeds 3s (NFR-P3)
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_retrieval_duration_seconds_bucket[5m]))) > 3.0
+histogram_quantile(0.95, sum by (le) (rate(aimemory_retrieval_duration_seconds_bucket[5m]))) > 3.0
 
 # High failure rate (>1 failure/min)
-sum(rate(ai_memory_failure_events_total[5m])) > 1/60
+sum(rate(aimemory_failure_events_total[5m])) > 1/60
 
 # Collection approaching threshold (>8000 points)
-max(ai_memory_collection_size) > 8000
+max(aimemory_collection_size) > 8000
 
 # Queue backlog growing (>10 pending)
-ai_memory_queue_size{status="pending"} > 10
+aimemory_queue_size{status="pending"} > 10
 ```
 
 ---
@@ -459,17 +459,17 @@ ai_memory_queue_size{status="pending"} > 10
 ```promql
 # Trigger fires by type (last hour)
 sum by (trigger_type) (
-  increase(ai_memory_trigger_fires_total[1h])
+  increase(aimemory_trigger_fires_total[1h])
 )
 
 # Trigger success rate
-sum(ai_memory_trigger_fires_total{status="success"}) /
-sum(ai_memory_trigger_fires_total) * 100
+sum(aimemory_trigger_fires_total{status="success"}) /
+sum(aimemory_trigger_fires_total) * 100
 
 # Average results per trigger type
 histogram_quantile(0.5,
   sum by (trigger_type, le) (
-    rate(ai_memory_trigger_results_returned_bucket[5m])
+    rate(aimemory_trigger_results_returned_bucket[5m])
   )
 )
 ```
@@ -479,17 +479,17 @@ histogram_quantile(0.5,
 ```promql
 # Total tokens by operation (last 24h)
 sum by (operation) (
-  increase(ai_memory_tokens_consumed_total[24h])
+  increase(aimemory_tokens_consumed_total[24h])
 )
 
 # Input vs output tokens
 sum by (direction) (
-  increase(ai_memory_tokens_consumed_total[1h])
+  increase(aimemory_tokens_consumed_total[1h])
 )
 
 # Tokens per project
 sum by (project) (
-  increase(ai_memory_tokens_consumed_total[24h])
+  increase(aimemory_tokens_consumed_total[24h])
 )
 ```
 
@@ -497,14 +497,14 @@ sum by (project) (
 
 ```promql
 # Collection sizes by project
-ai_memory_collection_size{project!="all"}
+aimemory_collection_size{project!="all"}
 
 # Total memories across all collections
-sum(ai_memory_collection_size{project="all"})
+sum(aimemory_collection_size{project="all"})
 
 # Deduplication rate (last hour)
-sum(increase(ai_memory_deduplication_events_total[1h])) /
-sum(increase(ai_memory_memory_captures_total[1h])) * 100
+sum(increase(aimemory_deduplication_events_total[1h])) /
+sum(increase(aimemory_memory_captures_total[1h])) * 100
 ```
 
 ### Failure Monitoring
@@ -512,11 +512,11 @@ sum(increase(ai_memory_memory_captures_total[1h])) * 100
 ```promql
 # Failures by component
 sum by (component) (
-  increase(ai_memory_failure_events_total[1h])
+  increase(aimemory_failure_events_total[1h])
 )
 
 # Alert: High failure rate
-increase(ai_memory_failure_events_total[5m]) > 5
+increase(aimemory_failure_events_total[5m]) > 5
 ```
 
 ---
@@ -529,16 +529,16 @@ increase(ai_memory_failure_events_total[5m]) > 5
 
 ```promql
 # Total tokens consumed in last 1 hour
-sum(increase(ai_memory_tokens_consumed_total[1h]))
+sum(increase(aimemory_tokens_consumed_total[1h]))
 
 # By direction (input vs output)
-sum by (direction) (rate(ai_memory_tokens_consumed_total[5m]))
+sum by (direction) (rate(aimemory_tokens_consumed_total[5m]))
 
 # By operation type
-sum by (operation) (rate(ai_memory_tokens_consumed_total[5m]))
+sum by (operation) (rate(aimemory_tokens_consumed_total[5m]))
 
 # By project
-sum by (project) (rate(ai_memory_tokens_consumed_total[5m]))
+sum by (project) (rate(aimemory_tokens_consumed_total[5m]))
 ```
 
 **Labels:**
@@ -555,19 +555,19 @@ sum by (project) (rate(ai_memory_tokens_consumed_total[5m]))
 
 ```promql
 # Median tokens injected per hook
-histogram_quantile(0.50, sum by (le, hook_type) (rate(ai_memory_context_injection_tokens_bucket[5m])))
+histogram_quantile(0.50, sum by (le, hook_type) (rate(aimemory_context_injection_tokens_bucket[5m])))
 
 # p95 tokens injected
-histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_context_injection_tokens_bucket[5m])))
+histogram_quantile(0.95, sum by (le, hook_type) (rate(aimemory_context_injection_tokens_bucket[5m])))
 
 # By collection
-histogram_quantile(0.95, sum by (le, collection) (rate(ai_memory_context_injection_tokens_bucket[5m])))
+histogram_quantile(0.95, sum by (le, collection) (rate(aimemory_context_injection_tokens_bucket[5m])))
 
 # By project (BUG-046 fix)
-histogram_quantile(0.95, sum by (le, project) (rate(ai_memory_context_injection_tokens_bucket[5m])))
+histogram_quantile(0.95, sum by (le, project) (rate(aimemory_context_injection_tokens_bucket[5m])))
 
 # Specific project filtering
-histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_context_injection_tokens_bucket{project="my-project"}[5m])))
+histogram_quantile(0.95, sum by (le, hook_type) (rate(aimemory_context_injection_tokens_bucket{project="my-project"}[5m])))
 ```
 
 **Use Cases:**
@@ -588,13 +588,13 @@ histogram_quantile(0.95, sum by (le, hook_type) (rate(ai_memory_context_injectio
 
 ```promql
 # Overall request rate by type
-sum by (embedding_type) (rate(ai_memory_embedding_requests_total[5m]))
+sum by (embedding_type) (rate(aimemory_embedding_requests_total[5m]))
 
 # Success rate by embedding type
-sum by (embedding_type) (rate(ai_memory_embedding_requests_total{status="success"}[5m]))
+sum by (embedding_type) (rate(aimemory_embedding_requests_total{status="success"}[5m]))
 
 # Failure rate by type
-sum by (embedding_type) (rate(ai_memory_embedding_requests_total{status="failed"}[5m]))
+sum by (embedding_type) (rate(aimemory_embedding_requests_total{status="failed"}[5m]))
 ```
 
 **Expected Behavior:**
@@ -606,17 +606,17 @@ sum by (embedding_type) (rate(ai_memory_embedding_requests_total{status="failed"
 ```promql
 # p95 latency by embedding type (CRITICAL: use sum by (le, embedding_type))
 histogram_quantile(0.95,
-  sum by (le, embedding_type) (rate(ai_memory_embedding_duration_seconds_bucket[5m]))
+  sum by (le, embedding_type) (rate(aimemory_embedding_duration_seconds_bucket[5m]))
 )
 
 # p50 latency by type
 histogram_quantile(0.50,
-  sum by (le, embedding_type) (rate(ai_memory_embedding_duration_seconds_bucket[5m]))
+  sum by (le, embedding_type) (rate(aimemory_embedding_duration_seconds_bucket[5m]))
 )
 
 # p99 latency by type
 histogram_quantile(0.99,
-  sum by (le, embedding_type) (rate(ai_memory_embedding_duration_seconds_bucket[5m]))
+  sum by (le, embedding_type) (rate(aimemory_embedding_duration_seconds_bucket[5m]))
 )
 ```
 
@@ -629,8 +629,8 @@ histogram_quantile(0.99,
 
 ```promql
 # Success rate percentage by type
-sum by (embedding_type) (rate(ai_memory_embedding_requests_total{status="success"}[5m]))
-  / sum by (embedding_type) (rate(ai_memory_embedding_requests_total[5m])) * 100
+sum by (embedding_type) (rate(aimemory_embedding_requests_total{status="success"}[5m]))
+  / sum by (embedding_type) (rate(aimemory_embedding_requests_total[5m])) * 100
 ```
 
 **Panel Config:** Unit: `percent`, Range: 0-100, Thresholds: 90→red, 95→yellow, 98→green
@@ -639,7 +639,7 @@ sum by (embedding_type) (rate(ai_memory_embedding_requests_total{status="success
 
 ```promql
 # Total requests by type (for pie chart)
-sum by (embedding_type) (increase(ai_memory_embedding_requests_total[1h]))
+sum by (embedding_type) (increase(aimemory_embedding_requests_total[1h]))
 ```
 
 **Use Cases:**
@@ -657,16 +657,16 @@ sum by (embedding_type) (increase(ai_memory_embedding_requests_total[1h]))
 
 ```promql
 # Overall trigger fire rate
-sum(rate(ai_memory_trigger_fires_total[5m]))
+sum(rate(aimemory_trigger_fires_total[5m]))
 
 # By trigger type
-sum by (trigger_type) (rate(ai_memory_trigger_fires_total[5m]))
+sum by (trigger_type) (rate(aimemory_trigger_fires_total[5m]))
 
 # By status (success, empty, failed)
-sum by (status) (rate(ai_memory_trigger_fires_total[5m]))
+sum by (status) (rate(aimemory_trigger_fires_total[5m]))
 
 # By project
-sum by (project) (rate(ai_memory_trigger_fires_total[5m]))
+sum by (project) (rate(aimemory_trigger_fires_total[5m]))
 ```
 
 **Trigger Types:**
@@ -681,12 +681,12 @@ sum by (project) (rate(ai_memory_trigger_fires_total[5m]))
 
 ```promql
 # Overall success rate (percentage)
-sum(rate(ai_memory_trigger_fires_total{status="success"}[5m]))
-  / sum(rate(ai_memory_trigger_fires_total[5m])) * 100
+sum(rate(aimemory_trigger_fires_total{status="success"}[5m]))
+  / sum(rate(aimemory_trigger_fires_total[5m])) * 100
 
 # Success rate by trigger type
-sum by (trigger_type) (rate(ai_memory_trigger_fires_total{status="success"}[5m]))
-  / sum by (trigger_type) (rate(ai_memory_trigger_fires_total[5m])) * 100
+sum by (trigger_type) (rate(aimemory_trigger_fires_total{status="success"}[5m]))
+  / sum by (trigger_type) (rate(aimemory_trigger_fires_total[5m])) * 100
 ```
 
 **Statuses:**
@@ -698,10 +698,10 @@ sum by (trigger_type) (rate(ai_memory_trigger_fires_total{status="success"}[5m])
 
 ```promql
 # Median results returned per trigger type
-histogram_quantile(0.50, sum by (le, trigger_type) (rate(ai_memory_trigger_results_returned_bucket[5m])))
+histogram_quantile(0.50, sum by (le, trigger_type) (rate(aimemory_trigger_results_returned_bucket[5m])))
 
 # p95 results returned
-histogram_quantile(0.95, sum by (le, trigger_type) (rate(ai_memory_trigger_results_returned_bucket[5m])))
+histogram_quantile(0.95, sum by (le, trigger_type) (rate(aimemory_trigger_results_returned_bucket[5m])))
 ```
 
 **Expected Values:**
@@ -714,10 +714,10 @@ histogram_quantile(0.95, sum by (le, trigger_type) (rate(ai_memory_trigger_resul
 
 ```promql
 # Trigger fire rate by project
-sum by (project, trigger_type) (rate(ai_memory_trigger_fires_total[5m]))
+sum by (project, trigger_type) (rate(aimemory_trigger_fires_total[5m]))
 
 # Most active trigger types per project
-topk(3, sum by (project, trigger_type) (rate(ai_memory_trigger_fires_total[5m])))
+topk(3, sum by (project, trigger_type) (rate(aimemory_trigger_fires_total[5m])))
 ```
 
 **Use Cases:**
@@ -736,16 +736,16 @@ topk(3, sum by (project, trigger_type) (rate(ai_memory_trigger_fires_total[5m]))
 
 ```promql
 # Current queue size by status
-ai_memory_queue_size
+aimemory_queue_size
 
 # Ready for retry (can be processed now)
-ai_memory_queue_size{status="ready"}
+aimemory_queue_size{status="ready"}
 
 # Pending (awaiting backoff timer)
-ai_memory_queue_size{status="pending"}
+aimemory_queue_size{status="pending"}
 
 # Exhausted (exceeded max retries)
-ai_memory_queue_size{status="exhausted"}
+aimemory_queue_size{status="exhausted"}
 ```
 
 **Statuses:**
@@ -757,10 +757,10 @@ ai_memory_queue_size{status="exhausted"}
 
 ```promql
 # Total items in queue (should be 0 in healthy system)
-sum(ai_memory_queue_size)
+sum(aimemory_queue_size)
 
 # Alert threshold: Any exhausted items is a problem
-ai_memory_queue_size{status="exhausted"} > 0
+aimemory_queue_size{status="exhausted"} > 0
 ```
 
 ### Queue Trend Over Time
@@ -768,10 +768,10 @@ ai_memory_queue_size{status="exhausted"} > 0
 ```promql
 # Queue size over time (for trend analysis)
 # Note: This is a gauge, not a counter - no rate() needed
-ai_memory_queue_size
+aimemory_queue_size
 
 # Max queue size in last hour
-max_over_time(ai_memory_queue_size[1h])
+max_over_time(aimemory_queue_size[1h])
 ```
 
 **Backoff Schedule:**
@@ -845,7 +845,7 @@ Complete working queries extracted from our Grafana dashboards (`docker/grafana/
 
 ```promql
 # Shows overall captures/sec across all hooks
-sum(rate(ai_memory_memory_captures_total[1h]))
+sum(rate(aimemory_memory_captures_total[1h]))
 ```
 
 **Panel Config:** Unit: `ops`, Decimals: `2`, Thresholds: 0→green, 10→yellow, 50→red
@@ -854,7 +854,7 @@ sum(rate(ai_memory_memory_captures_total[1h]))
 
 ```promql
 # Shows overall retrievals/sec across all collections
-sum(rate(ai_memory_memory_retrievals_total[1h]))
+sum(rate(aimemory_memory_retrievals_total[1h]))
 ```
 
 **Panel Config:** Unit: `ops`, Decimals: `2`, Thresholds: 0→green, 5→yellow, 20→red
@@ -863,7 +863,7 @@ sum(rate(ai_memory_memory_retrievals_total[1h]))
 
 ```promql
 # Shows current size of each collection-project combination
-ai_memory_collection_size
+aimemory_collection_size
 ```
 
 **Legend:** `{{collection}} - {{project}}`
@@ -873,7 +873,7 @@ ai_memory_collection_size
 
 ```promql
 # Shows pending items in retry queue
-ai_memory_queue_size{status="pending"}
+aimemory_queue_size{status="pending"}
 ```
 
 **Panel Config:** Unit: `short`, Thresholds: 0→green, 10→yellow, 50→red
@@ -882,10 +882,10 @@ ai_memory_queue_size{status="pending"}
 
 ```promql
 # Query A - Captures by project
-sum by (project) (rate(ai_memory_memory_captures_total[5m]))
+sum by (project) (rate(aimemory_memory_captures_total[5m]))
 
 # Query B - Retrievals by collection
-sum by (collection) (rate(ai_memory_memory_retrievals_total[5m]))
+sum by (collection) (rate(aimemory_memory_retrievals_total[5m]))
 ```
 
 **Legend A:** `Captures - {{project}}`
@@ -896,7 +896,7 @@ sum by (collection) (rate(ai_memory_memory_retrievals_total[5m]))
 
 ```promql
 # Shows failure rate by component and error code
-sum by (component, error_code) (rate(ai_memory_failure_events_total[5m]))
+sum by (component, error_code) (rate(aimemory_failure_events_total[5m]))
 ```
 
 **Legend:** `{{component}} - {{error_code}}`
@@ -910,13 +910,13 @@ sum by (component, error_code) (rate(ai_memory_failure_events_total[5m]))
 
 ```promql
 # Query A - p50 (median)
-histogram_quantile(0.50, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.50, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # Query B - p95
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 
 # Query C - p99
-histogram_quantile(0.99, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.99, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 ```
 
 **Legend A:** `p50 - {{hook_type}}`
@@ -928,7 +928,7 @@ histogram_quantile(0.99, sum by (le) (rate(ai_memory_hook_duration_seconds_bucke
 
 ```promql
 # Shows distribution of embedding durations as heatmap
-rate(ai_memory_embedding_duration_seconds_bucket[5m])
+rate(aimemory_embedding_duration_seconds_bucket[5m])
 ```
 
 **Legend:** `{{le}}`
@@ -939,7 +939,7 @@ rate(ai_memory_embedding_duration_seconds_bucket[5m])
 
 ```promql
 # Shows 95th percentile retrieval time
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_retrieval_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_retrieval_duration_seconds_bucket[5m])))
 ```
 
 **Panel Config:** Unit: `s`, Decimals: `3`, Thresholds: 0→green, 2s→yellow, 3s→red
@@ -948,7 +948,7 @@ histogram_quantile(0.95, sum by (le) (rate(ai_memory_retrieval_duration_seconds_
 
 ```promql
 # Calculate success percentage per hook type
-sum(rate(ai_memory_memory_captures_total{status="success"}[1h])) by (hook_type) / sum(rate(ai_memory_memory_captures_total[1h])) by (hook_type) * 100
+sum(rate(aimemory_memory_captures_total{status="success"}[1h])) by (hook_type) / sum(rate(aimemory_memory_captures_total[1h])) by (hook_type) * 100
 ```
 
 **Legend:** `{{hook_type}}`
@@ -962,41 +962,41 @@ sum(rate(ai_memory_memory_captures_total{status="success"}[1h])) by (hook_type) 
 
 ```promql
 # Current gauge values
-ai_memory_collection_size
-ai_memory_queue_size{status="pending"}
+aimemory_collection_size
+aimemory_queue_size{status="pending"}
 
 # Latest histogram bucket values (rarely used directly)
-ai_memory_hook_duration_seconds_bucket
+aimemory_hook_duration_seconds_bucket
 ```
 
 ### Range Queries (Time Series)
 
 ```promql
 # Rate over time
-rate(ai_memory_memory_captures_total[5m])
+rate(aimemory_memory_captures_total[5m])
 
 # Increase over time
-increase(ai_memory_memory_captures_total[1h])
+increase(aimemory_memory_captures_total[1h])
 
 # Histogram percentiles over time
-histogram_quantile(0.95, sum by (le) (rate(ai_memory_hook_duration_seconds_bucket[5m])))
+histogram_quantile(0.95, sum by (le) (rate(aimemory_hook_duration_seconds_bucket[5m])))
 ```
 
 ### Aggregations
 
 ```promql
 # Sum across all series
-sum(rate(ai_memory_memory_captures_total[5m]))
+sum(rate(aimemory_memory_captures_total[5m]))
 
 # Sum preserving labels
-sum by (project) (rate(ai_memory_memory_captures_total[5m]))
+sum by (project) (rate(aimemory_memory_captures_total[5m]))
 
 # Average
-avg(ai_memory_collection_size)
+avg(aimemory_collection_size)
 
 # Max/Min
-max(ai_memory_queue_size)
-min(ai_memory_hook_duration_seconds_bucket)
+max(aimemory_queue_size)
+min(aimemory_hook_duration_seconds_bucket)
 ```
 
 ### Calculations

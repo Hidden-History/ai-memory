@@ -34,7 +34,7 @@ The error pattern capture system automatically detects and stores error patterns
 ┌─────────────────────────────────────────────────────────────┐
 │ Background: error_store_async.py (no time constraint)       │
 │  1. Format error content for embedding                      │
-│  2. Generate embedding (Nomic Embed Code)                   │
+│  2. Generate embedding (Jina Embeddings v2)                 │
 │  3. Store to Qdrant with type="error_pattern"               │
 │  4. Graceful degradation on failure (queue to file)         │
 └─────────────────────────────────────────────────────────────┘
@@ -168,7 +168,7 @@ Uses standard AI Memory configuration:
 ```bash
 QDRANT_HOST=localhost
 QDRANT_PORT=26350
-QDRANT_COLLECTION=implementations
+QDRANT_COLLECTION=code-patterns
 EMBEDDING_DIMENSION=768
 HOOK_TIMEOUT=60
 MEMORY_QUEUE_DIR=./.memory_queue
@@ -206,7 +206,7 @@ from memory.search import semantic_search
 # Find similar errors
 results = semantic_search(
     query="ZeroDivisionError in calculation",
-    collection="implementations",
+    collection="code-patterns",
     limit=5,
     filter={"type": "error_pattern"}
 )
@@ -217,27 +217,6 @@ for result in results:
     print(f"File: {result.payload['file_path']}")
     print(f"Score: {result.score}")
 ```
-
-### PreToolUse Integration
-
-The complementary `error_context_retrieval.py` PreToolUse hook proactively retrieves error patterns:
-
-**Status**: ✅ Implemented - See [error-context-retrieval.md](error-context-retrieval.md)
-
-```python
-# Before executing Bash command, search for similar past errors
-# Inject context: "Previously, this command failed with: ..."
-```
-
-This enables Claude to:
-- Anticipate common errors before they occur
-- See solutions from past failures
-- Suggest preventive measures
-- Learn from past mistakes automatically
-
-Together, these hooks form a complete error learning loop:
-1. `error_pattern_capture.py` (PostToolUse) captures errors after execution
-2. `error_context_retrieval.py` (PreToolUse) retrieves them before next execution
 
 ## Testing
 
@@ -271,23 +250,21 @@ memory_captures_total{hook_type="PostToolUse_Error",status="success|failed|queue
 1. **Error Resolution Tracking**: Link error patterns to their fixes
 2. **Severity Classification**: Auto-classify errors (warning, error, fatal)
 3. **Root Cause Analysis**: Cluster related errors
-4. **PreToolUse Context Injection**: Warn about potential errors
-5. **Cross-Project Learning**: Share error patterns across projects
-6. **Solution Suggestions**: Link errors to known solutions
+4. **Cross-Project Learning**: Share error patterns across projects
+5. **Solution Suggestions**: Link errors to known solutions
 
 ## Related Files
 
 | File | Purpose |
 |------|---------|
 | `.claude/hooks/scripts/error_pattern_capture.py` | Main hook (PostToolUse) |
-| `.claude/hooks/scripts/error_context_retrieval.py` | Complementary retrieval hook (PreToolUse) |
 | `.claude/hooks/scripts/error_store_async.py` | Background storage |
 | `tests/test_error_pattern_capture.py` | Test suite |
 | `.claude/settings.json` | Hook configuration |
 
 ## See Also
 
-- [CLAUDE.md](../CLAUDE.md) - Project overview and conventions
+- [.claude/rules/ai-memory.md](../.claude/rules/ai-memory.md) - Agent guidance and project conventions
 - [structured-logging.md](structured-logging.md) - Logging patterns
 - [HOOKS.md](HOOKS.md) - Hook development guide
 - [prometheus-queries.md](prometheus-queries.md) - Metrics and monitoring

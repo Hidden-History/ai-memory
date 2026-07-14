@@ -82,7 +82,7 @@ After the script exits 0, all eight required files are confirmed present.
 
 ### Current scope
 
-`aim-agent-sanctum-init` is currently **Parzival-only** (single-agent scaffold). Multi-agent support (`--agent_id`, per-agent template selection, agent-type-driven seed content) is planned for v2.5.0+ when domain agents land.
+`aim-agent-sanctum-init` is currently **Parzival-only** (single-agent scaffold). Multi-agent support (`--agent_id`, per-agent template selection, agent-type-driven seed content) is planned for a future release (v2.8.3+) when domain agents land.
 
 ---
 

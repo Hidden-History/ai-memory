@@ -11,6 +11,9 @@
   - [PreCompact](#precompact)
   - [Stop](#stop)
 - [Tier 2 Per-Turn Context Injection](#tier-2-per-turn-context-injection)
+- [Source-of-Truth (SOT) Hooks](#source-of-truth-sot-hooks)
+  - [SOT Digest (SessionStart)](#sot-digest-sessionstart)
+  - [SOT Drift (Stop)](#sot-drift-stop)
 - [Activity Logging Hooks](#activity-logging-hooks)
   - [SessionEnd](#sessionend)
   - [UserPromptSubmit](#userpromptsubmit)
@@ -19,7 +22,6 @@
   - [PreToolUse](#pretooluse)
 - [Error Handling Hooks](#error-handling-hooks)
   - [Error Pattern Capture](#error-pattern-capture)
-  - [Error Context Retrieval](#error-context-retrieval)
 - [Best Practices Hooks](#best-practices-hooks)
   - [Best Practices Retrieval](#best-practices-retrieval)
 - [Manual Operations](#manual-operations)
@@ -39,7 +41,7 @@ The AI Memory Module uses Claude Code hooks to automatically capture and retriev
 |----------|-------|---------|
 | **Core Memory** | SessionStart, PostToolUse, PreCompact, Stop | Automatic memory capture/retrieval |
 | **Activity Logging** | SessionEnd, UserPromptSubmit, Notification, SubagentStop, PreToolUse | Session tracking and analytics |
-| **Error Handling** | Error Capture, Error Context | Error pattern learning |
+| **Error Handling** | Error Capture | Error pattern learning |
 | **Best Practices** | Best Practices Retrieval | Cross-project pattern sharing |
 
 ### Performance Requirements
@@ -1045,6 +1047,38 @@ Activity logging hooks track session events for analytics and debugging. They wr
 
 ---
 
+## 🗺️ Source-of-Truth (SOT) Hooks
+
+The `aim-sot` skill registers two propose-only hooks that keep the source-of-truth registry aligned with the codebase. Both are **default-on** — auto-registered on install alongside the core memory hooks — and **never write any committed file** (they only surface proposals). Disable auto-registration by setting `AI_MEMORY_SOT_HOOKS=off` before install (read by `generate_settings.py` at install time; see [CONFIGURATION.md](CONFIGURATION.md) for the full `AI_MEMORY_SOT_*` budget family, and [AIM-SOT.md](AIM-SOT.md) for the skill itself).
+
+### SOT Digest (SessionStart)
+
+**Purpose:** Inject a compact source-of-truth summary as ambient session-start context.
+
+**Hook:** `sot_digest_session_start.py`
+
+**Trigger:** `SessionStart` — fires on Claude Code session start.
+
+**Behavior:** Invokes the `aim-sot` consult engine in digest mode and returns a short SOT summary as session-start context. Propose-only; never writes a committed file.
+
+**Kill-switch:** `AI_MEMORY_SOT_HOOKS=off` (set before install) skips registration.
+
+---
+
+### SOT Drift (Stop)
+
+**Purpose:** Detect source-of-truth drift and new registry candidates at session end.
+
+**Hook:** `sot_drift_stop.py`
+
+**Trigger:** `Stop` — fires on Claude Code session end.
+
+**Behavior:** Invokes the `aim-sot` detect-propose engine in propose-only mode and surfaces a one-line summary to stderr when drift or new candidates are found. Propose-only; never writes a committed file.
+
+**Kill-switch:** `AI_MEMORY_SOT_HOOKS=off` (set before install) skips registration.
+
+---
+
 ## 🚨 Error Handling Hooks
 
 ### Error Pattern Capture
@@ -1065,19 +1099,6 @@ Activity logging hooks track session events for analytics and debugging. They wr
   "file": "src/middleware/auth.js:42"
 }
 ```
-
----
-
-### Error Context Retrieval
-
-**Purpose:** Retrieve similar error patterns when an error occurs
-
-**Hook:** `error_context_retrieval.py`
-
-**Process:**
-1. Detect error in Claude's context
-2. Search error_patterns collection
-3. Inject similar errors + resolutions
 
 ---
 

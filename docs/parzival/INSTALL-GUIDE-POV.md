@@ -7,7 +7,7 @@
 [![Version](https://img.shields.io/badge/version-2.1.0-green.svg)](https://github.com/Hidden-History/pov-oversight-agent)
 [![BMAD Compatible](https://img.shields.io/badge/BMAD-6.0.0--alpha.22+-green.svg)](https://bmad-method.org)
 [![License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](../../CONTRIBUTING.md)
 
 **Your Technical Project Manager & Quality Gatekeeper for Claude Code**
 
@@ -73,7 +73,7 @@ Parzival operates under **five non-negotiable rules** that prevent behavioral dr
 📚 **Learn More:**
 - [CONSTRAINT-ENFORCEMENT-SYSTEM.md](./CONSTRAINT-ENFORCEMENT-SYSTEM.md) - Behavioral constraint architecture
 - [constraints.md](../../_ai-memory/pov/constraints/global/constraints.md) - Global constraint index (GC-01 through GC-20)
-- [README.md](./README.md) - Source of truth document
+- [README-POV.md](./README-POV.md) - Source of truth document
 
 ---
 
@@ -508,9 +508,11 @@ The unified `install.sh` guarantees your data is never accidentally lost:
 │  - Regenerates skill shims in .claude/skills/               │
 │  - Syncs config from .env (user_name only)                  │
 │  - Removes stale files from earlier versions automatically    │
-│  - Deploys oversight templates (no-clobber — never          │
-│    overwrites existing files)                               │
-│  - NEVER touches existing oversight/ data                   │
+│  - Syncs oversight templates (smart 4-way sync):            │
+│    new -> deploy; unmodified -> auto-sync to latest;        │
+│    known-stale -> auto-migrate; locally-modified ->         │
+│    never touched (loud warning)                             │
+│  - NEVER touches a locally-modified oversight/ file         │
 │  - Safe to run on existing installations                    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -519,14 +521,22 @@ The unified `install.sh` guarantees your data is never accidentally lost:
 
 The installer is safe to run multiple times:
 
-- **install.sh**: Overwrites module code, regenerates shims, deploys templates with no-clobber (skips existing files), cleans up stale files idempotently
+- **install.sh**: Overwrites module code, regenerates shims, syncs oversight templates via the smart 4-way sync (new → deploy, unmodified → auto-sync to latest, known-stale copy → auto-migrate, locally-modified → never touched + loud warning), cleans up stale files idempotently
+
+### 🔍 Checking Template Drift (CI)
+
+```bash
+./scripts/install.sh --check-templates
+```
+
+Dry-run check for oversight-template drift, with no install performed. Exits `0` when templates are in sync, `1` when drift is pending — use it as a CI gate to catch stale oversight templates before they reach an install.
 
 ### 🚨 Safety Guarantees
 
 | Scenario | What Happens | Your Data |
 |----------|--------------|-----------|
 | Run `install.sh` on existing installation | Module code updated, shims regenerated | ✅ Preserved |
-| Run `install.sh` with existing oversight/ | Templates deployed with no-clobber (existing files skipped) | ✅ Preserved |
+| Run `install.sh` with existing oversight/ | Templates synced via smart 4-way sync — unmodified files auto-sync to latest, **locally-modified files are never touched** (loud warning instead) | ✅ Preserved |
 | Accidental re-run of installer | Safe behavior, no data loss | ✅ Preserved |
 | `install.sh` fails mid-execution | Partial update, no oversight data touched | ✅ Preserved |
 
@@ -547,13 +557,19 @@ my-project/
 │       ├── knowledge/              # Reference docs (complexity, confidence, escalation, etc.)
 │       ├── references/             # Lazy-loaded reference docs (loaded on-demand)
 │       ├── workflows/              # Phase workflows
-│       ├── skills/                 # 6 Parzival skills (source of truth)
-│       │   ├── aim-parzival-bootstrap/
-│       │   ├── aim-parzival-constraints/
-│       │   ├── aim-parzival-team-builder/
+│       ├── skills/                 # 12 Parzival skills (source of truth)
 │       │   ├── aim-agent-dispatch/
 │       │   ├── aim-agent-lifecycle/
-│       │   └── aim-model-dispatch/
+│       │   ├── aim-agent-sanctum-init/
+│       │   ├── aim-content-drift/
+│       │   ├── aim-lore-hygiene/
+│       │   ├── aim-model-dispatch/
+│       │   ├── aim-parzival-bootstrap/
+│       │   ├── aim-parzival-constraints/
+│       │   ├── aim-parzival-loader/
+│       │   ├── aim-parzival-team-builder/
+│       │   ├── aim-tracking-freshness/
+│       │   └── aim-tracking-rotate/
 │       └── templates/              # Oversight templates
 │
 ├── .claude/                        # Claude Code integration
@@ -740,7 +756,9 @@ chmod +x scripts/install.sh
 
 **Fix:**
 ```bash
-# Re-run installer — it deploys oversight templates without overwriting existing files
+# Re-run installer — an unmodified template auto-syncs to the latest shipped
+# version, and a known-stale copy auto-migrates. A locally-modified template
+# is never touched; the installer warns loudly instead so you can merge by hand.
 ./scripts/install.sh
 ```
 </details>
@@ -849,7 +867,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📚 Additional Resources
 
 ### Official Documentation
-- **[README.md](./README.md)** - Complete source of truth (identity, constraints, duties, architecture)
+- **[README-POV.md](./README-POV.md)** - Complete source of truth (identity, constraints, duties, architecture)
 - **[CONSTRAINT-ENFORCEMENT-SYSTEM.md](./CONSTRAINT-ENFORCEMENT-SYSTEM.md)** - Behavioral constraint architecture
 - **[constraints.md](../../_ai-memory/pov/constraints/global/constraints.md)** - Global constraint index (GC-01 through GC-20)
 - **[Workflows](../../_ai-memory/pov/workflows/)** - Step-by-step workflow definitions

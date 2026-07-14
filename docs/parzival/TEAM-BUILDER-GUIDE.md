@@ -120,7 +120,7 @@ Lead (coordinates managers via SendMessage)
 - Domain-level review required before cross-domain integration
 - Lead should not manage individual workers
 
-**Key distinction:** Managers spawn workers as subagents (Agent tool without `team_name`), not as teammates. Workers return results to their manager; the lead never communicates directly with workers.
+**Key distinction:** Managers spawn workers as subagents (`Agent` tool with no persisted `name`), not as teammates (`Agent(name=...)`, SendMessage-addressable). Workers return results to their manager; the lead never communicates directly with workers.
 
 **Manager prompt structure** (10 elements): ROLE, OBJECTIVE, SCOPE, WORKER ROSTER, REVIEW PROTOCOL, TASK CHECKLIST, QUALITY GATES, CONSTRAINTS, CONTEXT FOR WORKERS, REPORTING.
 
@@ -187,19 +187,23 @@ Two global constraints govern how agents are spawned and activated.
 
 ### GC-19: Spawn Agents as Teammates
 
-All BMAD agents must be spawned using the Agent tool with the `team_name` parameter. Standalone subagent dispatches (Agent tool without `team_name`) are forbidden for BMAD agent work.
+All BMAD agents must be spawned using the `Agent` tool with a unique `name`. The team forms implicitly -- there is no `TeamCreate`/`TeamDelete`, and no `team_name` parameter. Standalone subagent dispatches (Agent tool with no persisted `name`) are forbidden for BMAD agent work.
 
-**Why:** Without `team_name`, agents lack Edit and Write tool permissions required for implementation. The teammate pattern also enables SendMessage for follow-up communication and lifecycle management (monitor, review, shutdown).
+**Why:** Without a `name`, agents lack Edit and Write tool permissions required for implementation. The teammate pattern also enables SendMessage for follow-up communication and lifecycle management (monitor, review, shutdown).
 
-**Exception:** In 3-tier teams, managers spawn their workers as subagents (without `team_name`). This is intentional -- workers return results to the manager and do not need direct communication with the lead.
+**Exception:** In 3-tier teams, managers spawn their workers as subagents (with no persisted `name`). This is intentional -- workers return results to the manager and do not need direct communication with the lead.
 
 ### GC-20: Activation and Instruction Are Separate
 
-When activating a BMAD agent, the activation command and the task instruction must be sent as two separate messages.
+When activating a BMAD agent, the activation step and the task instruction must be sent as two separate messages.
+
+**Two dispatch paths, kept separate:**
+- **Claude-native** agents spawn as teammates via the `Agent` tool -- no visible tmux pane. Activation is a Skill-tool-load instruction embedded in the spawn prompt itself; the agent loads its persona and responds with its greeting/menu via `SendMessage`.
+- **Non-Claude-provider** agents run in a visible tmux pane via `/aim-agent-lifecycle`: spawn the pane, then `tmux send-keys` the live `/bmad-<role>` activation command, monitored via `tmux capture-pane` until the menu/greeting appears.
 
 **Required sequence:**
-1. Spawn agent (Agent tool with `team_name`)
-2. Send activation command only (e.g., `/bmad-agent-bmm-dev`)
+1. Spawn agent (`Agent` tool with a unique `name`; for Claude-native, the Skill-tool-load is embedded in this spawn prompt)
+2. For tmux providers, send the activation command via `tmux send-keys` (e.g., `/bmad-agent-dev`)
 3. Wait for agent menu/greeting (confirms persona is loaded)
 4. Send task instruction as a separate message
 
@@ -241,7 +245,7 @@ Stories:
   dev-api   -> Story S-102: API pagination          -> src/api/pagination/**
   dev-dash  -> Story S-103: Dashboard charts        -> src/components/charts/**
 Conflict Strategy: Exclusive file ownership (no overlap)
-Workflow: Workers run /bmad-bmm-dev-story, reviewer runs /bmad-bmm-code-review
+Workflow: Workers run /bmad-dev-story, reviewer runs /bmad-code-review
 ```
 
 Why 2-tier: Single domain of concern (implementation), no cross-domain review needed, stories are independent.

@@ -2,7 +2,7 @@
 
 **Purpose:** This document defines the complete architecture of the AI Memory Module. It explains WHAT we're building, WHY each component exists, and HOW they work together. This is the authoritative reference to prevent implementation mistakes.
 
-**Last Updated:** 2026-03-02 (V2.0.9 — five-collection architecture, github collection separation)
+**Last Updated:** v2.8.3 — five-collection architecture plus current subsystems (Source-of-Truth tracking, multi-IDE adapters, LLM classifier, Langfuse observability)
 
 ---
 
@@ -20,6 +20,7 @@
 10. [Validation Requirements](#validation-requirements)
 11. [Data Flow Diagrams](#data-flow-diagrams)
 12. [Common Mistakes to Avoid](#common-mistakes-to-avoid)
+13. [Current Subsystems](#current-subsystems)
 
 ---
 
@@ -175,7 +176,7 @@ A **persistent semantic memory system** for Claude Code that provides:
 
 1. **Session Continuity** - Claude remembers what happened in previous sessions
 2. **Implementation Patterns** - Claude recalls how similar features were built before
-3. **Shared Learning** - Best practices learned in one project help all projects
+3. **Reusable Conventions** - Proven patterns and best practices are captured per project for reuse
 
 ### Why We're Building It
 
@@ -323,7 +324,7 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 ### Collection 3: `conventions`
 
-**Purpose:** Store universal patterns that apply across ALL projects. Shared learning.
+**Purpose:** Store proven conventions and best-practice patterns for the project — coding standards, architecture patterns, and reusable approaches.
 
 **What Goes Here:**
 - Proven implementation patterns
@@ -332,17 +333,17 @@ Session summaries are **fundamentally different** from implementation patterns:
 - Architecture patterns
 - Error handling strategies
 
-**Scope:** Universal (`group_id = "universal"`) - NOT project-isolated
+**Scope:** Project-scoped — keyed by the resolved project `group_id`. Every read and write requires an explicit non-empty `group_id` (no cwd auto-detect, no cross-project fallback).
 
 **Searched By:** Best practices search (on-demand), can supplement pre-work search
 
-**Written By:** Manual curation, post-work-store (when pattern is universal)
+**Written By:** Manual curation, post-work-store (when a proven pattern is worth reusing)
 
 **Example Payload:**
 ```json
 {
   "content": "Token-Efficient Context Loading: Load only relevant context before agent work. Evidence: 95.2% token savings in production systems.",
-  "group_id": "universal",
+  "group_id": "ai-memory",
   "type": "best_practice",
   "category": "performance",
   "pattern": "Token-Efficient Context Loading",
@@ -410,9 +411,9 @@ Session summaries are **fundamentally different** from implementation patterns:
 
 | Aspect | discussions | code-patterns | conventions | github | jira-data |
 |--------|--------------|-----------------|----------------|--------|-----------|
-| **Purpose** | Session continuity | Code patterns | Universal patterns | GitHub data | Jira data |
-| **Scope** | Per-project | Per-project | All projects | Per-project | Per-project |
-| **group_id** | Project name | Project name | "universal" | Project name | Project name |
+| **Purpose** | Session continuity | Code patterns | Project conventions | GitHub data | Jira data |
+| **Scope** | Per-project | Per-project | Per-project | Per-project | Per-project |
+| **group_id** | Project name | Project name | Project name | Project name | Project name |
 | **Content** | Summaries, decisions | Code with file:line | Patterns, evidence | PRs, issues, code | Issues, comments |
 | **SessionStart** | ✅ Primary source | ❌ Not searched | ⚠️ Non-Parzival path | ✅ Parzival L4 | ❌ Not searched |
 | **Pre-work** | ❌ Not searched | ✅ Primary source | ⚠️ Supplemental | ❌ Not searched | ❌ Not searched |
@@ -921,7 +922,7 @@ dev-story Step 6.5: post-work-store <story-id> <component> "<what-built>"
 - Previous documentation structures
 
 **Memory Writes:**
-- Documentation patterns (if universal)
+- Documentation patterns
 - Standards compliance findings
 
 **Primary Collection:** `conventions` (reads), `discussions` (writes)
@@ -1130,7 +1131,7 @@ All memories must include required metadata fields:
 │  ─────────────────────────────────────────────────────────  │
 │                                                              │
 │  WRITES TO conventions:                                   │
-│  └── Manual curation / post-work-store (universal patterns) │
+│  └── Manual curation / post-work-store (proven patterns)    │
 │                                                              │
 │  READS FROM conventions:                                  │
 │  ├── search-best-practices (on-demand)                      │
@@ -1202,17 +1203,47 @@ All memories must include required metadata fields:
 **Result:** Tool execution slows down, bad UX
 **Correct:** Fork to background, return immediately (<500ms)
 
-### Mistake 8: Mixing Universal and Project Patterns
+### Mistake 8: Expecting `conventions` to be shared across projects
 
-**Wrong:** Storing project-specific code in `conventions`
-**Result:** Irrelevant patterns appear in other projects
-**Correct:** Only universal, proven patterns go in `conventions`
+**Wrong:** Treating `conventions` as a global collection shared across all projects
+**Result:** Reads/writes without an explicit `group_id` fail; patterns never cross into another project
+**Correct:** `conventions` is project-scoped like every other collection — every read and write requires an explicit non-empty `group_id`; there is no universal tier or cross-project fallback
 
 ### Mistake 9: Using Stop Hook for Session Storage
 
 **Wrong:** Relying on Stop hook to store session summaries
 **Result:** Multiple writes per session, unreliable capture, race conditions
 **Correct:** Use PreCompact hook which fires once before compaction with full transcript access
+
+---
+
+## Current Subsystems
+
+Beyond the five-collection core and the hook system, the module has grown several subsystems. Each has a dedicated reference; the summaries below orient them within the architecture.
+
+### Source-of-Truth (SOT) Tracking
+
+The `aim-sot` skill maintains a registry of the project's source-of-truth artifacts and detects drift between each registered entry's declaration and its on-disk reality. It ships two **default-on, propose-only** hooks — a `SessionStart` digest (`sot_digest_session_start.py`) and a `Stop` drift check (`sot_drift_stop.py`) — that surface proposals without writing any committed file. Tuned by the `AI_MEMORY_SOT_*` configuration family; disable hook registration with `AI_MEMORY_SOT_HOOKS=off`.
+
+- Reference: [AIM-SOT.md](AIM-SOT.md), [HOOKS.md](HOOKS.md), [CONFIGURATION.md](CONFIGURATION.md)
+
+### Multi-IDE Adapters
+
+The memory system extends beyond Claude Code to other AI coding surfaces via adapters under `src/memory/adapters/` (Codex, Cursor, Gemini). Each adapter maps the host IDE's lifecycle events onto the shared capture/retrieval and SOT hooks.
+
+- Reference: [MULTI-IDE-SUPPORT.md](MULTI-IDE-SUPPORT.md)
+
+### LLM Classifier
+
+An LLM-based classifier assigns memory types to captured content, routing each item to the correct collection and type. Behavior is tuned by the `MEMORY_CLASSIFIER_*` configuration keys.
+
+- Reference: [llm-classifier.md](llm-classifier.md)
+
+### Langfuse Observability
+
+Optional Langfuse integration provides tracing and observability for hook executions and full sessions, backed by a dedicated Docker stack. Controlled by the `LANGFUSE_*` configuration keys and disabled by default unless configured.
+
+- Reference: [LANGFUSE-INTEGRATION.md](LANGFUSE-INTEGRATION.md), [MONITORING.md](MONITORING.md)
 
 ---
 
@@ -1224,7 +1255,7 @@ A five-collection memory system:
 
 1. **Session Memory (discussions)** - "What did we do last time?"
 2. **Implementation Patterns (code-patterns)** - "How did we build similar features?"
-3. **Universal Patterns (conventions)** - "What works across all projects?"
+3. **Project Conventions (conventions)** - "What proven patterns and standards apply in this project?"
 4. **GitHub Data (github)** - "What changed in the repo recently?"
 5. **Jira Data (jira-data)** - "What are we supposed to be working on?"
 
@@ -1234,7 +1265,7 @@ A five-collection memory system:
 |-----------|---------------|
 | discussions collection | Session continuity - the "aha moment" |
 | code-patterns collection | Feature-specific code patterns |
-| conventions collection | Cross-project learning |
+| conventions collection | Project conventions and proven patterns |
 | github collection | GitHub PRs, issues, commits, code blobs |
 | jira-data collection | Jira issues and comments |
 | SessionStart hook | Load previous session context |

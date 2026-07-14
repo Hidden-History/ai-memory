@@ -118,5 +118,4 @@ All messages are automatically captured to the `discussions` collection:
 ## See Also
 
 - `src/memory/async_sdk_wrapper.py` — complete API documentation
-- `oversight/specs/tech-debt-035/phase-2-design.md` — design rationale
 - [COMMANDS.md](COMMANDS.md) — slash commands and skills reference

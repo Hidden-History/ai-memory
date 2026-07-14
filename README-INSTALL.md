@@ -27,7 +27,7 @@ When Parzival executes work, 3 skills are used in sequence:
 
 ### Core Rules
 
-1. **All agents are teammates in parallel** — spawned via Agent tool with `team_name`
+1. **All agents are teammates in parallel** — spawned via the `Agent` tool with a unique `name`; the team forms implicitly (no `TeamCreate`/`TeamDelete`, no `team_name` parameter)
 2. **BMAD agents follow their own workflow** — persona activation, menu, two-phase interaction
 3. **Regular agents receive direct instructions** — full instruction template, one-shot execution
 4. **Non-Claude providers** — when the user specifies a provider (e.g., "use openrouter"), the model-dispatch skill handles provider routing and terminal launch via tmux
@@ -93,8 +93,8 @@ Layer 4 — Model & Provider Selection (loaded on-demand)
 - For BMAD roles, selects the correct agent using the Quick Selection Matrix and agent-selection-guide, then determines **dispatch mode**:
   - **Execution mode**: one-shot instruction (DEV implementing, DEV reviewing, SM creating stories)
   - **Planning mode**: interactive relay protocol (PM creating PRD, Architect designing, Analyst researching)
-- Spawns agent as **teammate in parallel** (Agent tool with team_name)
-- Activates BMAD persona with the correct command (e.g., `/bmad-agent-bmm-dev`)
+- Spawns agent as **teammate in parallel** (`Agent` tool with a unique `name`; team forms implicitly, no `team_name`)
+- Activates BMAD persona with the correct command (e.g., `/bmad-agent-dev`)
 - For planning mode, follows the **Relay Protocol**: agent asks questions, Parzival researches answers from project files, presents recommendations with confidence levels to user, relays confirmed answers back to agent
 - For non-Claude providers, delegates terminal launch to the model-dispatch skill
 
@@ -102,12 +102,12 @@ Layer 4 — Model & Provider Selection (loaded on-demand)
 
 | Agent | Command | Planning Mode Workflows |
 |-------|---------|------------------------|
-| Analyst | /bmad-agent-bmm-analyst | /bmad-bmm-market-research, /bmad-bmm-domain-research, /bmad-bmm-technical-research, /bmad-bmm-create-product-brief |
-| PM | /bmad-agent-bmm-pm | /bmad-bmm-create-prd, /bmad-bmm-create-epics-and-stories |
-| Architect | /bmad-agent-bmm-architect | /bmad-bmm-create-architecture, /bmad-bmm-check-implementation-readiness |
-| DEV | /bmad-agent-bmm-dev | /bmad-bmm-dev-story (execution), /bmad-bmm-code-review (execution) |
-| SM | /bmad-agent-bmm-sm | /bmad-bmm-sprint-planning, /bmad-bmm-create-story |
-| UX Designer | /bmad-agent-bmm-ux-designer | /bmad-bmm-create-ux-design |
+| Analyst | /bmad-agent-analyst | /bmad-market-research, /bmad-domain-research, /bmad-technical-research, /bmad-product-brief |
+| PM | /bmad-agent-pm | /bmad-prd, /bmad-create-epics-and-stories |
+| Architect | /bmad-agent-architect | /bmad-architecture, /bmad-check-implementation-readiness |
+| DEV | /bmad-agent-dev | /bmad-dev-story (execution), /bmad-code-review (execution) |
+| SM | *(no dedicated agent persona)* | /bmad-sprint-planning, /bmad-create-story |
+| UX Designer | /bmad-agent-ux-designer | /bmad-ux |
 
 **Key constraints**:
 - EC-02: MUST use instruction template for every dispatch
@@ -185,27 +185,27 @@ Pre-validated team configurations for common patterns. Presets skip the full 6-s
 ### sprint-dev
 **When**: 2-3 stories need parallel implementation with code review
 **Structure**: SM Lead (Opus) + 2 DEV workers (Sonnet) + 1 DEV reviewer (Opus)
-**Commands**: Workers: `/bmad-bmm-dev-story`, Reviewer: `/bmad-bmm-code-review`
+**Commands**: Workers: `/bmad-dev-story`, Reviewer: `/bmad-code-review`
 
 ### story-prep
 **When**: Multiple stories need to be created from epics in bulk
 **Structure**: PM Lead (Opus) + 2-3 SM story creators (Sonnet)
-**Commands**: Workers: `/bmad-bmm-create-story`
+**Commands**: Workers: `/bmad-create-story`
 
 ### test-automation
 **When**: Completed stories need automated test coverage
 **Structure**: TEA Lead (Opus) + 2 QA workers (Sonnet)
-**Commands**: Workers: `/bmad-bmm-qa-automate`
+**Commands**: Workers: `/bmad-testarch-automate`
 
 ### architecture-review
 **When**: Pre-sprint architecture work with parallel research
 **Structure**: Architect Lead (Opus) + Analyst worker (Sonnet) + UX Designer worker (Sonnet)
-**Commands**: Analyst: `/bmad-bmm-technical-research`, UX: `/bmad-bmm-create-ux-design`
+**Commands**: Analyst: `/bmad-technical-research`, UX: `/bmad-ux`
 
 ### research
 **When**: Phase 1 parallel research across market, domain, and technical
 **Structure**: Analyst Lead (Opus) + 3 Analyst workers (Sonnet)
-**Commands**: `/bmad-bmm-market-research`, `/bmad-bmm-domain-research`, `/bmad-bmm-technical-research`
+**Commands**: `/bmad-market-research`, `/bmad-domain-research`, `/bmad-technical-research`
 
 ---
 

@@ -107,6 +107,7 @@ bash "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/scripts/memory/run-with-env.sh"
 | `--all` | off | Disable cap — surface all candidates |
 | `--json` | off | Machine-readable JSON output |
 | `--registry PATH` | (git root walk) | Override registry path |
+| `--no-reindex` | off | Skip the 5b derived-cache reindex so drift / discovery can be exercised with zero Qdrant writes (offline / sandbox) |
 
 **Drift types detected**:
 

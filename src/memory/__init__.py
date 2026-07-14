@@ -2,7 +2,7 @@
 
 Provides persistent semantic memory for Claude Code through:
 - Configuration management with environment overrides
-- Embedding service client (Nomic Embed Code)
+- Embedding service client (Jina Embeddings v2)
 - Qdrant vector store client wrapper
 - Memory payload models and validation
 

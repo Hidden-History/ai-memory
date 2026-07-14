@@ -6,7 +6,7 @@ The LLM Memory Classifier automatically reclassifies captured memories into more
 
 When memories are captured (via hooks), they receive an initial type based on the capture context. The classifier then analyzes the content and may reclassify to a more accurate type.
 
-**Example**: A PostToolUse capture initially typed as `implementation` might be reclassified to `error_fix` if the content describes fixing a bug.
+**Example**: A PostToolUse capture initially typed as `implementation` might be reclassified to `error_pattern` if the content describes fixing a bug.
 
 ## Architecture
 
@@ -63,7 +63,7 @@ OLLAMA_MODEL=llama3.2:3b
 OPENROUTER_API_KEY=sk-or-v1-your-key-here
 
 # Model to use
-OPENROUTER_MODEL=mistralai/devstral-2512:free
+OPENROUTER_MODEL=meta-llama/llama-3.2-3b-instruct:free
 
 # Recommended models:
 #   meta-llama/llama-3.2-3b-instruct:free - Free tier, current installer default
@@ -82,7 +82,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-your-key-here
 ANTHROPIC_MODEL=claude-haiku-4-5-20251001
 
 # Recommended models:
-#   claude-3-5-sonnet-20241022       - Best quality/cost ratio
+#   claude-haiku-4-5-20251001        - Best quality/cost ratio
 ```
 
 #### OpenAI (Cloud)
@@ -116,7 +116,7 @@ MEMORY_CLASSIFIER_RULE_CONFIDENCE=0.85
 MEMORY_CLASSIFIER_MIN_CONTENT_LENGTH=20
 
 # Request timeout in seconds
-MEMORY_CLASSIFIER_TIMEOUT=30
+MEMORY_CLASSIFIER_TIMEOUT=120
 
 # Max output tokens for LLM response
 MEMORY_CLASSIFIER_MAX_TOKENS=500
@@ -207,10 +207,10 @@ Access at: http://localhost:23000 (with `--profile monitoring`)
 
 | Metric | Description |
 |--------|-------------|
-| `memory_classifier_requests_total` | Total classification requests |
-| `memory_classifier_latency_seconds` | Classification latency |
-| `memory_classifier_fallback_total` | Fallback events |
-| `aimemory_tokens_consumed_total{operation="classification"}` | Tokens used |
+| `aimemory_classifier_requests_total` | Total classification requests |
+| `aimemory_classifier_latency_seconds` | Classification latency |
+| `aimemory_classifier_fallbacks_total` | Fallback events |
+| `aimemory_classifier_tokens_total` | Tokens used |
 
 ## Troubleshooting
 
@@ -294,7 +294,7 @@ The classifier can assign these types:
 
 ### code-patterns Collection
 - `implementation` - How features/components were built
-- `error_fix` - Errors encountered and solutions
+- `error_pattern` - Errors encountered and solutions
 - `refactor` - Refactoring patterns applied
 - `file_pattern` - File or module-specific patterns
 
@@ -342,7 +342,10 @@ Some types are never reclassified:
 
 ```python
 # In src/memory/classifier/config.py
-SKIP_RECLASSIFICATION_TYPES = {"session", "error_fix"}
+SKIP_RECLASSIFICATION_TYPES = {
+    "session", "error_pattern", "agent_response", "agent_handoff",
+    "agent_task", "agent_insight", "decision", "user_message", "blocker",
+}
 ```
 
 ## Related Documentation

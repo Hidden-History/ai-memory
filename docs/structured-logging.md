@@ -1,7 +1,7 @@
 # Structured Logging Guide
 
-**Version:** 1.0.0
-**Last Updated:** 2026-01-14
+**Version:** 2.8.3
+**Last Updated:** 2026-07-05
 **Status:** Canonical Reference
 
 Comprehensive guide to structured logging patterns in AI Memory Module. Established in Story 6.2 (Logging Infrastructure) and required for all Python code.
@@ -121,7 +121,7 @@ logger.info("operation_completed", extra={
 hook_duration_seconds.labels(hook_type="SessionStart").observe(duration_seconds)
 ```
 
-**Real Example** from `.claude/hooks/scripts/session_start.py:146-162`:
+**Real Example** from the timing/retrieval flow in `.claude/hooks/scripts/session_start.py` (`main()`):
 
 ```python
 start_time = time.perf_counter()
@@ -189,7 +189,7 @@ def log_timing(operation: str, **extra_fields):
 The `StructuredFormatter` automatically redacts sensitive keys:
 
 ```python
-# From src/memory/logging_config.py:21-25
+# From src/memory/logging_config.py (SENSITIVE_KEYS)
 SENSITIVE_KEYS = {
     "password", "token", "secret", "apikey", "api_key",
     "authorization", "credential", "auth", "key", "bearer",
@@ -370,7 +370,7 @@ Use consistent `snake_case` field names across all logs:
 ✅ `file_count`: Count instead of list
 ✅ `memory_ids`: Top 5 IDs only
 
-**Example from** `session_start.py:414-442`:
+**Example from** `session_start.py` (`main()` retrieval logging):
 
 ```python
 logger.info("session_retrieval_completed", extra={
@@ -513,7 +513,7 @@ See `docs/prometheus-queries.md` for detailed query patterns.
 ```promql
 # Prometheus: 95th percentile retrieval time by project
 histogram_quantile(0.95,
-  rate(ai_memory_retrieval_duration_seconds_bucket[5m])
+  rate(aimemory_retrieval_query_duration_seconds_bucket[5m])
 )
 
 # Then query Loki for corresponding logs:
@@ -559,14 +559,14 @@ Combine logs and metrics for alerting:
 # Prometheus alert rule
 - alert: HighMemoryFailureRate
   expr: |
-    rate(ai_memory_failure_events_total[5m]) > 0.1
+    rate(aimemory_failure_events_total[5m]) > 0.1
   annotations:
     summary: "High failure rate detected"
     loki_query: '{logger="ai_memory.*"} | json | level="ERROR"'
 ```
 
 **Workflow:**
-1. Prometheus detects elevated `ai_memory_failure_events_total`
+1. Prometheus detects elevated `aimemory_failure_events_total`
 2. Alert fires with embedded Loki query
 3. On-call engineer clicks Loki link
 4. JSON logs show exact errors with full context
@@ -623,12 +623,12 @@ logger.info("operation_completed", extra={
 
 **Implementation Files:**
 - `src/memory/logging_config.py` - StructuredFormatter, configure_logging()
-- `.claude/hooks/scripts/session_start.py:414-442` - Comprehensive logging example
-- `.claude/hooks/scripts/post_tool_capture.py:117-133` - Error handling patterns
+- `.claude/hooks/scripts/session_start.py` (`main()`) - Comprehensive logging example
+- `.claude/hooks/scripts/post_tool_capture.py` (`validate_hook_input()`) - Error handling patterns
 
 **Related Documentation:**
 - `docs/prometheus-queries.md` - Metric query patterns and histogram aggregation
-- `CLAUDE.md` - Project conventions and port assignments
+- `.claude/rules/ai-memory.md` - Project conventions and engineering guidance
 
 **External Best Practices:**
 - [Python Logging Best Practices 2026](https://www.carmatec.com/blog/python-logging-best-practices-complete-guide/)
@@ -637,4 +637,4 @@ logger.info("operation_completed", extra={
 
 ---
 
-**Last Updated:** 2026-01-14 by Dev Agent (ACT-006)
+**Last Updated:** 2026-07-05 by Dev Agent (ACT-006)

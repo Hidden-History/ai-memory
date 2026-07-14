@@ -1,4 +1,4 @@
-> **Note**: This is preserved reference documentation from the standalone POV Oversight Agent repository. Paths and commands shown may reference the original standalone structure. For current ai-memory installation, see [INSTALL.md](../INSTALL.md).
+> **Note**: This is preserved reference documentation from the standalone POV Oversight Agent repository. Paths and commands shown may reference the original standalone structure. For current ai-memory installation, see [INSTALL.md](../../INSTALL.md).
 
 <div align="center">
 
@@ -233,7 +233,7 @@ Always active (Layer 1):
 ☐ GC-05 through GC-08: Quality gates (verify fixes, classify issues, no known issues, no debt)
 ☐ GC-10, GC-12: Communication (summaries not raw output, loop until zero issues)
 ☐ GC-13 through GC-15: Process (best practices research, similar issue check, template usage)
-☐ GC-19: Have I spawned any agent without team_name?
+☐ GC-19: Have I spawned any agent without a unique agent `name`?
 ☐ GC-20: Have I included instruction in a BMAD activation message?
 
 Active during agent work (Layer 3):
@@ -243,7 +243,7 @@ Active during agent work (Layer 3):
 IF ANY CHECK FAILS → Course-correct IMMEDIATELY
 ```
 
-For complete constraint documentation, see [`_ai-memory/pov/constraints/global/constraints.md`](./_ai-memory/pov/constraints/global/constraints.md).
+For complete constraint documentation, see [`_ai-memory/pov/constraints/global/constraints.md`](../../_ai-memory/pov/constraints/global/constraints.md).
 
 > **Constraint System:** Parzival operates under **17 Global Constraints (GC-01 through GC-15 + GC-19 + GC-20)** defined in `constraints/global/constraints.md`. These cover identity (never implement, never guess, user manages Parzival, spawn agents as teammates), quality (verify fixes, zero issues, best practices research, template usage), and communication (review agent output, present summaries, precise instructions, loop until zero issues). Phase-specific constraints are loaded additionally per workflow.
 
@@ -314,7 +314,7 @@ Parzival uses a **three-script architecture** designed for **data safety** and *
 ./scripts/update-templates.sh /path/to/project # Optionally sync templates
 ```
 
-**Complete Guide:** See [`INSTALL-GUIDE.md`](./INSTALL-GUIDE.md) for step-by-step instructions with screenshots and troubleshooting.
+**Complete Guide:** See [`INSTALL-GUIDE-POV.md`](./INSTALL-GUIDE-POV.md) for step-by-step instructions with screenshots and troubleshooting.
 
 ---
 
@@ -596,7 +596,7 @@ Parzival uses a **five-layer constraint enforcement system** to maintain consist
 
 **Result:** Parzival maintains oversight role consistency throughout long conversations, even 50+ messages deep.
 
-**Architecture Documentation:** See [`docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md`](./docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md) for complete system design.
+**Architecture Documentation:** See [`docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md`](./CONSTRAINT-ENFORCEMENT-SYSTEM.md) for complete system design.
 
 ---
 
@@ -688,8 +688,8 @@ Comprehensive research documentation for the Parzival multi-agent system (now ac
 
 | Document | Purpose | Status |
 |----------|---------|--------|
-| [`docs/BMAD-Multi-Agent-Architecture.md`](./docs/BMAD-Multi-Agent-Architecture.md) | Complete multi-agent system architecture (React UI, PostgreSQL, FastAPI, Redis Streams) | ✅ Design Complete |
-| [`docs/Multi-Agent-Research-Tracker.md`](./docs/Multi-Agent-Research-Tracker.md) | Comprehensive research findings (BP-008 through BP-027, 16 completed studies) | ✅ Research Complete |
+| [`docs/BMAD-Multi-Agent-Architecture.md`](./BMAD-Multi-Agent-Architecture.md) | Complete multi-agent system architecture (React UI, PostgreSQL, FastAPI, Redis Streams) | ✅ Design Complete |
+| [`docs/Multi-Agent-Research-Tracker.md`](./Multi-Agent-Research-Tracker.md) | Comprehensive research findings (BP-008 through BP-027, 16 completed studies) | ✅ Research Complete |
 
 **Key Research Findings** (all 2025-2026, production-validated):
 - **BP-024**: Redis Streams recommended over PostgreSQL LISTEN/NOTIFY (production downtimes at Recall.ai)
@@ -732,15 +732,15 @@ your-project/oversight/
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
-| **[README.md](./README.md)** (this file) | Source of truth - identity, constraints, architecture | Everyone |
-| **[INSTALL-GUIDE.md](./INSTALL-GUIDE.md)** | Complete step-by-step installation with troubleshooting | New users |
+| **[README-POV.md](./README-POV.md)** (this file) | Source of truth - identity, constraints, architecture | Everyone |
+| **[INSTALL-GUIDE-POV.md](./INSTALL-GUIDE-POV.md)** | Complete step-by-step installation with troubleshooting | New users |
 
 ### Technical Reference
 
 | Document | Purpose | Audience |
 |----------|---------|----------|
-| **[docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md](./docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md)** | Behavioral design architecture | Module developers |
-| **[docs/SHARDING_STRATEGY.md](./docs/SHARDING_STRATEGY.md)** | Document sharding for long-term projects | Module developers |
+| **[docs/CONSTRAINT-ENFORCEMENT-SYSTEM.md](./CONSTRAINT-ENFORCEMENT-SYSTEM.md)** | Behavioral design architecture | Module developers |
+| **[docs/SHARDING_STRATEGY.md](./SHARDING_STRATEGY.md)** | Document sharding for long-term projects | Module developers |
 | **`_ai-memory/pov/constraints/global/constraints.md`** | Global constraints (GC-01 to GC-20) | Parzival itself |
 | **`_ai-memory/pov/workflows/WORKFLOW-MAP.md`** | Master routing decision tree | Parzival itself |
 | **`_ai-memory/pov/agents/parzival.md`** | Agent definition with activation sequence | BMAD system |
