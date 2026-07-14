@@ -3863,13 +3863,43 @@ detect_codex_cli() {
     command -v codex >/dev/null 2>&1
 }
 
+# BUG-529: project-adapter-presence detection. An IDE whose AI-Memory adapters
+# are already deployed in the *project* must be refreshed on a normal update,
+# even when its CLI is absent from the current machine's PATH — otherwise those
+# adapters permanently drift. Markers mirror what write_<ide>_config deploys.
+detect_gemini_project() {
+    local project_path="$1"
+    [[ -f "$project_path/.gemini/settings.json" ]] || [[ -f "$project_path/AI-MEMORY.md" ]]
+}
+
+detect_cursor_project() {
+    local project_path="$1"
+    [[ -f "$project_path/.cursor/hooks.json" ]] || [[ -d "$project_path/.cursor/skills" ]] || [[ -f "$project_path/.cursor/rules/ai-memory.mdc" ]]
+}
+
+detect_codex_project() {
+    local project_path="$1"
+    [[ -f "$project_path/.codex/hooks.json" ]] || [[ -d "$project_path/.codex/skills" ]] || [[ -d "$project_path/.agents/skills" ]]
+}
+
 parse_ide_flag() {
     local flag="$1"
+    local project_path="${2:-}"
     if [[ -z "$flag" ]]; then
+        # Auto-detect: UNION machine-CLI presence with already-deployed
+        # project-adapter presence (BUG-529). Each IDE is added at most once
+        # (short-circuit ||), so no duplicate tokens. Explicit --ide / none
+        # (handled below) bypass auto-detect entirely.
         local detected=""
-        detect_gemini_cli && detected="$detected gemini"
-        detect_cursor_ide && detected="$detected cursor"
-        detect_codex_cli && detected="$detected codex"
+        if detect_gemini_cli || { [[ -n "$project_path" ]] && detect_gemini_project "$project_path"; }; then
+            detected="$detected gemini"
+        fi
+        if detect_cursor_ide || { [[ -n "$project_path" ]] && detect_cursor_project "$project_path"; }; then
+            detected="$detected cursor"
+        fi
+        if detect_codex_cli || { [[ -n "$project_path" ]] && detect_codex_project "$project_path"; }; then
+            detected="$detected codex"
+        fi
         echo "$detected"
     elif [[ "$flag" == "none" ]]; then
         echo ""
@@ -4168,7 +4198,7 @@ configure_multi_ide() {
     local force="${5:-false}"
 
     local ide_list
-    ide_list=$(parse_ide_flag "$ide_flag")
+    ide_list=$(parse_ide_flag "$ide_flag" "$project_path")
 
     if [[ -z "$ide_list" ]]; then
         log_info "No additional IDEs detected — Claude Code hooks already configured"
