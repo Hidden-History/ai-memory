@@ -3877,8 +3877,9 @@ detect_codex_cli() {
 # from being selected and then wholesale-overwritten by write_<ide>_config.
 detect_gemini_project() {
     local project_path="$1"
+    # Load-bearing detection marker: must stay in sync with the H1 in src/memory/adapters/templates/gemini/ai-memory.md — guarded by test_gemini_detection_marker_parity.
     { [[ -f "$project_path/.gemini/settings.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.gemini/settings.json" 2>/dev/null; } \
-        || [[ -f "$project_path/AI-MEMORY.md" ]]
+        || { [[ -f "$project_path/AI-MEMORY.md" ]] && grep -q "# AI Memory — Agent Guidance" "$project_path/AI-MEMORY.md" 2>/dev/null; }
 }
 
 detect_cursor_project() {
@@ -3892,7 +3893,8 @@ detect_codex_project() {
     local project_path="$1"
     { [[ -f "$project_path/.codex/hooks.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.codex/hooks.json" 2>/dev/null; } \
         || [[ -d "$project_path/.codex/skills/search-memory" ]] \
-        || [[ -d "$project_path/.agents/skills/search-memory" ]]
+        || [[ -d "$project_path/.agents/skills/search-memory" ]] \
+        || grep -q "BEGIN AI-MEMORY" "$project_path/AGENTS.md" 2>/dev/null
 }
 
 parse_ide_flag() {

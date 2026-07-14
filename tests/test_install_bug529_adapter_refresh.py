@@ -16,6 +16,7 @@ deterministically prove selection driven by project-adapter-presence alone,
 independent of whatever CLIs happen to be on the test runner's PATH.
 """
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -234,11 +235,15 @@ class TestOwnershipMarkerRequiredForNativeConfig:
         assert "codex" in selected
 
     def test_ai_memory_guidance_files_still_select(self, install_sh_no_main, tmp_path):
-        # The already-ai-memory-specific guidance markers are unchanged: bare
-        # existence of AI-MEMORY.md (gemini) / .cursor/rules/ai-memory.mdc still counts.
+        # The already-ai-memory-specific guidance markers still count: an
+        # ownership-marked AI-MEMORY.md (gemini) / .cursor/rules/ai-memory.mdc.
+        # fix-r2 residual #1: AI-MEMORY.md is now ownership-gated (not bare
+        # existence) — the fixture must carry the real guidance header.
         project = tmp_path / "proj"
         project.mkdir()
-        (project / "AI-MEMORY.md").write_text("guidance", encoding="utf-8")
+        (project / "AI-MEMORY.md").write_text(
+            "# AI Memory — Agent Guidance\n\nguidance body", encoding="utf-8"
+        )
         (project / ".cursor" / "rules").mkdir(parents=True)
         (project / ".cursor" / "rules" / "ai-memory.mdc").write_text(
             "---\nalwaysApply: true\n---\n", encoding="utf-8"
@@ -246,6 +251,30 @@ class TestOwnershipMarkerRequiredForNativeConfig:
         selected = _parse_ide(install_sh_no_main, "", project)
         assert "gemini" in selected
         assert "cursor" in selected
+
+    def test_unmarked_ai_memory_md_not_selected(self, install_sh_no_main, tmp_path):
+        # fix-r2 residual #1: a user's own hand-written root AI-MEMORY.md (no
+        # ownership header), no marked settings.json, no CLI → gemini must NOT
+        # be selected (previously bare existence alone selected it, risking
+        # write_gemini_config clobbering the file + settings.json).
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "AI-MEMORY.md").write_text(
+            "My own notes about AI and memory.", encoding="utf-8"
+        )
+        assert "gemini" not in _parse_ide(install_sh_no_main, "", project)
+
+    def test_agents_md_managed_block_selects_codex(self, install_sh_no_main, tmp_path):
+        # fix-r2 residual #2: an AGENTS.md containing the merge_agents_md.py
+        # managed-block marker selects codex, even with no codex CLI on PATH
+        # and no other codex adapter artifact present.
+        project = tmp_path / "proj"
+        project.mkdir()
+        (project / "AGENTS.md").write_text(
+            "<!-- BEGIN AI-MEMORY -->\nguidance\n<!-- END AI-MEMORY -->\n",
+            encoding="utf-8",
+        )
+        assert _parse_ide(install_sh_no_main, "", project) == ["codex"]
 
 
 class TestExplicitFlagSemanticsPreserved:
@@ -300,3 +329,42 @@ class TestSelectionIsReadOnly:
         assert before == after, "selection mutated a project file"
         assert before_tree == after_tree, "selection created/removed a path"
         assert user_hooks.read_text(encoding="utf-8") == '{"user": "owned"}'
+
+
+class TestGeminiDetectionMarkerParity:
+    """fix-r2 parity gate: detect_gemini_project's AI-MEMORY.md ownership grep
+    (install.sh) and the shipped gemini template's H1 (both reviewers flagged)
+    have nothing asserting they stay in sync. If a future edit changes one and
+    not the other, gemini detection silently breaks on existing installs, with
+    no failing test. install.sh is the single source of truth for the marker —
+    this test extracts it from there rather than hardcoding a third copy."""
+
+    def test_gemini_detection_marker_parity(self):
+        install_sh_text = _INSTALL_SH.read_text(encoding="utf-8")
+        match = re.search(
+            r'grep -q "([^"]+)" "\$project_path/AI-MEMORY\.md"', install_sh_text
+        )
+        assert match, (
+            "Could not find detect_gemini_project's AI-MEMORY.md grep pattern "
+            f"in {_INSTALL_SH}. If the grep line moved or changed shape, update "
+            "this test's extraction regex."
+        )
+        marker = match.group(1)
+
+        template_path = (
+            _REPO
+            / "src"
+            / "memory"
+            / "adapters"
+            / "templates"
+            / "gemini"
+            / "ai-memory.md"
+        )
+        template_text = template_path.read_text(encoding="utf-8")
+        assert marker in template_text, (
+            f"detect_gemini_project's ownership marker {marker!r} (extracted "
+            f"from install.sh) is absent from {template_path}. The install.sh "
+            "grep and the shipped template's H1 have drifted out of sync — "
+            "gemini detection will silently stop working on existing installs "
+            "whose AI-MEMORY.md was deployed from an older template."
+        )
