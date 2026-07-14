@@ -2,6 +2,9 @@
 plan_id: PLAN-<SLUG>-<YYYY-MM-DD>
 type: build | ops | maintenance | verification | research
 status: draft | approved | active | done | superseded | abandoned
+plan_role: standalone | master | session   # optional; default standalone
+master_plan: <path to MASTER plan | none>  # required when plan_role: session
+step_id: <ST-NN | ALL | none>              # required when plan_role: session (ALL = spine-wide verification/audit child)
 previous_plan: <PLAN-… filename | none>
 previous_completed: yes | no | n/a
 approved_by: <user> | pending

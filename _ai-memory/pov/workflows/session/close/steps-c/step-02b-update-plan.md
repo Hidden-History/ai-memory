@@ -10,7 +10,7 @@ nextStepFile: './step-03-create-handoff.md'
 
 ## STEP GOAL:
 
-Bring the active per-initiative plan into sync with what actually happened this session: update item statuses, run the completeness / supersession audit so no plan ends with silent open items, and confirm the done-condition by evidence when the plan is done.
+Bring the active per-initiative plan into sync with what actually happened this session: update item statuses, run the completeness / supersession audit so no plan ends with silent open items, roll a session child back into its master spine row, and confirm the done-condition by evidence when the plan is done.
 
 **Scope:**
 - Available context: Session summary from Step 1, updated tracking from Step 2, plans under `{oversight_path}/plans/`
@@ -29,6 +29,8 @@ Bring the active per-initiative plan into sync with what actually happened this 
 ### 0. Locate the Active Plan
 
 Identify the active plan for this session's work under `{oversight_path}/plans/` — the one whose front-matter `status:` is `active` or `approved` and whose subject matches the worked initiative.
+
+**Exclude any `plan_role: master` plan from this candidate set** — a master is the spine, never "the active plan" being closed; it is updated via Section 4 (Master-Row Roll-Up), not selected here. When no master spine exists, apply the selection below unchanged.
 
 - If none applies (trivial/reactive work with no plan) → note "no active plan" and advance to `{nextStepFile}`.
 - If one applies → proceed.
@@ -64,13 +66,32 @@ If all items are `done` and the plan is being closed:
 
 ---
 
-### 4. Verify Plan State
+### 4. Master-Row Roll-Up (when the active plan is a session child)
+
+If the active plan's front-matter is `plan_role: session`, it MUST roll back into its master spine the **same session** — an unrolled child is an orphan (the #1 way the master stops being SSoT). Using the plan's `master_plan` + `step_id` link, update that master row from **git + live evidence as truth**:
+
+- `Built? (+SHA)` from the merge / commit evidence.
+- `Verified? (mocked)` from the test / CI evidence (a ref, not a bare ✅).
+- `Live-verified?` **only** with an evidence link + date — **never** mark a step Live-verified without one (anti-watermelon: green ≠ runnable). If there is no live-run evidence, leave it unset with the reason.
+- **Derive** the row's `Status` (RAG: `GREEN` / `YELLOW` / `RED` / `—`) from those columns — never hand-set it.
+- Stamp the row's open-issue ids + `Updated` date.
+
+**`step_id: ALL` carve-out:** a spine-wide verification/audit child (`step_id: ALL`) rolls up into **every** master row (a documented exception, not one row), applying the same evidence rules per row.
+
+If the step did not complete this session, the row keeps its prior status, this plan's Continuity Log marks it **carried-over**, and the master's open-child pointer keeps referencing this plan. Flag any session child that closes without rolling into its master row as an orphan anomaly.
+
+If the active plan has no master (`plan_role: standalone` or absent), skip this section.
+
+---
+
+### 5. Verify Plan State
 
 After updates, confirm:
 - Item statuses match the session's actual outcomes; at most one item is `doing`
 - Every open item is accounted for (rolled forward, or plan superseded/abandoned with a reason)
 - Continuity Log records each status change and any supersession/abandonment reason
 - A `done` plan's done-condition was confirmed by evidence before the status flip
+- A `plan_role: session` child rolled up into its master row this session (evidence-linked; no `Live-verified?` without an evidence link + date), or is explicitly marked carried-over (N/A for a standalone plan / no master)
 
 ## CRITICAL STEP COMPLETION NOTE
 

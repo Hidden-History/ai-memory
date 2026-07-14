@@ -10,7 +10,7 @@ nextStepFile: './step-03-present-and-wait.md'
 
 ## STEP GOAL:
 
-Enrich the status report compiled in Step 2 with plan bearings: load the active per-initiative plan, identify the resume point, and apply the proportionate plan-gate so no initiative is dispatched into a vacuum.
+Enrich the status report compiled in Step 2 with plan bearings: read any master spine first, load the active per-initiative plan, identify the resume point, and apply the proportionate plan-gate (including the stage-gate ordering guard) so no initiative is dispatched into a vacuum.
 
 **Scope:**
 - Available context: The compiled status report from Step 2, plans under `{oversight_path}/plans/`
@@ -26,9 +26,26 @@ Enrich the status report compiled in Step 2 with plan bearings: load the active 
 
 ## Sequence
 
+### 0. Master-First Spine Read (only when a master plan exists)
+
+Before locating a single active plan, check for a master spine: scan the front-matter of plan files under `{oversight_path}/plans/*.md` — those carrying plan front-matter (a `plan_id` or `plan_role` field present) — for a plan with `plan_role: master`. Skip any file with no plan front-matter (e.g. `README.md` / `INDEX.md`); a master need not be named `PLAN-*` (e.g. `MASTER-PIPELINE-PLAN.md`) and is still detected this way.
+
+- **If no `plan_role: master` plan exists** → skip this section and use the single-plan logic in Sections 1–4 unchanged. This preserves today's behavior for projects with no master spine.
+- **If a `plan_role: master` plan exists** → read it FIRST, ahead of any single active plan:
+  1. **Current step** = the first master-spine row, in canonical order, whose `Status` is not `GREEN` (i.e. `RED`, `YELLOW`, or `—`/NOT_STARTED).
+  2. **Recommended resume point** = that current step's open **session child** — the `plan_role: session` plan whose `master_plan` + `step_id` link back to this master row — not merely "the most recent active plan."
+  3. **Orphan-child check (F-10):** any `plan_role: session` plan missing `master_plan` or `step_id` is a plan-integrity anomaly (an orphan child — the #1 SSoT-killer). Flag it (same treatment as the baseline-drift anomaly below); do not resolve it here.
+  4. **`step_id: ALL` carve-out:** a spine-wide verification/audit child may set `step_id: ALL` (a documented exception — it maps to **every** master row, not one). Treat it as a valid session child for the current step, not a mismatch or an orphan.
+
+Fold the spine rollup — current step, recommended session child, any orphan anomaly — into the report, then continue to Section 1 to confirm the active plan against this bearing.
+
+---
+
 ### 1. Locate the Active Plan
 
 Scan `{oversight_path}/plans/PLAN-*.md` filenames (no full reads yet). Identify the plan for the current initiative — the one whose front-matter `status:` is `active` or `approved` and whose subject matches the current task/initiative from the Step 2 report.
+
+**When Section 0 found a master spine:** exclude any `plan_role: master` plan from this candidate set (a master is the spine, never "the active plan") and prefer the current step's session child — the Section 0 resume point — as the active plan. When no master spine exists, apply the selection below unchanged.
 
 - If exactly one active/approved plan matches → that is the active plan.
 - If none exists → record "no active plan" (feeds the gate in Section 3).
@@ -62,11 +79,13 @@ Gate on **scope, never effort or time**. Classify the pending work:
 
 If the pending work is an **initiative** AND no `status: approved | active` plan exists for it, then the first recommended action in Step 3 MUST be **"draft a plan and get user approval before any task dispatch"** — ahead of any execution recommendation.
 
+**Stage-gate ordering (F-09 — applies only when a master spine was read in Section 0):** if the recommended or user-requested next action targets a master step *downstream* of the current step while an upstream row is `RED`, `YELLOW`, or `—`, that downstream step's BUILD / verify-claims work is **gated**. Surface a WARN and require an explicit user override before recommending it in Step 3 — e.g. "upstream ST-NN is not GREEN; downstream BUILD is gated — proceed read-only, or override with a reason." Read-only design / research / story-authoring look-ahead for the downstream step is **not** gated. This is a warn-and-override, not a hard block.
+
 ---
 
 ### 4. Hand Bearings to Step 3
 
-Fold the plan-status rollup, the resume point, any plan/tracking anomaly, and the gate outcome into the compiled report so Step 3's recommendation reflects them. Do not present here.
+Fold the plan-status rollup, the resume point (the current step's session child when a master spine applies), any plan/tracking or orphan-child anomaly, and the gate outcome — including any F-09 stage-gate WARN — into the compiled report so Step 3's recommendation reflects them. Do not present here.
 
 ## CRITICAL STEP COMPLETION NOTE
 
