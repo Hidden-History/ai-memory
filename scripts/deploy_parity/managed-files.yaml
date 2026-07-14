@@ -1,0 +1,156 @@
+# managed-files registry — the single ownership source-of-truth the deploy-parity
+# gate reads (BP-186). One row per installer-managed file class. Both the deploy
+# functions in scripts/install.sh AND scripts/deploy_parity/deploy_parity.py are
+# reconciled against this table, so ownership can never silently diverge between
+# "what the installer does" and "what the gate checks" (BP-186 §2.2 C6).
+#
+# Fields:
+#   id         — stable class identifier
+#   class      — taxonomy (BP-186 §2.3): MANAGED_REFRESH_FILE | MANAGED_REFRESH_SET
+#                | MANAGED_BLOCK_IN_USER_FILE | MANAGED_ENTRY_IN_USER_FILE
+#                | MANAGED_MIGRATED_FILE | USER_OWNED_PRESERVE
+#   deploy_fn  — the install.sh function (or script) that deploys the class
+#   ownership  — how the class is recognised as owned (kind: exact_filename |
+#                glob | directory | canonical_tree | marker | json_member | user)
+#   source*    — source locator under {INSTALL_DIR}: source | source_glob | source_dir
+#   target*    — deployed locator under {PROJECT}: target | target_dir | target_dirs
+#   refresh    — "unconditional" ⇒ deploy cp must NOT be dominated by the
+#                hook-config force-gate (BP-186 C3 / BUG-527)
+#   prune      — "required" ⇒ deploy_fn must prune owned members absent from
+#                source (BP-186 C2 / BUG-528); "block_scoped" for marker blocks
+#   ide        — the IDE whose presence makes a guidance file expected (BUG-529
+#                detection): gemini | cursor | codex
+#   config_marker — file (relative to {PROJECT}) whose presence means the IDE is
+#                configured; combined with `ide` for the guidance-present check
+
+classes:
+  # ── adapter command templates (MANAGED_REFRESH_SET, byte-equal, refresh) ──
+  - id: gemini_commands
+    class: MANAGED_REFRESH_SET
+    deploy_fn: write_gemini_config
+    ownership: {kind: glob, pattern: "*.toml"}
+    source_glob: "{INSTALL_DIR}/src/memory/adapters/templates/gemini/*.toml"
+    target_dir: "{PROJECT}/.gemini/commands"
+    refresh: unconditional
+
+  - id: cursor_skills
+    class: MANAGED_REFRESH_SET
+    deploy_fn: write_cursor_config
+    ownership: {kind: directory}
+    source_dir: "{INSTALL_DIR}/src/memory/adapters/templates/cursor"
+    source_skill_dirs: [search-memory, memory-status, save-memory]
+    target_dir: "{PROJECT}/.cursor/skills"
+    refresh: unconditional
+
+  - id: codex_skills
+    class: MANAGED_REFRESH_SET
+    deploy_fn: write_codex_config
+    ownership: {kind: directory}
+    source_dir: "{INSTALL_DIR}/src/memory/adapters/templates/codex"
+    source_skill_dirs: [search-memory, memory-status]
+    target_dirs:
+      - "{PROJECT}/.agents/skills"
+      - "{PROJECT}/.codex/skills"
+    refresh: unconditional
+
+  # ── adapter agent-guidance files (present-when-IDE-configured, BUG-529 detect) ──
+  - id: gemini_guidance
+    class: MANAGED_REFRESH_FILE
+    deploy_fn: write_gemini_config
+    ownership: {kind: exact_filename}
+    source: "{INSTALL_DIR}/src/memory/adapters/templates/gemini/ai-memory.md"
+    target: "{PROJECT}/AI-MEMORY.md"
+    ide: gemini
+    config_marker: ".gemini/settings.json"
+
+  - id: cursor_guidance
+    class: MANAGED_REFRESH_FILE
+    deploy_fn: write_cursor_config
+    ownership: {kind: exact_filename}
+    source: "{INSTALL_DIR}/src/memory/adapters/templates/cursor/ai-memory.mdc"
+    target: "{PROJECT}/.cursor/rules/ai-memory.mdc"
+    ide: cursor
+    config_marker: ".cursor/hooks.json"
+
+  - id: codex_agents_block
+    class: MANAGED_BLOCK_IN_USER_FILE
+    deploy_fn: merge_agents_md.py
+    ownership:
+      kind: marker
+      begin: "<!-- BEGIN AI-MEMORY -->"
+      end: "<!-- END AI-MEMORY -->"
+    source: "{INSTALL_DIR}/src/memory/adapters/templates/codex/ai-memory.md"
+    target: "{PROJECT}/AGENTS.md"
+    prune: block_scoped
+    ide: codex
+    config_marker: ".codex/hooks.json"
+
+  # ── Parzival pov shims (MANAGED_REFRESH_SET dir, set-equal, prune required) ──
+  - id: pov_agent_shims
+    class: MANAGED_REFRESH_SET
+    deploy_fn: deploy_parzival_shims
+    ownership: {kind: directory}
+    source_dir: "{INSTALL_DIR}/.claude/agents/pov"
+    target_dir: "{PROJECT}/.claude/agents/pov"
+    prune: required
+
+  - id: pov_command_shims
+    class: MANAGED_REFRESH_SET
+    deploy_fn: deploy_parzival_shims
+    ownership: {kind: directory}
+    source_dir: "{INSTALL_DIR}/.claude/commands/pov"
+    target_dir: "{PROJECT}/.claude/commands/pov"
+    prune: required
+
+  # ── ai-memory skills (byte-equal, baseline on CANONICAL not .claude mirror, TD-816) ──
+  - id: ai_memory_skills_canonical
+    class: MANAGED_REFRESH_SET
+    deploy_fn: deploy_ai_memory_skills
+    ownership: {kind: canonical_tree}
+    source_dir: "{INSTALL_DIR}/_ai-memory/skills"
+    target_dir: "{PROJECT}/_ai-memory/skills"
+
+  - id: parzival_pov_skills_canonical
+    class: MANAGED_REFRESH_SET
+    deploy_fn: deploy_parzival_v2
+    ownership: {kind: canonical_tree}
+    source_dir: "{INSTALL_DIR}/_ai-memory/pov/skills"
+    target_dir: "{PROJECT}/_ai-memory/pov/skills"
+
+  # ── agent-guidance rule (MANAGED_REFRESH_FILE, always refresh) ──
+  - id: claude_rules_guidance
+    class: MANAGED_REFRESH_FILE
+    deploy_fn: deploy_ai_memory_rules
+    ownership: {kind: exact_filename}
+    source: "{INSTALL_DIR}/.claude/rules/ai-memory.md"
+    target: "{PROJECT}/.claude/rules/ai-memory.md"
+
+  # ── oversight templates (MANAGED_MIGRATED_FILE: byte-equal OR hash ∈ registry) ──
+  - id: oversight_templates
+    class: MANAGED_MIGRATED_FILE
+    deploy_fn: _sync_oversight_templates
+    ownership: {kind: migrated_tree}
+    source_dir: "{INSTALL_DIR}/templates/oversight"
+    target_dir: "{PROJECT}/oversight"
+    version_registry: "{INSTALL_DIR}/templates/known-oversight-template-versions.txt"
+
+  # ── user-owned preserved files (never written if present; F7 negative test) ──
+  - id: gemini_settings
+    class: USER_OWNED_PRESERVE
+    ownership: {kind: user}
+    target: "{PROJECT}/.gemini/settings.json"
+
+  - id: cursor_hooks
+    class: USER_OWNED_PRESERVE
+    ownership: {kind: user}
+    target: "{PROJECT}/.cursor/hooks.json"
+
+  - id: codex_hooks
+    class: USER_OWNED_PRESERVE
+    ownership: {kind: user}
+    target: "{PROJECT}/.codex/hooks.json"
+
+  - id: claude_settings
+    class: USER_OWNED_PRESERVE
+    ownership: {kind: user}
+    target: "{PROJECT}/.claude/settings.json"

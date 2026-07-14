@@ -30,7 +30,7 @@ The workflow follows a layered initialization: first loading project context fil
 ## Key Decisions
 
 - **Bootstrap trigger**: Whether to run the Parzival bootstrap (step-01b) depends on whether Parzival is operating as the oversight agent; skip for other agents
-- **Constraint injection**: Behavioral constraints are loaded at Parzival activation (GC-01 through GC-21 always active). No dedicated constraint-injection step is required during session-start.
+- **Constraint injection**: Behavioral constraints are loaded at Parzival activation (GC-01 through GC-22 always active). No dedicated constraint-injection step is required during session-start.
 - **Recommendation framing**: Parzival must always present a specific recommendation with reasoning, never just "what would you like to do?"
 
 ## Outputs

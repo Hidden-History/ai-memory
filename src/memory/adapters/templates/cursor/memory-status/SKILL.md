@@ -8,5 +8,5 @@ Check the status of the ai-memory system including Qdrant health and collection 
 
 ## Instructions
 
-1. Invoke the status script with **no shell**: pass a discrete argv array — `$AI_MEMORY_INSTALL_DIR/.venv/bin/python`, then `$AI_MEMORY_INSTALL_DIR/src/memory/cli/status.py`. Do not embed the path inside a single quoted shell string.
+1. Invoke the status script with **no shell**: pass a discrete argv array — `$AI_MEMORY_INSTALL_DIR/scripts/memory/run-with-env.sh`, then `$AI_MEMORY_INSTALL_DIR/scripts/memory/aim_status.py`. Do not embed the path inside a single quoted shell string.
 2. Present the status output clearly to the user.
