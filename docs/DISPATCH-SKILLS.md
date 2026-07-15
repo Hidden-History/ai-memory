@@ -22,7 +22,7 @@ Multi-LLM agent dispatch for Claude Code -- design teams, activate agents across
 The Parzival dispatch skill suite is a set of 7 skills that enable multi-agent orchestration within Claude Code. Together, they allow Parzival to:
 
 - **Design parallel agent teams** with file ownership isolation and conflict avoidance
-- **Activate agents** using either generic or BMAD (Build Measure Analyze Design) personas
+- **Activate agents** using either generic or BMAD personas
 - **Route tasks to different LLM providers** -- Claude (native), Ollama, OpenRouter, and 8 additional backends
 - **Manage the full agent lifecycle** -- instruction delivery, progress monitoring, output review, correction loops, and shutdown
 

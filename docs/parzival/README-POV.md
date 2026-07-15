@@ -852,7 +852,7 @@ MIT License - See BMAD Method for full license terms.
 ## 🙏 Acknowledgments
 
 Parzival is built on:
-- **[BMAD Method](https://github.com/bmad-method/bmad-method)** - AI-powered development methodology
+- **[BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD)** - AI-powered development methodology
 - **[Claude Code](https://claude.ai/code)** - AI pair programming environment
 
 ---
