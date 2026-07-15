@@ -3863,13 +3863,58 @@ detect_codex_cli() {
     command -v codex >/dev/null 2>&1
 }
 
+# BUG-529: project-adapter-presence detection. An IDE whose AI-Memory adapters
+# are already deployed in the *project* must be refreshed on a normal update,
+# even when its CLI is absent from the current machine's PATH — otherwise those
+# adapters permanently drift. Markers mirror what write_<ide>_config deploys.
+#
+# Detection requires AI-Memory *ownership*, not bare per-IDE path existence:
+# generic native configs (.gemini/settings.json, .cursor/hooks.json,
+# .codex/hooks.json) count only when they CONTAIN the AI_MEMORY_INSTALL_DIR
+# marker (mirroring the write_<ide>_config force-gate grep), and skill presence
+# is scoped to the ai-memory-named subskill dir (search-memory) rather than the
+# bare skills/ dir. This prevents a user's unrelated hand-written native config
+# from being selected and then wholesale-overwritten by write_<ide>_config.
+detect_gemini_project() {
+    local project_path="$1"
+    # Load-bearing detection marker: must stay in sync with the H1 in src/memory/adapters/templates/gemini/ai-memory.md — guarded by test_gemini_detection_marker_parity.
+    { [[ -f "$project_path/.gemini/settings.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.gemini/settings.json" 2>/dev/null; } \
+        || { [[ -f "$project_path/AI-MEMORY.md" ]] && grep -q "# AI Memory — Agent Guidance" "$project_path/AI-MEMORY.md" 2>/dev/null; }
+}
+
+detect_cursor_project() {
+    local project_path="$1"
+    { [[ -f "$project_path/.cursor/hooks.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.cursor/hooks.json" 2>/dev/null; } \
+        || [[ -d "$project_path/.cursor/skills/search-memory" ]] \
+        || [[ -f "$project_path/.cursor/rules/ai-memory.mdc" ]]
+}
+
+detect_codex_project() {
+    local project_path="$1"
+    { [[ -f "$project_path/.codex/hooks.json" ]] && grep -q "AI_MEMORY_INSTALL_DIR" "$project_path/.codex/hooks.json" 2>/dev/null; } \
+        || [[ -d "$project_path/.codex/skills/search-memory" ]] \
+        || [[ -d "$project_path/.agents/skills/search-memory" ]] \
+        || grep -q "BEGIN AI-MEMORY" "$project_path/AGENTS.md" 2>/dev/null
+}
+
 parse_ide_flag() {
     local flag="$1"
+    local project_path="${2:-}"
     if [[ -z "$flag" ]]; then
+        # Auto-detect: UNION machine-CLI presence with already-deployed
+        # project-adapter presence (BUG-529). Each IDE is added at most once
+        # (short-circuit ||), so no duplicate tokens. Explicit --ide / none
+        # (handled below) bypass auto-detect entirely.
         local detected=""
-        detect_gemini_cli && detected="$detected gemini"
-        detect_cursor_ide && detected="$detected cursor"
-        detect_codex_cli && detected="$detected codex"
+        if detect_gemini_cli || { [[ -n "$project_path" ]] && detect_gemini_project "$project_path"; }; then
+            detected="$detected gemini"
+        fi
+        if detect_cursor_ide || { [[ -n "$project_path" ]] && detect_cursor_project "$project_path"; }; then
+            detected="$detected cursor"
+        fi
+        if detect_codex_cli || { [[ -n "$project_path" ]] && detect_codex_project "$project_path"; }; then
+            detected="$detected codex"
+        fi
         echo "$detected"
     elif [[ "$flag" == "none" ]]; then
         echo ""
@@ -4168,7 +4213,7 @@ configure_multi_ide() {
     local force="${5:-false}"
 
     local ide_list
-    ide_list=$(parse_ide_flag "$ide_flag")
+    ide_list=$(parse_ide_flag "$ide_flag" "$project_path")
 
     if [[ -z "$ide_list" ]]; then
         log_info "No additional IDEs detected — Claude Code hooks already configured"
@@ -5664,6 +5709,158 @@ with open(p, "w") as fh:
 PY
 }
 
+# ---------------------------------------------------------------------------
+# Pending-change manifest (PLAN-033 P1 / BP-188)
+#
+# When _sync_oversight_templates finds an oversight file that is BOTH
+# user-modified AND changed upstream (the n_warn "needs-merge" branch), the
+# installer additionally emits a machine-readable pending-change manifest at a
+# fixed project-audit path. The long-lived in-project Parzival discovers it at
+# session-start (PLAN-033 P2) and reconciles each entry under human review
+# (P3) — so a shipped structural update reaches the operator's data-bearing
+# files WITHOUT the installer ever clobbering their data.
+#
+# This is additive/producer-only: it never mutates user data and never changes
+# the existing new/sync/migrate/warn behavior (the log_warning STAYS).
+#
+#   $PROJECT_PATH/.audit/state/pending-updates.json
+#       JSON, schema per BP-188 §3.2; sibling to oversight-templates.manifest.
+# ---------------------------------------------------------------------------
+
+# Manifest schema version (Terraform format_version semantics: bump MINOR for
+# backward-compatible additions; a consumer REJECTS an unknown MAJOR).
+_PENDING_UPDATES_SCHEMA_VERSION="1.0"
+
+# Consumer-side read guard (P1 fail-loud stub the P2 discovery builds on): read
+# pending-updates.json and REJECT an unknown MAJOR schema_version (accepts a
+# newer minor within the known major). Absent file => nothing pending => ok.
+# Returns non-zero + stderr on an unsupported major or unparseable manifest.
+_pending_updates_schema_ok() {
+    local manifest="$1"
+    [[ -f "$manifest" ]] || return 0
+    python3 - "$manifest" "$_PENDING_UPDATES_SCHEMA_VERSION" <<'PY'
+import json, sys
+path, known = sys.argv[1], sys.argv[2]
+known_major = int(known.split(".")[0])
+try:
+    with open(path) as fh:
+        d = json.load(fh)
+    major = int(str(d.get("schema_version", "")).split(".")[0])
+except Exception as e:  # noqa: BLE001 - fail loud on any malformed manifest
+    sys.stderr.write(f"pending-updates: invalid manifest/schema_version: {e}\n")
+    sys.exit(2)
+if major != known_major:
+    sys.stderr.write(
+        f"pending-updates: unsupported schema_version major {major} "
+        f"(this installer understands major {known_major})\n"
+    )
+    sys.exit(2)
+PY
+}
+
+# Emit/replace the pending-updates.json manifest from the collected both-changed
+# entries. $1 = manifest path, $2 = TSV entries file (one
+# "rel_path\told_shipped\tdeployed\tnew_template" line per both-changed file),
+# $3 = generated_by, $4 = source_version. An empty/absent entries file REMOVES
+# any stale manifest (level-triggered: absence = nothing pending, BP-188 §3.3).
+# manifest_id is content-derived so the same drift state always yields the same
+# id — a re-run REPLACES the whole file, never appends duplicate entries.
+_write_pending_updates() {
+    local out="$1" entries_tsv="$2" gen_by="$3" src_ver="$4"
+    python3 - "$out" "$entries_tsv" "$gen_by" "$src_ver" \
+        "$_PENDING_UPDATES_SCHEMA_VERSION" <<'PY'
+import datetime
+import hashlib
+import json
+import os
+import sys
+
+out, tsv, gen_by, src_ver, schema_version = sys.argv[1:6]
+
+rows = []
+try:
+    with open(tsv) as fh:
+        for line in fh:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+            rel, old, dep, new = line.split("\t")
+            rows.append((rel, old, dep, new))
+except FileNotFoundError:
+    rows = []
+
+# Level-triggered: no pending entries => remove any stale manifest so the
+# consumer's presence-of-file discovery reads "nothing pending".
+if not rows:
+    try:
+        os.remove(out)
+    except OSError:
+        # Absent (nothing to remove) or unremovable (e.g. read-only dir): the
+        # emit is best-effort and must never abort the install.
+        pass
+    sys.exit(0)
+
+rows.sort(key=lambda r: r[0])
+entries = []
+for order, (rel, old, dep, new) in enumerate(rows):
+    entries.append(
+        {
+            "id": rel,
+            "path": f"oversight/{rel}",
+            # Both-changed = BP-187 4-outcome "conflict": user edits AND upstream
+            # both moved since the last-shipped base -> 3-way merge required.
+            "classification": "MANAGED_MERGE_REQUIRED",
+            "old_shipped_hash": old,  # base B (may be "" for a legacy pre-manifest file)
+            "deployed_hash": dep,
+            "new_template_hash": new,
+            "suggested_action": "merge",
+            "rationale": (
+                "Local edits and upstream template both changed since last "
+                "deploy; 3-way merge required to preserve user data while "
+                "adopting the structural update."
+            ),
+            "severity": "high",
+            "order": order,
+        }
+    )
+
+# Whole-manifest idempotency key: content-derived over the canonical entries, so
+# the same drift state always yields the same manifest_id.
+canon = json.dumps(entries, sort_keys=True, separators=(",", ":"))
+manifest_id = hashlib.sha256(canon.encode()).hexdigest()
+
+manifest = {
+    "schema_version": schema_version,
+    "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    ),
+    "generated_by": gen_by,
+    "source_version": src_ver,
+    "manifest_id": manifest_id,
+    "entries": entries,
+}
+
+tmp = out + ".tmp"
+try:
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(tmp, "w") as fh:
+        json.dump(manifest, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, out)  # same-dir atomic rename (crash-safe; BP-187 write-safety)
+except Exception as e:  # noqa: BLE001 - emit is best-effort; never abort the install
+    # PermissionError / ENOSPC / os.replace failure etc.: clean up the temp and
+    # exit 0 so the producer-only emit can never propagate non-zero under set -e.
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    sys.stderr.write(f"pending-updates: emit failed (non-fatal): {e}\n")
+    sys.exit(0)
+PY
+}
+
 # Core engine. $1 = "deploy" (apply) | "check" (dry-run, report + exit code).
 # Uses globals INSTALL_DIR + PROJECT_PATH. Silent when everything is in-sync.
 _sync_oversight_templates() {
@@ -5672,11 +5869,34 @@ _sync_oversight_templates() {
     local oversight_dest="$PROJECT_PATH/oversight"
     local registry="$INSTALL_DIR/templates/known-oversight-template-versions.txt"
     local manifest="$PROJECT_PATH/.audit/state/oversight-templates.manifest"
+    local pending_manifest="$PROJECT_PATH/.audit/state/pending-updates.json"
     local n_new=0 n_sync=0 n_migrate=0 n_warn=0
+
+    # Collect both-changed entries for the pending-change manifest (deploy only).
+    # Producer-only path: a temp-alloc failure (restricted/unwritable TMPDIR) must
+    # NOT abort the oversight-template deploy. The `if !` runs mktemp in a
+    # set-e-exempt context; on failure we degrade to a warning and skip the emit.
+    local pending_tsv=""
+    if [[ "$mode" == "deploy" ]]; then
+        # Temp cleanup runs on EVERY return path via a RETURN trap, so removing the
+        # temp can never abort the install under set -e: `rm -f` still exits non-zero
+        # on an unremovable temp (read-only TMPDIR remounted mid-run / immutable bit /
+        # ACL), but the trap's `|| true` makes cleanup abort-proof by construction.
+        # (Verified: a RETURN trap preserves the function's return status, so check
+        # mode's drift=1 signal is unaffected.) Without `functrace` the trap also
+        # fires once when the caller wrapper returns, where the local is out of
+        # scope — `${pending_tsv:-}` keeps that no-op firing safe under set -u; it
+        # does not leak to unrelated later calls.
+        trap 'rm -f "${pending_tsv:-}" 2>/dev/null || true' RETURN
+        if ! pending_tsv="$(mktemp 2>/dev/null)"; then
+            log_warning "pending-updates: temp alloc failed (non-fatal); skipping emit"
+            pending_tsv=""
+        fi
+    fi
 
     if [[ ! -d "$tmpl_source" ]]; then
         log_warning "Oversight templates not found at $tmpl_source"
-        return 0
+        return 0  # RETURN trap cleans up pending_tsv on this path
     fi
 
     [[ "$mode" == "deploy" ]] && mkdir -p "$oversight_dest"
@@ -5740,8 +5960,48 @@ _sync_oversight_templates() {
         # Otherwise the copy is locally modified → never clobber; warn loudly.
         n_warn=$((n_warn + 1))
         log_warning "template drifted + upstream changed; review + merge: oversight/$rel_path"
+        # Additionally record the three-state digest triple for the pending-change
+        # manifest so the in-project Parzival can reconcile it under review (P2/P3).
+        # old_shipped_hash (base B): recorded deploy hash, else the sole known
+        # prior-shipped hash for this path. The registry is sort -u (lexicographic,
+        # not chronological), so if MULTIPLE prior hashes exist the latest-shipped
+        # is not identifiable — leave base B "" rather than guess a wrong base.
+        if [[ "$mode" == "deploy" ]]; then
+            local old_base="$h_recorded"
+            if [[ -z "$old_base" ]]; then
+                local known_hashes
+                # Producer-only base-B lookup: `|| true` inside the substitution keeps
+                # an awk read error (unreadable registry) from propagating non-zero
+                # under set -e; on failure known_hashes="" degrades base B to empty
+                # (same as the ambiguous-base path) instead of aborting the deploy.
+                known_hashes="$(_known_template_hashes "$rel_path" "$registry" || true)"
+                if [[ -n "$known_hashes" && "$(printf '%s\n' "$known_hashes" | wc -l)" -eq 1 ]]; then
+                    old_base="$known_hashes"
+                fi
+            fi
+            # Skip when temp alloc failed (empty path); `|| true` tolerates a
+            # mid-loop write failure (e.g. ENOSPC) without aborting under set -e.
+            [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
+        fi
         [[ "$mode" == "check" ]] && echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
     done < <(find "$tmpl_source" -type f)
+
+    # Emit/replace the pending-change manifest from the collected both-changed
+    # entries (empty => stale manifest removed). Additive; deploy path only.
+    if [[ "$mode" == "deploy" ]]; then
+        # Producer-only + additive: the emit MUST NOT break the install. Guard it
+        # so any failure degrades to a warning (the `if !` also runs it in a
+        # set-e-checked context) instead of aborting the Parzival-setup sequence.
+        # Empty path => temp alloc failed upstream: nothing to emit, skip entirely.
+        if [[ -n "$pending_tsv" ]]; then
+            if ! _write_pending_updates "$pending_manifest" "$pending_tsv" \
+                "install.sh@${INSTALLER_VERSION}" "$INSTALLER_VERSION"; then
+                log_warning "pending-updates.json emit failed (non-fatal); continuing install"
+            fi
+        fi
+        # pending_tsv cleanup happens in the RETURN trap (armed above), so it runs on
+        # every exit path and can never abort the install.
+    fi
 
     if [[ "$mode" == "check" ]]; then
         if (( n_new + n_sync + n_migrate + n_warn == 0 )); then

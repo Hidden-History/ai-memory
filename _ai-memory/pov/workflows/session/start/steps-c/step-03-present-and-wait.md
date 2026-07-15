@@ -110,6 +110,37 @@ After presenting:
 - Do NOT start executing any tasks until user confirms
 - WAIT for the user to give explicit direction
 
+---
+
+### 5. On-Request: Reconcile Pending Updates (only when the operator asks)
+
+This is a REACTIVE branch, NOT a gate and NOT a mandatory step. Step 2's "Pending Updates" rollup already told the operator the count; this workflow still terminates normally at the wait above. Enter this branch ONLY when the operator explicitly asks to see or act on pending updates (e.g. "show pending", "reconcile the updates", "what are the pending updates?"). Never auto-expand it, and never inline it into the status report.
+
+**5.1 — List (count + pointer, never inline diffs).** Run:
+
+```
+python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/pov/skills/aim-content-drift/scripts/reconcile_helper.py" pending --project-root <project-root>
+```
+
+Present the returned `entries` severity-ranked as a numbered list — for each: `#n` · severity · `path` · one-line `rationale` · `classification`. State the count. Do NOT inline file contents or diffs (BP-159 index-not-log); the `path` is the pointer the operator opens if they want the detail. If the list is empty, say so and stop.
+
+**5.2 — Operator selects scope.** Ask which to reconcile: **all**, a specific **#n**, or **defer** (stop here — the workflow stays terminal, nothing is recorded). WAIT for the choice.
+
+**5.3 — Reconcile chosen entries ONE AT A TIME.** For each selected entry, in severity-rank order:
+- Restate the single entry (path · severity · rationale).
+- Ask the operator for a per-entry disposition: **approve** / **defer** / **dismiss**. WAIT.
+- Invoke it (map approve→`applied`, defer→`deferred`, dismiss→`dismissed`):
+
+  ```
+  python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/pov/skills/aim-content-drift/scripts/reconcile_helper.py" reconcile --project-root <project-root> --id <entry-id> --disposition <applied|deferred|dismissed>
+  ```
+
+- For **approve/applied** the helper runs the reconciliation engine (backup-before-write, crash-atomic, staleness-checked) and reports `decision` + `action_taken` (migrated | preserved | no-op | refreshed) + `backup_path`. Relay that outcome factually. On a non-zero status, the helper's JSON error payload carries an `error_type`. If `error_type` is `StaleManifestError`, the manifest is stale — tell the operator to re-run the installer to regenerate it. For any OTHER `error_type` (e.g. `MigrationChainError`), surface the `error_type` and the engine's message factually — do NOT tell the operator to re-run the installer, and do NOT retry or hand-edit either.
+- The helper records the disposition to `<project-root>/.audit/state/reconcile-dispositions.json`, keyed to the entry id + its current `new_template_hash`. A disposed entry will NOT re-surface at Step 2 unless that template hash moves in a later install.
+- Move to the next selected entry only after the current one is recorded.
+
+**5.4 — Close.** After the selected entries are processed, return to the terminal wait ("What would you like to do?"). Do not start unrelated work off the back of this branch.
+
 ## TERMINATION STEP PROTOCOLS:
 
 - This is a FINAL step — workflow completion required
