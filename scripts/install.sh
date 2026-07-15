@@ -124,7 +124,7 @@ EMBEDDING_PORT="${AI_MEMORY_EMBEDDING_PORT:-28080}"
 MONITORING_PORT="${AI_MEMORY_MONITORING_PORT:-28000}"
 STREAMLIT_PORT="${AI_MEMORY_STREAMLIT_PORT:-28501}"
 CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
-INSTALLER_VERSION="2.8.3"
+INSTALLER_VERSION="2.8.4"
 
 # Logging functions
 log_info() {
@@ -1903,7 +1903,7 @@ update_shared_scripts() {
         # 755) and cp -p restore preserves the backup's mode (potentially 755
         # from a pre-v2.4.3 install — automatic remediation on upgrade).
         # Re-apply the canonical matrix AFTER all .env-related operations so
-        # chmod sees the final on-disk state (cycle-2 M-1).
+        # chmod sees the final on-disk state.
         apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
         log_debug "Synced Docker files to INSTALL_DIR"
@@ -2481,7 +2481,7 @@ copy_files() {
     # DrvFs sources or pre-v2.4.3 install-dir leftovers). Re-apply the canonical
     # matrix .env=640 / .env.secrets=600 / examples=644 / Dockerfile*=644 AFTER
     # all .env / .env.secrets / .env.example file operations have settled, so
-    # the chmod sees the final on-disk state (cycle-2 M-1).
+    # the chmod sees the final on-disk state.
     apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
     # BUG-244: Use shared sync function for all non-Docker file syncing
@@ -2540,7 +2540,7 @@ validate_github_repo() {
 # Escape characters that have special meaning in sed REPLACEMENT side: &, \, |
 # (| is the chosen delimiter in set_env_value's substitution).
 # Used by persist_user_choices_to_env for user-supplied URL / email / token / JSON values.
-# BUG-274 fix-r2 (F-R1.1): & was a back-reference corruption vector for URLs/emails
+# BUG-274: & was a back-reference corruption vector for URLs/emails
 # containing query params or RFC-5321 local-parts with &; | broke the s|..| delimiter.
 # Order: escape \ first — otherwise the & and | escapes would introduce new \ chars
 # that would themselves be escaped again on a subsequent pass.
@@ -2583,7 +2583,7 @@ persist_user_choices_to_env() {
     [[ -n "${JIRA_SYNC_ENABLED:-}" ]] && set_env_value "JIRA_SYNC_ENABLED" "$JIRA_SYNC_ENABLED"
 
     # Dependent non-secret vars: only when feature enabled and value non-empty.
-    # String-class values use _sed_escape (BUG-274 fix-r2 F-R1.1): URL/email/token/JSON
+    # String-class values use _sed_escape (BUG-274): URL/email/token/JSON
     # values may contain & (sed back-reference) or | (delimiter) in sed replacement.
     if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
         [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$(_sed_escape "$GITHUB_REPO")"
@@ -2679,7 +2679,7 @@ migrate_existing_env_secrets() {
     [[ ! -f "$env_file" ]] && return 0
 
     # Upgrade detection: any secret-class key non-blank in .env means migration needed.
-    # Detection pattern built from ALL_SECRET_KEYS (BUG-286 fix-r2: true SSoT — no hardcoded list).
+    # Detection pattern built from ALL_SECRET_KEYS (BUG-286: true SSoT — no hardcoded list).
     # Includes all 25 keys (PP-1/PP-2/PP-3); probe fires on any non-empty secret-class value.
     local detection_pattern
     detection_pattern=$(IFS='|'; echo "${ALL_SECRET_KEYS[*]}")
@@ -5870,7 +5870,11 @@ _sync_oversight_templates() {
     local registry="$INSTALL_DIR/templates/known-oversight-template-versions.txt"
     local manifest="$PROJECT_PATH/.audit/state/oversight-templates.manifest"
     local pending_manifest="$PROJECT_PATH/.audit/state/pending-updates.json"
-    local n_new=0 n_sync=0 n_migrate=0 n_warn=0
+    # Ledger-aware drift warning: shells out to the shipped reconcile_helper so the
+    # installer and the session-start reconcile consumer share ONE definition of
+    # "disposed for the current hash" (BUG-834). Absent/erroring => warn as usual.
+    local reconcile_helper="$INSTALL_DIR/_ai-memory/pov/skills/aim-content-drift/scripts/reconcile_helper.py"
+    local n_new=0 n_sync=0 n_migrate=0 n_warn=0 n_reconciled=0
 
     # Collect both-changed entries for the pending-change manifest (deploy only).
     # Producer-only path: a temp-alloc failure (restricted/unwritable TMPDIR) must
@@ -5957,9 +5961,25 @@ _sync_oversight_templates() {
             continue
         fi
 
-        # Otherwise the copy is locally modified → never clobber; warn loudly.
-        n_warn=$((n_warn + 1))
-        log_warning "template drifted + upstream changed; review + merge: oversight/$rel_path"
+        # Otherwise the copy is locally modified → never clobber. Warn loudly UNLESS
+        # the operator already reconciled this drift at the CURRENT shipped hash
+        # (ledger disposition applied/dismissed) — then downgrade to a non-imperative
+        # info line and keep it out of the needs-merge count. The terminal-at-hash
+        # check routes through reconcile_helper.py `is-disposed` (the same predicate the
+        # session-start consumer uses) so the two surfaces can't drift on "disposed".
+        # Fail-safe: a missing helper / python error / absent-or-corrupt ledger exits
+        # non-zero → the `else` warns exactly as before; never aborts under set -e.
+        local disposition=""
+        local reconciled=0
+        if disposition="$(python3 "$reconcile_helper" is-disposed \
+                --project-root "$PROJECT_PATH" --id "$rel_path" --hash "$h_shipped" 2>/dev/null)"; then
+            reconciled=1
+            n_reconciled=$((n_reconciled + 1))
+            log_info "drift already reconciled (disposition: $disposition); no action: oversight/$rel_path"
+        else
+            n_warn=$((n_warn + 1))
+            log_warning "template drifted + upstream changed; review + merge: oversight/$rel_path"
+        fi
         # Additionally record the three-state digest triple for the pending-change
         # manifest so the in-project Parzival can reconcile it under review (P2/P3).
         # old_shipped_hash (base B): recorded deploy hash, else the sole known
@@ -5983,7 +6003,13 @@ _sync_oversight_templates() {
             # mid-loop write failure (e.g. ENOSPC) without aborting under set -e.
             [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
         fi
-        [[ "$mode" == "check" ]] && echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
+        if [[ "$mode" == "check" ]]; then
+            if (( reconciled )); then
+                echo "  [reconciled] oversight/$rel_path (already reconciled → no action)"
+            else
+                echo "  [warn]    oversight/$rel_path (locally-modified → needs-merge)"
+            fi
+        fi
     done < <(find "$tmpl_source" -type f)
 
     # Emit/replace the pending-change manifest from the collected both-changed
@@ -6004,14 +6030,16 @@ _sync_oversight_templates() {
     fi
 
     if [[ "$mode" == "check" ]]; then
+        # Already-reconciled drift (n_reconciled) needs no operator action, so it is
+        # excluded from the pending total: a reconciled-only state stays silent + exit 0.
         if (( n_new + n_sync + n_migrate + n_warn == 0 )); then
             return 0  # silent-when-clean
         fi
-        echo "Oversight-template drift: new=$n_new safe-sync=$n_sync migrate=$n_migrate needs-merge=$n_warn"
+        echo "Oversight-template drift: new=$n_new safe-sync=$n_sync migrate=$n_migrate needs-merge=$n_warn reconciled=$n_reconciled"
         return 1
     fi
 
-    log_debug "Oversight templates synced to $oversight_dest (new=$n_new sync=$n_sync migrate=$n_migrate warn=$n_warn)"
+    log_debug "Oversight templates synced to $oversight_dest (new=$n_new sync=$n_sync migrate=$n_migrate warn=$n_warn reconciled=$n_reconciled)"
     return 0
 }
 

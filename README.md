@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.8.3-green?style=flat-square" alt="Version 2.8.3">
+  <img src="https://img.shields.io/badge/version-2.8.4-green?style=flat-square" alt="Version 2.8.4">
   <a href="https://github.com/Hidden-History/ai-memory/stargazers"><img src="https://img.shields.io/github/stars/Hidden-History/ai-memory?color=blue&style=flat-square" alt="Stars"></a>
   <a href="https://github.com/Hidden-History/ai-memory/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Hidden-History/ai-memory?style=flat-square" alt="License"></a>
   <a href="https://github.com/Hidden-History/ai-memory/issues"><img src="https://img.shields.io/github/issues/Hidden-History/ai-memory?color=red&style=flat-square" alt="Issues"></a>
@@ -69,6 +69,8 @@ After installation, start a new Claude Code session in your project — AI Memor
 ### Upgrading an existing install
 
 After pulling a new version and re-running `./scripts/install.sh /path/to/your-project`, run `~/.ai-memory/scripts/stack.sh restart` to apply container/image changes. The installer brings services up with `--no-recreate` and won't restart already-running containers, so image and compose updates (for example, the prebuilt embedding image) take effect only after a restart.
+
+If you have locally edited an oversight template that also changed upstream, the update does not overwrite it. Instead, the installer records a pending update and Parzival surfaces a one-line pending-updates rollup on your next session start; ask it to reconcile and it walks each pending file under explicit approve / defer / dismiss review, migrating structure forward while preserving your data (backup taken, atomic replace). Nothing is applied without your approval.
 
 ---
 

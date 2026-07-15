@@ -103,14 +103,25 @@ def write_ledger(path: Path, ledger: dict) -> None:
     engine.atomic_write(path, payload, backup=False)
 
 
-def _is_suppressed(entry, ledger: dict) -> bool:
-    """True if a terminal disposition was recorded at the entry's current hash."""
-    record = ledger.get("dispositions", {}).get(entry.id)
+def _is_terminal_at_hash(record, new_template_hash) -> bool:
+    """True if `record` is a terminal disposition recorded at `new_template_hash`.
+
+    The single predicate for "disposed for the current shipped hash", shared by the
+    session-start re-nag suppression (`_is_suppressed`) and the installer's ledger-aware
+    drift warning (`cmd_is_disposed`) so the two surfaces can never diverge on what
+    "disposed" means.
+    """
     if not isinstance(record, dict):
         return False
     if record.get("disposition") not in _TERMINAL_DISPOSITIONS:
         return False
-    return record.get("new_template_hash") == entry.new_template_hash
+    return record.get("new_template_hash") == new_template_hash
+
+
+def _is_suppressed(entry, ledger: dict) -> bool:
+    """True if a terminal disposition was recorded at the entry's current hash."""
+    record = ledger.get("dispositions", {}).get(entry.id)
+    return _is_terminal_at_hash(record, entry.new_template_hash)
 
 
 def _severity_sort_key(entry):
@@ -314,6 +325,27 @@ def cmd_reconcile(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# `is-disposed` — installer query: is <id> terminal-disposed at <hash>?
+# --------------------------------------------------------------------------- #
+def cmd_is_disposed(args) -> int:
+    """Exit 0 (+ print the disposition) if <id> is terminal-disposed at <hash>, else 1.
+
+    The installer's ledger-aware oversight-drift warning shells out to this: a managed
+    file already reconciled (applied/dismissed) at the SAME shipped-template hash must
+    not re-emit the imperative "review + merge" warning. Fail-safe by construction — an
+    absent/corrupt ledger yields no terminal record via ``load_ledger`` => exit 1 => the
+    caller warns as it does today.
+    """
+    project_root = Path(args.project_root)
+    ledger = load_ledger(_ledger_path(project_root))
+    record = ledger.get("dispositions", {}).get(args.id)
+    if _is_terminal_at_hash(record, args.hash):
+        print(record["disposition"])
+        return 0
+    return 1
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="PLAN-033 P2 session-start reconciliation helper (manifest + ledger)."
@@ -332,6 +364,15 @@ def main(argv=None) -> int:
         "--disposition", required=True, choices=sorted(_VALID_DISPOSITIONS)
     )
     p_reconcile.set_defaults(func=cmd_reconcile)
+
+    p_disposed = sub.add_parser(
+        "is-disposed",
+        help="exit 0 if <id> is terminal-disposed (applied/dismissed) at <hash>",
+    )
+    p_disposed.add_argument("--project-root", required=True)
+    p_disposed.add_argument("--id", required=True)
+    p_disposed.add_argument("--hash", required=True)
+    p_disposed.set_defaults(func=cmd_is_disposed)
 
     args = parser.parse_args(argv)
     return args.func(args)
