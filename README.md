@@ -14,11 +14,28 @@
   <img src="https://img.shields.io/badge/Gemini_CLI-Supported-4285F4?style=flat-square&logo=google" alt="Gemini CLI">
   <img src="https://img.shields.io/badge/Cursor-Supported-00D4AA?style=flat-square" alt="Cursor">
   <img src="https://img.shields.io/badge/Codex_CLI-Supported-412991?style=flat-square&logo=openai" alt="Codex CLI">
+  <a href="https://github.com/bmad-code-org/BMAD-METHOD"><img src="https://img.shields.io/badge/BMad_Method-Powered-blue?style=flat-square" alt="BMad Method"></a>
 </p>
 
 ---
 
-**AI-Memory** is a persistent context layer that gives AI coding agents institutional memory across sessions — storing architectural decisions, code patterns, conventions, and project history in a vector database (Qdrant), and surfacing the right context automatically when you need it.
+**AI-Memory** is a long-lived **AI development harness**: persistent project memory, a built-in AI project manager, and a [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD)–driven agent team that carry a project from its first commit through every release to long-term maintenance.
+
+It gives AI-assisted development the three things a real project needs that a chat window doesn't:
+
+- **Memory that persists** — decisions, code patterns, and conventions are captured as you work and resurfaced automatically at session start and per turn, so you never re-explain past work. *(Project-scoped, backed by a Qdrant vector store.)*
+- **A project manager** — **Parzival**, a Technical PM & Quality Gatekeeper, plans the work, dispatches parallel agent teams, reviews their output adversarially, and holds quality gates across sessions. *He recommends; you decide.*
+- **A real team** — Parzival runs a [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD) roster — developer, reviewer, tech-writer, analyst, architect, UX — so build, review, and docs each get the right specialist.
+
+**Built for the whole arc of a project, not a single prompt:**
+```mermaid
+flowchart LR
+  new[new project] --> disc[discovery] --> arch[architecture] --> plan[planning]
+  plan --> exec[execution] --> intg[integration] --> rel[release] --> maint[maintenance]
+```
+Parzival routes each session to the right phase, loads only that phase's context, and — with the memory layer, source-of-truth drift detection, and a self-maintaining wiki — keeps a months-long project coherent as it grows through updates and new features.
+
+**Who it's for:** developers and small teams doing AI-assisted development who want continuity, oversight, and quality gates across long-lived projects — not just autocomplete.
 
 [**Report a Bug**](https://github.com/Hidden-History/ai-memory/issues) | [**Request a Feature**](https://github.com/Hidden-History/ai-memory/issues) | [**CHANGELOG**](CHANGELOG.md)
 
@@ -154,7 +171,7 @@ See [docs/AIM-SOT.md](docs/AIM-SOT.md) for the Source-of-Truth subsystem — reg
 
 ## Parzival: AI Project Manager
 
-Parzival is an AI project manager for Claude Code. He manages the full project lifecycle — planning work, activating parallel agent teams, reviewing output adversarially, and maintaining cross-session continuity. You talk to Parzival; he manages everything else.
+Parzival is an AI project manager for Claude Code. He manages the full project lifecycle — planning work, activating parallel agent teams, reviewing output adversarially, and maintaining cross-session continuity. His agent team runs on the [BMad Method](https://github.com/bmad-code-org/BMAD-METHOD), so build, review, and docs work each get a dedicated specialist persona. You talk to Parzival; he manages everything else.
 
 **Session commands:**
 
