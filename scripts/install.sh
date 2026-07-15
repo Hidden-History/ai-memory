@@ -1903,7 +1903,7 @@ update_shared_scripts() {
         # 755) and cp -p restore preserves the backup's mode (potentially 755
         # from a pre-v2.4.3 install — automatic remediation on upgrade).
         # Re-apply the canonical matrix AFTER all .env-related operations so
-        # chmod sees the final on-disk state (cycle-2 M-1).
+        # chmod sees the final on-disk state.
         apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
         log_debug "Synced Docker files to INSTALL_DIR"
@@ -2481,7 +2481,7 @@ copy_files() {
     # DrvFs sources or pre-v2.4.3 install-dir leftovers). Re-apply the canonical
     # matrix .env=640 / .env.secrets=600 / examples=644 / Dockerfile*=644 AFTER
     # all .env / .env.secrets / .env.example file operations have settled, so
-    # the chmod sees the final on-disk state (cycle-2 M-1).
+    # the chmod sees the final on-disk state.
     apply_docker_dir_permissions "$INSTALL_DIR/docker"
 
     # BUG-244: Use shared sync function for all non-Docker file syncing
@@ -2540,7 +2540,7 @@ validate_github_repo() {
 # Escape characters that have special meaning in sed REPLACEMENT side: &, \, |
 # (| is the chosen delimiter in set_env_value's substitution).
 # Used by persist_user_choices_to_env for user-supplied URL / email / token / JSON values.
-# BUG-274 fix-r2 (F-R1.1): & was a back-reference corruption vector for URLs/emails
+# BUG-274: & was a back-reference corruption vector for URLs/emails
 # containing query params or RFC-5321 local-parts with &; | broke the s|..| delimiter.
 # Order: escape \ first — otherwise the & and | escapes would introduce new \ chars
 # that would themselves be escaped again on a subsequent pass.
@@ -2583,7 +2583,7 @@ persist_user_choices_to_env() {
     [[ -n "${JIRA_SYNC_ENABLED:-}" ]] && set_env_value "JIRA_SYNC_ENABLED" "$JIRA_SYNC_ENABLED"
 
     # Dependent non-secret vars: only when feature enabled and value non-empty.
-    # String-class values use _sed_escape (BUG-274 fix-r2 F-R1.1): URL/email/token/JSON
+    # String-class values use _sed_escape (BUG-274): URL/email/token/JSON
     # values may contain & (sed back-reference) or | (delimiter) in sed replacement.
     if [[ "${GITHUB_SYNC_ENABLED:-}" == "true" ]]; then
         [[ -n "${GITHUB_REPO:-}" ]] && set_env_value "GITHUB_REPO" "$(_sed_escape "$GITHUB_REPO")"
@@ -2679,7 +2679,7 @@ migrate_existing_env_secrets() {
     [[ ! -f "$env_file" ]] && return 0
 
     # Upgrade detection: any secret-class key non-blank in .env means migration needed.
-    # Detection pattern built from ALL_SECRET_KEYS (BUG-286 fix-r2: true SSoT — no hardcoded list).
+    # Detection pattern built from ALL_SECRET_KEYS (BUG-286: true SSoT — no hardcoded list).
     # Includes all 25 keys (PP-1/PP-2/PP-3); probe fires on any non-empty secret-class value.
     local detection_pattern
     detection_pattern=$(IFS='|'; echo "${ALL_SECRET_KEYS[*]}")
