@@ -474,6 +474,169 @@ def test_fresh_install_all_targets_present_conformant_zero_findings(tmp_path):
     assert findings == []
 
 
+# ── FIX 1: malformed/absent plan_role discriminant is not invisible ─────────
+
+
+def test_malformed_or_absent_plan_role_flags_orphan_plan(tmp_path):
+    _write(
+        tmp_path,
+        "oversight/plans/PLAN-003-typo.md",
+        "---\nplan_id: PLAN-003\nplan_role: standalon\ntype: build\nstatus: active\n---\n"
+        "# PLAN-003\n\n## 1. Goal\n\ngoal\n\n## 7. Continuity Log\n\nlog\n",
+    )
+    _write(
+        tmp_path,
+        "oversight/plans/PLAN-004-absent.md",
+        "---\nplan_id: PLAN-004\ntype: build\nstatus: active\n---\n"
+        "# PLAN-004\n\n## 1. Goal\n\ngoal\n\n## 7. Continuity Log\n\nlog\n",
+    )
+
+    entries = [MASTER_PLAN_ENTRY, STANDALONE_PLAN_ENTRY]
+    findings = _run(entries, tmp_path)
+
+    typo = _findings_for(findings, "oversight/plans/PLAN-003-typo.md")
+    absent = _findings_for(findings, "oversight/plans/PLAN-004-absent.md")
+    assert len(typo) == 1
+    assert typo[0].verdict == oracle.STRUCT_NONCONFORMANT
+    assert "plan_role" in typo[0].message
+    assert len(absent) == 1
+    assert absent[0].verdict == oracle.STRUCT_NONCONFORMANT
+    assert "plan_role" in absent[0].message
+
+
+# ── FIX 2: glob_exclude is honored ───────────────────────────────────────────
+
+EXCLUDE_ENTRY = {
+    "template": "templates/oversight/standards/_global/_TEMPLATE.md",
+    "produces": "family",
+    "glob": "oversight/standards/_global/*.md",
+    "glob_exclude": ["_TEMPLATE.md"],
+    "class": "detail-record",
+    "required_skeleton": {"required_sections": ["## Rules"]},
+}
+
+
+def test_glob_exclude_drops_excluded_file_from_family(tmp_path):
+    _write(tmp_path, "oversight/standards/_global/_TEMPLATE.md", "# stub, no Rules\n")
+    _write(
+        tmp_path,
+        "oversight/standards/_global/G001-real.md",
+        "# Real\n\n## Rules\n\nstuff\n",
+    )
+    findings = _run([EXCLUDE_ENTRY], tmp_path)
+
+    # excluded file is neither checked (would fail C1 — missing "## Rules")
+    # nor counted as a real family member
+    assert _findings_for(findings, "oversight/standards/_global/_TEMPLATE.md") == []
+    # non-excluded member still resolves and is checked normally (conformant)
+    assert _findings_for(findings, "oversight/standards/_global/G001-real.md") == []
+
+
+# ── FIX 3: MISSING_TARGET only for produces:singleton ────────────────────────
+
+
+def test_missing_target_only_for_singleton_not_empty_family(tmp_path):
+    # empty family glob (fresh project, zero plans yet) -> legitimate, no finding
+    findings = _run([STANDALONE_PLAN_ENTRY], tmp_path)
+    assert [f for f in findings if f.verdict == oracle.MISSING_TARGET] == []
+
+    # missing singleton target -> MISSING_TARGET
+    findings2 = _run([RISK_REGISTER_ENTRY], tmp_path)
+    missing = [f for f in findings2 if f.verdict == oracle.MISSING_TARGET]
+    assert len(missing) == 1
+
+
+# ── FIX 4: C6 order — sound, conservative sort key ───────────────────────────
+
+
+def test_c6_order_older_before_newer_flags_offender(tmp_path):
+    # the real PM #407 "appended to bottom" shape: an older session-block
+    # (DEC-PM407) sits above a newer one (DEC-PM408) that landed below it
+    _write(
+        tmp_path,
+        "oversight/tracking/decision-log.md",
+        _conformant_decision_log(["DEC-PM407-D1", "DEC-PM408-D1"]),
+    )
+    findings = _run([DECISION_LOG_ENTRY], tmp_path)
+    violations = [f for f in findings if f.verdict == oracle.CONVENTION_VIOLATION]
+    assert len(violations) == 1
+    assert "DEC-PM408-D1" in violations[0].message
+
+
+def test_c6_order_numberless_prefix_same_session_no_finding(tmp_path):
+    _write(
+        tmp_path,
+        "oversight/tracking/decision-log.md",
+        _conformant_decision_log(["DEC-HOTFIX-D1", "DEC-HOTFIX-D2", "DEC-HOTFIX-D3"]),
+    )
+    findings = _run([DECISION_LOG_ENTRY], tmp_path)
+    assert [f for f in findings if f.verdict == oracle.CONVENTION_VIOLATION] == []
+
+
+def test_c6_order_real_pm409_over_pm408_shape_no_finding(tmp_path):
+    ids = [
+        "DEC-PM409-D1",
+        "DEC-PM409-D2",
+        "DEC-PM409-D3",
+        "DEC-PM408-D1",
+        "DEC-PM408-D2",
+        "DEC-PM408-D3",
+        "DEC-PM408-D4",
+        "DEC-PM408-D5",
+    ]
+    _write(
+        tmp_path, "oversight/tracking/decision-log.md", _conformant_decision_log(ids)
+    )
+    findings = _run([DECISION_LOG_ENTRY], tmp_path)
+    assert [f for f in findings if f.verdict == oracle.CONVENTION_VIOLATION] == []
+
+
+# ── FIX 5: report discloses unchecked convention dimensions ─────────────────
+
+
+def test_report_discloses_unchecked_convention_dimensions(tmp_path):
+    entry = dict(
+        RISK_REGISTER_ENTRY,
+        conventions={"cap_lines": 120, "cap_kb": 12, "plan_role_value": "master"},
+    )
+    entries = [entry]
+    _write(
+        tmp_path,
+        "oversight/tracking/risk-register.md",
+        "---\nclass: register\ncap_lines: 120\ncap_kb: 12\n---\n"
+        "# Risk Register\n\n## Active Risks\n\nnone yet\n\n## Resolved Risks\n\nnone\n",
+    )
+    findings = _run(entries, tmp_path)
+    unchecked = oracle.unchecked_convention_dimensions(entries)
+    assert "plan_role_value" in unchecked
+    assert "entry_pattern" not in unchecked  # a checked key never appears
+
+    text = oracle.render_text(findings, tmp_path, unchecked)
+    note = [line for line in text.splitlines() if line.startswith("note:")]
+    assert len(note) == 1
+    assert "plan_role_value" in note[0]
+
+    # no unchecked dimensions declared -> no disclosure line at all
+    text_none = oracle.render_text(findings, tmp_path, [])
+    assert not any(line.startswith("note:") for line in text_none.splitlines())
+
+
+# ── FIX 6: UNMANAGED scan stays non-recursive by design ──────────────────────
+
+
+def test_find_unmanaged_is_non_recursive_by_design(tmp_path):
+    _write(
+        tmp_path,
+        "oversight/tracking/decision-log.md",
+        _conformant_decision_log(["DEC-PM001-D1"]),
+    )
+    # nested debris under the owned root oversight/tracking/ — direct-children
+    # -only scan must never descend into it (PLAN-035 §3a boundary)
+    _write(tmp_path, "oversight/tracking/.audit/logs/scratch.jsonl", "debris\n")
+    findings = _run([DECISION_LOG_ENTRY], tmp_path)
+    assert [f for f in findings if f.verdict == oracle.UNMANAGED] == []
+
+
 # ── CLI invariant: report-only, always exit 0 ────────────────────────────────
 
 

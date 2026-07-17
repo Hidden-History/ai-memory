@@ -11,9 +11,14 @@ Checks (PLAN-035 §3a), all runtime + report-only + per-user-project:
   C1  required_skeleton ⊆ actual — singletons AND every glob (family) match.
       BP-189 open-world subset semantic: missing required elements are
       flagged; extras and all values are out of scope.
-  C3  every declared target/glob resolves to an actual on-disk file.
+  C3  every declared `produces: singleton` target resolves to an actual
+      on-disk file (a `produces: family` glob resolving to zero is legitimate).
   C6  conventions (entry_pattern/order, cap_lines/cap_kb) — asserted, not
-      trusted from the declaration.
+      trusted from the declaration. The report discloses which other
+      declared convention sub-keys it does NOT check.
+  --  a family-glob member matching no entry's match_frontmatter
+      discriminant (e.g. a plan with a malformed/absent plan_role) ->
+      STRUCT_NONCONFORMANT, naming the discriminant key only.
   --  AI-Memory-owned paths matching no registry entry -> UNMANAGED
       (informational; a user's own files/dirs are silent, never flagged).
 
@@ -27,6 +32,7 @@ missing-element/convention NAMES (CLAUDE.md §7).
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
 import re
 import sys
@@ -115,6 +121,21 @@ def declared_pattern(entry: dict) -> str:
     messages — never a resolved file path)."""
     raw = entry.get("target") or entry.get("glob") or "?"
     return _strip_project_token(raw)
+
+
+def _apply_glob_exclude(entry: dict, resolved: list[Path]) -> list[Path]:
+    """Drop registry-declared `glob_exclude` basenames/patterns (e.g.
+    `README.md`, `_TEMPLATE.md`, `EXAMPLE_*.md`) from a family's resolved
+    member list. These are shipped decoys/documentation living alongside
+    real instances in the same glob'd directory, not record instances to
+    structurally check — matched against them they'd both fail C1 (they're
+    stubs, not real content) and pollute the UNMANAGED-coverage set."""
+    excludes = entry.get("glob_exclude")
+    if not excludes:
+        return resolved
+    return [
+        p for p in resolved if not any(fnmatch.fnmatch(p.name, pat) for pat in excludes)
+    ]
 
 
 # ── Structure parsing helpers ────────────────────────────────────────────────
@@ -224,7 +245,7 @@ def check_c1_required_skeleton(
     skeleton = entry.get("required_skeleton")
     if not skeleton:
         return []
-    targets = _apply_match_frontmatter(entry, resolved)
+    targets = _apply_match_frontmatter(entry, _apply_glob_exclude(entry, resolved))
     match_case = skeleton.get("match_case", True)
     findings: list[Finding] = []
     for path in targets:
@@ -278,43 +299,77 @@ def check_c1_required_skeleton(
 def check_c3_declared_target_present(
     entry: dict, resolved: list[Path], project_root: Path
 ) -> list[Finding]:
-    """C3 — every declared target/glob resolves to an actual on-disk file
-    (PLAN-035 §3a). Own verdict token `MISSING_TARGET` (DEC-PM409-D2) — never
-    `UNBACKED`, which is reserved for the C4 wiring direction and is out of
-    scope for this script.
+    """C3 — every declared `produces: singleton` target resolves to an actual
+    on-disk file (PLAN-035 §3a). Own verdict token `MISSING_TARGET`
+    (DEC-PM409-D2) — never `UNBACKED`, which is reserved for the C4 wiring
+    direction and is out of scope for this script.
+
+    A `produces: family` glob resolving to zero files is NOT checked here —
+    zero instances of a record family (e.g. no bugs filed yet, no fix-specs
+    written yet) is a legitimate state, not a missing artifact; flagging it
+    would break the fresh-install-zero-findings invariant (PLAN-035 §5).
     """
-    if not (entry.get("target") or entry.get("glob")):
+    if entry.get("produces") != "singleton":
         return []
-    if resolved:
+    if not entry.get("target"):
+        return []
+    if _apply_glob_exclude(entry, resolved):
         return []
     return [
         Finding(
             verdict=MISSING_TARGET,
             template=entry.get("template"),
             path=declared_pattern(entry),
-            message="declared target/glob resolved to zero files",
+            message="declared target resolved to zero files",
         )
     ]
 
 
-def _entry_sort_key(entry_text: str) -> int:
-    """Recency proxy for an `entry_pattern` match: its FIRST embedded integer
-    (e.g. `### DEC-PM407-D6` -> 407 — the session number). Entries from the
-    same write (e.g. one session's `DEC-PM407-D1..D8`) are appended in
-    ascending sub-sequence within their own block — real, valid usage
-    (verified against the live decision-log.md) — so only the leading
-    (session-level) number is asserted non-increasing top-to-bottom; a
-    trailing sub-sequence number is deliberately not part of the key."""
-    m = _INT_RE.search(entry_text)
-    return int(m.group(0)) if m else 0
+_TRAILING_SUBID_RE = re.compile(r"-D\d+\s*$")
+
+
+def _entry_sort_key(entry_text: str) -> int | None:
+    """Recency proxy for an `entry_pattern` match: the integer embedded in
+    its SESSION-level token (e.g. `### DEC-PM407-D6` -> 407), found by first
+    stripping the trailing `-D<n>` sub-entry suffix and then taking the
+    first embedded integer in what remains. Entries from the same write
+    (e.g. one session's `DEC-PM407-D1..D8`) are appended in ascending
+    sub-sequence within their own block — real, valid usage (verified
+    against the live decision-log.md) — so the sub-id number must never
+    leak into the key; stripping it first is what makes that hold.
+
+    Returns None ("abstain") when the stripped stem has no digits at all
+    (e.g. `DEC-HOTFIX-D1`) — a numberless prefix's recency relative to its
+    neighbors cannot be reliably determined, so it must never be guessed at
+    (a prior version used the FIRST embedded integer anywhere in the text,
+    which picked up the sub-id itself for numberless prefixes and false-
+    flagged legitimate `D1/D2/D3` same-session order — see PLAN-035 P2
+    Phase B fix round)."""
+    stem = _TRAILING_SUBID_RE.sub("", entry_text)
+    m = _INT_RE.search(stem)
+    return int(m.group(0)) if m else None
 
 
 def _find_order_violation(body: str, entry_pattern: str) -> str | None:
+    """Walk matched entries top-to-bottom; flag the first one whose session
+    key is GREATER than the last determinate key seen above it — i.e. a
+    newer session-block appearing after (below) an older one, the real PM
+    #407 "appended to bottom" defect (a session's entries landed below an
+    older session's instead of being prepended above it).
+
+    Entries with an indeterminate key (`_entry_sort_key` returns None) are
+    skipped for comparison in both directions — they neither trigger nor
+    clear a violation — so recency that can't be reliably read from the id
+    never produces a guessed finding; the last determinate key stays the
+    comparison anchor across them.
+    """
     regex = re.compile(entry_pattern, re.MULTILINE)
     entries = [m.group(0).strip() for m in regex.finditer(body)]
     prev_key: int | None = None
     for entry_text in entries:
         key = _entry_sort_key(entry_text)
+        if key is None:
+            continue
         if prev_key is not None and key > prev_key:
             return entry_text
         prev_key = key
@@ -333,7 +388,7 @@ def check_c6_conventions(
     if not conventions:
         return []
     findings: list[Finding] = []
-    for path in resolved:
+    for path in _apply_glob_exclude(entry, resolved):
         rel = str(path.relative_to(project_root))
         text = _read_text(path)
 
@@ -393,14 +448,29 @@ def _owned_roots(entries: list[dict]) -> set[str]:
     return roots
 
 
+_DEBRIS_SUFFIXES = (".bak",)
+_DEBRIS_PREFIXES = (".audit",)
+
+
 def find_unmanaged(
     entries: list[dict], resolved_by_entry: dict[int, list[Path]], project_root: Path
 ) -> list[Finding]:
     """AI-Memory-owned paths under project_root matching no registry entry
     (PLAN-035 §3a; informational). "A user's own files/dirs are not our
     business — silent." Scoped to `_owned_roots(entries)`, scanned
-    non-recursively (direct file children only) so arbitrary user-created
-    directories under `oversight/` never enter scope.
+    non-recursively (direct file children only).
+
+    This is a deliberate, permanent boundary, not a to-do: a directory is in
+    scope only if the registry declares a target/glob whose immediate parent
+    it is. Nested subdirectories under an owned root (e.g. an `.audit/`
+    logs tree, a maintainer's own scratch subdir) are NEVER descended into,
+    on purpose — recursing would flood UNMANAGED with debris (snapshot
+    `.bak` files, log dirs, ad hoc notes) on every run and is exactly what
+    breaks the product/user-boundary invariant (PLAN-035 §5): a user's own
+    files anywhere under an owned root, not just its direct children, are
+    not this oracle's business. Known non-template debris that can still
+    land as a *direct* child of an owned root (editor/tooling snapshots) is
+    skipped explicitly below rather than flagged.
     """
     covered = {p.resolve() for paths in resolved_by_entry.values() for p in paths}
     findings: list[Finding] = []
@@ -411,6 +481,10 @@ def find_unmanaged(
         for path in sorted(root_path.iterdir()):
             if path.is_dir():
                 continue
+            if path.name.endswith(_DEBRIS_SUFFIXES) or path.name.startswith(
+                _DEBRIS_PREFIXES
+            ):
+                continue
             if path.resolve() in covered:
                 continue
             findings.append(
@@ -419,6 +493,59 @@ def find_unmanaged(
                     template=None,
                     path=str(path.relative_to(project_root)),
                     message="file under an AI-Memory-owned root matches no registry entry",
+                )
+            )
+    return findings
+
+
+def find_family_discriminant_orphans(
+    entries: list[dict], resolved_by_entry: dict[int, list[Path]], project_root: Path
+) -> list[Finding]:
+    """A file that matches a family's raw PATH-glob but matches NO entry's
+    `match_frontmatter` discriminant among the entries sharing that glob is
+    otherwise invisible: every entry's own `_apply_match_frontmatter` routes
+    around it (so C1 never runs on it), yet it's still in `resolved_by_entry`
+    (so `find_unmanaged`'s covered set hides it too). Net effect without this
+    check: a plan with a malformed/typo/absent discriminant key (e.g.
+    `plan_role: standalon`, or no `plan_role` at all) produces zero findings
+    — the exact 54-plan defect class PLAN-035 P2 exists to catch.
+
+    Groups entries by identical glob string among those declaring
+    `match_frontmatter`, and flags any raw-glob member matched by none of
+    them. Names the discriminant KEY only (e.g. `plan_role`), never the
+    file's actual value (CLAUDE.md §7).
+    """
+    groups: dict[str, list[int]] = {}
+    for i, entry in enumerate(entries):
+        if "glob" in entry and entry.get("match_frontmatter"):
+            groups.setdefault(_strip_project_token(entry["glob"]), []).append(i)
+
+    findings: list[Finding] = []
+    flagged: set[Path] = set()
+    for idxs in groups.values():
+        raw = resolved_by_entry[idxs[0]]
+        for i in idxs:
+            raw = _apply_glob_exclude(entries[i], raw)
+
+        discriminant_keys: set[str] = set()
+        matched_any: set[Path] = set()
+        for i in idxs:
+            entry = entries[i]
+            discriminant_keys.update(entry["match_frontmatter"].keys())
+            matched_any.update(_apply_match_frontmatter(entry, raw))
+
+        for path in raw:
+            if path in matched_any or path in flagged:
+                continue
+            flagged.add(path)
+            findings.append(
+                Finding(
+                    verdict=STRUCT_NONCONFORMANT,
+                    template=None,
+                    path=str(path.relative_to(project_root)),
+                    message="no registry family matches its "
+                    + "/".join(sorted(discriminant_keys))
+                    + " discriminant",
                 )
             )
     return findings
@@ -436,20 +563,56 @@ def run_checks(entries: list[dict], project_root: Path) -> list[Finding]:
         findings.extend(check_c1_required_skeleton(entry, resolved, project_root))
         findings.extend(check_c3_declared_target_present(entry, resolved, project_root))
         findings.extend(check_c6_conventions(entry, resolved, project_root))
+    findings.extend(
+        find_family_discriminant_orphans(entries, resolved_by_entry, project_root)
+    )
     findings.extend(find_unmanaged(entries, resolved_by_entry, project_root))
     return findings
 
 
 # ── Report ────────────────────────────────────────────────────────────────────
 
+# Convention sub-keys the frozen registry declares that C6 does not assert
+# (id_pattern, status_values, filename_pattern, etc. — free-text/enum rules
+# not yet wired into script-verifiable checks). Kept in sync manually with
+# check_c6_conventions' actual coverage.
+CHECKED_CONVENTION_KEYS = {"entry_pattern", "order", "cap_lines", "cap_kb"}
 
-def render_text(findings: list[Finding], project_root: Path) -> str:
+
+def unchecked_convention_dimensions(entries: list[dict]) -> list[str]:
+    """Convention sub-keys declared across `entries` that C6 does not check
+    (PLAN-035 §3a declares ~20; C6 asserts 4). A PARITY_OK / clean report
+    must not be read as "fully convention-conformant" when dimensions like
+    `id_pattern` or `status_values` were never asserted at all — this makes
+    that gap explicit in the report rather than leaving it silently inert.
+    """
+    declared: set[str] = set()
+    for entry in entries:
+        conventions = entry.get("conventions")
+        if conventions:
+            declared.update(conventions.keys())
+    return sorted(declared - CHECKED_CONVENTION_KEYS)
+
+
+def render_text(
+    findings: list[Finding],
+    project_root: Path,
+    unchecked_conventions: list[str] | None = None,
+) -> str:
     if not findings:
-        return f"template-parity-oracle (report-only): PARITY_OK — no findings — {project_root}"
-    lines = [
-        f"template-parity-oracle (report-only): {len(findings)} finding(s) — {project_root}"
-    ]
-    lines.extend(f.render() for f in findings)
+        lines = [
+            f"template-parity-oracle (report-only): PARITY_OK — no findings — {project_root}"
+        ]
+    else:
+        lines = [
+            f"template-parity-oracle (report-only): {len(findings)} finding(s) — {project_root}"
+        ]
+        lines.extend(f.render() for f in findings)
+    if unchecked_conventions:
+        lines.append(
+            "note: convention dimensions declared but not checked by this oracle: "
+            + ", ".join(unchecked_conventions)
+        )
     return "\n".join(lines)
 
 
@@ -492,7 +655,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.format == "json":
         print(render_json(findings))
     else:
-        print(render_text(findings, args.project_root))
+        print(
+            render_text(
+                findings, args.project_root, unchecked_convention_dimensions(entries)
+            )
+        )
 
     # Report-only, always (PLAN-035 §3a runtime posture / BP-185 Gate 3
     # doctrine) — this script never blocks. CI-blocking checks (C2/C4/C5)
