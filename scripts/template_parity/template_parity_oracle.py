@@ -514,11 +514,25 @@ def find_family_discriminant_orphans(
     `match_frontmatter`, and flags any raw-glob member matched by none of
     them. Names the discriminant KEY only (e.g. `plan_role`), never the
     file's actual value (CLAUDE.md §7).
+
+    Guard: if any sibling entry sharing that raw glob declares NO
+    `match_frontmatter`, it is a catch-all that applies to every glob member
+    unfiltered (`_apply_match_frontmatter` semantics) — every member is
+    therefore legitimately covered and the whole glob group is skipped, never
+    producing orphan findings for it (cycle-2 review; a future registry entry
+    sharing a glob without its own discriminant would otherwise be wrongly
+    flagged).
     """
-    groups: dict[str, list[int]] = {}
+    by_glob: dict[str, list[int]] = {}
     for i, entry in enumerate(entries):
-        if "glob" in entry and entry.get("match_frontmatter"):
-            groups.setdefault(_strip_project_token(entry["glob"]), []).append(i)
+        if "glob" in entry:
+            by_glob.setdefault(_strip_project_token(entry["glob"]), []).append(i)
+
+    groups: dict[str, list[int]] = {}
+    for glob, idxs in by_glob.items():
+        if any(not entries[i].get("match_frontmatter") for i in idxs):
+            continue
+        groups[glob] = idxs
 
     findings: list[Finding] = []
     flagged: set[Path] = set()
@@ -572,12 +586,6 @@ def run_checks(entries: list[dict], project_root: Path) -> list[Finding]:
 
 # ── Report ────────────────────────────────────────────────────────────────────
 
-# Convention sub-keys the frozen registry declares that C6 does not assert
-# (id_pattern, status_values, filename_pattern, etc. — free-text/enum rules
-# not yet wired into script-verifiable checks). Kept in sync manually with
-# check_c6_conventions' actual coverage.
-CHECKED_CONVENTION_KEYS = {"entry_pattern", "order", "cap_lines", "cap_kb"}
-
 
 def unchecked_convention_dimensions(entries: list[dict]) -> list[str]:
     """Convention sub-keys declared across `entries` that C6 does not check
@@ -585,13 +593,31 @@ def unchecked_convention_dimensions(entries: list[dict]) -> list[str]:
     must not be read as "fully convention-conformant" when dimensions like
     `id_pattern` or `status_values` were never asserted at all — this makes
     that gap explicit in the report rather than leaving it silently inert.
+
+    Computed PER-ENTRY, not from a single global checked-set: a declared key
+    counts as checked for an entry only if check_c6_conventions actually acts
+    on it for THAT entry. `cap_lines`/`cap_kb`/`order` are checked whenever
+    declared; `entry_pattern` is checked only when the same entry also
+    declares `order: newest_first` — the exact pairing check_c6 requires to
+    run the order-violation check. Without this, an entry declaring
+    `entry_pattern` alone (no `order`) reads as "checked" globally merely
+    because some OTHER entry pairs the two, silently hiding that its own
+    ordering is never asserted (cycle-2 review, live on SESSION_WORK_INDEX.md
+    and session-index/INDEX.md).
     """
-    declared: set[str] = set()
+    unchecked: set[str] = set()
     for entry in entries:
         conventions = entry.get("conventions")
-        if conventions:
-            declared.update(conventions.keys())
-    return sorted(declared - CHECKED_CONVENTION_KEYS)
+        if not conventions:
+            continue
+        checked = {k for k in ("cap_lines", "cap_kb", "order") if k in conventions}
+        if (
+            "entry_pattern" in conventions
+            and conventions.get("order") == "newest_first"
+        ):
+            checked.add("entry_pattern")
+        unchecked.update(set(conventions.keys()) - checked)
+    return sorted(unchecked)
 
 
 def render_text(

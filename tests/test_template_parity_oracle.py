@@ -637,6 +637,84 @@ def test_find_unmanaged_is_non_recursive_by_design(tmp_path):
     assert [f for f in findings if f.verdict == oracle.UNMANAGED] == []
 
 
+# ── FIX 7: unchecked convention dimensions computed per-entry (cycle-2) ──────
+
+
+def test_entry_pattern_without_order_on_same_entry_surfaces_as_unchecked(tmp_path):
+    # SESSION_WORK_INDEX_ENTRY declares entry_pattern with NO order — its own
+    # ordering is never asserted by check_c6_conventions, even though
+    # DECISION_LOG_ENTRY (a different entry) pairs entry_pattern with order.
+    entries = [SESSION_WORK_INDEX_ENTRY, DECISION_LOG_ENTRY]
+    unchecked = oracle.unchecked_convention_dimensions(entries)
+    assert "entry_pattern" in unchecked
+
+
+def test_entry_pattern_paired_with_order_everywhere_not_unchecked(tmp_path):
+    # every entry declaring entry_pattern also declares order: newest_first
+    # -> entry_pattern is actually checked, must never appear as unchecked
+    entries = [DECISION_LOG_ENTRY]
+    unchecked = oracle.unchecked_convention_dimensions(entries)
+    assert "entry_pattern" not in unchecked
+
+
+def test_real_frozen_registry_discloses_entry_pattern_unchecked():
+    # SESSION_WORK_INDEX.md and session-index/INDEX.md declare entry_pattern
+    # with no order in the real registry — the disclosure must name
+    # entry_pattern despite decision-log.md pairing it with order elsewhere.
+    entries = oracle.load_registry(FROZEN_REGISTRY)
+    unchecked = oracle.unchecked_convention_dimensions(entries)
+    assert "entry_pattern" in unchecked
+
+
+# ── FIX 8: discriminant-orphan guard — catch-all sibling covers the group ────
+
+CATCHALL_PLAN_ENTRY = {
+    "template": "templates/oversight/plans/PLAN_CATCHALL_TEMPLATE.md",
+    "produces": "family",
+    "glob": "oversight/plans/*.md",
+    "class": "detail-record",
+    "required_skeleton": {"required_sections": ["## Notes"]},
+}
+
+
+def test_discriminant_orphan_not_flagged_when_catchall_sibling_shares_glob(tmp_path):
+    # plan_role matches neither MASTER_PLAN_ENTRY's discriminant nor any
+    # other specific one, but CATCHALL_PLAN_ENTRY (no match_frontmatter)
+    # shares the same raw glob and legitimately covers every member.
+    _write(
+        tmp_path,
+        "oversight/plans/PLAN-005-weird-role.md",
+        "---\nplan_id: PLAN-005\nplan_role: nonsense\ntype: build\nstatus: active\n---\n"
+        "# PLAN-005\n\n## Notes\n\nstuff\n",
+    )
+    entries = [MASTER_PLAN_ENTRY, CATCHALL_PLAN_ENTRY]
+    findings = _run(entries, tmp_path)
+    orphans = [
+        f
+        for f in findings
+        if f.verdict == oracle.STRUCT_NONCONFORMANT and f.template is None
+    ]
+    assert orphans == []
+
+
+def test_discriminant_orphan_still_flagged_when_all_siblings_declare_discriminant(
+    tmp_path,
+):
+    # no catch-all in the group (both siblings declare match_frontmatter) ->
+    # the FIX 1 blocker-fix behavior must still hold.
+    _write(
+        tmp_path,
+        "oversight/plans/PLAN-006-typo.md",
+        "---\nplan_id: PLAN-006\nplan_role: standalon\ntype: build\nstatus: active\n---\n"
+        "# PLAN-006\n\n## 1. Goal\n\ngoal\n\n## 7. Continuity Log\n\nlog\n",
+    )
+    entries = [MASTER_PLAN_ENTRY, STANDALONE_PLAN_ENTRY]
+    findings = _run(entries, tmp_path)
+    orphans = _findings_for(findings, "oversight/plans/PLAN-006-typo.md")
+    assert len(orphans) == 1
+    assert orphans[0].verdict == oracle.STRUCT_NONCONFORMANT
+
+
 # ── CLI invariant: report-only, always exit 0 ────────────────────────────────
 
 
