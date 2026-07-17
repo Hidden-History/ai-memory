@@ -1,0 +1,919 @@
+# oversight-templates.yaml
+schema_version: 1
+description: Template-parity registry (PLAN-035 P2). Declares what AI-Memory SHIPS, derived from git-tracked
+  templates/oversight/. Report-only per user project; CI-blocking in source.
+templates:
+- template: templates/oversight/project-status.md
+  produces: singleton
+  target: oversight/project-status.md
+  class: heartbeat
+  required_skeleton:
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+    required_yaml_body_keys:
+    - current_phase
+    - active_task
+    - phases_complete
+    - key_files
+    - live_record
+    - open_issues
+  conventions:
+    cap_lines: 60
+    cap_kb: 6
+  consumed_by:
+  - aim-tracking-rotate
+- template: templates/oversight/SESSION_WORK_INDEX.md
+  produces: singleton
+  target: oversight/SESSION_WORK_INDEX.md
+  class: live-index
+  required_skeleton:
+    required_sections:
+    - '## Current Sprint'
+    - '## Active Task'
+    - '## Active Blockers'
+    - '## High Priority Risks'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+    required_fields:
+    - Sprint
+    - Goal
+    - Status
+  conventions:
+    entry_pattern: '^\| '
+    cap_lines: 80
+    cap_kb: 12
+  consumed_by:
+  - aim-tracking-rotate
+- template: templates/oversight/tracking/task-tracker.md
+  produces: singleton
+  target: oversight/tracking/task-tracker.md
+  class: register
+  required_skeleton:
+    required_sections:
+    - '## Current Sprint'
+    - '## Naming Convention'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+  conventions:
+    cap_lines: 60
+    cap_kb: 4.5
+    last_updated_present: true
+  consumed_by:
+  - aim-tracking-rotate
+- template: templates/oversight/tracking/blockers-log.md
+  produces: singleton
+  target: oversight/tracking/blockers-log.md
+  class: register
+  required_skeleton:
+    required_sections:
+    - '## Active Blockers'
+    - '## Blocker Details'
+    - '## Resolved Blockers'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+  conventions:
+    cap_lines: 100
+    cap_kb: 15
+    last_updated_present: true
+  consumed_by:
+  - aim-tracking-rotate
+- template: templates/oversight/tracking/risk-register.md
+  produces: singleton
+  target: oversight/tracking/risk-register.md
+  class: register
+  required_skeleton:
+    required_sections:
+    - '## Active Risks'
+    - '## Resolved Risks'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+  conventions:
+    cap_lines: 120
+    cap_kb: 12
+    last_updated_present: true
+  consumed_by:
+  - aim-tracking-rotate
+- template: templates/oversight/tracking/decision-log.md
+  produces: singleton
+  target: oversight/tracking/decision-log.md
+  class: append-only-log
+  required_skeleton:
+    required_sections:
+    - '## Decisions'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+  conventions:
+    entry_pattern: ^### DEC-[A-Z0-9-]+-D\d
+    order: newest_first
+    cap_lines: 150
+    cap_kb: 50
+  consumed_by:
+  - aim-tracking-rotate
+  - aim-tracking-freshness
+- template: templates/oversight/tracking/technical-debt.md
+  produces: singleton
+  target: oversight/tracking/technical-debt.md
+  class: register
+  required_skeleton:
+    required_sections:
+    - '## Debt Summary'
+    - '## Active Technical Debt'
+    - '## Debt by Category'
+    - '## Resolved Debt'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+  conventions:
+    cap_lines: 150
+    cap_kb: 15
+    last_updated_present: true
+  consumed_by:
+  - aim-tracking-rotate
+- template: templates/oversight/tracking/dependencies.md
+  produces: singleton
+  target: oversight/tracking/dependencies.md
+  class: register
+  required_skeleton:
+    required_sections:
+    - '## External Dependencies'
+    - '## Package Dependencies'
+    - '## Internal Dependencies'
+  conventions:
+    last_updated_present: true
+  consumed_by: []
+- template: templates/oversight/tracking/scope-change-log.md
+  produces: singleton
+  target: oversight/tracking/scope-change-log.md
+  class: register
+  required_skeleton:
+    required_sections:
+    - '## Active Scope Changes'
+    - '## Scope Change Details'
+    - '## Rejected Changes'
+  conventions:
+    last_updated_present: true
+  consumed_by: []
+- template: templates/oversight/session-index/INDEX.md
+  produces: singleton
+  target: oversight/session-index/INDEX.md
+  class: live-index
+  required_skeleton:
+    required_sections:
+    - '## Current Year'
+    - '## Archive'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+  conventions:
+    entry_pattern: '^\| '
+    cap_lines: 120
+    cap_kb: 10
+    last_updated_present: true
+  consumed_by:
+  - aim-tracking-rotate
+- template: templates/oversight/session-index/WEEK_TEMPLATE.md
+  produces: family
+  glob: oversight/session-index/*/week-*.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '## Sessions'
+    required_fields:
+    - Dates
+    - Total Sessions
+  consumed_by: []
+- template: templates/oversight/session-index/archive/QUARTER_ARCHIVE_TEMPLATE.md
+  produces: family
+  glob: oversight/session-index/archive/*-Q*.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '## Summary by Month'
+    - '## Session List'
+    required_fields:
+    - Period
+    - Total Sessions
+    - Archived
+  consumed_by: []
+- template: templates/oversight/bugs/BUG_TEMPLATE.md
+  produces: family
+  glob: oversight/bugs/BUG-*.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '## Summary'
+    - '## Description'
+    - '## Root Cause'
+    - '## Resolution'
+    required_fields:
+    - ID
+    - Date
+    - Status
+    - Priority
+    - Severity
+  consumed_by: []
+- template: templates/oversight/bugs/ROOT_CAUSE_TEMPLATE.md
+  produces: family
+  glob: oversight/bugs/ROOT_CAUSE-*.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '## Executive Summary'
+    - '## Symptom Description'
+    - '## Investigation Process'
+    - '## Root Cause Identified'
+    required_fields:
+    - Bug ID
+    - Date
+    - Analyst
+    - Status
+  consumed_by: []
+  glob_unverified: true
+- template: templates/oversight/tech-debt/INDEX.md
+  produces: singleton
+  target: oversight/tech-debt/INDEX.md
+  class: register
+  required_skeleton:
+    required_sections:
+    - '## Quick Stats'
+    - '## Open Technical Debt'
+    - '## Closed Technical Debt'
+    required_frontmatter_keys:
+    - class
+    - cap_lines
+    - cap_kb
+  conventions:
+    cap_lines: 150
+    cap_kb: 18
+  consumed_by:
+  - aim-tracking-freshness
+- template: templates/oversight/tech-debt/TECH_DEBT_TEMPLATE.md
+  produces: family
+  glob: oversight/tech-debt/TECH-DEBT-*.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '### Summary'
+    - '### Evidence'
+    - '### Impact'
+    - '### Suggested Fix'
+    - '### Disposition'
+  consumed_by: []
+- template: templates/oversight/session-logs/SESSION_SNAPSHOT_TEMPLATE.md
+  produces: family
+  glob: oversight/session-logs/SESSION_SNAPSHOT_*.md
+  glob_exclude:
+  - SESSION_SNAPSHOT_TEMPLATE.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '## Session Overview'
+    - '## Work Completed'
+    - '## Context for Next Session'
+    required_fields:
+    - Session ID
+    - Date
+    - Type
+    - Status
+  consumed_by: []
+- template: templates/oversight/plans/MASTER_PLAN_TEMPLATE.md
+  produces: family
+  glob: oversight/plans/*.md
+  glob_exclude:
+  - MASTER_PLAN_TEMPLATE.md
+  - PLAN_TEMPLATE.md
+  - SESSION_STEP_PLAN_TEMPLATE.md
+  - INDEX.md
+  match_frontmatter:
+    plan_role: master
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/plans/MASTER_PLAN_TEMPLATE.md
+    required_frontmatter_keys:
+    - plan_id
+    - plan_role
+    - type
+    - status
+    required_sections:
+    - '## Ordering rule*'
+    - '## Status semantics*'
+    - '## SSoT discipline'
+    - '## Master spine*'
+    - '## Row-maintenance rules'
+    - '## Continuity Log'
+    ordered: false
+    match_case: false
+  conventions:
+    plan_role_value: master
+    plan_id_pattern: ^PLAN-MASTER-
+    status_values:
+    - draft
+    - active
+    - done
+    - superseded
+    type_values:
+    - build
+    - ops
+    retention_trigger: never
+- template: templates/oversight/plans/PLAN_TEMPLATE.md
+  produces: family
+  glob: oversight/plans/*.md
+  glob_exclude:
+  - MASTER_PLAN_TEMPLATE.md
+  - PLAN_TEMPLATE.md
+  - SESSION_STEP_PLAN_TEMPLATE.md
+  - INDEX.md
+  match_frontmatter:
+    plan_role: standalone
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/plans/PLAN_TEMPLATE.md
+    required_frontmatter_keys:
+    - plan_id
+    - type
+    - status
+    required_sections:
+    - '## 1. Goal'
+    - '## 2. Done-Condition'
+    - '## 3. Work Items'
+    - '## 4. Out of Scope / Non-Goals'
+    - '## 5. Verification'
+    - '## 6. Open Questions'
+    - '## 7. Continuity Log'
+    ordered: false
+    match_case: false
+  conventions:
+    plan_id_pattern: ^PLAN-
+    status_values:
+    - draft
+    - approved
+    - active
+    - done
+    - superseded
+    - abandoned
+    type_values:
+    - build
+    - ops
+    - maintenance
+    - verification
+    - research
+    work_item_status_values:
+    - todo
+    - doing
+    - done
+    - blocked
+    at_most_one_doing: true
+    conditional_required_frontmatter:
+      when:
+        plan_role: session
+      require:
+      - master_plan
+      - step_id
+    retention_trigger: never
+- template: templates/oversight/plans/SESSION_STEP_PLAN_TEMPLATE.md
+  produces: family
+  glob: oversight/plans/*.md
+  glob_exclude:
+  - MASTER_PLAN_TEMPLATE.md
+  - PLAN_TEMPLATE.md
+  - SESSION_STEP_PLAN_TEMPLATE.md
+  - INDEX.md
+  match_frontmatter:
+    plan_role: session
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/plans/SESSION_STEP_PLAN_TEMPLATE.md
+    required_frontmatter_keys:
+    - plan_id
+    - plan_role
+    - master_plan
+    - step_id
+    - session
+    - type
+    - status
+    required_sections:
+    - '## 1. Goal'
+    - '## 2. Done-Condition'
+    - '## 3. Work Items'
+    - '## 4. Out of Scope / Non-Goals'
+    - '## 5. Verification'
+    - '## 6. Close-back*'
+    - '## 7. Open Questions'
+    - '## 8. Continuity Log'
+    ordered: false
+    match_case: false
+  conventions:
+    plan_role_value: session
+    plan_id_pattern: ^PLAN-
+    status_values:
+    - draft
+    - active
+    - done
+    type_values:
+    - build
+    - verification
+    retention_trigger: never
+- template: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+  produces: family
+  glob: oversight/specs/FIX-*.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+    required_sections:
+    - '## Problem Statement'
+    - '## Proposed Solution'
+    - '## Files to Modify'
+    - '## Test Plan'
+    - '## Post-Fix Verification'
+    - '## Rollback Plan'
+    - '## Risk Assessment'
+    required_fields:
+    - Fix ID
+    - Bug ID
+    - Date
+    - Status
+    ordered: false
+    match_case: false
+  conventions:
+    id_pattern: \b(FIX|BUG)-\d+\b
+    status_values:
+    - Draft
+    - Review
+    - Approved
+    - Implemented
+    - Verified
+    retention_trigger: never
+- template: templates/oversight/specs/SPEC_TEMPLATE.md
+  produces: family
+  glob: oversight/specs/SPEC-*.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/specs/SPEC_TEMPLATE.md
+    required_sections:
+    - '## Summary'
+    - '## Context'
+    - '## Requirements'
+    - '## Design'
+    - '## Implementation Plan'
+    - '## Testing Strategy'
+    - '## Deployment'
+    - '## Risk Assessment'
+    required_fields:
+    - ID
+    - Date
+    - Status
+    - Type
+    ordered: false
+    match_case: false
+  conventions:
+    id_pattern: \bSPEC-\w+\b
+    status_values:
+    - Draft
+    - Review
+    - Approved
+    - Implemented
+    - Archived
+    type_values:
+    - Feature
+    - Enhancement
+    - Fix
+    - Refactor
+    - Infrastructure
+    retention_trigger: never
+  glob_unverified: true
+- template: templates/oversight/standards/_global/_TEMPLATE.md
+  produces: family
+  glob: oversight/standards/_global/*.md
+  glob_exclude:
+  - _TEMPLATE.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/standards/_global/_TEMPLATE.md
+    required_sections:
+    - '## Metadata'
+    - '## Applies To'
+    - '## Rules'
+    - '## Examples'
+    - '## Changelog'
+    ordered: false
+    match_case: false
+  conventions:
+    scope_value: GLOBAL
+    rule_id_pattern: ^G\d+
+    retention_trigger: never
+- template: templates/oversight/standards/_project/_TEMPLATE.md
+  produces: family
+  glob: oversight/standards/_project/*.md
+  glob_exclude:
+  - _TEMPLATE.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/standards/_project/_TEMPLATE.md
+    required_sections:
+    - '## Metadata'
+    - '## Applies To'
+    - '## Rules'
+    - '## Project Context'
+    - '## Examples'
+    - '## Changelog'
+    ordered: false
+    match_case: false
+  conventions:
+    scope_value: PROJECT
+    rule_id_pattern: ^P\d+
+    retention_trigger: never
+- template: templates/oversight/knowledge/assumption-registry.md
+  produces: singleton
+  target: oversight/knowledge/assumption-registry.md
+  class: register
+  required_skeleton:
+    derive_from: templates/oversight/knowledge/assumption-registry.md
+    required_sections:
+    - '## Assumption States'
+    - '## Active Assumptions'
+    - '## Assumptions by Category'
+    - '## Verified Assumptions'
+    - '## Invalidated Assumptions'
+    ordered: false
+    match_case: false
+  conventions:
+    entry_id_pattern: ^### A-\d{3}
+    last_updated_present: true
+    retention_trigger: none
+- template: templates/oversight/knowledge/confidence-map.md
+  produces: singleton
+  target: oversight/knowledge/confidence-map.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/knowledge/confidence-map.md
+    required_sections:
+    - '## Confidence Levels'
+    - '## System Knowledge'
+    - '## Domain Knowledge'
+    - '## Technology Stack'
+    - '## Project-Specific Knowledge'
+    - '## Knowledge Gaps'
+    - '## Verification History'
+    ordered: false
+    match_case: false
+  conventions:
+    last_updated_present: true
+    retention_trigger: none
+- template: templates/oversight/knowledge/best-practices/_TEMPLATE.md
+  produces: family
+  glob: oversight/knowledge/best-practices/BP-*.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/knowledge/best-practices/_TEMPLATE.md
+    required_sections:
+    - '## Metadata'
+    - '## Summary'
+    - '## Applicability Check'
+    - '## Current Best Practice*'
+    - '## Sources'
+    - '## Alternative Approaches'
+    - '## Project-Specific Recommendation'
+    - '## Corrections History'
+    - '## Staleness Tracking'
+    ordered: false
+    match_case: false
+  conventions:
+    id_pattern: \bBP-\w+\b
+    status_values:
+    - CURRENT
+    - NEEDS_REVIEW
+    - SUPERSEDED
+    - ARCHIVED
+    confidence_values:
+    - Verified
+    - Informed
+    - Inferred
+    retention_trigger: never
+- template: templates/oversight/knowledge/best-practices/index.md
+  produces: singleton
+  target: oversight/knowledge/best-practices/index.md
+  class: live-index
+  required_skeleton:
+    derive_from: templates/oversight/knowledge/best-practices/index.md
+    required_sections:
+    - '## Quick Reference'
+    - '## Status Legend'
+    - '## Usage'
+    - '## Finding Files'
+    ordered: false
+    match_case: false
+  conventions:
+    managed_block_markers:
+      begin: <!-- BEGIN bp-index
+      end: <!-- END bp-index -->
+    retention_trigger: none
+- template: templates/oversight/research/best-practices-log.md
+  produces: singleton
+  target: oversight/research/best-practices-log.md
+  class: register
+  required_skeleton:
+    derive_from: templates/oversight/research/best-practices-log.md
+    required_sections:
+    - '## Research Index'
+    - '## Research Entries'
+    - '## Topics Needing Research'
+    - '## Research Freshness'
+    ordered: false
+    match_case: false
+  conventions:
+    entry_id_pattern: ^### BP-\d{3}
+    last_updated_present: true
+    retention_trigger: none
+- template: templates/oversight/audits/AUDIT_TEMPLATE.md
+  produces: family
+  glob: oversight/audits/AUDIT-*.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/audits/AUDIT_TEMPLATE.md
+    required_sections:
+    - '## Executive Summary'
+    - '## Scope'
+    - '## Methodology'
+    - '## Findings'
+    - '## Recommendations'
+    - '## Risk Assessment'
+    - '## Remediation Plan'
+    required_fields:
+    - ID
+    - Date
+    - Type
+    - Status
+    - Confidence
+    ordered: false
+    match_case: false
+  conventions:
+    id_pattern: \bAUDIT-\w+\b
+    status_values:
+    - In Progress
+    - Complete
+    - Findings Under Review
+    confidence_values:
+    - Verified
+    - Informed
+    - Inferred
+    - Uncertain
+    - Unknown
+    retention_trigger: never
+- template: templates/oversight/learning/failure-pattern-library.md
+  produces: singleton
+  target: oversight/learning/failure-pattern-library.md
+  class: register
+  required_skeleton:
+    derive_from: templates/oversight/learning/failure-pattern-library.md
+    required_sections:
+    - '## How to Use This Library'
+    - '## Failure Patterns'
+    - '## Patterns by Category'
+    - '## Near Misses'
+    - '## Pattern Statistics'
+    ordered: false
+    match_case: false
+  conventions:
+    entry_id_pattern: ^### FP-\d{3}
+    last_updated_present: true
+    retention_trigger: none
+- template: templates/oversight/validation/VALIDATION_TEMPLATE.md
+  produces: family
+  glob: oversight/validation/VAL-*.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/validation/VALIDATION_TEMPLATE.md
+    required_sections:
+    - '## Summary'
+    - '## Validation Scope'
+    - '## Acceptance Criteria'
+    - '## Test Cases'
+    - '## Issues Found'
+    - '## Decision'
+    required_fields:
+    - ID
+    - Date
+    - Type
+    - Status
+    - Confidence
+    ordered: false
+    match_case: false
+  conventions:
+    id_pattern: \bVAL-\w+\b
+    status_values:
+    - Pass
+    - Fail
+    - Pass with Concerns
+    - In Progress
+    confidence_values:
+    - Verified
+    - Informed
+    - Inferred
+    - Uncertain
+    - Unknown
+    retention_trigger: never
+  glob_unverified: true
+- template: templates/oversight/verification/checklists/code-review.md
+  produces: singleton
+  target: oversight/verification/checklists/code-review.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/verification/checklists/code-review.md
+    required_sections:
+    - '## Review Information'
+    - '## Critical*'
+    - '## High Priority*'
+    - '## Medium Priority*'
+    - '## Low Priority*'
+    - '## Summary'
+    - '## Issues Found'
+    - '## Recommendation'
+    ordered: false
+    match_case: false
+  conventions:
+    retention_trigger: none
+- template: templates/oversight/verification/checklists/production-ready.md
+  produces: singleton
+  target: oversight/verification/checklists/production-ready.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/verification/checklists/production-ready.md
+    required_sections:
+    - '## Release Information'
+    - '## Code Quality'
+    - '## Testing'
+    - '## Security'
+    - '## Documentation'
+    - '## Infrastructure'
+    - '## Deployment'
+    - '## Business Readiness'
+    - '## Risk Assessment'
+    - '## Summary'
+    - '## Recommendation'
+    ordered: false
+    match_case: false
+  conventions:
+    retention_trigger: none
+- template: templates/oversight/verification/checklists/story-complete.md
+  produces: singleton
+  target: oversight/verification/checklists/story-complete.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/verification/checklists/story-complete.md
+    required_sections:
+    - '## Story Information'
+    - '## Acceptance Criteria'
+    - '## Code Quality'
+    - '## Testing'
+    - '## Documentation'
+    - '## Summary'
+    - '## Recommendation'
+    ordered: false
+    match_case: false
+  conventions:
+    retention_trigger: none
+- template: templates/oversight/agent-constraints/CONSTRAINT_TEMPLATE.md
+  produces: family
+  glob: oversight/agent-constraints/*.md
+  glob_exclude:
+  - README.md
+  - CONSTRAINT_TEMPLATE.md
+  - EXAMPLE_*.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/agent-constraints/CONSTRAINT_TEMPLATE.md
+    required_sections:
+    - '## Rule'
+    - '## Rationale'
+    - '## Examples'
+    - '## Exceptions'
+    required_fields:
+    - Agent
+    - Type
+    - Priority
+    - Status
+    - Created
+    - Last Updated
+    ordered: false
+    match_case: false
+  conventions:
+    type_values:
+    - Rule
+    - Guideline
+    - Standard
+    - Process
+    priority_values:
+    - Critical
+    - High
+    - Medium
+    - Low
+    status_values:
+    - Active
+    - Draft
+    - Deprecated
+    filename_pattern: ^[a-z0-9]+(-[a-z0-9]+)*\.md$
+    retention_trigger: event
+- template: templates/oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+  produces: singleton
+  target: oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+    required_sections:
+    - '## Rule'
+    - '## Rationale'
+    - '## Examples'
+    - '## Exceptions'
+    required_fields:
+    - Agent
+    - Type
+    - Priority
+    - Status
+    - Created
+    - Last Updated
+    ordered: false
+    match_case: false
+  conventions:
+    retention_trigger: none
+- template: templates/oversight/agent-constraints/README.md
+  produces: singleton
+  target: oversight/agent-constraints/README.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/agent-constraints/README.md
+    required_sections:
+    - '## Overview'
+    - '## Why This Exists'
+    - '## How It Works'
+    - '## When to Use'
+    - '## Naming Convention'
+    - '## Constraint Template'
+    ordered: false
+    match_case: false
+  conventions:
+    retention_trigger: none
+- template: templates/oversight/decisions/DECISION_TEMPLATE.md
+  produces: family
+  glob: oversight/decisions/DEC-*.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/decisions/DECISION_TEMPLATE.md
+    required_sections:
+    - '## Summary'
+    - '## Context'
+    - '## Decision'
+    - '## Options Considered'
+    - '## Rationale'
+    - '## Implications'
+    - '## References'
+    required_fields:
+    - ID
+    - Date
+    - Status
+    - Confidence
+    ordered: false
+    match_case: false
+  conventions:
+    id_pattern: \bDEC-\w+\b
+    status_values:
+    - Proposed
+    - Accepted
+    - Rejected
+    - Superseded
+    - Deprecated
+    confidence_values:
+    - Verified
+    - Informed
+    - Inferred
+    - Uncertain
+    - Unknown
+    retention_trigger: never
+- template: templates/oversight/PROJECT_STANDARDS.yaml
+  produces: singleton
+  target: oversight/PROJECT_STANDARDS.yaml
+  class: live-index
+  required_skeleton:
+    kind: yaml
+    derive_from: templates/oversight/PROJECT_STANDARDS.yaml
+    required_yaml_keys:
+    - schema_version
+    - global
+    - project
+    - topic_index
+  conventions:
+    schema_version_present: true
+    retention_trigger: none
