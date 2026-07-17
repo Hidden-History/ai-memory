@@ -383,6 +383,37 @@ def test_reconcile_resolved_stamps_without_engine_no_stale_error(
     assert "DEC-1: hand-conformed by operator" in target.read_text(encoding="utf-8")
 
 
+def test_reconcile_resolved_missing_deployed_file_errors_no_ledger_entry(
+    tmp_path, capsys
+):
+    # The deployed file is missing (or unreadable) at stamp time — the likeliest
+    # real operator error. `resolved` must surface it and must NOT write a false
+    # "resolved" record.
+    rel = "tracking/decision-log.md"
+    entry = _entry(rel)
+    _write_manifest(tmp_path, [entry])
+
+    rc = helper.main(
+        [
+            "reconcile",
+            "--project-root",
+            str(tmp_path),
+            "--id",
+            rel,
+            "--disposition",
+            "resolved",
+        ]
+    )
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["status"] == "error"
+    assert payload["error_type"] == "FileNotFoundError"
+
+    # No ledger record was written for this entry.
+    ledger_path = tmp_path / ".audit" / "state" / "reconcile-dispositions.json"
+    assert not ledger_path.exists()
+
+
 def test_resolved_suppresses_at_entry_hash_and_resurfaces_on_hash_move(tmp_path):
     rel = "bugs/INDEX.md"
     _write_manifest(tmp_path, [_entry(rel, new="S")])

@@ -421,7 +421,7 @@ def main(argv=None) -> int:
 
     p_disposed = sub.add_parser(
         "is-disposed",
-        help="exit 0 if <id> is terminal-disposed (applied/dismissed) at <hash>",
+        help="exit 0 if <id> is terminal-disposed (applied/dismissed/resolved) at <hash>",
     )
     p_disposed.add_argument("--project-root", required=True)
     p_disposed.add_argument("--id", required=True)
