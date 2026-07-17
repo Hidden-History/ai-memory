@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Reconciliation supports an out-of-band `resolved` disposition for hand-conformed managed files** — an operator who hand-conformed a managed file outside the reconciliation engine had no way to record that and stop the recurring pending-update nag: the only path through `reconcile` invoked `reconcile_engine.reconcile_entry`, which raises `StaleManifestError` once the deployed file no longer matches its recorded snapshot. `resolved` is added as a new terminal disposition that records the current on-disk hash for audit and never calls the engine, so it cannot raise `StaleManifestError`; re-nag suppression continues to key off the entry's `new_template_hash` exactly as it does for `applied`/`dismissed`, and re-surfaces normally once that hash moves. `applied`/`deferred`/`dismissed` are unchanged.
+
 ## [2.8.4] - 2026-07-15
 
 ### Upgrade Instructions

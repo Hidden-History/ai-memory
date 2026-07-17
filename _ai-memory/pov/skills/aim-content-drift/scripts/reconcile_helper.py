@@ -9,10 +9,11 @@ must NOT re-implement in markdown:
 1. **Effective-pending filtering with hash-move re-nag suppression.** Reads the frozen
    ``pending-updates.json`` manifest (P1 producer) and the disposition ledger, and
    returns only entries the operator still needs to see — an entry with a *terminal*
-   disposition (``applied`` / ``dismissed``) recorded at the SAME ``new_template_hash``
-   is suppressed; it re-surfaces only when that hash MOVES (a genuinely new upstream
-   template), never on a "shown-before" flag. A ``deferred`` entry is recorded for
-   audit but re-surfaces next session (defer == "ask me later", not "stop asking").
+   disposition (``applied`` / ``dismissed`` / ``resolved``) recorded at the SAME
+   ``new_template_hash`` is suppressed; it re-surfaces only when that hash MOVES (a
+   genuinely new upstream template), never on a "shown-before" flag. A ``deferred``
+   entry is recorded for audit but re-surfaces next session (defer == "ask me later",
+   not "stop asking").
 
 2. **Apply-and-record.** For an approved entry it invokes the data-safety-critical
    ``reconcile_engine.reconcile_entry`` and records the disposition + the engine's
@@ -48,8 +49,11 @@ LEDGER_SCHEMA_VERSION = "1.0"
 
 # Terminal dispositions suppress re-surfacing until new_template_hash moves. A
 # "deferred" entry re-surfaces next session (it is recorded only for audit history).
-_TERMINAL_DISPOSITIONS = frozenset({"applied", "dismissed"})
-_VALID_DISPOSITIONS = frozenset({"applied", "deferred", "dismissed"})
+# "resolved" is the out-of-band stamp escape hatch (BP-190 §4.3, mirrors `alembic
+# stamp`): the operator hand-conformed the file outside the engine, so it is recorded
+# without ever calling `reconcile_entry` — hence never raises `StaleManifestError`.
+_TERMINAL_DISPOSITIONS = frozenset({"applied", "dismissed", "resolved"})
+_VALID_DISPOSITIONS = frozenset({"applied", "deferred", "dismissed", "resolved"})
 
 # Severity rank for presentation ordering (lower = surfaced first). Unknown severities
 # sort last but are still shown — never silently dropped.
@@ -227,6 +231,7 @@ def _record_disposition(
     action_taken=None,
     decision=None,
     backup_path=None,
+    resolved_at_hash=None,
 ) -> None:
     ledger.setdefault("dispositions", {})[entry.id] = {
         "disposition": disposition,
@@ -234,6 +239,7 @@ def _record_disposition(
         "decision": decision,
         "action_taken": action_taken,
         "backup_path": backup_path,
+        "resolved_at_hash": resolved_at_hash,
         "recorded_at": _now(),
     }
     ledger["schema_version"] = LEDGER_SCHEMA_VERSION
@@ -270,6 +276,53 @@ def cmd_reconcile(args) -> int:
 
     ledger_path = _ledger_path(project_root)
     ledger = load_ledger(ledger_path)
+
+    if disposition == "resolved":
+        # Out-of-band stamp (BP-190 §4.3, mirrors `alembic stamp`): the operator
+        # hand-conformed the deployed file themselves, so this NEVER calls
+        # `engine.reconcile_entry` — no staleness re-check, hence no
+        # `StaleManifestError` even though the deployed hash has moved past the
+        # manifest snapshot. Re-nag suppression still keys off `entry.new_template_hash`
+        # (unchanged `_is_terminal_at_hash` semantics); the CURRENT on-disk hash is
+        # captured separately, for audit only.
+        deployed_path = project_root / entry.path
+        try:
+            resolved_at_hash = engine.compute_hash(deployed_path)
+        except OSError as exc:
+            print(
+                json.dumps(
+                    {
+                        "status": "error",
+                        "id": entry.id,
+                        "error_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                    indent=2,
+                ),
+                file=sys.stderr,
+            )
+            return 1
+        _record_disposition(
+            ledger,
+            entry,
+            "resolved",
+            action_taken="stamped-resolved-out-of-band",
+            resolved_at_hash=resolved_at_hash,
+        )
+        write_ledger(ledger_path, ledger)
+        print(
+            json.dumps(
+                {
+                    "status": "ok",
+                    "id": entry.id,
+                    "disposition": "resolved",
+                    "action_taken": "stamped-resolved-out-of-band",
+                    "resolved_at_hash": resolved_at_hash,
+                },
+                indent=2,
+            )
+        )
+        return 0
 
     if disposition != "applied":
         # defer / dismiss: no engine write; record disposition only.
@@ -332,8 +385,9 @@ def cmd_is_disposed(args) -> int:
     """Exit 0 (+ print the disposition) if <id> is terminal-disposed at <hash>, else 1.
 
     The installer's ledger-aware oversight-drift warning shells out to this: a managed
-    file already reconciled (applied/dismissed) at the SAME shipped-template hash must
-    not re-emit the imperative "review + merge" warning. Fail-safe by construction — an
+    file already reconciled (applied/dismissed/resolved) at the SAME shipped-template
+    hash must not re-emit the imperative "review + merge" warning. Fail-safe by
+    construction — an
     absent/corrupt ledger yields no terminal record via ``load_ledger`` => exit 1 => the
     caller warns as it does today.
     """
