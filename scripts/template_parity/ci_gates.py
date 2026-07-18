@@ -144,8 +144,12 @@ _HAS_WORD_CHAR_RE = re.compile(r"[A-Za-z0-9_]")
 # greedily swallows adjacent trailing markdown noise into the match itself --
 # a bold-close `**` or a sentence-ending period. Trimmed post-match so
 # `**oversight/x.md**` / `oversight/x.md.` resolve to the same key as the
-# clean `oversight/x.md` instead of a spurious UNBACKED (PR #336).
-_TRAILING_MD_NOISE_RE = re.compile(r"[*.]+$")
+# clean `oversight/x.md` instead of a spurious UNBACKED (PR #336). A `*`
+# immediately preceded by `/` is a bare glob (e.g. `oversight/bugs/*`), not
+# markdown emphasis, and is excluded from the noise class so it survives
+# the trim; any other trailing `*`/`.` run is markdown noise and is
+# stripped (PR #336 re-review).
+_TRAILING_MD_NOISE_RE = re.compile(r"(?:(?<!/)\*|\.)+$")
 
 # Build/VCS noise that is not part of the shipped POV source tree (gitignored
 # — see .gitignore `__pycache__/` / `*.pyc`). Excluded so compiled bytecode

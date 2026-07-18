@@ -277,6 +277,20 @@ def test_c4b_bold_and_period_wrapped_root_singleton_resolves_clean(tmp_path):
     assert findings == []
 
 
+def test_c4b_trailing_noise_trim_preserves_bare_glob():
+    """PR #336 re-review LOW defect: the trailing noise trim swallowed a
+    legitimate trailing glob star along with real markdown noise (a
+    bold-close `**` or sentence period). Bold-close and period noise must
+    still strip; a bare trailing glob `*` must survive the trim."""
+    sub = gates._TRAILING_MD_NOISE_RE.sub
+    assert sub("", "oversight/project-status.md**") == "oversight/project-status.md"
+    assert (
+        sub("", "oversight/SESSION_WORK_INDEX.md.") == "oversight/SESSION_WORK_INDEX.md"
+    )
+    assert sub("", "oversight/bugs/*") == "oversight/bugs/*"
+    assert sub("", "oversight/bugs/*.md") == "oversight/bugs/*.md"
+
+
 # ── C5 — every entry declares a class ────────────────────────────────────────
 
 
