@@ -1,0 +1,3 @@
+# oversight-schema.yaml (fixture) — C2 seeded-violation fixture; no consumers
+# needed since the fixture registry declares no consumed_by values.
+consumers: {}

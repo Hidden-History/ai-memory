@@ -1,0 +1,15 @@
+# oversight-templates.yaml (fixture)
+# C2 seeded-violation fixture: `unregistered.md` ships with no registry
+# entry; `stripped.md` is registered but its `produces` value is stripped.
+schema_version: 1
+description: C2 seeded-violation fixture.
+templates:
+- template: templates/oversight/registered.md
+  produces: singleton
+  target: oversight/registered.md
+  class: register
+  consumed_by: []
+- template: templates/oversight/stripped.md
+  target: oversight/stripped.md
+  class: register
+  consumed_by: []

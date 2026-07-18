@@ -1,0 +1,12 @@
+# oversight-templates.yaml (fixture)
+# C4 seeded-violation fixture: `known.md` is `consumed_by` a consumer that
+# does not exist in the schema (C4(a) violation).
+schema_version: 1
+description: C4 seeded-violation fixture.
+templates:
+- template: templates/oversight/known.md
+  produces: singleton
+  target: oversight/known.md
+  class: register
+  consumed_by:
+  - ghost-consumer
