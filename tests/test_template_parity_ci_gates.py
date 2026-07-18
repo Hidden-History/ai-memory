@@ -181,6 +181,16 @@ def test_c4a_empty_consumed_by_is_legal():
     assert gates.check_c4a_consumer_resolution(entries, set()) == []
 
 
+def test_load_schema_consumers_degrades_on_missing_file(tmp_path):
+    assert gates.load_schema_consumers(tmp_path / "nope.yaml") == set()
+
+
+def test_load_schema_consumers_degrades_on_malformed_yaml(tmp_path):
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("consumers: [unterminated\n")
+    assert gates.load_schema_consumers(bad) == set()
+
+
 # ── C4(b) — reference resolution + UNBACKED ──────────────────────────────────
 
 
@@ -240,6 +250,28 @@ def test_c4b_root_singleton_exact_match_required(tmp_path):
             "template": "templates/oversight/project-status.md",
             "target": "oversight/project-status.md",
         }
+    ]
+    findings = gates.check_c4b_reference_backing(pov_dir, entries)
+    assert findings == []
+
+
+def test_c4b_bold_and_period_wrapped_root_singleton_resolves_clean(tmp_path):
+    """The greedy [*.] char class (needed for legit globs/extensions like
+    `oversight/bugs/*.md`) also swallowed trailing markdown bold-close and
+    sentence-ending periods into the match itself, so a root singleton
+    reference wrapped in bold or followed by a period never equaled its
+    declared target -- a spurious CI-blocking UNBACKED."""
+    pov_dir = tmp_path / "pov"
+    pov_dir.mkdir()
+    (pov_dir / "note.md").write_text(
+        "see **oversight/project-status.md** and oversight/other.md.\n"
+    )
+    entries = [
+        {
+            "template": "templates/oversight/project-status.md",
+            "target": "oversight/project-status.md",
+        },
+        {"template": "templates/oversight/other.md", "target": "oversight/other.md"},
     ]
     findings = gates.check_c4b_reference_backing(pov_dir, entries)
     assert findings == []

@@ -532,6 +532,84 @@ def test_loader_and_freshness_agree_on_malformed_defer_status(
     assert loader_says_open == freshness_says_open
 
 
+# --------------------------------------------------------------------------- #
+# PR #336 — deferrals status/trigger normalization                            #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("status", ["**Resolved**", "✅ Resolved"])
+def test_is_defer_closed_agrees_with_tracking_freshness_classify_status(
+    status: str,
+) -> None:
+    """_is_defer_closed did only .strip().upper() -- markdown-bold and emoji
+    Status values must classify closed the same way
+    tracking_freshness.classify_status does, so the two session-start
+    surfaces never disagree."""
+    assert session_loader._is_defer_closed(status) is True
+    assert tracking_freshness.classify_status(status, "defer") is True
+
+
+def test_is_defer_closed_agrees_with_tracking_freshness_on_backtick_status() -> None:
+    """Backtick-wrapping is template-modeled only for Revisit-Trigger, not
+    Status; a backtick-wrapped status must classify OPEN on both surfaces —
+    locks the parity this fix restores."""
+    status = "`Resolved`"
+    assert session_loader._is_defer_closed(status) is False
+    assert tracking_freshness.classify_status(status, "defer") is False
+
+
+@pytest.mark.parametrize("status", ["**Resolved**", "✅ Resolved"])
+def test_session_build_hides_markdown_wrapped_closed_deferral(
+    workspace: Path, status: str
+) -> None:
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", status, "Phase: P3")
+    out = session_loader.build(workspace, scope="oversight")
+    assert "DEFER-001" not in out
+
+
+def test_session_build_surfaces_backtick_wrapped_status_as_open(
+    workspace: Path,
+) -> None:
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", "`Resolved`", "Phase: P3")
+    out = session_loader.build(workspace, scope="oversight")
+    assert "DEFER-001" in out  # not template-modeled — must surface as open
+
+
+def test_defer_backtick_date_trigger_fires_trigger_met(workspace: Path) -> None:
+    """_DEFER_DATE_TRIGGER_RE required literal 'Date:' at position 0, which
+    DEFERRAL_TEMPLATE.md's modeled backtick-wrapped form (`` `Date:
+    <YYYY-MM-DD>` ``) never satisfied -- TRIGGER MET silently never fired."""
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", "Deferred", "`Date: 2020-01-01`")
+    out = session_loader.build(workspace, scope="oversight")
+    assert "TRIGGER MET" in out
+    triggered_section = out.split("TRIGGER MET")[1]
+    assert "DEFER-001: date trigger passed (2020-01-01)" in triggered_section
+
+
+def test_normalize_status_value_strips_bold_and_emoji_not_backticks() -> None:
+    assert lc.normalize_status_value("**Resolved**") == "RESOLVED"
+    assert lc.normalize_status_value("✅ Resolved") == "RESOLVED"
+    assert lc.normalize_status_value("`Resolved`") == "`RESOLVED`"
+
+
+def test_normalize_trigger_value_strips_bold_emoji_and_backticks() -> None:
+    assert lc.normalize_trigger_value("`Resolved`") == "RESOLVED"
+    assert lc.normalize_trigger_value("`Date: 2020-01-01`") == "DATE: 2020-01-01"
+
+
+def test_read_text_degrades_on_invalid_utf8(tmp_path: Path) -> None:
+    """loader_common.read_text caught only OSError -- an invalid UTF-8 byte
+    in a user-authored file raised an uncaught UnicodeDecodeError (a
+    ValueError), crashing the whole session-start loader. Must degrade like
+    the rest of the loader (never raise)."""
+    bad = tmp_path / "bad.md"
+    bad.write_bytes(b"Status: \xff\xfe invalid utf-8\n")
+    assert "invalid utf-8" in lc.read_text(bad)
+
+
 def test_vital_floor_present_across_phases(workspace: Path):
     act = activation_loader.build(workspace)
     ses = session_loader.build(workspace, scope="all")

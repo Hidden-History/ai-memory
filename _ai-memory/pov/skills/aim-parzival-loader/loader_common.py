@@ -21,9 +21,14 @@ Sections are matched by symbolic markdown headers, never line numbers
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 KB = 1024
+
+_BOLD_RE = re.compile(r"\*+")
+_EMOJI_RE = re.compile(r"[\U0001F000-\U0001FFFF☀-➿⌀-⏿️‍]")
+_BACKTICK_RE = re.compile(r"`+")
 
 
 def read_text(path: str | Path) -> str:
@@ -31,11 +36,47 @@ def read_text(path: str | Path) -> str:
 
     Missing sanctum/oversight files are a valid state (sanctum may be pre-First
     Breath), so the loaders degrade gracefully rather than raising.
+    ``errors="replace"`` additionally degrades an invalid-UTF-8 byte to a
+    replacement character instead of raising ``UnicodeDecodeError`` (a
+    ``ValueError``, not an ``OSError`` -- PR #336), matching
+    aim-tracking-freshness's own file-read convention.
     """
     try:
-        return Path(path).read_text(encoding="utf-8")
+        return Path(path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
+
+
+def normalize_status_value(raw: str) -> str:
+    """Strip markdown bold and emoji, then uppercase.
+
+    Byte-identical to aim-tracking-freshness's
+    ``tracking_freshness.normalize_status`` (bold + emoji stripping,
+    uppercase) -- deliberately NO backtick stripping: DEFERRAL_TEMPLATE.md's
+    Status placeholder is plain (``{status: Deferred / Revisiting /
+    Resolved / Dropped}``), unlike Revisit-Trigger, which IS backtick-
+    wrapped. A backtick-wrapped status (not template-modeled) must
+    therefore classify OPEN on both session-start surfaces, never silently
+    closed by one of them alone (PR #336).
+    """
+    text = _BOLD_RE.sub("", raw)
+    text = _EMOJI_RE.sub("", text)
+    return text.strip().upper()
+
+
+def normalize_trigger_value(raw: str) -> str:
+    """Strip markdown bold, emoji, and backticks, then uppercase.
+
+    Revisit-Trigger-only (session_loader has no cross-surface parity
+    requirement here -- tracking_freshness never reads this field):
+    DEFERRAL_TEMPLATE.md models a backtick-wrapped trigger (`` `Date:
+    <YYYY-MM-DD>` ``), so backticks must be stripped for the date regex to
+    match it (PR #336).
+    """
+    text = _BACKTICK_RE.sub("", raw)
+    text = _BOLD_RE.sub("", text)
+    text = _EMOJI_RE.sub("", text)
+    return text.strip().upper()
 
 
 def split_h2(text: str) -> tuple[str, list[tuple[str, str]]]:

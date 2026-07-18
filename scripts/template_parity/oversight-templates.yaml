@@ -115,7 +115,7 @@ templates:
     - cap_lines
     - cap_kb
   conventions:
-    entry_pattern: ^### DEC-[A-Z0-9-]+-D\d
+    entry_pattern: ^### DEC-[A-Z0-9-]+-D\d+
     order: newest_first
     cap_lines: 150
     cap_kb: 50

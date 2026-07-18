@@ -80,8 +80,18 @@ class Finding:
 
 
 def load_registry(registry_path: Path) -> list[dict]:
-    with registry_path.open() as fh:
-        data = yaml.safe_load(fh)
+    try:
+        with registry_path.open() as fh:
+            data = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError) as e:
+        # A permission/missing/TOCTOU or malformed-YAML registry read must
+        # not crash with a raw traceback (PR #336) -- a controlled
+        # SystemExit, matching this function's existing empty-registry
+        # convention below, since every downstream gate/check depends on a
+        # readable registry.
+        raise SystemExit(
+            f"template-parity-oracle: cannot read registry {registry_path}: {e}"
+        ) from e
     entries = data.get("templates", []) if isinstance(data, dict) else []
     if not entries:
         raise SystemExit(
@@ -146,7 +156,15 @@ _INT_RE = re.compile(r"\d+")
 
 
 def _read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="replace")
+    """Return a resolved target's text, or "" on a read failure (permission
+    error, TOCTOU race between resolution and read) -- degrades like the
+    rest of this report-only pipeline instead of crashing (PR #336); an
+    unreadable file's required elements simply surface as an ordinary
+    STRUCT_NONCONFORMANT finding rather than killing the whole run."""
+    try:
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -412,8 +430,16 @@ def check_c6_conventions(
         if cap_lines is not None and len(text.splitlines()) > cap_lines:
             over.append("cap_lines")
         cap_kb = conventions.get("cap_kb")
-        if cap_kb is not None and path.stat().st_size / 1024 > cap_kb:
-            over.append("cap_kb")
+        if cap_kb is not None:
+            # A stat() failure (permission/TOCTOU) must not crash this
+            # report-only run (PR #336) -- treat as "cannot verify", never
+            # flag OVER_CAP for a size that couldn't be measured.
+            try:
+                size_kb = path.stat().st_size / 1024
+            except OSError:
+                size_kb = None
+            if size_kb is not None and size_kb > cap_kb:
+                over.append("cap_kb")
         if over:
             findings.append(
                 Finding(

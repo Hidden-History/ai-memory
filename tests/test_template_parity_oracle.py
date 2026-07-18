@@ -23,6 +23,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 MODPATH = REPO / "scripts" / "template_parity" / "template_parity_oracle.py"
 FROZEN_REGISTRY = (
@@ -591,6 +593,29 @@ def test_c6_order_real_pm409_over_pm408_shape_no_finding(tmp_path):
     assert [f for f in findings if f.verdict == oracle.CONVENTION_VIOLATION] == []
 
 
+def test_c6_order_double_digit_d_suffix_names_full_offender(tmp_path):
+    """The real registry's decision-log entry_pattern used `-D\\d` (single
+    digit), truncating a double-digit D-suffix like `DEC-PM200-D12` to
+    `DEC-PM200-D1` in the CONVENTION_VIOLATION message -- naming the wrong
+    offender."""
+    registry_path = REPO / "scripts" / "template_parity" / "oversight-templates.yaml"
+    entries = oracle.load_registry(registry_path)
+    decision_log_entry = next(
+        e
+        for e in entries
+        if e["template"] == "templates/oversight/tracking/decision-log.md"
+    )
+    _write(
+        tmp_path,
+        "oversight/tracking/decision-log.md",
+        _conformant_decision_log(["DEC-PM100-D1", "DEC-PM200-D12"]),
+    )
+    findings = _run([decision_log_entry], tmp_path)
+    violations = [f for f in findings if f.verdict == oracle.CONVENTION_VIOLATION]
+    assert len(violations) == 1
+    assert "DEC-PM200-D12" in violations[0].message
+
+
 # ── FIX 5: report discloses unchecked convention dimensions ─────────────────
 
 
@@ -635,6 +660,37 @@ def test_find_unmanaged_is_non_recursive_by_design(tmp_path):
     _write(tmp_path, "oversight/tracking/.audit/logs/scratch.jsonl", "debris\n")
     findings = _run([DECISION_LOG_ENTRY], tmp_path)
     assert [f for f in findings if f.verdict == oracle.UNMANAGED] == []
+
+
+# ── PR #336: fail-safe fs/YAML reads ──────────────────────────────────────────
+
+
+def test_load_registry_missing_file_raises_systemexit_not_traceback(tmp_path):
+    """A permission/missing/TOCTOU registry read crashed with a raw
+    traceback; must degrade to a controlled SystemExit with a clear
+    message."""
+    with pytest.raises(SystemExit):
+        oracle.load_registry(tmp_path / "nope.yaml")
+
+
+def test_read_text_degrades_on_broken_symlink(tmp_path):
+    """_read_text's bare read_text() call crashed with a raw traceback on an
+    unreadable resolved target; must degrade to ""."""
+    link = tmp_path / "broken.md"
+    link.symlink_to(tmp_path / "missing.md")
+    assert oracle._read_text(link) == ""
+
+
+def test_check_c6_cap_kb_degrades_on_stat_failure(tmp_path):
+    """A bare path.stat() call crashed with a raw traceback on a
+    permission/TOCTOU error; a stat failure must degrade (skip the cap_kb
+    dimension for that file), never crash the whole report-only run."""
+    broken = tmp_path / "gone.md"
+    broken.symlink_to(tmp_path / "missing.md")
+    findings = oracle.check_c6_conventions(
+        {"conventions": {"cap_kb": 1}}, [broken], tmp_path
+    )
+    assert findings == []
 
 
 # ── FIX 7: unchecked convention dimensions computed per-entry (cycle-2) ──────

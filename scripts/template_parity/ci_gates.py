@@ -98,8 +98,17 @@ def check_c2_registration(templates_dir: Path, entries: list[dict]) -> list[Find
 
 
 def load_schema_consumers(schema_path: Path) -> set[str]:
-    with schema_path.open() as fh:
-        data = yaml.safe_load(fh)
+    """Return the schema's known consumer names, or an empty set on a
+    read/parse failure (permission error, missing file, TOCTOU race,
+    malformed YAML) -- degrades like the rest of this pipeline instead of
+    crashing with a raw traceback (cf. reconcile_helper.load_ledger); any
+    `consumed_by` value then correctly surfaces as CONSUMER_UNKNOWN instead
+    of the whole gate run dying (PR #336)."""
+    try:
+        with schema_path.open() as fh:
+            data = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError):
+        return set()
     consumers = data.get("consumers") if isinstance(data, dict) else None
     return set(consumers.keys()) if isinstance(consumers, dict) else set()
 
@@ -129,6 +138,14 @@ def check_c4a_consumer_resolution(
 
 _OVERSIGHT_REF_RE = re.compile(r"oversight/[A-Za-z0-9_.*/-]+")
 _HAS_WORD_CHAR_RE = re.compile(r"[A-Za-z0-9_]")
+
+# The `*`/`.` allowance in _OVERSIGHT_REF_RE's char class exists for
+# legitimate in-string globs/extensions (e.g. `oversight/bugs/*.md`); it also
+# greedily swallows adjacent trailing markdown noise into the match itself --
+# a bold-close `**` or a sentence-ending period. Trimmed post-match so
+# `**oversight/x.md**` / `oversight/x.md.` resolve to the same key as the
+# clean `oversight/x.md` instead of a spurious UNBACKED (PR #336).
+_TRAILING_MD_NOISE_RE = re.compile(r"[*.]+$")
 
 # Build/VCS noise that is not part of the shipped POV source tree (gitignored
 # — see .gitignore `__pycache__/` / `*.pyc`). Excluded so compiled bytecode
@@ -173,6 +190,7 @@ def extract_pov_references(pov_dir: Path) -> dict[str, set[str]]:
         text = path.read_text(encoding="utf-8", errors="replace")
         rel = path.relative_to(pov_dir.parent).as_posix()
         for match in set(_OVERSIGHT_REF_RE.findall(text)):
+            match = _TRAILING_MD_NOISE_RE.sub("", match)
             rest = match[len("oversight/") :]
             if not _HAS_WORD_CHAR_RE.search(rest):
                 continue

@@ -37,6 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from loader_common import (
     cap_done_section,
     lore_slice,
+    normalize_status_value,
+    normalize_trigger_value,
     read_text,
     resolve_paths,
     select_sections,
@@ -63,7 +65,11 @@ _INDEX_ABSENT_MARKERS = {
 # nothing when there is nothing to report, never print "0 open". DEFERRAL_TEMPLATE.md's
 # identity block is a table (`| **Status** | value |`), not a leading-bold line —
 # the record is brand new (no legacy colon-format data to tolerate), so only the
-# table-row form is matched, mirroring aim-tracking-freshness's _STATUS_TABLE_RE.
+# table-row form is matched here. This is intentionally narrower than
+# aim-tracking-freshness's extract_raw_status(), which tries a colon-form regex
+# FIRST and falls back to the table form only when that fails —
+# DEFERRAL_TEMPLATE.md has no legacy colon-form data to tolerate, so only its
+# table-row shape needs matching.
 _DEFER_RECORD_RE = re.compile(r"^DEFER-(\d+)(?:-[a-z0-9-]+)?\.md$", re.IGNORECASE)
 _DEFER_STATUS_RE = re.compile(r"^\|\s*\*\*Status\*\*\s*\|\s*(.+?)\s*\|", re.MULTILINE)
 _DEFER_TRIGGER_RE = re.compile(
@@ -81,7 +87,7 @@ _DEFER_CLOSED_TOKENS = ("RESOLVED", "DROPPED")
 
 
 def _is_defer_closed(status: str) -> bool:
-    normalized = status.strip().upper()
+    normalized = normalize_status_value(status)
     return any(
         re.match(rf"^{re.escape(tok)}\b", normalized) for tok in _DEFER_CLOSED_TOKENS
     )
@@ -116,7 +122,11 @@ def _deferrals_block(paths: dict[str, Path]) -> list[str]:
         trigger = trigger_m.group(1).strip() if trigger_m else "(no trigger set)"
         open_lines.append(f"- {name.stem}: {trigger}")
 
-        date_m = _DEFER_DATE_TRIGGER_RE.match(trigger)
+        # Match against the normalized form (strips a backtick-wrapped
+        # trigger's backticks) so `` `Date: 2026-09-01` `` -- the form
+        # DEFERRAL_TEMPLATE.md itself models -- is recognized; the raw
+        # ``trigger`` above is left unnormalized for display (PR #336).
+        date_m = _DEFER_DATE_TRIGGER_RE.match(normalize_trigger_value(trigger))
         if date_m:
             try:
                 trigger_date = date.fromisoformat(date_m.group(1))

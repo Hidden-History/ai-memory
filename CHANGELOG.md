@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Reconciliation supports an out-of-band `resolved` disposition for hand-conformed managed files** — an operator who hand-conformed a managed file outside the reconciliation engine had no way to record that and stop the recurring pending-update nag: the only path through `reconcile` invoked `reconcile_engine.reconcile_entry`, which raises `StaleManifestError` once the deployed file no longer matches its recorded snapshot. `resolved` is added as a new terminal disposition that records the current on-disk hash for audit and never calls the engine, so it cannot raise `StaleManifestError`; re-nag suppression continues to key off the entry's `new_template_hash` exactly as it does for `applied`/`dismissed`, and re-surfaces normally once that hash moves. `applied`/`deferred`/`dismissed` are unchanged.
+- **Session-start's Open Deferrals surface now agrees with `aim-tracking-freshness` on open/closed classification for markdown-decorated Status and Revisit-Trigger values** — the loader matched `**Resolved**`, `✅ Resolved`, and backtick-wrapped values (the form DEFERRAL_TEMPLATE.md itself models for Revisit-Trigger) as still open, and a backtick-wrapped date trigger never fired TRIGGER MET, diverging from aim-tracking-freshness's classification of the same file. Both surfaces now normalize (bold/emoji stripping for Status, plus backtick stripping for Revisit-Trigger) before matching.
 
 ## [2.8.4] - 2026-07-15
 
