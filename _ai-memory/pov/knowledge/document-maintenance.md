@@ -118,4 +118,4 @@ Archive a document when:
 
 `{oversight_path}/archive/{ORIGINAL-NAME}-archived-{YYYY-MM-DD}.md`
 
-Example: `oversight/archive/PLAN-010-archived-2026-03-15.md`
+Example: `oversight/session-logs/archive/PLAN-010-archived-2026-03-15.md`
