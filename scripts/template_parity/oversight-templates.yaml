@@ -951,6 +951,10 @@ templates:
   glob: oversight/tasks/TASK-*.md
   class: detail-record
   required_skeleton:
+    required_sections:
+    - '## Objective'
+    - '## Scope'
+    - '## Done-When'
     required_fields:
     - Task ID
     - Date

@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -26,6 +27,18 @@ sys.path.insert(0, str(LOADER_DIR))
 import activation_loader  # noqa: E402
 import loader_common as lc  # noqa: E402
 import session_loader  # noqa: E402
+
+# Loaded by path (not sys.path) so its module name never collides with the
+# aim-tracking-freshness skill's own test suite importing the same file.
+_FRESHNESS_SCRIPT = (
+    Path(__file__).resolve().parents[2]
+    / "_ai-memory/pov/skills/aim-tracking-freshness/scripts/tracking_freshness.py"
+)
+_freshness_spec = importlib.util.spec_from_file_location(
+    "tracking_freshness_for_loader_test", _FRESHNESS_SCRIPT
+)
+tracking_freshness = importlib.util.module_from_spec(_freshness_spec)
+_freshness_spec.loader.exec_module(tracking_freshness)
 
 # --------------------------------------------------------------------------- #
 # Fixtures — a minimal sanctum + oversight + config tree                        #
@@ -494,6 +507,29 @@ def test_session_build_fires_nothing_when_no_open_deferrals(workspace: Path):
     _write_defer(deferrals_dir, "001", "Resolved", "Date: 2020-01-01")
     out_all_closed = session_loader.build(workspace, scope="oversight")
     assert "Open Deferrals" not in out_all_closed
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["Postponed", "On Hold", "TBD", "Unknown"],
+)
+def test_loader_and_freshness_agree_on_malformed_defer_status(
+    workspace: Path, status: str
+) -> None:
+    """A non-canonical Status (neither DEFERRED/REVISITING nor RESOLVED/DROPPED)
+    must be OPEN on both session-start surfaces — never silently hidden by the
+    loader while the freshness INDEX counts it open (the R2 fix #4 divergence)."""
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", status, "Phase: P3")
+
+    out = session_loader.build(workspace, scope="oversight")
+    loader_says_open = "DEFER-001" in out
+
+    freshness_says_open = not tracking_freshness.classify_status(status, "defer")
+
+    assert loader_says_open is True, f"loader hid malformed status {status!r}"
+    assert freshness_says_open is True, f"freshness closed malformed status {status!r}"
+    assert loader_says_open == freshness_says_open
 
 
 def test_vital_floor_present_across_phases(workspace: Path):

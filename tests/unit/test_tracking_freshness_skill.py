@@ -49,6 +49,7 @@ extract_title = _mod.extract_title
 extract_severity = _mod.extract_severity
 render_bugs_index = _mod.render_bugs_index
 render_td_index = _mod.render_td_index
+render_deferrals_index = _mod.render_deferrals_index
 render_closed_shard = _mod.render_closed_shard
 _status_summary = _mod._status_summary
 _warn_if_over_cap = _mod._warn_if_over_cap
@@ -59,6 +60,9 @@ compute_staleness = _mod.compute_staleness
 parse_record_file = _mod.parse_record_file
 BUG_RECORD_RE = _mod.BUG_RECORD_RE
 TD_RECORD_RE = _mod.TD_RECORD_RE
+DEFER_RECORD_RE = _mod.DEFER_RECORD_RE
+DEFER_INDEX_CAP_LINES = _mod.DEFER_INDEX_CAP_LINES
+DEFER_INDEX_CAP_KB = _mod.DEFER_INDEX_CAP_KB
 Record = _mod.Record
 
 
@@ -265,6 +269,50 @@ class TestStatusClassification:
         """Reopened is an open-class token for TDs."""
         assert classify_status("Reopened", "td") is False
         assert classify_status("REOPENED", "td") is False
+
+    # ── Deferrals: RESOLVED/DROPPED are the closed-class (DEFERRAL_TEMPLATE.md) ──
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "RESOLVED",
+            "**RESOLVED** v2.4.0 (long note)",
+            "RESOLVED — revisited and closed",
+            "DROPPED",
+            "DROPPED — no longer relevant",
+        ],
+    )
+    def test_defer_closed(self, raw: str) -> None:
+        assert (
+            classify_status(raw, "defer") is True
+        ), f"Expected CLOSED for defer status: {raw!r}"
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "Deferred",
+            "DEFERRED",
+            "Revisiting",
+            "REVISITING",
+            "DEFERRED — trigger not yet met",
+        ],
+    )
+    def test_defer_canonical_open(self, raw: str) -> None:
+        assert (
+            classify_status(raw, "defer") is False
+        ), f"Expected OPEN for defer status: {raw!r}"
+
+    @pytest.mark.parametrize(
+        "raw",
+        ["Postponed", "On Hold", "TBD", "Unknown", ""],
+    )
+    def test_defer_malformed_status_is_open(self, raw: str) -> None:
+        """A non-canonical status is open-class (denylist, not allowlist) —
+        must never be silently classified closed. Mirrors R2 fix #4: the
+        session_loader surface must agree with this on any status string."""
+        assert (
+            classify_status(raw, "defer") is False
+        ), f"Expected OPEN (safer default) for malformed defer status: {raw!r}"
 
     # ── normalize_status strips correctly ────────────────────────────────
 
@@ -889,6 +937,104 @@ class TestRenderTdIndex:
 
 
 # ---------------------------------------------------------------------------
+# TestRenderDeferralsIndex
+# ---------------------------------------------------------------------------
+
+
+class TestRenderDeferralsIndex:
+    """Tests for render_deferrals_index (PLAN-035 P2.6, Lane D)."""
+
+    def _make_defer_record(
+        self, numeric_id: str, status: str, is_closed: bool
+    ) -> Record:
+        return Record(
+            filename=f"DEFER-{numeric_id}-test.md",
+            numeric_id=numeric_id,
+            kind="defer",
+            raw_status=status,
+            is_closed=is_closed,
+            sev="",
+            title=f"Deferred item {numeric_id}",
+        )
+
+    def test_quick_stats_counts(self) -> None:
+        """Quick Stats reports total/open/closed matching the input records."""
+        records = [
+            self._make_defer_record("001", "Deferred", is_closed=False),
+            self._make_defer_record("002", "Revisiting", is_closed=False),
+            self._make_defer_record("003", "Resolved", is_closed=True),
+        ]
+        rendered = render_deferrals_index(records, [], "2026-07-17")
+
+        assert "| **Deferral records (files, excl. companion)** | 3 |" in rendered
+        assert "| **Open** (Deferred / Revisiting) | 2 |" in rendered
+        assert "| **Closed** (Resolved / Dropped) | 1 |" in rendered
+
+    def test_open_section_lists_open_records_only(self) -> None:
+        """## Open Deferrals lists only open records, not closed ones."""
+        records = [
+            self._make_defer_record("001", "Deferred", is_closed=False),
+            self._make_defer_record("002", "Resolved", is_closed=True),
+        ]
+        rendered = render_deferrals_index(records, [], "2026-07-17")
+
+        open_section = rendered.split("## Open Deferrals", 1)[1].split(
+            "## Closed Deferrals", 1
+        )[0]
+        assert "DEFER-001" in open_section
+        assert "DEFER-002" not in open_section
+
+    def test_closed_section_lists_closed_records_only(self) -> None:
+        """## Closed Deferrals lists only closed records, not open ones."""
+        records = [
+            self._make_defer_record("001", "Deferred", is_closed=False),
+            self._make_defer_record("002", "Resolved", is_closed=True),
+        ]
+        rendered = render_deferrals_index(records, [], "2026-07-17")
+
+        closed_section = rendered.split("## Closed Deferrals", 1)[1]
+        assert "DEFER-002" in closed_section
+        assert "DEFER-001" not in closed_section
+
+    def test_no_severity_column(self) -> None:
+        """Deferrals INDEX has no Severity column (DEFERRAL_TEMPLATE.md has none)."""
+        rendered = render_deferrals_index(
+            [self._make_defer_record("001", "Deferred", is_closed=False)],
+            [],
+            "2026-07-17",
+        )
+        assert "| ID | Title | Status | Link |" in rendered
+        assert "| ID | Sev |" not in rendered
+        assert "Sev |" not in rendered
+
+    def test_d2_front_matter(self) -> None:
+        """Generated deferrals INDEX opens with the D2 register contract front-matter."""
+        rendered = render_deferrals_index(
+            [self._make_defer_record("001", "Deferred", is_closed=False)],
+            [],
+            "2026-07-17",
+        )
+        assert rendered.startswith("---\nclass: register\n")
+        assert "read_path: section-anchored" in rendered
+        assert f"cap_lines: {DEFER_INDEX_CAP_LINES}" in rendered
+        assert f"cap_kb: {DEFER_INDEX_CAP_KB}" in rendered
+        assert "archive_target: ./CLOSED.md" in rendered
+
+    def test_companion_note_in_header(self) -> None:
+        """render_deferrals_index wires the companions param into the header note."""
+        companions = [
+            ("DEFER-072-investigation-notes.md", "shares DEFER numeric ID 072")
+        ]
+        rendered = render_deferrals_index(
+            [self._make_defer_record("001", "Deferred", is_closed=False)],
+            companions,
+            "2026-07-17",
+        )
+        assert "companion file(s) excluded" in rendered
+        assert "`DEFER-072-investigation-notes.md`" in rendered
+
+
+# ---------------------------------------------------------------------------
 # TestClosedShardAndFrontMatter
 # ---------------------------------------------------------------------------
 
@@ -961,6 +1107,22 @@ class TestClosedShardAndFrontMatter:
         assert shard_a == shard_b  # idempotent
         for n in range(1, 16):
             assert f"BUG-{n:03d}" in shard_a  # full history (all 15)
+
+    def test_closed_shard_defer_kind_uses_defer_labels(self) -> None:
+        """render_closed_shard(kind="defer") uses the Deferral label/prefix, not bug/TD."""
+        record = Record(
+            filename="DEFER-001-test.md",
+            numeric_id="001",
+            kind="defer",
+            raw_status="Resolved",
+            is_closed=True,
+            sev="",
+            title="Closed deferral",
+        )
+        shard = render_closed_shard([record], "defer", "2026-07-17")
+        assert "Closed Deferral Records — Full History" in shard
+        assert "DEFER-001" in shard
+        assert "BUG-001" not in shard
 
     def test_gap2_sharded_closed_records_not_false_missing(
         self, tmp_path: Path
@@ -1617,6 +1779,157 @@ class TestCheckWriteContract:
         assert (
             "fully in sync" not in result.stdout
         ), "--check must NOT print 'fully in sync ✓' — that is a false-clean."
+
+
+# ---------------------------------------------------------------------------
+# TestDeferralsWriteWiring — PLAN-035 P2.6 Lane D --write CLI contract
+# ---------------------------------------------------------------------------
+
+
+class TestDeferralsWriteWiring:
+    """--write wiring for oversight/deferrals/ (generated-only, no --check
+    divergence contract — see module docstring)."""
+
+    def _build_defer_tree(self, tmp_path: Path) -> Path:
+        oversight = tmp_path / "oversight"
+        deferrals_dir = oversight / "deferrals"
+        deferrals_dir.mkdir(parents=True)
+        (deferrals_dir / "DEFER-001-open-item.md").write_text(
+            "## DEFER-001: Open item\n\n"
+            "| Field | Value |\n|-------|-------|\n"
+            "| **Status** | Deferred |\n",
+            encoding="utf-8",
+        )
+        (deferrals_dir / "DEFER-002-closed-item.md").write_text(
+            "## DEFER-002: Closed item\n\n"
+            "| Field | Value |\n|-------|-------|\n"
+            "| **Status** | Resolved |\n",
+            encoding="utf-8",
+        )
+        return oversight
+
+    def test_write_generates_deferrals_index_and_closed(self, tmp_path: Path) -> None:
+        """--write regenerates deferrals/INDEX.md and deferrals/CLOSED.md."""
+        oversight = self._build_defer_tree(tmp_path)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT_PATH),
+                "--write",
+                "--oversight-root",
+                str(oversight),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, (
+            f"--write should exit 0 for a deferrals-only tree.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        defer_idx = oversight / "deferrals" / "INDEX.md"
+        defer_closed = oversight / "deferrals" / "CLOSED.md"
+        assert defer_idx.exists(), "deferrals/INDEX.md must be written."
+        assert defer_closed.exists(), "deferrals/CLOSED.md must be written."
+
+        idx_text = defer_idx.read_text(encoding="utf-8")
+        assert "DEFER-001" in idx_text
+        assert "| **Open** (Deferred / Revisiting) | 1 |" in idx_text
+        assert "| **Closed** (Resolved / Dropped) | 1 |" in idx_text
+        assert "DEFER-002" in defer_closed.read_text(encoding="utf-8")
+
+    def test_write_absent_deferrals_dir_no_note_no_crash(self, tmp_path: Path) -> None:
+        """--write silently skips deferrals/ when absent — optional-seed, no NOTE noise."""
+        oversight = tmp_path / "oversight"
+        bugs_dir = oversight / "bugs"
+        bugs_dir.mkdir(parents=True)
+        (bugs_dir / "BUG-001-x.md").write_text(
+            "# BUG-001\n\n**Status**: OPEN\n**Severity**: HIGH\n", encoding="utf-8"
+        )
+        # No oversight/deferrals/ dir at all.
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT_PATH),
+                "--write",
+                "--oversight-root",
+                str(oversight),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "Traceback" not in result.stderr
+        assert not (oversight / "deferrals").exists()
+        assert "deferrals directory absent" not in result.stderr
+
+    def test_write_skipped_defer_file_surfaces_note_to_stderr(
+        self, tmp_path: Path
+    ) -> None:
+        """A malformed DEFER-*.md (record-shaped, fails full pattern) is surfaced
+        via a stderr NOTE (R2 fix #5) rather than silently dropped."""
+        oversight = tmp_path / "oversight"
+        deferrals_dir = oversight / "deferrals"
+        deferrals_dir.mkdir(parents=True)
+        (deferrals_dir / "DEFER-001-ok.md").write_text(
+            "## DEFER-001: OK\n\n| Field | Value |\n|-------|-------|\n"
+            "| **Status** | Deferred |\n",
+            encoding="utf-8",
+        )
+        (deferrals_dir / "DEFER-bad-id.md").write_text("malformed", encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT_PATH),
+                "--write",
+                "--oversight-root",
+                str(oversight),
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0
+        assert "DEFER-bad-id.md" in result.stderr
+        assert "NOTE" in result.stderr
+
+    def test_write_idempotent_for_deferrals(self, tmp_path: Path) -> None:
+        """Two consecutive --write runs produce byte-identical deferrals/INDEX.md."""
+        oversight = self._build_defer_tree(tmp_path)
+        defer_idx = oversight / "deferrals" / "INDEX.md"
+
+        for _ in range(2):
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(_SCRIPT_PATH),
+                    "--write",
+                    "--oversight-root",
+                    str(oversight),
+                ],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        first = defer_idx.read_text(encoding="utf-8")
+
+        subprocess.run(
+            [
+                sys.executable,
+                str(_SCRIPT_PATH),
+                "--write",
+                "--oversight-root",
+                str(oversight),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert defer_idx.read_text(encoding="utf-8") == first
 
 
 # ---------------------------------------------------------------------------

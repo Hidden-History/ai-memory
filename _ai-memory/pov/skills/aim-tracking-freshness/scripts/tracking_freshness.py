@@ -402,7 +402,7 @@ def find_records(
         companions — list of ``(filename, exclusion_reason)`` for companions
         skipped    — set of record-shaped filenames that failed the full regex
     """
-    _PREFIX = "BUG-" if kind == "bug" else "TECH-DEBT-"
+    _PREFIX = {"bug": "BUG-", "td": "TECH-DEBT-", "defer": "DEFER-"}[kind]
 
     by_id: dict[str, list[str]] = defaultdict(list)
     skipped: set[str] = set()
@@ -2221,11 +2221,22 @@ def main() -> None:
         bugs_dir, BUG_RECORD_RE, "bug"
     )
     td_filenames, td_companions, td_skipped = find_records(td_dir, TD_RECORD_RE, "td")
-    defer_filenames, defer_companions, _defer_skipped = find_records(
+    defer_filenames, defer_companions, defer_skipped = find_records(
         deferrals_dir, DEFER_RECORD_RE, "defer"
     )
     all_companions = bug_companions + td_companions
     all_skipped = bug_skipped | td_skipped
+
+    # Deferrals is generated-only (no --check divergence contract — see module
+    # docstring), so a malformed DEFER-*.md is surfaced via a NOTE rather than
+    # folded into all_skipped (which would silently pull deferrals into the
+    # bug/td --check exit-code count). Never drop it with no operator signal.
+    for fname in sorted(defer_skipped):
+        print(
+            "NOTE: deferrals — record-shaped file failed filename pattern, "
+            f"excluded from scan: {fname}",
+            file=sys.stderr,
+        )
 
     # ── Parse record files ────────────────────────────────────────────────
     bugs_records = [parse_record_file(bugs_dir / fn, "bug") for fn in bug_filenames]

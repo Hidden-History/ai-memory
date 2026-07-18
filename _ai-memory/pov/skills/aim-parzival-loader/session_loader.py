@@ -71,6 +71,21 @@ _DEFER_TRIGGER_RE = re.compile(
 )
 _DEFER_DATE_TRIGGER_RE = re.compile(r"^Date:\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
 
+# Mirrors aim-tracking-freshness's DEFER_CLOSED_TOKENS / classify_status(kind="defer")
+# (tracking_freshness.py) so both session-start surfaces agree on open/closed for
+# ANY status string, not just the 4 canonical values. Denylist, not allowlist: a
+# malformed/unknown status (e.g. "Postponed") is closed-class only if it starts
+# with a token below — otherwise it is OPEN and must be surfaced, never silently
+# hidden.
+_DEFER_CLOSED_TOKENS = ("RESOLVED", "DROPPED")
+
+
+def _is_defer_closed(status: str) -> bool:
+    normalized = status.strip().upper()
+    return any(
+        re.match(rf"^{re.escape(tok)}\b", normalized) for tok in _DEFER_CLOSED_TOKENS
+    )
+
 
 def _emit(title: str, body: str) -> str:
     return f"## [loader] {title}\n\n{body.rstrip()}\n"
@@ -94,7 +109,7 @@ def _deferrals_block(paths: dict[str, Path]) -> list[str]:
             continue
         status_m = _DEFER_STATUS_RE.search(text)
         status = status_m.group(1).strip() if status_m else ""
-        if not status.upper().startswith(("DEFERRED", "REVISITING")):
+        if _is_defer_closed(status):
             continue  # Resolved/Dropped — not open, do not surface
 
         trigger_m = _DEFER_TRIGGER_RE.search(text)
