@@ -2,10 +2,13 @@
 """
 tracking_freshness.py — aim-tracking-freshness backing script.
 
-Scans oversight/bugs/BUG-*.md and oversight/tech-debt/TECH-DEBT-*.md,
-classifies each record as open or closed from its authoritative **Status**
-header, and either reports divergences from the current INDEX (--check) or
-regenerates both INDEX files and then reports (--write).
+Scans oversight/bugs/BUG-*.md, oversight/tech-debt/TECH-DEBT-*.md, and
+oversight/deferrals/DEFER-*.md, classifies each record as open or closed
+from its authoritative **Status** header, and either reports divergences
+from the current bugs/TD INDEX files (--check) or regenerates all INDEX
+files and then reports (--write). The deferrals INDEX is generated-only
+(no divergence check — see module-level scope note in the Lane D wiring
+proposal that introduced it).
 
 The **Status** header in each record file is authoritative.
 Status is NEVER inferred from filename or INDEX section placement.
@@ -33,6 +36,7 @@ from pathlib import Path
 # A.1 — slug is optional: BUG-001.md and BUG-001-slug.md both match.
 BUG_RECORD_RE = re.compile(r"^BUG-(\d+)(?:-[a-z0-9-]+)?\.md$", re.IGNORECASE)
 TD_RECORD_RE = re.compile(r"^TECH-DEBT-(\d+)(?:-[a-z0-9-]+)?\.md$", re.IGNORECASE)
+DEFER_RECORD_RE = re.compile(r"^DEFER-(\d+)(?:-[a-z0-9-]+)?\.md$", re.IGNORECASE)
 
 # Closed-class keyword sets — grounded on template contract (A.2).
 #
@@ -63,6 +67,14 @@ TD_CLOSED_TOKENS: list[str] = [
     "WON'T FIX",
     "IMPLEMENTED",
     "FIXED",
+]
+
+# Deferral canonical (DEFERRAL_TEMPLATE.md Status Workflow): Resolved, Dropped
+# are the closed-class; Deferred, Revisiting are open-class. No legacy/tolerated
+# aliases yet — this is a brand-new record kind, seed the enum clean.
+DEFER_CLOSED_TOKENS: list[str] = [
+    "RESOLVED",
+    "DROPPED",
 ]
 
 # Severity display order for INDEX grouping
@@ -112,7 +124,7 @@ _TITLE_FIELD_RE = re.compile(r"^\*\*Title:?\*\*:?[^\S\n]*([^:\n][^\n]*)$", re.MU
 #   TECH-DEBT-NNN: Title (all TD files)
 # The character class [:\s—]+ covers all separators after the numeric ID.
 _H_RE = re.compile(r"^#{1,2}\s+(.+)$", re.MULTILINE)
-_ID_PREFIX_RE = re.compile(r"^(?:BUG|TECH-DEBT)-\d+[:\s—]+", re.IGNORECASE)
+_ID_PREFIX_RE = re.compile(r"^(?:BUG|TECH-DEBT|DEFER)-\d+[:\s—]+", re.IGNORECASE)
 
 # Generic headings that carry no useful title; fall back to de-slugify when matched.
 _GENERIC_HEADING_RE = re.compile(
@@ -133,6 +145,10 @@ BUGS_INDEX_CAP_LINES = 100
 BUGS_INDEX_CAP_KB = 12
 TD_INDEX_CAP_LINES = 150
 TD_INDEX_CAP_KB = 18
+# Deferrals is expected to stay small (postponed-decision count, not bug
+# volume) — same order of magnitude as bugs, not TD.
+DEFER_INDEX_CAP_LINES = 100
+DEFER_INDEX_CAP_KB = 12
 # Closed records kept inline in INDEX; the remainder live in CLOSED.md.
 CLOSED_INLINE_LIMIT = 10
 
@@ -184,7 +200,7 @@ class Record:
     ) -> None:
         self.filename = filename
         self.numeric_id = numeric_id
-        self.kind = kind  # "bug" | "td"
+        self.kind = kind  # "bug" | "td" | "defer"
         self.raw_status = raw_status  # verbatim from file (may be empty)
         self.is_closed = is_closed
         self.sev = sev  # e.g. "CRITICAL", "HIGH", "MEDIUM", "LOW", ""
@@ -245,9 +261,15 @@ def classify_status(raw: str, kind: str) -> bool:
     - bugs: FIXED, VERIFIED, CLOSED, RESOLVED, NOT A BUG, NOT-A-BUG,
             DUPLICATE, RECLASSIFIED, FIX APPLIED, FIX-APPLIED
     - td:   RESOLVED, CLOSED, WONT FIX, WON'T FIX, IMPLEMENTED, FIXED
+    - defer: RESOLVED, DROPPED
     """
     normalized = normalize_status(raw)
-    tokens = BUGS_CLOSED_TOKENS if kind == "bug" else TD_CLOSED_TOKENS
+    if kind == "bug":
+        tokens = BUGS_CLOSED_TOKENS
+    elif kind == "td":
+        tokens = TD_CLOSED_TOKENS
+    else:
+        tokens = DEFER_CLOSED_TOKENS
     return any(re.match(rf"^{re.escape(tok)}\b", normalized) for tok in tokens)
 
 
@@ -456,7 +478,7 @@ def parse_record_file(path: Path, kind: str) -> Record:
     sev = extract_severity(text)
     title = extract_title(text, path.name)
 
-    re_map = {"bug": BUG_RECORD_RE, "td": TD_RECORD_RE}
+    re_map = {"bug": BUG_RECORD_RE, "td": TD_RECORD_RE, "defer": DEFER_RECORD_RE}
     fm = re_map[kind].match(path.name)
     numeric_id = fm.group(1) if fm else "???"
 
@@ -973,16 +995,127 @@ def render_td_index(
     return "\n".join(lines)
 
 
+def render_deferrals_index(
+    records: list[Record],
+    companions: list[tuple[str, str]],
+    now_str: str,
+) -> str:
+    """Render the full text of oversight/deferrals/INDEX.md.
+
+    No severity column (deferrals have none — see DEFERRAL_TEMPLATE.md);
+    Revisit-Trigger and Points-To stand in as the scan-relevant columns.
+    """
+    open_records = sorted(
+        [r for r in records if not r.is_closed], key=lambda r: int(r.numeric_id)
+    )
+    closed_records = [r for r in records if r.is_closed]
+
+    n_total = len(records)
+    n_open = len(open_records)
+    n_closed = len(closed_records)
+
+    companion_note = ""
+    if companions:
+        names_str = ", ".join(f"`{c[0]}`" for c in companions)
+        companion_note = f"; companion file(s) excluded: {names_str}"
+
+    lines = [
+        "---",
+        "class: register",
+        "read_path: section-anchored",
+        'owns: "generated deferrals index + closed-history shard"',
+        f"cap_lines: {DEFER_INDEX_CAP_LINES}",
+        f"cap_kb: {DEFER_INDEX_CAP_KB}",
+        "rotation_trigger: none",
+        "archive_target: ./CLOSED.md",
+        "index_file: N/A",
+        'reconciliation: "regenerated wholesale by aim-tracking-freshness; '
+        'closed records beyond last-10 shard to CLOSED.md"',
+        "---",
+        "# Deferrals Register Index",
+        "",
+        f"**Last Updated**: {now_str} (aim-tracking-freshness rebuild — per-file `**Status**` scan of all {n_total} DEFER records{companion_note}.)",
+        "**Authority for status**: the individual `DEFER-*.md` file, read directly.",
+        "**Method**: per-file `**Status**` header scan of every `deferrals/DEFER-*.md`; companion files excluded per duplicate-ID rule.",
+        "",
+        "---",
+        "",
+        "## Quick Stats",
+        "",
+        "| Category | Count |",
+        "|----------|-------|",
+        f"| **Deferral records (files, excl. companion)** | {n_total} |",
+        f"| **Open** (Deferred / Revisiting) | {n_open} |",
+        f"| **Closed** (Resolved / Dropped) | {n_closed} |",
+        "",
+        "> **GC-18 exception**: generated navigation index; closed records beyond the last "
+        f"{CLOSED_INLINE_LIMIT} are sharded to `CLOSED.md`, open records are kept inline.",
+        "",
+        "---",
+        "",
+        "## Open Deferrals",
+        "",
+        "Status is summarized for scanning; read the linked file for the full Revisit-Trigger / Points-To.",
+        "",
+        "| ID | Title | Status | Link |",
+        "|----|-------|--------|------|",
+    ]
+
+    for r in open_records:
+        did = f"DEFER-{r.numeric_id}"
+        title = _table_cell(_truncate(r.title, 60))
+        status = _table_cell(_status_summary(r.raw_status))
+        link = f"[file](./{r.filename})"
+        lines.append(f"| {did} | {title} | {status} | {link} |")
+
+    closed_recent = sorted(
+        closed_records, key=lambda r: int(r.numeric_id), reverse=True
+    )[:CLOSED_INLINE_LIMIT]
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## Closed Deferrals",
+        "",
+        f"Most recent {CLOSED_INLINE_LIMIT} closed records; full closed history in `CLOSED.md`.",
+        "",
+        "| ID | Title | Status | Link |",
+        "|----|-------|--------|------|",
+    ]
+
+    for r in closed_recent:
+        did = f"DEFER-{r.numeric_id}"
+        title = _table_cell(_truncate(r.title, 70))
+        status = _table_cell(_status_summary(r.raw_status))
+        link = f"[file](./{r.filename})"
+        lines.append(f"| {did} | {title} | {status} | {link} |")
+
+    lines += [
+        "",
+        f"[Full closed history → ./CLOSED.md] ({n_closed})",
+        "",
+        "---",
+        "",
+        f"*Regenerated by aim-tracking-freshness, {now_str}. Authority: per-file `**Status**` header scan.*",
+        "",
+    ]
+
+    return "\n".join(lines)
+
+
 def render_closed_shard(records: list[Record], kind: str, now_str: str) -> str:
-    """Render the full closed-record history shard (``bugs/CLOSED.md`` or
-    ``tech-debt/CLOSED.md``).
+    """Render the full closed-record history shard (``bugs/CLOSED.md``,
+    ``tech-debt/CLOSED.md``, or ``deferrals/CLOSED.md``).
 
     Holds every closed record (the INDEX keeps only the most recent
     ``CLOSED_INLINE_LIMIT``). Sorted by numeric ID descending so re-runs on the
     same date are byte-identical (overwrite-in-place, idempotent).
     """
-    label = "Bug" if kind == "bug" else "Technical Debt"
-    prefix = "BUG" if kind == "bug" else "TECH-DEBT"
+    labels = {"bug": "Bug", "td": "Technical Debt", "defer": "Deferral"}
+    prefixes = {"bug": "BUG", "td": "TECH-DEBT", "defer": "DEFER"}
+    label = labels[kind]
+    prefix = prefixes[kind]
     closed = sorted(
         [r for r in records if r.is_closed],
         key=lambda r: int(r.numeric_id),
@@ -2067,8 +2200,10 @@ def main() -> None:
     oversight_root = resolve_oversight_root(args)
     bugs_dir = oversight_root / "bugs"
     td_dir = oversight_root / "tech-debt"
+    deferrals_dir = oversight_root / "deferrals"
     bugs_idx = bugs_dir / "INDEX.md"
     td_idx = td_dir / "INDEX.md"
+    deferrals_idx = deferrals_dir / "INDEX.md"
 
     # A.4 — degrade gracefully on absent sub-dirs; only the oversight root is a
     # hard error (handled in resolve_oversight_root above).
@@ -2078,18 +2213,26 @@ def main() -> None:
                 f"NOTE: {label} directory absent — not scaffolded: {d}",
                 file=sys.stderr,
             )
+    # deferrals is optional-seed (unlike bugs/tech-debt): silently skip when
+    # absent, no NOTE noise on installs that haven't adopted the register yet.
 
     # ── Enumerate files ────────────────────────────────────────────────────
     bug_filenames, bug_companions, bug_skipped = find_records(
         bugs_dir, BUG_RECORD_RE, "bug"
     )
     td_filenames, td_companions, td_skipped = find_records(td_dir, TD_RECORD_RE, "td")
+    defer_filenames, defer_companions, _defer_skipped = find_records(
+        deferrals_dir, DEFER_RECORD_RE, "defer"
+    )
     all_companions = bug_companions + td_companions
     all_skipped = bug_skipped | td_skipped
 
     # ── Parse record files ────────────────────────────────────────────────
     bugs_records = [parse_record_file(bugs_dir / fn, "bug") for fn in bug_filenames]
     td_records = [parse_record_file(td_dir / fn, "td") for fn in td_filenames]
+    defer_records = [
+        parse_record_file(deferrals_dir / fn, "defer") for fn in defer_filenames
+    ]
 
     # ── Compute staleness ─────────────────────────────────────────────────
     staleness = compute_staleness(
@@ -2136,6 +2279,22 @@ def main() -> None:
                 f"NOTE: tech-debt directory absent — not scaffolded: {td_dir}",
                 file=sys.stderr,
             )
+
+        if deferrals_dir.is_dir():
+            defer_content = render_deferrals_index(
+                defer_records, defer_companions, now_str
+            )
+            deferrals_idx.write_text(defer_content, encoding="utf-8")
+            print(f"Wrote: {deferrals_idx}")
+            defer_closed_md = deferrals_dir / "CLOSED.md"
+            defer_closed_md.write_text(
+                render_closed_shard(defer_records, "defer", now_str), encoding="utf-8"
+            )
+            print(f"Wrote: {defer_closed_md}")
+            _warn_if_over_cap(
+                deferrals_idx, defer_content, DEFER_INDEX_CAP_LINES, DEFER_INDEX_CAP_KB
+            )
+        # else: silently skip — deferrals is optional-seed, no NOTE noise.
 
     # ── Print report (both modes) ─────────────────────────────────────────
     print_staleness_report(staleness, bugs_records, td_records, mode)

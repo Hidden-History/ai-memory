@@ -418,6 +418,84 @@ def test_session_build_missing_bug_td_index_fires_marker(workspace: Path):
     )
 
 
+# DEFERRAL_TEMPLATE.md's identity block is a table, not a leading-bold line —
+# these fixtures mirror the real template shape so the test actually exercises
+# the table-aware regex fix (#410 Lane D candidate 1/4), not a colon-form stand-in.
+_DEFER_TABLE_TEMPLATE = """## DEFER-{id}: {title}
+
+| Field | Value |
+|-------|-------|
+| **Deferral ID** | DEFER-{id} |
+| **Date** | 2026-01-01 |
+| **Status** | {status} |
+| **Revisit-Trigger** | {trigger} |
+| **Deferred-By** | PM#1 |
+| **Points-To** | self |
+
+### What was deferred
+Test deferral.
+
+### Why
+Test reason.
+
+### Revisit criteria
+Test criteria.
+"""
+
+
+def _write_defer(
+    deferrals_dir: Path, numeric_id: str, status: str, trigger: str
+) -> None:
+    deferrals_dir.mkdir(parents=True, exist_ok=True)
+    (deferrals_dir / f"DEFER-{numeric_id}.md").write_text(
+        _DEFER_TABLE_TEMPLATE.format(
+            id=numeric_id,
+            title=f"deferred item {numeric_id}",
+            status=status,
+            trigger=trigger,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_session_build_surfaces_open_deferrals_table_format(workspace: Path):
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(
+        deferrals_dir, "001", "Deferred", "Date: 2020-01-01"
+    )  # past -> TRIGGER MET
+    _write_defer(deferrals_dir, "002", "Deferred", "Phase: P3")  # non-date, not flagged
+    _write_defer(
+        deferrals_dir, "003", "Resolved", "Date: 2020-01-01"
+    )  # closed, not surfaced
+
+    out = session_loader.build(workspace, scope="oversight")
+
+    assert "oversight/deferrals (Open Deferrals)" in out
+    assert "2 open" in out
+    assert "DEFER-001" in out
+    assert "DEFER-002" in out
+    assert "DEFER-003" not in out  # Resolved — closed-class, not open
+
+    assert "TRIGGER MET" in out
+    triggered_section = out.split("TRIGGER MET")[1]
+    assert "DEFER-001: date trigger passed (2020-01-01)" in triggered_section
+    assert (
+        "DEFER-002" not in triggered_section
+    )  # Phase trigger — not mechanically checkable
+
+
+def test_session_build_fires_nothing_when_no_open_deferrals(workspace: Path):
+    # fire-only-on-open: absent oversight/deferrals/ dir emits nothing.
+    out_absent = session_loader.build(workspace, scope="oversight")
+    assert "Open Deferrals" not in out_absent
+
+    # All-closed deferrals dir also emits nothing (never a "0 open" line).
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", "Resolved", "Date: 2020-01-01")
+    out_all_closed = session_loader.build(workspace, scope="oversight")
+    assert "Open Deferrals" not in out_all_closed
+
+
 def test_vital_floor_present_across_phases(workspace: Path):
     act = activation_loader.build(workspace)
     ses = session_loader.build(workspace, scope="all")

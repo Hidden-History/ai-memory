@@ -71,6 +71,10 @@ Compile each field from the loaded context:
 - Surface the single line it emits verbatim (e.g. `Pending Updates: 3 pending (3 high)`) — the count is severity-tallied and already excludes entries the operator applied/dismissed/resolved at the current template hash
 - Emits nothing when the manifest is absent OR every entry has been disposed — in that case surface NOTHING (fire-only-on-drift; do not fabricate a "0 pending" line). Detail (the entry list) is on-request only, in Step 3 — never inline it here
 
+**Open Deferrals** (deferrals register — PLAN-035 P2.6; only when the loader's `oversight/deferrals (Open Deferrals)` block was emitted in Step 1):
+- Surface the open count and, if any Revisit-Trigger date has passed, a "TRIGGER MET" line naming each one — both already computed by the loader; do not re-scan files here
+- Emits nothing when the loader block is absent (no `oversight/deferrals/` dir, or zero open records) — fire-only-on-open, same as Pending Updates; do not fabricate a "0 open" line
+
 **Continuation Point**:
 - Where work should resume based on handoff "Next Steps" or current task status
 

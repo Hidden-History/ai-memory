@@ -28,7 +28,9 @@ PROJECT_ROOT defaults to the current working directory.
 
 from __future__ import annotations
 
+import re
 import sys
+from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -56,9 +58,67 @@ _INDEX_ABSENT_MARKERS = {
     "tech-debt/INDEX.md": "tech-debt INDEX absent — TD counts unavailable; run /aim-tracking-freshness",
 }
 
+# Open Deferrals surface (PLAN-035 P2.6 / PM #410) — fire-only-on-open pattern,
+# same shape as the Pending Updates surface in step-02-compile-status.md: emit
+# nothing when there is nothing to report, never print "0 open". DEFERRAL_TEMPLATE.md's
+# identity block is a table (`| **Status** | value |`), not a leading-bold line —
+# the record is brand new (no legacy colon-format data to tolerate), so only the
+# table-row form is matched, mirroring aim-tracking-freshness's _STATUS_TABLE_RE.
+_DEFER_RECORD_RE = re.compile(r"^DEFER-(\d+)(?:-[a-z0-9-]+)?\.md$", re.IGNORECASE)
+_DEFER_STATUS_RE = re.compile(r"^\|\s*\*\*Status\*\*\s*\|\s*(.+?)\s*\|", re.MULTILINE)
+_DEFER_TRIGGER_RE = re.compile(
+    r"^\|\s*\*\*Revisit-Trigger\*\*\s*\|\s*(.+?)\s*\|", re.MULTILINE
+)
+_DEFER_DATE_TRIGGER_RE = re.compile(r"^Date:\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
+
 
 def _emit(title: str, body: str) -> str:
     return f"## [loader] {title}\n\n{body.rstrip()}\n"
+
+
+def _deferrals_block(paths: dict[str, Path]) -> list[str]:
+    oversight = paths["oversight_path"]
+    deferrals_dir = oversight / "deferrals"
+    if not deferrals_dir.is_dir():
+        return []
+
+    open_lines: list[str] = []
+    triggered_lines: list[str] = []
+    today = date.today()
+
+    for name in sorted(deferrals_dir.iterdir()):
+        if not _DEFER_RECORD_RE.match(name.name):
+            continue
+        text = read_text(name)
+        if not text:
+            continue
+        status_m = _DEFER_STATUS_RE.search(text)
+        status = status_m.group(1).strip() if status_m else ""
+        if not status.upper().startswith(("DEFERRED", "REVISITING")):
+            continue  # Resolved/Dropped — not open, do not surface
+
+        trigger_m = _DEFER_TRIGGER_RE.search(text)
+        trigger = trigger_m.group(1).strip() if trigger_m else "(no trigger set)"
+        open_lines.append(f"- {name.stem}: {trigger}")
+
+        date_m = _DEFER_DATE_TRIGGER_RE.match(trigger)
+        if date_m:
+            try:
+                trigger_date = date.fromisoformat(date_m.group(1))
+            except ValueError:
+                trigger_date = None
+            if trigger_date and trigger_date <= today:
+                triggered_lines.append(
+                    f"- {name.stem}: date trigger passed ({date_m.group(1)})"
+                )
+
+    if not open_lines:
+        return []  # fire-only-on-open: nothing deferred, emit nothing
+
+    body = f"{len(open_lines)} open:\n" + "\n".join(open_lines)
+    if triggered_lines:
+        body += "\n\nTRIGGER MET (revisit now):\n" + "\n".join(triggered_lines)
+    return [_emit("oversight/deferrals (Open Deferrals)", body)]
 
 
 def _oversight_blocks(paths: dict[str, Path]) -> list[str]:
@@ -91,6 +151,7 @@ def _oversight_blocks(paths: dict[str, Path]) -> list[str]:
             else _INDEX_ABSENT_MARKERS[rel]
         )
         blocks.append(_emit(f"oversight/{rel} (Quick Stats)", body))
+    blocks.extend(_deferrals_block(paths))
     return blocks
 
 
