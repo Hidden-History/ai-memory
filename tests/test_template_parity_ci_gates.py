@@ -8,10 +8,10 @@ Unlike `template_parity_oracle.py` (report-only, per-user-project),
   - a seeded-violation fixture under
     `tests/fixtures/template_parity/ci_gates/` that fails (exit non-zero).
 
-C4(b) additionally reproduces the exact §3.3/§3.4 UNBACKED anchor on today's
-tree: `oversight/tasks/` x2, `oversight/reports/` x3 (the 5 known live gaps),
-with `oversight/archive/` x1 preserved as a true finding (§3.5 — must never
-be silently dropped).
+C4(b)'s combined-run invariant asserts a clean tree (zero findings): the
+`oversight/tasks/`, `oversight/reports/`, and `oversight/deferrals/` gaps are
+now backed by registered templates (PLAN-035 P2.6), and the `oversight/archive/`
+reference was reconciled to a per-area example (§3.5 case no longer applies).
 """
 
 from __future__ import annotations
@@ -184,58 +184,12 @@ def test_c4a_empty_consumed_by_is_legal():
 # ── C4(b) — reference resolution + UNBACKED ──────────────────────────────────
 
 
-def test_c4b_anchor_reproduces_today_tree():
+def test_c4b_clean_tree_real_repo():
     entries = gates.load_registry(
         REPO / "scripts" / "template_parity" / "oversight-templates.yaml"
     )
     findings = gates.check_c4b_reference_backing(REPO / "_ai-memory" / "pov", entries)
-
-    by_key = {}
-    for f in findings:
-        by_key.setdefault(f.path, set()).add(f.message)
-
-    unbacked_keys = set(by_key)
-    assert unbacked_keys >= {"oversight/tasks/", "oversight/reports/"}
-
-    tasks_findings = [f for f in findings if f.path == "oversight/tasks/"]
-    assert len(tasks_findings) == 2
-    tasks_sources = {
-        f.message.split("referenced in ")[1].split(" but")[0] for f in tasks_findings
-    }
-    assert tasks_sources == {
-        "pov/skills/aim-parzival-loader/SKILL.md",
-        "pov/skills/aim-parzival-loader/loader_common.py",
-    }
-
-    reports_findings = [f for f in findings if f.path == "oversight/reports/"]
-    assert len(reports_findings) == 3
-    reports_sources = {
-        f.message.split("referenced in ")[1].split(" but")[0] for f in reports_findings
-    }
-    assert reports_sources == {
-        "pov/references/auto-memory-best-practices.md",
-        "pov/skills/aim-tracking-freshness/references/extended-checks.md",
-        "pov/skills/aim-tracking-freshness/scripts/tracking_freshness.py",
-    }
-
-    # §3.5 boundary case: archive/ is a 6th, legitimate finding the same rule
-    # surfaces — it must stay reported, never silently special-cased away.
-    archive_findings = [f for f in findings if f.path == "oversight/archive/"]
-    assert len(archive_findings) == 1
-
-    # backed directories must never appear as UNBACKED
-    for backed in (
-        "oversight/bugs/",
-        "oversight/plans/",
-        "oversight/tracking/",
-        "oversight/knowledge/",
-        "oversight/tech-debt/",
-        "oversight/session-logs/",
-        "oversight/verification/",
-        "oversight/SESSION_WORK_INDEX.md",
-        "oversight/project-status.md",
-    ):
-        assert backed not in unbacked_keys
+    assert findings == []
 
 
 def test_c4b_seeded_fixture_fails():
@@ -330,17 +284,12 @@ def test_c5_empty_string_class_is_missing():
 # ── Whole-repo combined-run invariant ─────────────────────────────────────────
 
 
-def test_main_on_real_tree_only_known_c4b_gaps():
-    """C2, C4(a), and C5 are clean on today's tree. The only findings the
-    combined run produces are the known, currently-unremediated C4(b)
-    UNBACKED gaps this gate exists to surface (§3.3/§3.4 anchor) — proving
-    today's non-zero exit is real pre-existing drift, not a regression
-    introduced by this gate's own logic."""
+def test_main_on_real_tree_clean():
+    """C2, C4(a), C4(b), and C5 are all clean on today's tree — every shipped
+    template is registered, every `oversight/...` reference across the POV
+    tree resolves to a backed registry entry, and every entry declares a
+    `class` (PLAN-035 P2.6 reconcile closed the tasks/reports/deferrals gaps
+    and the archive/ reference)."""
     result, findings = _run_cli_json(REPO)
-    assert result.returncode != 0
-    assert {f["verdict"] for f in findings} == {"UNBACKED"}
-    assert {f["path"] for f in findings} == {
-        "oversight/tasks/",
-        "oversight/reports/",
-        "oversight/archive/",
-    }
+    assert result.returncode == 0
+    assert findings == []

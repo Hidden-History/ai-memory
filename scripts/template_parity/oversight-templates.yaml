@@ -902,6 +902,62 @@ templates:
     - Uncertain
     - Unknown
     retention_trigger: never
+- template: templates/oversight/deferrals/DEFERRAL_TEMPLATE.md
+  produces: family
+  glob: oversight/deferrals/DEFER-*.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '### What was deferred'
+    - '### Why'
+    - '### Revisit criteria'
+  glob_unverified: true
+  consumed_by: []
+- template: templates/oversight/deferrals/README.md
+  produces: singleton
+  target: oversight/deferrals/README.md
+  class: detail-record
+  required_skeleton:
+    derive_from: templates/oversight/deferrals/README.md
+    required_sections:
+    - '## What a deferral is'
+    - '## When to file one'
+    - '## How'
+    - '## Surfacing'
+    ordered: false
+    match_case: false
+  conventions:
+    retention_trigger: none
+- template: templates/oversight/reports/REPORT_TEMPLATE.md
+  produces: family
+  glob: oversight/reports/*.md
+  class: detail-record
+  required_skeleton:
+    required_sections:
+    - '## Summary'
+    - '## Findings'
+    - '## Recommendations'
+    required_fields:
+    - Report ID
+    - Date
+    - Type
+    - Status
+  glob_exclude:
+  - PHANTOM-OPEN-CANDIDATES.md
+  glob_unverified: true
+  consumed_by: []
+- template: templates/oversight/tasks/TASK_TEMPLATE.md
+  produces: family
+  glob: oversight/tasks/TASK-*.md
+  class: detail-record
+  required_skeleton:
+    required_fields:
+    - Task ID
+    - Date
+    - Status
+    - Owner
+  glob_unverified: true
+  consumed_by: []
 - template: templates/oversight/PROJECT_STANDARDS.yaml
   produces: singleton
   target: oversight/PROJECT_STANDARDS.yaml
