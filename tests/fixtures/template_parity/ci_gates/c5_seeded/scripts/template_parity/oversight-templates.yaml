@@ -1,0 +1,10 @@
+# oversight-templates.yaml (fixture)
+# C5 seeded-violation fixture: `known.md` is registered but declares no
+# `class`.
+schema_version: 1
+description: C5 seeded-violation fixture.
+templates:
+- template: templates/oversight/known.md
+  produces: singleton
+  target: oversight/known.md
+  consumed_by: []

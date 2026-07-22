@@ -30,8 +30,11 @@ log (decision-log shards + manifest). The table-under-severity registers and
 multi-table live-indexes (blockers-log, risk-register, SESSION_WORK_INDEX,
 session-index/INDEX) are --check-enforced but --apply-deferred to TD-655 (see
 MANUAL_ROTATION_FILES) — they rotate by hand for now. rotate does NOT touch the
-generated bugs/INDEX.md or tech-debt/INDEX.md — those and their CLOSED.md shards
-are owned by aim-tracking-freshness.
+generated bugs/INDEX.md, tech-debt/INDEX.md, or deferrals/INDEX.md (PLAN-035
+P2.6) — those and their CLOSED.md shards are owned by aim-tracking-freshness,
+which self-archives closed-class records (Resolved/Dropped for deferrals)
+into each directory's own CLOSED.md, the register-class event-archive outcome,
+implemented on the generated-index path rather than this module's.
 
 Contract source of truth: PARZIVAL-OVERSIGHT-SOT.md §14 (D1 cap mapping, D2
 per-seed values) and BP-167 Part C (rotation lifecycle).
@@ -135,7 +138,9 @@ FALLBACK_REGISTRY: dict[str, Contract] = {
 # Generated INDEX files owned by aim-tracking-freshness. Even if a future seed
 # made one of these look rotatable (cap + rotation_trigger:on-* + archive_target),
 # --apply must refuse it here — no double ownership.
-FRESHNESS_OWNED: frozenset[str] = frozenset({"bugs/INDEX.md", "tech-debt/INDEX.md"})
+FRESHNESS_OWNED: frozenset[str] = frozenset(
+    {"bugs/INDEX.md", "tech-debt/INDEX.md", "deferrals/INDEX.md"}
+)
 
 # Governed files whose REAL seed format is a table-under-severity/status register
 # or a multi-table live-index, where the entry-boundary auto-rotation here cannot

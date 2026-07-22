@@ -12,6 +12,7 @@ Covers:
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -26,6 +27,18 @@ sys.path.insert(0, str(LOADER_DIR))
 import activation_loader  # noqa: E402
 import loader_common as lc  # noqa: E402
 import session_loader  # noqa: E402
+
+# Loaded by path (not sys.path) so its module name never collides with the
+# aim-tracking-freshness skill's own test suite importing the same file.
+_FRESHNESS_SCRIPT = (
+    Path(__file__).resolve().parents[2]
+    / "_ai-memory/pov/skills/aim-tracking-freshness/scripts/tracking_freshness.py"
+)
+_freshness_spec = importlib.util.spec_from_file_location(
+    "tracking_freshness_for_loader_test", _FRESHNESS_SCRIPT
+)
+tracking_freshness = importlib.util.module_from_spec(_freshness_spec)
+_freshness_spec.loader.exec_module(tracking_freshness)
 
 # --------------------------------------------------------------------------- #
 # Fixtures — a minimal sanctum + oversight + config tree                        #
@@ -416,6 +429,185 @@ def test_session_build_missing_bug_td_index_fires_marker(workspace: Path):
         "tech-debt INDEX absent — TD counts unavailable; run /aim-tracking-freshness"
         in out
     )
+
+
+# DEFERRAL_TEMPLATE.md's identity block is a table, not a leading-bold line —
+# these fixtures mirror the real template shape so the test actually exercises
+# the table-aware regex fix (#410 Lane D candidate 1/4), not a colon-form stand-in.
+_DEFER_TABLE_TEMPLATE = """## DEFER-{id}: {title}
+
+| Field | Value |
+|-------|-------|
+| **Deferral ID** | DEFER-{id} |
+| **Date** | 2026-01-01 |
+| **Status** | {status} |
+| **Revisit-Trigger** | {trigger} |
+| **Deferred-By** | PM#1 |
+| **Points-To** | self |
+
+### What was deferred
+Test deferral.
+
+### Why
+Test reason.
+
+### Revisit criteria
+Test criteria.
+"""
+
+
+def _write_defer(
+    deferrals_dir: Path, numeric_id: str, status: str, trigger: str
+) -> None:
+    deferrals_dir.mkdir(parents=True, exist_ok=True)
+    (deferrals_dir / f"DEFER-{numeric_id}.md").write_text(
+        _DEFER_TABLE_TEMPLATE.format(
+            id=numeric_id,
+            title=f"deferred item {numeric_id}",
+            status=status,
+            trigger=trigger,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_session_build_surfaces_open_deferrals_table_format(workspace: Path):
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(
+        deferrals_dir, "001", "Deferred", "Date: 2020-01-01"
+    )  # past -> TRIGGER MET
+    _write_defer(deferrals_dir, "002", "Deferred", "Phase: P3")  # non-date, not flagged
+    _write_defer(
+        deferrals_dir, "003", "Resolved", "Date: 2020-01-01"
+    )  # closed, not surfaced
+
+    out = session_loader.build(workspace, scope="oversight")
+
+    assert "oversight/deferrals (Open Deferrals)" in out
+    assert "2 open" in out
+    assert "DEFER-001" in out
+    assert "DEFER-002" in out
+    assert "DEFER-003" not in out  # Resolved — closed-class, not open
+
+    assert "TRIGGER MET" in out
+    triggered_section = out.split("TRIGGER MET")[1]
+    assert "DEFER-001: date trigger passed (2020-01-01)" in triggered_section
+    assert (
+        "DEFER-002" not in triggered_section
+    )  # Phase trigger — not mechanically checkable
+
+
+def test_session_build_fires_nothing_when_no_open_deferrals(workspace: Path):
+    # fire-only-on-open: absent oversight/deferrals/ dir emits nothing.
+    out_absent = session_loader.build(workspace, scope="oversight")
+    assert "Open Deferrals" not in out_absent
+
+    # All-closed deferrals dir also emits nothing (never a "0 open" line).
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", "Resolved", "Date: 2020-01-01")
+    out_all_closed = session_loader.build(workspace, scope="oversight")
+    assert "Open Deferrals" not in out_all_closed
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["Postponed", "On Hold", "TBD", "Unknown"],
+)
+def test_loader_and_freshness_agree_on_malformed_defer_status(
+    workspace: Path, status: str
+) -> None:
+    """A non-canonical Status (neither DEFERRED/REVISITING nor RESOLVED/DROPPED)
+    must be OPEN on both session-start surfaces — never silently hidden by the
+    loader while the freshness INDEX counts it open (the R2 fix #4 divergence)."""
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", status, "Phase: P3")
+
+    out = session_loader.build(workspace, scope="oversight")
+    loader_says_open = "DEFER-001" in out
+
+    freshness_says_open = not tracking_freshness.classify_status(status, "defer")
+
+    assert loader_says_open is True, f"loader hid malformed status {status!r}"
+    assert freshness_says_open is True, f"freshness closed malformed status {status!r}"
+    assert loader_says_open == freshness_says_open
+
+
+# --------------------------------------------------------------------------- #
+# PR #336 — deferrals status/trigger normalization                            #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("status", ["**Resolved**", "✅ Resolved"])
+def test_is_defer_closed_agrees_with_tracking_freshness_classify_status(
+    status: str,
+) -> None:
+    """_is_defer_closed did only .strip().upper() -- markdown-bold and emoji
+    Status values must classify closed the same way
+    tracking_freshness.classify_status does, so the two session-start
+    surfaces never disagree."""
+    assert session_loader._is_defer_closed(status) is True
+    assert tracking_freshness.classify_status(status, "defer") is True
+
+
+def test_is_defer_closed_agrees_with_tracking_freshness_on_backtick_status() -> None:
+    """Backtick-wrapping is template-modeled only for Revisit-Trigger, not
+    Status; a backtick-wrapped status must classify OPEN on both surfaces —
+    locks the parity this fix restores."""
+    status = "`Resolved`"
+    assert session_loader._is_defer_closed(status) is False
+    assert tracking_freshness.classify_status(status, "defer") is False
+
+
+@pytest.mark.parametrize("status", ["**Resolved**", "✅ Resolved"])
+def test_session_build_hides_markdown_wrapped_closed_deferral(
+    workspace: Path, status: str
+) -> None:
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", status, "Phase: P3")
+    out = session_loader.build(workspace, scope="oversight")
+    assert "DEFER-001" not in out
+
+
+def test_session_build_surfaces_backtick_wrapped_status_as_open(
+    workspace: Path,
+) -> None:
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", "`Resolved`", "Phase: P3")
+    out = session_loader.build(workspace, scope="oversight")
+    assert "DEFER-001" in out  # not template-modeled — must surface as open
+
+
+def test_defer_backtick_date_trigger_fires_trigger_met(workspace: Path) -> None:
+    """_DEFER_DATE_TRIGGER_RE required literal 'Date:' at position 0, which
+    DEFERRAL_TEMPLATE.md's modeled backtick-wrapped form (`` `Date:
+    <YYYY-MM-DD>` ``) never satisfied -- TRIGGER MET silently never fired."""
+    deferrals_dir = workspace / "oversight/deferrals"
+    _write_defer(deferrals_dir, "001", "Deferred", "`Date: 2020-01-01`")
+    out = session_loader.build(workspace, scope="oversight")
+    assert "TRIGGER MET" in out
+    triggered_section = out.split("TRIGGER MET")[1]
+    assert "DEFER-001: date trigger passed (2020-01-01)" in triggered_section
+
+
+def test_normalize_status_value_strips_bold_and_emoji_not_backticks() -> None:
+    assert lc.normalize_status_value("**Resolved**") == "RESOLVED"
+    assert lc.normalize_status_value("✅ Resolved") == "RESOLVED"
+    assert lc.normalize_status_value("`Resolved`") == "`RESOLVED`"
+
+
+def test_normalize_trigger_value_strips_bold_emoji_and_backticks() -> None:
+    assert lc.normalize_trigger_value("`Resolved`") == "RESOLVED"
+    assert lc.normalize_trigger_value("`Date: 2020-01-01`") == "DATE: 2020-01-01"
+
+
+def test_read_text_degrades_on_invalid_utf8(tmp_path: Path) -> None:
+    """loader_common.read_text caught only OSError -- an invalid UTF-8 byte
+    in a user-authored file raised an uncaught UnicodeDecodeError (a
+    ValueError), crashing the whole session-start loader. Must degrade like
+    the rest of the loader (never raise)."""
+    bad = tmp_path / "bad.md"
+    bad.write_bytes(b"Status: \xff\xfe invalid utf-8\n")
+    assert "invalid utf-8" in lc.read_text(bad)
 
 
 def test_vital_floor_present_across_phases(workspace: Path):

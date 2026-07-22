@@ -69,3 +69,26 @@ directories:
     subdirectories:
       checklists:
         description: Verification checklist templates
+
+# Consumers of the oversight files above.
+#
+# A "consumer" is a shipped POV skill/workflow that programmatically reads or
+# rewrites an oversight file's structure or lifecycle (e.g. caps/rotates it,
+# scans it, regenerates an index from it) -- NOT a skill that merely displays a
+# file's text for context. This block is the single vocabulary of valid
+# consumer identifiers.
+#
+# One source of truth, no parallel system (DEC-PM406-D3): the consumer NODES
+# live here; the per-file consumer EDGES live in the template-parity registry
+# (oversight-templates.yaml) as `consumed_by:` lists. The C4 wiring gate
+# (PLAN-035 §3a) requires every `consumed_by:` value to name a key in this
+# block -- a value that does not resolve here fails CI.
+consumers:
+  aim-tracking-rotate:
+    kind: skill
+    path: pov/skills/aim-tracking-rotate
+    reads: Caps and rotates lifecycle-managed oversight files by class contract.
+  aim-tracking-freshness:
+    kind: skill
+    path: pov/skills/aim-tracking-freshness
+    reads: Scans registers, regenerates INDEX views, checks decision-log coverage.

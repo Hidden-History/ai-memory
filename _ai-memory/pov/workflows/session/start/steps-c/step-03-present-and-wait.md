@@ -128,14 +128,15 @@ Present the returned `entries` severity-ranked as a numbered list — for each: 
 
 **5.3 — Reconcile chosen entries ONE AT A TIME.** For each selected entry, in severity-rank order:
 - Restate the single entry (path · severity · rationale).
-- Ask the operator for a per-entry disposition: **approve** / **defer** / **dismiss**. WAIT.
-- Invoke it (map approve→`applied`, defer→`deferred`, dismiss→`dismissed`):
+- Ask the operator for a per-entry disposition: **approve** / **defer** / **dismiss** / **resolved** (the operator has already hand-conformed the file to the new template outside this workflow). WAIT.
+- Invoke it (map approve→`applied`, defer→`deferred`, dismiss→`dismissed`, resolved→`resolved`):
 
   ```
-  python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/pov/skills/aim-content-drift/scripts/reconcile_helper.py" reconcile --project-root <project-root> --id <entry-id> --disposition <applied|deferred|dismissed>
+  python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/pov/skills/aim-content-drift/scripts/reconcile_helper.py" reconcile --project-root <project-root> --id <entry-id> --disposition <applied|deferred|dismissed|resolved>
   ```
 
-- For **approve/applied** the helper runs the reconciliation engine (backup-before-write, crash-atomic, staleness-checked) and reports `decision` + `action_taken` (migrated | preserved | no-op | refreshed) + `backup_path`. Relay that outcome factually. On a non-zero status, the helper's JSON error payload carries an `error_type`. If `error_type` is `StaleManifestError`, the manifest is stale — tell the operator to re-run the installer to regenerate it. For any OTHER `error_type` (e.g. `MigrationChainError`), surface the `error_type` and the engine's message factually — do NOT tell the operator to re-run the installer, and do NOT retry or hand-edit either.
+- For **approve/applied** the helper runs the reconciliation engine (backup-before-write, crash-atomic, staleness-checked) and reports `decision` + `action_taken` (migrated | preserved | no-op | refreshed) + `backup_path`. Relay that outcome factually. On a non-zero status, the helper's JSON error payload carries an `error_type`. If `error_type` is `StaleManifestError`: ask whether the operator already hand-conformed the file outside this workflow — if so, re-invoke with **resolved**; otherwise re-run the installer to regenerate the manifest. For any OTHER `error_type` (e.g. `MigrationChainError`), surface the `error_type` and the engine's message factually — do NOT tell the operator to re-run the installer, and do NOT retry or hand-edit either.
+- For **resolved**, the helper stamps the disposition against the file's current on-disk hash without invoking the reconciliation engine — this is why it never raises `StaleManifestError`, even though the deployed file has already diverged from the manifest snapshot. Re-nag suppression still keys off the entry's `new_template_hash`, identically to `applied`/`dismissed`; the on-disk hash is recorded separately, for audit only. Reports `action_taken: "stamped-resolved-out-of-band"`.
 - The helper records the disposition to `<project-root>/.audit/state/reconcile-dispositions.json`, keyed to the entry id + its current `new_template_hash`. A disposed entry will NOT re-surface at Step 2 unless that template hash moves in a later install.
 - Move to the next selected entry only after the current one is recorded.
 

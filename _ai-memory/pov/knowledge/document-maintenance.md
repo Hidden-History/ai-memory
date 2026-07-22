@@ -108,7 +108,7 @@ Archive a document when:
 
 ### Archive Process
 
-1. Move the document to `{oversight_path}/archive/`
+1. Move the document to `{oversight_path}/{area}/archive/`
 2. Rename with archive date: `{ORIGINAL-NAME}-archived-{YYYY-MM-DD}.md`
 3. Retain ALL content — never delete archived documents
 4. Update any index files or SESSION_WORK_INDEX.md quick links that referenced the original
@@ -116,6 +116,6 @@ Archive a document when:
 
 ### Archive Naming Convention
 
-`{oversight_path}/archive/{ORIGINAL-NAME}-archived-{YYYY-MM-DD}.md`
+`{oversight_path}/{area}/archive/{ORIGINAL-NAME}-archived-{YYYY-MM-DD}.md`
 
-Example: `oversight/archive/PLAN-010-archived-2026-03-15.md`
+Example: `oversight/session-logs/archive/PLAN-010-archived-2026-03-15.md`

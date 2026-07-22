@@ -317,6 +317,176 @@ def test_reconcile_dismiss_records_without_engine(tmp_path, capsys):
     assert ledger["dispositions"][rel]["new_template_hash"] == _sha("S")
 
 
+# --------------------------------------------------------------------------- #
+# CLI: reconcile resolved — PLAN-035 P1 out-of-band stamp escape hatch
+# --------------------------------------------------------------------------- #
+def test_reconcile_resolved_stamps_without_engine_no_stale_error(
+    tmp_path, capsys, monkeypatch
+):
+    # The operator hand-conformed the file: its current on-disk content matches
+    # neither the manifest's recorded `deployed_hash` snapshot. Routing this through
+    # `engine.reconcile_entry` would raise StaleManifestError; `resolved` must never
+    # call the engine at all.
+    rel = "tracking/decision-log.md"
+    target = _data_bearing_file(tmp_path, rel, "DEC-1: hand-conformed by operator")
+    entry = {
+        "id": rel,
+        "path": f"oversight/{rel}",
+        "classification": "MANAGED_MERGE_REQUIRED",
+        "old_shipped_hash": _sha("pristine-base"),
+        "deployed_hash": _sha("stale-snapshot-not-the-real-file"),
+        "new_template_hash": _sha("new-template"),
+        "suggested_action": "merge",
+        "rationale": "both changed",
+        "severity": "high",
+        "order": 0,
+    }
+    _write_manifest(tmp_path, [entry])
+
+    def _fail_if_called(*_args, **_kwargs):
+        raise AssertionError("resolved must not call engine.reconcile_entry")
+
+    monkeypatch.setattr(engine, "reconcile_entry", _fail_if_called)
+
+    rc = helper.main(
+        [
+            "reconcile",
+            "--project-root",
+            str(tmp_path),
+            "--id",
+            rel,
+            "--disposition",
+            "resolved",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["status"] == "ok"
+    assert payload["disposition"] == "resolved"
+    assert payload["action_taken"] == "stamped-resolved-out-of-band"
+    current_hash = engine.compute_hash(target)
+    assert payload["resolved_at_hash"] == current_hash
+
+    ledger = json.loads(
+        (tmp_path / ".audit" / "state" / "reconcile-dispositions.json").read_text()
+    )
+    rec = ledger["dispositions"][rel]
+    assert rec["disposition"] == "resolved"
+    # Suppression stays keyed to the entry's new_template_hash (unchanged semantics).
+    assert rec["new_template_hash"] == _sha("new-template")
+    # Audit trail captures the actual deployed hash at resolution time, distinct from
+    # both the stale manifest snapshot and the suppression key.
+    assert rec["resolved_at_hash"] == current_hash
+    assert rec["resolved_at_hash"] != entry["deployed_hash"]
+
+    # The operator's hand-conformed content is untouched.
+    assert "DEC-1: hand-conformed by operator" in target.read_text(encoding="utf-8")
+
+
+def test_reconcile_resolved_missing_deployed_file_errors_no_ledger_entry(
+    tmp_path, capsys
+):
+    # The deployed file is missing (or unreadable) at stamp time — the likeliest
+    # real operator error. `resolved` must surface it and must NOT write a false
+    # "resolved" record.
+    rel = "tracking/decision-log.md"
+    entry = _entry(rel)
+    _write_manifest(tmp_path, [entry])
+
+    rc = helper.main(
+        [
+            "reconcile",
+            "--project-root",
+            str(tmp_path),
+            "--id",
+            rel,
+            "--disposition",
+            "resolved",
+        ]
+    )
+    assert rc == 1
+    payload = json.loads(capsys.readouterr().err)
+    assert payload["status"] == "error"
+    assert payload["error_type"] == "FileNotFoundError"
+
+    # No ledger record was written for this entry.
+    ledger_path = tmp_path / ".audit" / "state" / "reconcile-dispositions.json"
+    assert not ledger_path.exists()
+
+
+def test_resolved_suppresses_at_entry_hash_and_resurfaces_on_hash_move(tmp_path):
+    rel = "bugs/INDEX.md"
+    _write_manifest(tmp_path, [_entry(rel, new="S")])
+    manifest = _load_manifest(tmp_path)
+    ledger = {
+        "dispositions": {
+            rel: {"disposition": "resolved", "new_template_hash": _sha("S")}
+        }
+    }
+    assert helper.effective_pending(manifest, ledger) == []
+
+    # A genuinely new upstream template (hash moved) re-surfaces it.
+    _write_manifest(tmp_path, [_entry(rel, new="S2")])
+    manifest_moved = _load_manifest(tmp_path)
+    pending = helper.effective_pending(manifest_moved, ledger)
+    assert [e.id for e in pending] == [rel]
+
+
+def test_is_disposed_resolved_true_at_entry_hash_false_at_moved_hash(tmp_path):
+    rel = "tracking/decision-log.md"
+    _data_bearing_file(tmp_path, rel, "DEC-2: hand-conformed")
+    entry = {
+        "id": rel,
+        "path": f"oversight/{rel}",
+        "classification": "MANAGED_MERGE_REQUIRED",
+        "old_shipped_hash": _sha("pristine-base"),
+        "deployed_hash": _sha("stale-snapshot"),
+        "new_template_hash": _sha("new-template"),
+        "suggested_action": "merge",
+        "rationale": "both changed",
+        "severity": "high",
+        "order": 0,
+    }
+    _write_manifest(tmp_path, [entry])
+    helper.main(
+        [
+            "reconcile",
+            "--project-root",
+            str(tmp_path),
+            "--id",
+            rel,
+            "--disposition",
+            "resolved",
+        ]
+    )
+
+    rc_same = helper.main(
+        [
+            "is-disposed",
+            "--project-root",
+            str(tmp_path),
+            "--id",
+            rel,
+            "--hash",
+            _sha("new-template"),
+        ]
+    )
+    assert rc_same == 0
+
+    rc_moved = helper.main(
+        [
+            "is-disposed",
+            "--project-root",
+            str(tmp_path),
+            "--id",
+            rel,
+            "--hash",
+            _sha("a-later-shipped-template"),
+        ]
+    )
+    assert rc_moved == 1
+
+
 def test_reconcile_unknown_id_errors(tmp_path, capsys):
     _write_manifest(tmp_path, [_entry("a.md")])
     rc = helper.main(

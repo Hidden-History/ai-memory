@@ -1,0 +1,8 @@
+# oversight-schema.yaml (fixture) — C4 seeded-violation fixture. Declares
+# only `aim-tracking-rotate`; the registry's `ghost-consumer` edge does not
+# resolve here (C4(a) violation).
+consumers:
+  aim-tracking-rotate:
+    kind: skill
+    path: pov/skills/aim-tracking-rotate
+    reads: fixture consumer

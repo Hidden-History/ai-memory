@@ -3,8 +3,8 @@
 Before this fix, ``_sync_oversight_templates`` emitted the imperative
 ``[WARNING] template drifted + upstream changed; review + merge: oversight/<file>``
 for EVERY both-changed managed file on EVERY install, even files the operator already
-reconciled last session (disposition ``applied``/``dismissed`` at the same shipped
-template hash). ``reconcile_helper.py pending`` already suppressed those, so the two
+reconciled last session (disposition ``applied``/``dismissed``/``resolved`` at the same
+shipped template hash). ``reconcile_helper.py pending`` already suppressed those, so the two
 surfaces disagreed. The fix routes the warn-site through ``reconcile_helper.py
 is-disposed`` — the SAME terminal-at-hash predicate the session-start consumer uses —
 so an already-disposed-at-current-hash file downgrades to a non-imperative info line.
@@ -249,7 +249,7 @@ class TestLedgerAwareInstallerWarning:
         assert "review + merge" in res.stdout, res.stdout
 
     def test_deferred_disposition_still_warns(self, install_sh_no_main, dirs):
-        """Negative (c): only applied/dismissed suppress; deferred re-surfaces."""
+        """Negative (c): only applied/dismissed/resolved suppress; deferred re-surfaces."""
         install_dir, project_dir = dirs
         _stage_helper(install_dir)
         h_shipped = _drive_to_both_changed(install_sh_no_main, install_dir, project_dir)

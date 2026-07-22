@@ -87,7 +87,7 @@ After installation, start a new Claude Code session in your project — AI Memor
 
 After pulling a new version and re-running `./scripts/install.sh /path/to/your-project`, run `~/.ai-memory/scripts/stack.sh restart` to apply container/image changes. The installer brings services up with `--no-recreate` and won't restart already-running containers, so image and compose updates (for example, the prebuilt embedding image) take effect only after a restart.
 
-If you have locally edited an oversight template that also changed upstream, the update does not overwrite it. Instead, the installer records a pending update and Parzival surfaces a one-line pending-updates rollup on your next session start; ask it to reconcile and it walks each pending file under explicit approve / defer / dismiss review, migrating structure forward while preserving your data (backup taken, atomic replace). Nothing is applied without your approval.
+If you have locally edited an oversight template that also changed upstream, the update does not overwrite it. Instead, the installer records a pending update and Parzival surfaces a one-line pending-updates rollup on your next session start; ask it to reconcile and it walks each pending file under explicit approve / defer / dismiss / resolve review, migrating structure forward while preserving your data (backup taken, atomic replace). Nothing is applied without your approval.
 
 ---
 
