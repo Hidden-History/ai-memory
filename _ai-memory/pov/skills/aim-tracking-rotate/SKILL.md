@@ -92,6 +92,14 @@ cat "$(dirname "$SCRIPT")/../assets/memory_md_fix.md"
   FAILURE block (file, size, cap, remedy command) and **exit non-zero** so
   closeout cannot complete while a governed file is over cap.
 
+  `--check` also asserts the BP-191 Part C never-archive invariant (TD-843):
+  any file under the oversight root whose own front matter declares a class of
+  `heartbeat` or `detail-record` must never also declare
+  `rotation_trigger`/`archive_target` — a CLASS POLICY VIOLATION block is
+  emitted and the gate fails if one does. This scan is independent of the cap
+  check above and covers every front-matter-declared file, not just the
+  built-in registry.
+
 - **`--apply <file>`** — move the **oldest contiguous block of whole entries**
   (never splitting an entry) into a dated shard, then update the manifest
   (`decision-log-INDEX.md`, append-only-log), write a thin live pointer, and
