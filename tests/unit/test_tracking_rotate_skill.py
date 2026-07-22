@@ -1931,3 +1931,172 @@ def test_fix_live_index_archives_whole(tmp_path: Path) -> None:
         len(archive_files) == 1
     ), f"Expected 1 archive shard, found {len(archive_files)}"
     assert "session-001" in archive_files[0].read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# --check : BP-191 per-class archival policy guard (TD-843 step 3, PLAN-035 P5a)
+# ---------------------------------------------------------------------------
+
+
+def _durable_violation_fixture(root: Path) -> Path:
+    """A durable detail-record (plan) mis-seeded with rotation-enabling front
+    matter — the class policy this guard must catch."""
+    (root / "plans").mkdir(exist_ok=True)
+    fixture = root / "plans" / "PLAN-999-fixture.md"
+    fixture.write_text(
+        "---\n"
+        "class: detail-record\n"
+        "cap_lines: 60\n"
+        "cap_kb: 8\n"
+        "rotation_trigger: on-close-over-cap\n"
+        "archive_target: plans/archive/PLAN-999-ARCHIVE-{YYYY-MM}.md\n"
+        "---\n"
+        "# PLAN-999 fixture\n\nBody text.\n",
+        encoding="utf-8",
+    )
+    return fixture
+
+
+def test_check_flags_durable_detail_record_archived_against_class(
+    tmp_path: Path,
+) -> None:
+    root = _make_oversight(tmp_path)
+    _durable_violation_fixture(root)
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1
+    assert "CLASS POLICY VIOLATION" in result.stderr
+    assert "plans/PLAN-999-fixture.md" in result.stderr
+    assert "detail-record" in result.stderr
+
+
+def test_check_flags_heartbeat_archived_against_class(tmp_path: Path) -> None:
+    root = _make_oversight(tmp_path)
+    fixture = root / "weird-heartbeat.md"
+    fixture.write_text(
+        "---\n"
+        "class: heartbeat\n"
+        "cap_lines: 60\n"
+        "cap_kb: 6\n"
+        "rotation_trigger: on-close-over-cap\n"
+        "archive_target: archive/weird-heartbeat-ARCHIVE-{YYYY-MM}.md\n"
+        "---\n"
+        "# weird heartbeat fixture\n",
+        encoding="utf-8",
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1
+    assert "CLASS POLICY VIOLATION" in result.stderr
+    assert "weird-heartbeat.md" in result.stderr
+    assert "heartbeat" in result.stderr
+
+
+def test_check_no_violation_for_compliant_heartbeat(tmp_path: Path) -> None:
+    root = _make_oversight(tmp_path)
+    ps = root / "project-status.md"
+    ps.write_text(
+        "---\ncap_lines: 60\ncap_kb: 6\nclass: heartbeat\n"
+        "rotation_trigger: none\narchive_target: N/A\n---\n"
+        "# project-status.md\n\nfield: value\n",
+        encoding="utf-8",
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
+
+
+def test_check_no_violation_for_compliant_durable_detail_record(
+    tmp_path: Path,
+) -> None:
+    root = _make_oversight(tmp_path)
+    (root / "plans").mkdir(exist_ok=True)
+    fixture = root / "plans" / "PLAN-998-compliant.md"
+    fixture.write_text(
+        "---\n"
+        "class: detail-record\n"
+        "cap_lines: 60\n"
+        "cap_kb: 8\n"
+        "rotation_trigger: none\n"
+        "archive_target: N/A\n"
+        "---\n"
+        "# PLAN-998 compliant fixture\n",
+        encoding="utf-8",
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
+
+
+def test_check_no_violation_for_durable_file_without_front_matter(
+    tmp_path: Path,
+) -> None:
+    """A real plan/spec/BP file (BP-191 Part C row 5a) carries NO class:
+    front matter at all — outside the cap-enforcement gate by design; the
+    class-policy scan must skip it silently, never flag it."""
+    root = _make_oversight(tmp_path)
+    (root / "plans").mkdir(exist_ok=True)
+    fixture = root / "plans" / "PLAN-997-no-frontmatter.md"
+    fixture.write_text(
+        "# PLAN-997 — a durable plan with no front matter\n\nBody.\n",
+        encoding="utf-8",
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
+
+
+def test_check_cap_breach_still_flagged_without_class_noise(tmp_path: Path) -> None:
+    """A cap-class file (append-only-log) over cap is still flagged by the
+    pre-existing cap gate, and the class-policy guard stays silent — the two
+    checks are independent."""
+    root = _make_oversight(tmp_path)
+    (root / "tracking" / "decision-log.md").write_text(
+        _decision_log(80), encoding="utf-8"
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1
+    assert "SYSTEM FAILURE" in result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
+
+
+def test_check_reports_cap_breach_and_class_violation_together(
+    tmp_path: Path,
+) -> None:
+    root = _make_oversight(tmp_path)
+    (root / "tracking" / "decision-log.md").write_text(
+        _decision_log(80), encoding="utf-8"
+    )
+    _durable_violation_fixture(root)
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1
+    assert "SYSTEM FAILURE" in result.stderr
+    assert "CLASS POLICY VIOLATION" in result.stderr
+    assert "1 governed file(s) over cap, 1 class-policy violation(s)" in result.stderr
+
+
+def test_check_class_guard_makes_zero_writes(tmp_path: Path) -> None:
+    """--check is report-only by construction: even when it finds both a cap
+    breach and a class-policy violation, it must not write, touch, or create
+    any file."""
+    root = _make_oversight(tmp_path)
+    (root / "tracking" / "decision-log.md").write_text(
+        _decision_log(80), encoding="utf-8"
+    )
+    fixture = _durable_violation_fixture(root)
+
+    before = {p: p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 1  # both checks fire — proves this isn't a no-op path
+
+    after = {p: p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+    assert before.keys() == after.keys(), "no file created or deleted by --check"
+    for p in before:
+        assert before[p] == after[p], f"{p} was mutated by --check"
+    assert fixture.read_bytes() == before[fixture]
