@@ -93,12 +93,16 @@ cat "$(dirname "$SCRIPT")/../assets/memory_md_fix.md"
   closeout cannot complete while a governed file is over cap.
 
   `--check` also asserts the BP-191 Part C never-archive invariant (TD-843):
-  any file under the oversight root whose own front matter declares a class of
-  `heartbeat` or `detail-record` must never also declare
+  any file whose own front matter declares a class of `heartbeat`, or a
+  `detail-record` outside `session-logs/` (the row-5a durable subset —
+  plans, specs, the BP catalog, ADRs), must never also declare
   `rotation_trigger`/`archive_target` — a CLASS POLICY VIOLATION block is
-  emitted and the gate fails if one does. This scan is independent of the cap
-  check above and covers every front-matter-declared file, not just the
-  built-in registry.
+  emitted and the gate fails if one does. A `detail-record` under
+  `session-logs/` (row-5b, e.g. `SESSION_HANDOFF_*`) is exempt — it
+  legitimately archives by recency. This scan is independent of the cap
+  check above and covers every front-matter-declared file under the
+  oversight root except frozen/immutable subtrees (task snapshot dirs,
+  archive shards, and `research/` notes).
 
 - **`--apply <file>`** — move the **oldest contiguous block of whole entries**
   (never splitting an entry) into a dated shard, then update the manifest
