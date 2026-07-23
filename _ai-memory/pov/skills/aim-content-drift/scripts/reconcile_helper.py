@@ -45,15 +45,6 @@ engine = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = engine
 _spec.loader.exec_module(engine)
 
-# The PLAN-035 P3 conform engine (Axis B — registry/oracle-driven structural adoption),
-# also invoked by path. Kept separate from `engine` (PLAN-033 reconcile): reconcile
-# preserves operator DATA; conform ADOPTS template STRUCTURE. This helper composes both.
-_CONFORM_PATH = Path(__file__).resolve().parent / "conform_engine.py"
-_conform_spec = importlib.util.spec_from_file_location("conform_engine", _CONFORM_PATH)
-conform_engine = importlib.util.module_from_spec(_conform_spec)
-sys.modules[_conform_spec.name] = conform_engine
-_conform_spec.loader.exec_module(conform_engine)
-
 LEDGER_SCHEMA_VERSION = "1.0"
 
 # Terminal dispositions suppress re-surfacing until new_template_hash moves. A
@@ -413,7 +404,24 @@ def cmd_is_disposed(args) -> int:
 # `conform` / `runbook` — PLAN-035 P3 Axis-B structural adoption (thin wrappers over
 # conform_engine; the engine owns the classify/gate/ledger mechanics).
 # --------------------------------------------------------------------------- #
+def _load_conform_engine():
+    """Lazily load conform_engine (PLAN-035 P3 Axis B) by file location.
+
+    Deferred until `conform`/`runbook` actually run: conform_engine needs the shipped
+    oracle/registry under scripts/template_parity/ (outside this skill's scripts dir),
+    which isn't present in contexts that stage only this skill's scripts (e.g. the
+    installer's `pending`/`reconcile`/`is-disposed` disposition-check path).
+    """
+    conform_path = Path(__file__).resolve().parent / "conform_engine.py"
+    spec = importlib.util.spec_from_file_location("conform_engine", conform_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def cmd_conform(args) -> int:
+    conform_engine = _load_conform_engine()
     cfg = conform_engine.default_config(args.project_root)
     only = [s.strip() for s in args.only.split(",") if s.strip()] if args.only else None
     result = conform_engine.conform(
@@ -424,6 +432,7 @@ def cmd_conform(args) -> int:
 
 
 def cmd_runbook(args) -> int:
+    conform_engine = _load_conform_engine()
     cfg = conform_engine.default_config(args.project_root)
     only = [s.strip() for s in args.only.split(",") if s.strip()] if args.only else None
     out_path = (
