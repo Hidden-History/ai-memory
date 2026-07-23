@@ -177,6 +177,24 @@ MANUAL_ROTATION_FILES: frozenset[str] = frozenset(
     }
 )
 
+# BP-191 Part C classes whose archival trigger is NEVER: the heartbeat
+# (overwrite-in-place, no history to archive) and detail-record (permanent-
+# retention durable files — plans/specs/BP/ADR — supersede-in-place; the
+# dated/session subset, e.g. handoffs, is archived out-of-band by glob +
+# session-close step-03, never via this script's cap/archive_target fields).
+# A file whose class is one of these but whose contract enables rotation
+# (rotatable or archive_target set) is a misconfiguration — TD-843 step 3
+# ("guard against a future mis-config"), mirroring the TD-655 refusal fence.
+NEVER_ARCHIVE_CLASSES: frozenset[str] = frozenset({"heartbeat", "detail-record"})
+
+# BP-191 Part C row 5b: the DATED subset of detail-record (SESSION_HANDOFF_*
+# and other session-logs/ artifacts) legitimately AGE-archives via
+# rotation_trigger/archive_target — only the row-5a DURABLE subset
+# (plans/specs/BP/ADR) is NEVER-archive. A detail-record under this prefix is
+# exempt from the never-archive assertion so a correct row-5b contract never
+# trips a false-positive CLASS POLICY VIOLATION.
+DATED_DETAIL_RECORD_PREFIX = "session-logs/"
+
 # Latest SESSION_HANDOFF_*.md (detail-record, whole-file, 60/8). Discovered by
 # glob rather than fixed path; --apply on a handoff is not supported here
 # (handoff archival is owned by close step-03).
@@ -365,6 +383,109 @@ def effective_entry_pattern(contract: Contract, explicit: str | None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# BP-191 per-class archival policy guard (TD-843 step 3)
+# ---------------------------------------------------------------------------
+#
+# Independent of discover_governed()'s fixed FALLBACK_REGISTRY set: walks
+# every markdown file under the oversight root and resolves a contract from
+# ITS OWN front matter only, so a future durable file (plan/spec/BP/ADR) or
+# the heartbeat that gets mis-seeded with a cap/archive_target front-matter
+# block is caught even before anyone hand-adds it to FALLBACK_REGISTRY.
+# Files carrying no front-matter cap block (the normal, by-design state for
+# durable detail-records per BP-191 Part C row 5a) are silently skipped —
+# read-only, no mutation.
+#
+# The walk excludes frozen/immutable subtrees that are not governed live
+# files: task snapshots (tasks/**/snapshot-*/, whole-tree point-in-time
+# copies), archive shards (any archive/ or archives/ dir), and research/
+# notes. Those subtrees can hold thousands of historical file copies —
+# walking them inflates runtime and risks flagging an artifact nobody can
+# fix (it is frozen history, not a live contract).
+
+
+@dataclass
+class ClassViolation:
+    rel: str
+    klass: str
+    reason: str
+
+
+# Directory names (anywhere in the tree) that hold frozen/immutable copies,
+# not governed live files. "snapshot-*" is a prefix match (dated snapshot
+# dirs under tasks/**); the rest are exact directory-name matches.
+_CLASS_SCAN_EXCLUDE_DIR_NAMES = frozenset({"archive", "archives", "research"})
+
+
+def _class_scan_excluded_dir(dirname: str) -> bool:
+    return dirname in _CLASS_SCAN_EXCLUDE_DIR_NAMES or dirname.startswith("snapshot-")
+
+
+def discover_class_declared(
+    oversight_root: Path,
+) -> tuple[list[GovernedFile], list[str]]:
+    """Enumerate every markdown file whose OWN front matter declares a cap
+    contract, regardless of whether it also appears in FALLBACK_REGISTRY.
+
+    Returns ``(found, warnings)``. Frozen/immutable subtrees (task snapshots,
+    archive shards, research/ notes — see module docstring) are pruned from
+    the walk. A file that is not valid UTF-8 is skipped with a WARN string
+    rather than crashing the gate: this scan is best-effort discovery, not
+    exact governed-file resolution.
+    """
+    found: list[GovernedFile] = []
+    warnings: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(oversight_root):
+        dirnames[:] = sorted(d for d in dirnames if not _class_scan_excluded_dir(d))
+        for filename in sorted(filenames):
+            if not filename.endswith(".md"):
+                continue
+            path = Path(dirpath) / filename
+            rel = path.relative_to(oversight_root).as_posix()
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                warnings.append(
+                    f"{rel}: not valid UTF-8 — skipped in class-policy scan"
+                )
+                continue
+            fm, _ = split_front_matter(text)
+            contract = parse_contract_front_matter(fm)
+            if contract is None:
+                continue
+            found.append(GovernedFile(path, rel, contract, "front-matter"))
+    found.sort(key=lambda gf: gf.rel)
+    return found, warnings
+
+
+def check_class_policy(class_declared: list[GovernedFile]) -> list[ClassViolation]:
+    """Assert the BP-191 never-archive invariant for heartbeat / detail-record
+    classes. Report-only: only reads contracts already resolved by the
+    caller, never touches disk."""
+    violations: list[ClassViolation] = []
+    for gf in class_declared:
+        if gf.contract.klass not in NEVER_ARCHIVE_CLASSES:
+            continue
+        if gf.contract.klass == "detail-record" and gf.rel.startswith(
+            DATED_DETAIL_RECORD_PREFIX
+        ):
+            continue  # row 5b dated subset — archival is correct, not a violation
+        if gf.contract.archive_target is not None:
+            violations.append(
+                ClassViolation(
+                    rel=gf.rel,
+                    klass=gf.contract.klass,
+                    reason=(
+                        "declares rotation_trigger/archive_target despite a "
+                        f"NEVER-archive class ('{gf.contract.klass}' is "
+                        "overwrite-in-place or permanent-retention "
+                        "supersede-in-place per BP-191 Part C)"
+                    ),
+                )
+            )
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # --check : the enforcement gate
 # ---------------------------------------------------------------------------
 
@@ -449,31 +570,51 @@ def run_check(oversight_root: Path) -> int:
             )
         )
 
+    # BP-191 per-class archival policy guard (TD-843 step 3): a separate,
+    # broader scan (not limited to FALLBACK_REGISTRY) for any file whose own
+    # front matter enables rotation despite a NEVER-archive class.
+    class_declared, class_scan_warns = discover_class_declared(oversight_root)
+    class_violations = check_class_policy(class_declared)
+    class_violation_blocks = [
+        "\n".join(
+            [
+                "  ┌─ CLASS POLICY VIOLATION: archival trigger set on a NEVER-archive class",
+                f"  │  file:   {v.rel}",
+                f"  │  class:  {v.klass}",
+                f"  │  reason: {v.reason}",
+                "  └─",
+            ]
+        )
+        for v in class_violations
+    ]
+
     # auto-memory-index: WARN only — never blocks the gate; surface even when
     # oversight files are over cap so both issues land in one check run.
     memory_md = resolve_memory_md()
     memory_warns: list[str] = []
     if memory_md:
         memory_warns = list(_check_memory_md(memory_md))
-    for warn in memory_warns:
+    for warn in memory_warns + class_scan_warns:
         print(f"  WARN: {warn}", file=sys.stderr)
 
-    if breaches:
+    if breaches or class_violation_blocks:
         print(
             "aim-tracking-rotate --check: FAIL — "
-            f"{len(breaches)} governed file(s) over cap.\n",
+            f"{len(breaches)} governed file(s) over cap, "
+            f"{len(class_violation_blocks)} class-policy violation(s).\n",
             file=sys.stderr,
         )
-        print("\n\n".join(breaches), file=sys.stderr)
+        print("\n\n".join(breaches + class_violation_blocks), file=sys.stderr)
         print(
-            "\nCloseout is BLOCKED until every governed file is at or under cap.",
+            "\nCloseout is BLOCKED until every governed file is at or under cap "
+            "and every archival trigger matches its BP-191 class policy.",
             file=sys.stderr,
         )
         return 1
 
     print(
         f"aim-tracking-rotate --check: PASS — {len(governed)} governed file(s) "
-        "within cap."
+        f"within cap, {len(class_declared)} class-declared file(s) policy-compliant."
     )
     return 0
 
