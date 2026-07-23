@@ -2119,6 +2119,25 @@ def test_check_class_scan_skips_non_utf8_file_without_crashing(
     assert "CLASS POLICY VIOLATION" not in result.stderr
 
 
+def test_check_class_scan_skips_dangling_symlink_without_crashing(
+    tmp_path: Path,
+) -> None:
+    """A dangling *.md symlink (target removed/never existed) anywhere under
+    the oversight root must not crash the --check gate — read_text() raises
+    OSError/FileNotFoundError for a broken symlink, not UnicodeDecodeError,
+    so it must be caught by the same WARN-and-continue path (never a
+    traceback)."""
+    root = _make_oversight(tmp_path)
+    (root / "plans").mkdir(exist_ok=True)
+    dangling = root / "plans" / "dangling.md"
+    dangling.symlink_to(root / "plans" / "does-not-exist.md")
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert "Traceback" not in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
+
+
 def test_check_no_violation_for_dated_session_detail_record(tmp_path: Path) -> None:
     """BP-191 Part C row 5b: a dated detail-record under session-logs/
     (e.g. SESSION_HANDOFF_*) legitimately declares rotation_trigger +

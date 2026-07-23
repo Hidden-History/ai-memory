@@ -443,7 +443,7 @@ def discover_class_declared(
             rel = path.relative_to(oversight_root).as_posix()
             try:
                 text = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
+            except (UnicodeDecodeError, OSError):
                 warnings.append(
                     f"{rel}: not valid UTF-8 — skipped in class-policy scan"
                 )
