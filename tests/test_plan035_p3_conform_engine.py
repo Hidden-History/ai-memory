@@ -28,6 +28,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 _REPO = Path(__file__).resolve().parent.parent
 _ENGINE_PATH = (
     _REPO
@@ -305,6 +307,40 @@ def test_midrun_oserror_preserves_succeeded_ledger_rows(tmp_path, monkeypatch):
     # Ledger persisted despite the mid-run OSError, WITH the succeeded row.
     ledger = ce.load_conform_ledger(cfg.ledger_path())
     assert "oversight/plans/PLAN-a.md" in ledger.get("conformed", {})
+
+
+# --------------------------------------------------------------------------- #
+# ③c Inter-pass oracle failure preserves earned Kind-B ledger rows
+# --------------------------------------------------------------------------- #
+def test_interpass_oracle_failure_preserves_earned_kind_b_ledger_rows(
+    tmp_path, monkeypatch
+):
+    """The re-classify BETWEEN the Kind-B and Kind-A loops sits outside the per-file
+    try/except. A raise there must still leave the Kind-B ledger rows already earned
+    this run on disk (BP-190 audit trail), even though the pass itself aborts."""
+    cfg = _cfg(tmp_path)
+    _write(tmp_path, "oversight/plans/PLAN-test.md", _PLAN_NO_ROLE)
+
+    # Call 1 = conform()'s initial oracle scan; call 2 = the gate's oracle re-verify
+    # inside apply_with_gate for the one Kind-B fix (must succeed so the row is earned);
+    # call 3 = the inter-pass re-classify this test targets.
+    real_run_oracle = ce.run_oracle
+    calls = {"n": 0}
+
+    def flaky_oracle(cfg_arg):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("simulated inter-pass oracle failure")
+        return real_run_oracle(cfg_arg)
+
+    monkeypatch.setattr(ce, "run_oracle", flaky_oracle)
+
+    with pytest.raises(RuntimeError, match="simulated inter-pass oracle failure"):
+        ce.conform(cfg, kinds="B")
+
+    # The Kind-B fix earned before the inter-pass raise must not be dropped.
+    ledger = ce.load_conform_ledger(cfg.ledger_path())
+    assert "oversight/plans/PLAN-test.md" in ledger.get("conformed", {})
 
 
 # --------------------------------------------------------------------------- #

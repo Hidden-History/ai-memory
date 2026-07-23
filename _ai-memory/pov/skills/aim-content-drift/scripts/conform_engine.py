@@ -730,7 +730,15 @@ def _bytes_preserved(original: bytes, new: bytes) -> bool:
     level. This is the real corruption safety-net: unlike ``_lines_preserved`` (which
     sees only decoded text and is blind to a lossy ``U+FFFD`` replacement), it compares
     raw bytes, so a non-UTF-8 byte mangled on decode is caught regardless of the decode
-    strategy. Subsequence check — O(len(new)); conform files are small."""
+    strategy. Subsequence check — O(len(new)); conform files are small.
+
+    Deliberately NOT a Counter/multiset check like ``_lines_preserved``: an
+    order-preserving subsequence test is strictly STRONGER than a per-value count
+    check (subsequence(O, N) implies count_N(v) >= count_O(v) for every value v, via
+    the order-preserving injection restricted to v; the converse does not hold — e.g.
+    a multiset check accepts "BA" as preserving "AB"). Switching to Counter would only
+    make this gate MORE permissive, not less, so it stays a subsequence check.
+    """
     it = iter(new)
     return all(b in it for b in original)
 
@@ -916,7 +924,14 @@ def conform(
             else:
                 out["b_failed"].append({"path": b["path"], "reason": res["reason"]})
         # Re-classify: a Kind-B fix may have exposed section gaps under the matched family.
-        cls = classify(cfg, run_oracle(cfg), only)
+        try:
+            cls = classify(cfg, run_oracle(cfg), only)
+        except Exception:
+            # This inter-pass oracle call is outside the per-file try/except above — a
+            # raise here must not drop the Kind-B ledger rows already earned this run
+            # (BP-190 audit trail). Persist them before the pass aborts.
+            write_conform_ledger(ledger_path, ledger)
+            raise
         out["c_skipped"] = [d.path for d in cls.kind_c]
         out["hil"] = [d.path for d in cls.hil]
 
