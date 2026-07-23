@@ -45,6 +45,15 @@ engine = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = engine
 _spec.loader.exec_module(engine)
 
+# The PLAN-035 P3 conform engine (Axis B — registry/oracle-driven structural adoption),
+# also invoked by path. Kept separate from `engine` (PLAN-033 reconcile): reconcile
+# preserves operator DATA; conform ADOPTS template STRUCTURE. This helper composes both.
+_CONFORM_PATH = Path(__file__).resolve().parent / "conform_engine.py"
+_conform_spec = importlib.util.spec_from_file_location("conform_engine", _CONFORM_PATH)
+conform_engine = importlib.util.module_from_spec(_conform_spec)
+sys.modules[_conform_spec.name] = conform_engine
+_conform_spec.loader.exec_module(conform_engine)
+
 LEDGER_SCHEMA_VERSION = "1.0"
 
 # Terminal dispositions suppress re-surfacing until new_template_hash moves. A
@@ -400,6 +409,31 @@ def cmd_is_disposed(args) -> int:
     return 1
 
 
+# --------------------------------------------------------------------------- #
+# `conform` / `runbook` — PLAN-035 P3 Axis-B structural adoption (thin wrappers over
+# conform_engine; the engine owns the classify/gate/ledger mechanics).
+# --------------------------------------------------------------------------- #
+def cmd_conform(args) -> int:
+    cfg = conform_engine.default_config(args.project_root)
+    only = [s.strip() for s in args.only.split(",") if s.strip()] if args.only else None
+    result = conform_engine.conform(
+        cfg, kinds=args.kinds, only=only, apply=not args.dry_run
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_runbook(args) -> int:
+    cfg = conform_engine.default_config(args.project_root)
+    only = [s.strip() for s in args.only.split(",") if s.strip()] if args.only else None
+    out_path = (
+        Path(args.out) if args.out else Path(args.project_root) / "UPDATE-RUNBOOK.md"
+    )
+    conform_engine.write_runbook(cfg, out_path, only)
+    print(json.dumps({"status": "ok", "runbook": str(out_path)}, indent=2))
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         description="PLAN-033 P2 session-start reconciliation helper (manifest + ledger)."
@@ -427,6 +461,29 @@ def main(argv=None) -> int:
     p_disposed.add_argument("--id", required=True)
     p_disposed.add_argument("--hash", required=True)
     p_disposed.set_defaults(func=cmd_is_disposed)
+
+    p_conform = sub.add_parser(
+        "conform", help="adopt template structure (PLAN-035 P3 Axis B, Kind A/B)"
+    )
+    p_conform.add_argument("--project-root", required=True)
+    p_conform.add_argument("--kinds", default="AB", choices=["A", "B", "AB", "BA"])
+    p_conform.add_argument(
+        "--only", default=None, help="comma-separated path substrings to scope the run"
+    )
+    p_conform.add_argument(
+        "--dry-run", action="store_true", help="classify + report only; makes no writes"
+    )
+    p_conform.set_defaults(func=cmd_conform)
+
+    p_runbook = sub.add_parser(
+        "runbook", help="generate UPDATE-RUNBOOK.md (Pending/Applied/Needs-attention)"
+    )
+    p_runbook.add_argument("--project-root", required=True)
+    p_runbook.add_argument("--only", default=None)
+    p_runbook.add_argument(
+        "--out", default=None, help="output path (default <root>/UPDATE-RUNBOOK.md)"
+    )
+    p_runbook.set_defaults(func=cmd_runbook)
 
     args = parser.parse_args(argv)
     return args.func(args)
