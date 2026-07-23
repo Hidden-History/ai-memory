@@ -2100,3 +2100,98 @@ def test_check_class_guard_makes_zero_writes(tmp_path: Path) -> None:
     for p in before:
         assert before[p] == after[p], f"{p} was mutated by --check"
     assert fixture.read_bytes() == before[fixture]
+
+
+def test_check_class_scan_skips_non_utf8_file_without_crashing(
+    tmp_path: Path,
+) -> None:
+    """A non-UTF-8 (e.g. legacy ISO-8859) .md file anywhere under the
+    oversight root must not crash the --check gate — it is skipped with a
+    WARN, matching the graceful memory-warn pattern (never a traceback)."""
+    root = _make_oversight(tmp_path)
+    (root / "knowledge").mkdir(exist_ok=True)
+    bad = root / "knowledge" / "legacy-notes.md"
+    bad.write_bytes("# Notes - cafe\n".encode("iso-8859-1") + b"\xe9\xe8\n")
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert "Traceback" not in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
+
+
+def test_check_no_violation_for_dated_session_detail_record(tmp_path: Path) -> None:
+    """BP-191 Part C row 5b: a dated detail-record under session-logs/
+    (e.g. SESSION_HANDOFF_*) legitimately declares rotation_trigger +
+    archive_target — the never-archive assertion is scoped to the row-5a
+    DURABLE subset only and must not flag this as a violation."""
+    root = _make_oversight(tmp_path)
+    fixture = root / "session-logs" / "SESSION_HANDOFF_2026-07-22_fixture.md"
+    fixture.write_text(
+        "---\n"
+        "class: detail-record\n"
+        "cap_lines: 60\n"
+        "cap_kb: 8\n"
+        "rotation_trigger: on-close-over-cap\n"
+        "archive_target: session-logs/archive/{YYYY-MM}/\n"
+        "---\n"
+        "# Session Handoff fixture\n",
+        encoding="utf-8",
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
+
+
+def test_check_class_scan_excludes_frozen_subtrees(tmp_path: Path) -> None:
+    """A class-policy violation seeded inside a frozen/immutable subtree
+    (task snapshot, archive shard, or research/ notes) must not be flagged —
+    those are historical copies, not governed live files, and walking them
+    is the crash/blast-radius risk this scan must avoid."""
+    root = _make_oversight(tmp_path)
+
+    snapshot_plans = root / "tasks" / "some-task" / "snapshot-BEFORE-x" / "plans"
+    snapshot_plans.mkdir(parents=True)
+    (snapshot_plans / "PLAN-999-fixture.md").write_text(
+        "---\n"
+        "class: detail-record\n"
+        "cap_lines: 60\n"
+        "cap_kb: 8\n"
+        "rotation_trigger: on-close-over-cap\n"
+        "archive_target: plans/archive/PLAN-999-ARCHIVE-{YYYY-MM}.md\n"
+        "---\n"
+        "# frozen snapshot copy\n",
+        encoding="utf-8",
+    )
+
+    archive_dir = root / "tracking" / "archive"
+    archive_dir.mkdir(parents=True)
+    (archive_dir / "weird-heartbeat.md").write_text(
+        "---\n"
+        "class: heartbeat\n"
+        "cap_lines: 60\n"
+        "cap_kb: 6\n"
+        "rotation_trigger: on-close-over-cap\n"
+        "archive_target: archive/weird-heartbeat-ARCHIVE-{YYYY-MM}.md\n"
+        "---\n"
+        "# archived heartbeat copy\n",
+        encoding="utf-8",
+    )
+
+    research_dir = root / "research"
+    research_dir.mkdir(parents=True)
+    (research_dir / "old-plan-fixture.md").write_text(
+        "---\n"
+        "class: detail-record\n"
+        "cap_lines: 60\n"
+        "cap_kb: 8\n"
+        "rotation_trigger: on-close-over-cap\n"
+        "archive_target: plans/archive/old-plan-ARCHIVE-{YYYY-MM}.md\n"
+        "---\n"
+        "# research copy\n",
+        encoding="utf-8",
+    )
+
+    result = _run("--check", "--oversight-root", str(root))
+    assert result.returncode == 0, result.stderr
+    assert "CLASS POLICY VIOLATION" not in result.stderr
