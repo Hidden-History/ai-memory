@@ -405,6 +405,17 @@ def _migration_0001_baseline(text: str) -> str:
     return text
 
 
+# NOTE (PLAN-035 P3): there is deliberately NO hand-coded ``0002+`` transform here, and
+# a future reader should not add one expecting it to "adopt template structure." Since
+# PLAN-035 P2 shipped the registry ``required_skeleton`` + the template-parity oracle,
+# the machine-readable structural spec BP-190 §4.2 assumed had to be hand-coded now
+# lives in the registry. Structural ADOPTION (Kind A/B add-only, Kind C human-in-the-loop)
+# is therefore registry/oracle-driven in the sibling ``conform_engine.py`` — a per-element
+# ``0 STRUCT_NONCONFORMANT`` gate a monotonic ``format_version`` integer cannot express.
+# A hand-coded transform chain here would duplicate the registry (two drifting sources of
+# truth) and cannot meet that gate. This baseline stamp stays; BP-190's ledger mechanics
+# (apply-once, permanent audit row, baseline floor, archive convention, ``resolved`` stamp,
+# generated ``UPDATE-RUNBOOK.md``) live in ``conform_engine.py`` + ``reconcile_helper.py``.
 MIGRATIONS: tuple[Migration, ...] = (
     Migration(
         from_version=0,
