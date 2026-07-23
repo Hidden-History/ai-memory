@@ -184,6 +184,130 @@ def test_kind_a_reaches_zero_struct_no_line_loss(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# ①b CRITICAL byte-safety — a non-UTF-8 byte survives conform unchanged
+# --------------------------------------------------------------------------- #
+def test_kind_a_preserves_non_utf8_bytes(tmp_path):
+    """A structurally-nonconformant Kind-A file carrying a raw non-UTF-8 byte (0xE9 —
+    a real field artifact) must be conformed WITHOUT corrupting that byte. The pre-fix
+    engine read every live file with ``errors="replace"`` and wrote the lossy text back,
+    turning 0xE9 into 0xEF 0xBF 0xBD (U+FFFD) — permanent corruption reported as success.
+    This is the reviewer's exact repro: it fails on the pre-fix engine, passes after."""
+    cfg = _cfg(tmp_path)
+    p = tmp_path / "oversight" / "SESSION_WORK_INDEX.md"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    raw = SWI_KIND_A.encode("utf-8")
+    marker = b"**Goal**: ship PLAN-035 P3"
+    nonutf8 = raw.replace(marker, marker + b" (caf\xe9)")  # lone 0xE9 = invalid UTF-8
+    assert b"\xe9" in nonutf8 and b"\xef\xbf\xbd" not in nonutf8
+    p.write_bytes(nonutf8)
+
+    # Precondition: nonconformant (2 missing sections); the oracle tolerates the bad byte.
+    assert _struct_for(cfg, "oversight/SESSION_WORK_INDEX.md")
+
+    out = ce.conform(cfg, kinds="A")
+
+    # Success reported AND the two sections were added...
+    assert "oversight/SESSION_WORK_INDEX.md" in out["a_fixed"]
+    assert not out["a_failed"]
+    result = p.read_bytes()
+    assert b"## Active Blockers" in result and b"## High Priority Risks" in result
+    # ...and the original invalid byte is preserved EXACTLY — never replaced by U+FFFD.
+    assert b"\xe9" in result, "original non-UTF-8 byte was corrupted"
+    assert b"\xef\xbf\xbd" not in result, "byte was lossily replaced with U+FFFD"
+    # Full byte-level insert-only preservation (the safety-net gate).
+    assert ce._bytes_preserved(nonutf8, result)
+
+
+# --------------------------------------------------------------------------- #
+# ①c EOF newline-glue — a file with no trailing newline conforms cleanly
+# --------------------------------------------------------------------------- #
+def test_kind_a_no_trailing_newline_conforms_cleanly(tmp_path):
+    """An end-anchored section insert onto a body whose last line lacks a trailing
+    newline must not glue the new heading onto that line (which would trip the
+    line-preservation precheck and leave the file permanently non-conformable)."""
+    cfg = _cfg(tmp_path)
+    no_eol = SWI_KIND_A.rstrip("\n")
+    p = _write(tmp_path, "oversight/SESSION_WORK_INDEX.md", no_eol)
+    assert not p.read_bytes().endswith(b"\n")  # precondition: no trailing newline
+
+    out = ce.conform(cfg, kinds="A")
+
+    assert "oversight/SESSION_WORK_INDEX.md" in out["a_fixed"]
+    assert not out["a_failed"]
+    assert _struct_for(cfg, "oversight/SESSION_WORK_INDEX.md") == []
+    new_lines = p.read_text(encoding="utf-8").splitlines()
+    assert "## Active Blockers" in new_lines and "## High Priority Risks" in new_lines
+    # The original last line survives intact, not glued to the new heading.
+    assert "| build conform engine | amelia |" in new_lines
+
+
+# --------------------------------------------------------------------------- #
+# ②a Required field with no template host section -> HIL, never a broken Kind-A
+# --------------------------------------------------------------------------- #
+def test_required_field_with_no_host_section_routes_to_hil(tmp_path):
+    """A required_field the shipped template places under NO required section is
+    unhostable: a blind add-only would drop it and the gate would fail forever. Such a
+    file routes to HIL rather than a perpetually-failing Kind-A. (Finding 4.)"""
+    templates_root = tmp_path / "templates" / "oversight"
+    templates_root.mkdir(parents=True)
+    # `**Orphan Field**:` sits ABOVE the only required section -> host resolves to None.
+    (templates_root / "widget.md").write_text(
+        "---\nclass: widget\n---\n# Widget\n\n**Orphan Field**:\n\n## Real Section\n\nbody\n",
+        encoding="utf-8",
+    )
+    cfg = ce.ConformConfig(
+        project_root=tmp_path,
+        oracle_path=_ORACLE,
+        registry_path=_REGISTRY,
+        templates_root=templates_root,
+    )
+    entry = {
+        "template": "widget.md",
+        "required_skeleton": {
+            "required_sections": ["## Real Section"],
+            "required_fields": ["Orphan Field"],
+            "match_case": True,
+        },
+    }
+    live = _write(
+        tmp_path,
+        "oversight/w.md",
+        "---\nclass: widget\n---\n# Widget\n\n## Real Section\n\nbody\n",
+    )
+    decision = ce.classify_file(cfg, entry, live, ["Orphan Field"])
+    assert decision.kind == "HIL"
+    assert "no template host" in (decision.reason or "")
+
+
+# --------------------------------------------------------------------------- #
+# ③b Mid-run OSError preserves already-succeeded ledger rows (no whole-pass abort)
+# --------------------------------------------------------------------------- #
+def test_midrun_oserror_preserves_succeeded_ledger_rows(tmp_path, monkeypatch):
+    """A mid-run OSError from one file's write must NOT abort the whole pass or drop the
+    audit rows of files that already conformed this run. (Finding 3.)"""
+    cfg = _cfg(tmp_path)
+    _write(tmp_path, "oversight/plans/PLAN-a.md", _PLAN_NO_ROLE)
+    _write(tmp_path, "oversight/plans/PLAN-b.md", _PLAN_NO_ROLE)
+
+    real_atomic = ce.atomic_write
+
+    def flaky(path, data, **kw):
+        if "PLAN-b" in str(path):
+            raise OSError("simulated disk failure")
+        return real_atomic(path, data, **kw)
+
+    monkeypatch.setattr(ce, "atomic_write", flaky)
+
+    out = ce.conform(cfg, kinds="B")
+
+    assert "oversight/plans/PLAN-a.md" in out["b_fixed"]
+    assert any(f["path"] == "oversight/plans/PLAN-b.md" for f in out["b_failed"])
+    # Ledger persisted despite the mid-run OSError, WITH the succeeded row.
+    ledger = ce.load_conform_ledger(cfg.ledger_path())
+    assert "oversight/plans/PLAN-a.md" in ledger.get("conformed", {})
+
+
+# --------------------------------------------------------------------------- #
 # ② Kind-C -> flagged-and-restored, NOT auto-applied
 # --------------------------------------------------------------------------- #
 def test_kind_c_flagged_not_applied(tmp_path):

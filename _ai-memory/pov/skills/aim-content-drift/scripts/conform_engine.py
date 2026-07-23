@@ -218,7 +218,9 @@ def run_oracle(cfg: ConformConfig) -> list[dict]:
 
 def load_registry(cfg: ConformConfig) -> dict[str, dict]:
     """Registry entries indexed by their ``template`` id."""
-    data = yaml.safe_load(cfg.registry_path.read_text(encoding="utf-8"))
+    data = yaml.safe_load(
+        cfg.registry_path.read_text(encoding="utf-8", errors="replace")
+    )
     entries = data.get("templates", []) if isinstance(data, dict) else []
     if not entries:
         raise RuntimeError(f"conform: no templates in registry {cfg.registry_path}")
@@ -426,16 +428,31 @@ def classify_file(
             extra_headings,
         )
 
-    # --- Kind A vs HIL: any missing frontmatter key we cannot fill => HIL ------
+    # --- Kind A vs HIL --------------------------------------------------------
+    # HIL if: a missing frontmatter key we cannot fill, OR a missing required field the
+    # shipped template places under no required section (unhostable — a blind add-only
+    # would drop it and the gate would fail forever).
     unfillable = [
         k for k in fm_keys if resolve_frontmatter_value(cfg, entry, k) is None
     ]
-    if unfillable:
+    field_host = _field_hosts(cfg, entry)
+    unhostable = [fn for fn in fields if field_host.get(fn) is None]
+    if unfillable or unhostable:
+        reasons = []
+        if unfillable:
+            reasons.append(
+                "requires real frontmatter value(s): " + ", ".join(unfillable)
+            )
+        if unhostable:
+            reasons.append(
+                "required field(s) with no template host section: "
+                + ", ".join(unhostable)
+            )
         return FileDecision(
             rel,
             entry["template"],
             "HIL",
-            "requires real frontmatter value(s): " + ", ".join(unfillable),
+            "; ".join(reasons),
             sections,
             fields,
             fm_keys,
@@ -574,7 +591,10 @@ def build_kind_a_text(
     required_sections = skeleton.get("required_sections", [])
     match_case = skeleton.get("match_case", True)
 
-    text = path.read_text(encoding="utf-8", errors="replace")
+    # Byte-lossless read: an arbitrary (even non-UTF-8) source byte round-trips exactly
+    # through surrogateescape, so the spliced text can be re-encoded without corruption
+    # (the write path encodes with the same error handler). See ``apply_with_gate``.
+    text = path.read_text(encoding="utf-8", errors="surrogateescape")
     _, body = _parse_frontmatter(text)
     body_lines = body.splitlines(keepends=True)
 
@@ -627,6 +647,19 @@ def build_kind_a_text(
 
     all_inserts = section_inserts + list(field_inserts.items())
     all_inserts.sort(key=lambda x: x[0], reverse=True)  # bottom-up: indices stay valid
+
+    # An end-anchored insert (index == len(body_lines)) onto a body whose last line has
+    # no trailing newline would glue the new heading onto it, dropping the original line
+    # -> the line-preservation gate aborts and the file can never conform. Terminate the
+    # final line first: a pure newline insertion, so byte/line preservation still holds,
+    # and it does not shift any anchor (the line count is unchanged).
+    if (
+        body_lines
+        and not body_lines[-1].endswith("\n")
+        and any(idx >= len(body_lines) for idx, _ in all_inserts)
+    ):
+        body_lines[-1] += "\n"
+
     new_body_lines = list(body_lines)
     for idx, lines in all_inserts:
         new_body_lines[idx:idx] = lines
@@ -671,7 +704,7 @@ def build_kind_a_text(
 
 def build_kind_b_text(path: Path) -> str:
     """Set ``plan_role: standalone`` in (or prepend) the frontmatter block."""
-    text = path.read_text(encoding="utf-8", errors="replace")
+    text = path.read_text(encoding="utf-8", errors="surrogateescape")
     lines = text.splitlines(keepends=True)
     if lines and lines[0].rstrip("\r\n") == "---":
         close = next(
@@ -692,18 +725,49 @@ def _lines_preserved(original: str, new: str) -> bool:
     return all(got[k] >= v for k, v in orig.items())
 
 
+def _bytes_preserved(original: bytes, new: bytes) -> bool:
+    """Every original byte survives, in order — the edit is insert-only at the BYTE
+    level. This is the real corruption safety-net: unlike ``_lines_preserved`` (which
+    sees only decoded text and is blind to a lossy ``U+FFFD`` replacement), it compares
+    raw bytes, so a non-UTF-8 byte mangled on decode is caught regardless of the decode
+    strategy. Subsequence check — O(len(new)); conform files are small."""
+    it = iter(new)
+    return all(b in it for b in original)
+
+
 def apply_with_gate(cfg: ConformConfig, path: Path, new_text: str, gate_fn) -> dict:
-    """backup -> no-line-loss precheck -> crash-atomic write -> FULL-CAPTURE oracle
-    re-verify -> gate_fn -> restore-the-backup on ANY failure. ``gate_fn(findings,
-    rel) -> (ok, reason)``. Never leaves a partial write behind."""
-    original = path.read_text(encoding="utf-8", errors="replace")
+    """backup -> no-line-loss precheck -> BYTE-preservation precheck -> crash-atomic
+    write -> on-disk byte re-check -> FULL-CAPTURE oracle re-verify -> gate_fn ->
+    restore-the-backup on ANY failure. ``gate_fn(findings, rel) -> (ok, reason)``. Never
+    leaves a partial OR byte-corrupted write behind."""
+    original_bytes = path.read_bytes()
+    original = original_bytes.decode("utf-8", errors="surrogateescape")
     if not _lines_preserved(original, new_text):
         return {
             "status": "failed",
             "reason": "line-loss detected pre-write (aborted, no write)",
         }
-    backup_path = atomic_write(path, new_text, backup=True)
+    # Byte-lossless encode (mirrors the surrogateescape read in the edit builders):
+    # arbitrary source bytes round-trip exactly. ``atomic_write`` writes bytes verbatim,
+    # never re-encoding — so no U+FFFD corruption can reach disk.
+    new_bytes = new_text.encode("utf-8", errors="surrogateescape")
+    if not _bytes_preserved(original_bytes, new_bytes):
+        return {
+            "status": "failed",
+            "reason": "byte-loss detected pre-write (aborted, no write)",
+        }
+    backup_path = atomic_write(path, new_bytes, backup=True)
     try:
+        # Defense in depth: prove what actually LANDED on disk is byte-preserving; a
+        # corrupted write is restored, never reported as success (never leave a
+        # corrupted file — the non-negotiable).
+        if not _bytes_preserved(original_bytes, path.read_bytes()):
+            _restore(backup_path, path)
+            return {
+                "status": "failed",
+                "reason": "byte-loss detected on disk after write (restored)",
+                "restored": True,
+            }
         findings = run_oracle(cfg)
         rel = str(path.relative_to(cfg.project_root))
         ok, reason = gate_fn(findings, rel)
@@ -761,7 +825,7 @@ def _now() -> str:
 def load_conform_ledger(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         data = {}
     if not isinstance(data, dict):
         data = {}
@@ -835,7 +899,15 @@ def conform(
     if "B" in kinds_set:
         for b in cls.kind_b_fix:
             path = cfg.project_root / b["path"]
-            res = apply_with_gate(cfg, path, build_kind_b_text(path), gate_kind_b)
+            try:
+                res = apply_with_gate(cfg, path, build_kind_b_text(path), gate_kind_b)
+            except Exception as exc:
+                # A write-layer error (e.g. OSError) on one file must not abort the pass
+                # or drop the ledger rows already earned this run (BP-190 audit trail).
+                out["b_failed"].append(
+                    {"path": b["path"], "reason": f"exception: {exc}"}
+                )
+                continue
             if res["status"] == "fixed":
                 record_conform(
                     ledger, b["path"], "B", "conformed-kind-b", res.get("backup_path")
@@ -854,12 +926,12 @@ def conform(
             path = cfg.project_root / d.path
             try:
                 new_text = build_kind_a_text(cfg, entry, path, d)
+                res = apply_with_gate(cfg, path, new_text, gate_kind_a)
             except Exception as exc:
-                out["a_failed"].append(
-                    {"path": d.path, "reason": f"build exception: {exc}"}
-                )
+                # Build OR write-layer error on one file: never abort the pass or drop
+                # the ledger rows already earned this run.
+                out["a_failed"].append({"path": d.path, "reason": f"exception: {exc}"})
                 continue
-            res = apply_with_gate(cfg, path, new_text, gate_kind_a)
             if res["status"] == "fixed":
                 record_conform(
                     ledger, d.path, "A", "conformed-kind-a", res.get("backup_path")
