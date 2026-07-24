@@ -522,15 +522,18 @@ def ensure_canonical_payload_indexes(collection_name: str) -> None:
     # Bounded-poll the read-back: on a large collection, wait=true can still
     # land after its internal update-queue timeout, so a single immediate GET
     # can show a field as missing when it is only slow. Re-check a few times
-    # before concluding an index is genuinely absent. ``fetch_live_schema``
-    # returning None is a definitive answer (collection absent, HTTP 404) —
-    # the transient case is the GET call itself failing (timeout/connection
-    # error), which is caught separately and must not be read as "missing".
+    # before concluding an index is genuinely absent. Only HTTP 404 is a
+    # definitive answer (collection absent) — any other non-200 (5xx, 429,
+    # gateway timeout) is a transient server-side failure, not evidence of
+    # absence, so ``_read_back_live_schema`` raises on it and routes it
+    # through the same except branch as a connection/timeout error, rather
+    # than being misread as "all fields missing" and rolling back a restore
+    # whose data and indexes both landed.
     missing: set[str] = set(canonical)
     verify_failed = False
     for attempt in range(READBACK_POLL_ATTEMPTS):
         try:
-            live = fetch_live_schema(collection_name)
+            live = _read_back_live_schema(collection_name)
         except Exception as e:
             verify_failed = True
             print(
@@ -636,6 +639,32 @@ def fetch_live_schema(collection_name: str) -> dict | None:
     )
     if response.status_code != 200:
         return None
+    data = response.json().get("result", {}) or {}
+    return _build_schema_fingerprint(data)
+
+
+def _read_back_live_schema(collection_name: str) -> dict | None:
+    """Fetch schema for ``ensure_canonical_payload_indexes``'s read-back only.
+
+    Unlike ``fetch_live_schema`` (used by the restore compat gate, which
+    treats every non-200 as "absent"), this distinguishes HTTP 404 from any
+    other non-200: 404 is a definitive absent-collection answer, while a
+    transient non-200 (503/502/504/500/429) during a bounded poll must not
+    be misread as "collection absent" — that would make every canonical
+    field look genuinely missing and, once the poll budget is spent, raise
+    and roll back an otherwise-successful restore. Raising here for any
+    non-404 non-200 routes it through the caller's existing except branch,
+    the same "inconclusive" bucket as a raised connection/timeout error.
+    """
+    timeout_config = httpx.Timeout(connect=3.0, read=10.0, write=5.0, pool=3.0)
+    response = httpx.get(
+        f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}",
+        headers=get_headers(),
+        timeout=timeout_config,
+    )
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
     data = response.json().get("result", {}) or {}
     return _build_schema_fingerprint(data)
 

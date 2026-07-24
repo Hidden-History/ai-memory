@@ -454,6 +454,31 @@ class TestRestorePath:
         ):
             module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
 
+    def test_persistent_5xx_verify_failure_does_not_raise(self):
+        """A transient server-side non-200 (503) is NOT the same as a 404.
+
+        Unlike a 404 (collection genuinely absent), a persistent 5xx during
+        the read-back poll is a server-side hiccup, not evidence the
+        collection is missing. Misreading it as "all fields missing" would
+        raise after the poll budget and roll back an otherwise-successful
+        restore. It must land in the same inconclusive bucket as a raised
+        connection/timeout error.
+        """
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_5xx")
+
+        put_response = MagicMock(status_code=200)
+        unavailable_get = module.httpx.Response(
+            503, request=module.httpx.Request("GET", "http://qdrant/collections/x")
+        )
+        with (
+            patch.object(module.httpx, "put", return_value=put_response),
+            patch.object(module.httpx, "get", return_value=unavailable_get),
+            patch.object(module.time, "sleep"),
+        ):
+            # Must not raise — a persistent 5xx is inconclusive, not
+            # definitive-missing.
+            module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
+
 
 class TestRestoreSchemaCompatGate:
     """BP-194 Q4: the existing-target restore gate excludes payload_schema."""
