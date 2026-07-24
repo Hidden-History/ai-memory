@@ -239,6 +239,34 @@ jobs:
           CI: "true"
 
   # ============================================================================
+  # AIM-VERIFY SKILL TESTS - skill-local test suite (PLAN-037 P1)
+  # ============================================================================
+  aim-verify-skill-tests:
+    name: AIM-Verify Skill Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run aim-verify skill tests
+        run: |
+          pytest _ai-memory/skills/aim-verify/tests/ -v --tb=short
+        env:
+          CI: "true"
+
+  # ============================================================================
   # E2E TESTS - Playwright browser tests (optional, runs after integration)
   # ============================================================================
   e2e-tests:
@@ -647,7 +675,7 @@ jobs:
   # ============================================================================
   ci-success:
     name: CI Success
-    needs: [lint, version-consistency, unit-tests, integration-tests, template-parity-ci-gates, aim-sot-skill-tests, e2e-tests]
+    needs: [lint, version-consistency, unit-tests, integration-tests, template-parity-ci-gates, aim-sot-skill-tests, aim-verify-skill-tests, e2e-tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -659,6 +687,7 @@ jobs:
           echo "Integration Tests: ${{ needs.integration-tests.result }}"
           echo "Template Parity CI Gates: ${{ needs.template-parity-ci-gates.result }}"
           echo "AIM-SOT Skill Tests: ${{ needs.aim-sot-skill-tests.result }}"
+          echo "AIM-Verify Skill Tests: ${{ needs.aim-verify-skill-tests.result }}"
           echo "E2E Tests: ${{ needs.e2e-tests.result }}"
 
           if [[ "${{ needs.lint.result }}" != "success" ]]; then
@@ -683,6 +712,10 @@ jobs:
           fi
           if [[ "${{ needs.aim-sot-skill-tests.result }}" != "success" ]]; then
             echo "::error::AIM-SOT skill tests failed"
+            exit 1
+          fi
+          if [[ "${{ needs.aim-verify-skill-tests.result }}" != "success" ]]; then
+            echo "::error::AIM-Verify skill tests failed"
             exit 1
           fi
           # E2E blocks only if it ran AND failed/cancelled (skipped is OK)
