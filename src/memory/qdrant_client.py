@@ -11,23 +11,104 @@ import hashlib
 import logging
 import os
 import warnings
+from typing import Any
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import KeywordIndexParams
+from qdrant_client.models import (
+    KeywordIndexParams,
+    PayloadSchemaType,
+    TextIndexParams,
+    TokenizerType,
+)
 
-from .config import MemoryConfig, get_config
+from .config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_DISCUSSIONS,
+    COLLECTION_GITHUB,
+    COLLECTION_JIRA_DATA,
+    MemoryConfig,
+    get_config,
+)
 
 __all__ = [
+    "BASE_PAYLOAD_INDEXES",
+    "COLLECTION_PAYLOAD_INDEXES",
     "QdrantUnavailable",
+    "canonical_payload_indexes",
     "check_qdrant_health",
-    "create_content_hash_index",
-    "create_group_id_index",
+    "ensure_payload_indexes",
     "get_qdrant_client",
 ]
 
 logger = logging.getLogger("ai_memory.storage")
 
 _client_cache: dict[str, "QdrantClient"] = {}
+
+# ─── Canonical payload-index set (BUG-530 / PLAN-036 P1) ──────────────────────
+# Single authoring site for the payload indexes every collection must carry.
+# Previously duplicated only in scripts/setup-collections.py, so every other
+# collection-recreate path left a collection with zero or partial indexes —
+# silently degrading retrieval (a missing `timestamp` range index makes
+# get_recent() raise QdrantUnavailable).
+
+# Indexes every collection gets.
+BASE_PAYLOAD_INDEXES: dict[str, Any] = {
+    # group_id uses is_tenant=True for optimized multi-project storage layout
+    "group_id": KeywordIndexParams(type="keyword", is_tenant=True),
+    "type": PayloadSchemaType.KEYWORD,
+    "source_hook": PayloadSchemaType.KEYWORD,
+    # BP-038 Section 3.3: content_hash index for O(1) dedup lookup
+    "content_hash": KeywordIndexParams(type="keyword"),
+    # Full-text index on content enables hybrid search (semantic + keyword)
+    "content": TextIndexParams(
+        type="text",
+        tokenizer=TokenizerType.WORD,
+        min_token_len=2,
+        max_token_len=20,
+    ),
+    # BP-038 Section 2.1: timestamp index for recency queries (order_by)
+    "timestamp": PayloadSchemaType.DATETIME,
+    # v2.0.6: Freshness and decay payload indexes (SPEC-008, FAIL-003 fix)
+    "decay_score": PayloadSchemaType.FLOAT,
+    "freshness_status": PayloadSchemaType.KEYWORD,
+    "source_authority": PayloadSchemaType.FLOAT,
+    "is_current": PayloadSchemaType.BOOL,
+    "version": PayloadSchemaType.INTEGER,
+}
+
+# Additional indexes for specific collections.
+COLLECTION_PAYLOAD_INDEXES: dict[str, dict[str, Any]] = {
+    # BP-038 Section 2.1: file_path enables file-specific pattern lookup
+    COLLECTION_CODE_PATTERNS: {
+        "file_path": PayloadSchemaType.KEYWORD,
+    },
+    # Parzival agent_id index enables tenant-optimized agent_id filtering
+    COLLECTION_DISCUSSIONS: {
+        "agent_id": KeywordIndexParams(type="keyword", is_tenant=True),
+    },
+    # PLAN-010: GitHub-specific indexes
+    COLLECTION_GITHUB: {
+        "source": KeywordIndexParams(type="keyword", is_tenant=True),
+        "github_id": PayloadSchemaType.INTEGER,
+        "file_path": PayloadSchemaType.KEYWORD,
+        "sha": PayloadSchemaType.KEYWORD,
+        "state": PayloadSchemaType.KEYWORD,
+        "last_synced": PayloadSchemaType.DATETIME,
+        "update_batch_id": PayloadSchemaType.KEYWORD,
+    },
+    # PLAN-004 Phase 2: Jira-specific indexes
+    COLLECTION_JIRA_DATA: {
+        "jira_project": PayloadSchemaType.KEYWORD,
+        "jira_issue_key": PayloadSchemaType.KEYWORD,
+        "jira_issue_type": PayloadSchemaType.KEYWORD,
+        "jira_status": PayloadSchemaType.KEYWORD,
+        "jira_priority": PayloadSchemaType.KEYWORD,
+        "jira_author": PayloadSchemaType.KEYWORD,
+        "jira_reporter": PayloadSchemaType.KEYWORD,
+        "jira_labels": PayloadSchemaType.KEYWORD,
+        "jira_comment_id": PayloadSchemaType.KEYWORD,
+    },
+}
 
 
 class QdrantUnavailable(Exception):
@@ -173,97 +254,50 @@ def check_qdrant_health(client: QdrantClient) -> bool:
         return False
 
 
-def create_group_id_index(
-    client: QdrantClient, collection_name: str = "code-patterns"
-) -> None:
-    """Create payload index for group_id field with is_tenant=True optimization.
-
-    Implements AC 4.2.3: Payload index creation for optimal multi-project filtering.
-
-    Per Qdrant 1.16+ multitenancy best practices:
-    - is_tenant=True co-locates same-tenant vectors for disk/CPU cache efficiency
-    - Query planner can bypass HNSW for low-cardinality filters (<10ms overhead)
-    - Single collection with payload filtering is more efficient than separate collections
+def canonical_payload_indexes(collection_name: str) -> dict[str, Any]:
+    """Return the canonical payload indexes for a collection.
 
     Args:
-        client: QdrantClient instance
-        collection_name: Collection to create index on (default: "code-patterns")
+        collection_name: Collection to resolve indexes for. Unknown names get
+            the base set only.
+
+    Returns:
+        Mapping of field name to the field schema it must be indexed with.
+    """
+    return {
+        **BASE_PAYLOAD_INDEXES,
+        **COLLECTION_PAYLOAD_INDEXES.get(collection_name, {}),
+    }
+
+
+def ensure_payload_indexes(client: QdrantClient, collection_name: str) -> list[str]:
+    """Create every canonical payload index on a collection.
+
+    Idempotent: ``create_payload_index`` is a no-op when the index already
+    exists, so this is safe to call unconditionally on both new and existing
+    collections. Call it after any path that creates or recreates a collection.
+
+    Args:
+        client: QdrantClient instance.
+        collection_name: Collection to index.
+
+    Returns:
+        The field names that were ensured, in creation order.
 
     Raises:
-        Exception: If index creation fails (critical error - do not proceed)
-
-    Example:
-        >>> client = get_qdrant_client()
-        >>> create_group_id_index(client, "code-patterns")
-        >>> # Index now enables fast filtering by group_id
-
-    References:
-        - https://qdrant.tech/blog/qdrant-1.16.x/ (Tiered Multitenancy)
-        - https://qdrant.tech/articles/multitenancy/ (Multitenancy Guide)
+        Exception: Propagates the client error if an index cannot be created.
+            Callers that must not abort on a single index failure (migration
+            and restore backstops) are responsible for catching it.
     """
-    try:
-        # Create keyword index with is_tenant=True for co-location (AC 4.2.3)
+    fields = canonical_payload_indexes(collection_name)
+    for field_name, field_schema in fields.items():
         client.create_payload_index(
             collection_name=collection_name,
-            field_name="group_id",
-            field_schema=KeywordIndexParams(
-                type="keyword",
-                is_tenant=True,  # Critical: co-locates same-tenant vectors
-            ),
+            field_name=field_name,
+            field_schema=field_schema,
         )
-
-        logger.info(
-            "group_id_index_created",
-            extra={
-                "collection": collection_name,
-                "field": "group_id",
-                "is_tenant": True,
-            },
-        )
-
-    except Exception as e:
-        # Critical error: Log and re-raise (don't proceed without index)
-        logger.error(
-            "index_creation_failed",
-            extra={
-                "collection": collection_name,
-                "field": "group_id",
-                "error": str(e),
-                "error_type": type(e).__name__,
-            },
-        )
-        raise
-
-
-def create_content_hash_index(client: QdrantClient, collection_name: str) -> None:
-    """Create payload index for content_hash field for O(1) dedup lookup.
-
-    Per BP-038 Section 3.3: content_hash index required for all collections.
-    Enables efficient deduplication by allowing direct payload filtering
-    instead of O(n) scroll-based lookup.
-
-    Args:
-        client: QdrantClient instance
-        collection_name: Collection to create index on
-
-    Example:
-        >>> client = get_qdrant_client()
-        >>> create_content_hash_index(client, "code-patterns")
-        >>> # Index now enables O(1) content_hash lookup for dedup
-    """
-    try:
-        client.create_payload_index(
-            collection_name=collection_name,
-            field_name="content_hash",
-            field_schema=KeywordIndexParams(type="keyword"),
-        )
-        logger.info(
-            "content_hash_index_created",
-            extra={"collection": collection_name},
-        )
-    except Exception as e:
-        # Idempotent: index may already exist
-        logger.warning(
-            "content_hash_index_exists_or_failed",
-            extra={"error": str(e)},
-        )
+    logger.info(
+        "payload_indexes_ensured",
+        extra={"collection": collection_name, "fields": len(fields)},
+    )
+    return list(fields)

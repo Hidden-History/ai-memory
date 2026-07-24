@@ -56,7 +56,11 @@ from memory.config import (
     COLLECTION_DISCUSSIONS,
     get_config,
 )
-from memory.qdrant_client import QdrantUnavailable, get_qdrant_client
+from memory.qdrant_client import (
+    QdrantUnavailable,
+    ensure_payload_indexes,
+    get_qdrant_client,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -156,6 +160,11 @@ def create_collection_if_not_exists(
         collection_name=collection_name,
         vectors_config=VectorParams(size=vector_size, distance=distance),
     )
+
+    # BUG-530: a freshly created collection has zero payload indexes until the
+    # canonical set is applied — without this the migrated collection cannot
+    # serve recency (order_by=timestamp) or filtered queries.
+    ensure_payload_indexes(qdrant_client, collection_name)
 
     logger.info(
         "collection_created",

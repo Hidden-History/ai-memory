@@ -66,7 +66,7 @@ from memory.config import (
     COLLECTION_JIRA_DATA,
     get_config,
 )
-from memory.qdrant_client import get_qdrant_client
+from memory.qdrant_client import ensure_payload_indexes, get_qdrant_client
 
 # All 5 collections
 ALL_COLLECTIONS = [
@@ -168,6 +168,24 @@ def recreate_payload_indices(client, dst: str, payload_schema: dict) -> None:
             )
         except Exception as e:
             print(f"    {YELLOW}!{RESET} Index '{field_name}' on '{dst}': {e}")
+
+
+def ensure_canonical_payload_indices(client, collection_name: str) -> None:
+    """Apply the canonical payload-index set as a backstop after recreation.
+
+    BUG-530: ``recreate_payload_indices`` copies forward whatever the source
+    collection had — which is nothing when the source was itself created by a
+    path that skipped indexes. This runs *in addition to* the copy-forward so
+    the recreated collection always ends up with at least the canonical set,
+    while any extra user-added indexes carried by the copy-forward survive.
+
+    Best-effort: a failure here degrades search but must not abort a migration
+    that has already moved data.
+    """
+    try:
+        ensure_payload_indexes(client, collection_name)
+    except Exception as e:
+        print(f"    {YELLOW}!{RESET} Canonical indexes on '{collection_name}': {e}")
 
 
 def create_collection_with_sparse(
@@ -301,6 +319,7 @@ def ensure_sparse_config(
             client, collection_name, src_config, sparse_config
         )
         recreate_payload_indices(client, collection_name, src_payload_schema)
+        ensure_canonical_payload_indices(client, collection_name)
 
         # Step 6: Scroll all data from temp → final
         print(f"    6/6 Copying {tmp_count} points to final...")

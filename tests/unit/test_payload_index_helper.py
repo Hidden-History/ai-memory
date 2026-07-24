@@ -1,0 +1,348 @@
+"""Tests for the canonical payload-index helper (BUG-530 / PLAN-036 P1).
+
+The full canonical payload-index set used to be authored only in
+``scripts/setup-collections.py``. Every other path that creates or recreates a
+collection either created zero indexes or copy-forwarded a captured schema that
+could be empty — so a recreated collection silently lost its ``timestamp``
+range index and ``get_recent()`` started raising ``QdrantUnavailable``.
+
+These tests lock in that the set is authored once in
+``memory.qdrant_client.ensure_payload_indexes`` and that all four
+collection-recreate paths land the full set:
+
+1. ``scripts/setup-collections.py``           — create_collections()
+2. ``scripts/memory/migrate_v2_collections.py`` — create_collection_if_not_exists()
+3. ``scripts/migrate_v221_hybrid_vectors.py``  — ensure_sparse_config()
+4. ``scripts/restore_qdrant.py``               — ensure_canonical_payload_indexes()
+
+No live Qdrant is touched: every path runs against an in-memory fake client
+(or, for the REST-based restore script, a patched ``httpx.put``).
+"""
+
+import importlib.util
+import os
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from memory.config import (
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+    COLLECTION_GITHUB,
+    COLLECTION_JIRA_DATA,
+)
+from memory.qdrant_client import (
+    BASE_PAYLOAD_INDEXES,
+    canonical_payload_indexes,
+    ensure_payload_indexes,
+)
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+SETUP_SCRIPT = _REPO_ROOT / "scripts" / "setup-collections.py"
+MIGRATE_V2_SCRIPT = _REPO_ROOT / "scripts" / "memory" / "migrate_v2_collections.py"
+MIGRATE_V221_SCRIPT = _REPO_ROOT / "scripts" / "migrate_v221_hybrid_vectors.py"
+RESTORE_SCRIPT = _REPO_ROOT / "scripts" / "restore_qdrant.py"
+
+ALL_COLLECTIONS = [
+    COLLECTION_CODE_PATTERNS,
+    COLLECTION_CONVENTIONS,
+    COLLECTION_DISCUSSIONS,
+    COLLECTION_GITHUB,
+    COLLECTION_JIRA_DATA,
+]
+
+
+# ─── Fake Qdrant client ───────────────────────────────────────────────────────
+
+
+class FakeQdrantClient:
+    """Minimal in-memory stand-in that records payload indexes per collection.
+
+    ``get_collection().payload_schema`` reflects the indexes created so far,
+    mirroring how a real Qdrant reports them — so tests can assert on the
+    resulting schema rather than on call bookkeeping.
+    """
+
+    def __init__(self, existing: list[str] | None = None):
+        self.payload_schemas: dict[str, dict] = {}
+        self.collections: list[str] = list(existing or [])
+        self.points: dict[str, int] = {}
+
+    # -- schema surface ----------------------------------------------------
+    def create_payload_index(self, collection_name, field_name, field_schema, **_):
+        self.payload_schemas.setdefault(collection_name, {})[field_name] = field_schema
+
+    def get_collection(self, collection_name):
+        return SimpleNamespace(
+            payload_schema=dict(self.payload_schemas.get(collection_name, {})),
+            config=SimpleNamespace(
+                params=SimpleNamespace(
+                    vectors=None, shard_number=1, on_disk_payload=True
+                ),
+                hnsw_config=SimpleNamespace(
+                    m=16, ef_construct=100, full_scan_threshold=10000, on_disk=True
+                ),
+                quantization_config=None,
+            ),
+            points_count=self.points.get(collection_name, 0),
+        )
+
+    def schema_keys(self, collection_name) -> set[str]:
+        return set(self.get_collection(collection_name).payload_schema)
+
+    # -- collection lifecycle ---------------------------------------------
+    def create_collection(self, collection_name, **_):
+        self.collections.append(collection_name)
+        self.payload_schemas.setdefault(collection_name, {})
+
+    def collection_exists(self, collection_name):
+        return collection_name in self.collections
+
+    def delete_collection(self, collection_name):
+        if collection_name in self.collections:
+            self.collections.remove(collection_name)
+        self.payload_schemas.pop(collection_name, None)
+
+    def get_collections(self):
+        return SimpleNamespace(
+            collections=[SimpleNamespace(name=n) for n in self.collections]
+        )
+
+    def count(self, collection_name, **_):
+        return SimpleNamespace(count=self.points.get(collection_name, 0))
+
+
+def _load_script(path: Path, name: str):
+    """Load a script module by file path, without leaking its env changes.
+
+    ``restore_qdrant.py`` and ``migrate_v221_hybrid_vectors.py`` call
+    ``load_install_env()`` at import time, which would otherwise push the
+    operator's real installed ``.env`` into ``os.environ`` for the remainder
+    of the pytest session and break unrelated config-default tests.
+    """
+    saved_env = dict(os.environ)
+    try:
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    finally:
+        os.environ.clear()
+        os.environ.update(saved_env)
+    return module
+
+
+# ─── The helper itself ────────────────────────────────────────────────────────
+
+
+class TestEnsurePayloadIndexes:
+    """The canonical set is authored once and applied in full."""
+
+    @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
+    def test_schema_matches_canonical_set(self, collection):
+        """post-ensure payload_schema keys == the canonical set (incl. extras)."""
+        client = FakeQdrantClient()
+
+        ensure_payload_indexes(client, collection)
+
+        assert client.schema_keys(collection) == set(
+            canonical_payload_indexes(collection)
+        )
+
+    @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
+    def test_bug530_critical_fields_present(self, collection):
+        """timestamp (order_by), content (full-text) and group_id are never lost."""
+        client = FakeQdrantClient()
+
+        ensure_payload_indexes(client, collection)
+
+        assert {"timestamp", "content", "group_id"} <= client.schema_keys(collection)
+
+    def test_collection_specific_extras(self):
+        """Per-collection extras are additive on top of the base set."""
+        base = set(BASE_PAYLOAD_INDEXES)
+
+        assert set(canonical_payload_indexes(COLLECTION_CODE_PATTERNS)) - base == {
+            "file_path"
+        }
+        assert set(canonical_payload_indexes(COLLECTION_DISCUSSIONS)) - base == {
+            "agent_id"
+        }
+        assert set(canonical_payload_indexes(COLLECTION_CONVENTIONS)) == base
+        assert "github_id" in canonical_payload_indexes(COLLECTION_GITHUB)
+        assert "jira_issue_key" in canonical_payload_indexes(COLLECTION_JIRA_DATA)
+
+    def test_unknown_collection_gets_base_set(self):
+        """A collection with no registered extras still gets the base set."""
+        assert set(canonical_payload_indexes("some-other-collection")) == set(
+            BASE_PAYLOAD_INDEXES
+        )
+
+    def test_is_idempotent(self):
+        """Calling twice is safe and leaves the same schema."""
+        client = FakeQdrantClient()
+
+        ensure_payload_indexes(client, COLLECTION_GITHUB)
+        first = client.schema_keys(COLLECTION_GITHUB)
+        ensure_payload_indexes(client, COLLECTION_GITHUB)
+
+        assert client.schema_keys(COLLECTION_GITHUB) == first
+
+    def test_returns_ensured_fields(self):
+        """The return value names every field that was ensured."""
+        client = FakeQdrantClient()
+
+        ensured = ensure_payload_indexes(client, COLLECTION_DISCUSSIONS)
+
+        assert set(ensured) == set(canonical_payload_indexes(COLLECTION_DISCUSSIONS))
+
+
+# ─── Path 1: setup-collections.py ─────────────────────────────────────────────
+
+
+class TestSetupCollectionsPath:
+    def test_full_schema_on_every_created_collection(self):
+        client = FakeQdrantClient()
+
+        with (
+            patch("memory.qdrant_client.get_qdrant_client", return_value=client),
+            patch("memory.config.get_config") as mock_cfg,
+        ):
+            mock_cfg.return_value = MagicMock(
+                qdrant_host="localhost",
+                qdrant_port=6333,
+                qdrant_api_key=None,
+                qdrant_use_https=False,
+                jira_sync_enabled=True,
+            )
+            module = _load_script(SETUP_SCRIPT, "setup_collections_p1")
+            module.create_collections(dry_run=False, force=False)
+
+        for collection in ALL_COLLECTIONS:
+            assert client.schema_keys(collection) == set(
+                canonical_payload_indexes(collection)
+            ), f"{collection} did not get the canonical index set"
+
+
+# ─── Path 2: migrate_v2_collections.py ────────────────────────────────────────
+
+
+class TestMigrateV2Path:
+    def test_created_collection_gets_full_schema(self):
+        """Previously created vectors-only — zero payload indexes."""
+        client = FakeQdrantClient()
+        module = _load_script(MIGRATE_V2_SCRIPT, "migrate_v2_collections_p1")
+
+        created = module.create_collection_if_not_exists(
+            client, COLLECTION_CODE_PATTERNS
+        )
+
+        assert created is True
+        assert client.schema_keys(COLLECTION_CODE_PATTERNS) == set(
+            canonical_payload_indexes(COLLECTION_CODE_PATTERNS)
+        )
+
+
+# ─── Path 3: migrate_v221_hybrid_vectors.py ───────────────────────────────────
+
+
+class TestMigrateV221Path:
+    def test_recreated_collection_gets_full_schema_from_empty_source(self):
+        """An empty captured payload_schema no longer means zero indexes."""
+        module = _load_script(MIGRATE_V221_SCRIPT, "migrate_v221_p1")
+        client = FakeQdrantClient(existing=[COLLECTION_DISCUSSIONS])
+
+        with (
+            patch.object(module, "collection_has_sparse", return_value=False),
+            patch.object(
+                module,
+                "create_collection_with_sparse",
+                side_effect=lambda c, name, *_: c.create_collection(name),
+            ),
+            patch.object(module, "scroll_copy", return_value=0),
+        ):
+            ok = module.ensure_sparse_config(
+                client, COLLECTION_DISCUSSIONS, batch_size=100, dry_run=False
+            )
+
+        assert ok is True
+        assert client.schema_keys(COLLECTION_DISCUSSIONS) == set(
+            canonical_payload_indexes(COLLECTION_DISCUSSIONS)
+        )
+
+    def test_copy_forward_extras_are_preserved(self):
+        """The backstop adds to the copy-forward — it does not replace it."""
+        module = _load_script(MIGRATE_V221_SCRIPT, "migrate_v221_p1_extras")
+        client = FakeQdrantClient()
+        client.create_collection(COLLECTION_CONVENTIONS)
+
+        module.recreate_payload_indices(
+            client,
+            COLLECTION_CONVENTIONS,
+            {"user_added_field": SimpleNamespace(params=None, data_type="keyword")},
+        )
+        module.ensure_canonical_payload_indices(client, COLLECTION_CONVENTIONS)
+
+        assert client.schema_keys(COLLECTION_CONVENTIONS) == set(
+            canonical_payload_indexes(COLLECTION_CONVENTIONS)
+        ) | {"user_added_field"}
+
+
+# ─── Path 4: restore_qdrant.py ────────────────────────────────────────────────
+
+
+class TestRestorePath:
+    def test_canonical_indexes_applied_over_rest(self):
+        """The restore backstop PUTs the full canonical set for the collection."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1")
+
+        response = MagicMock(status_code=200)
+        with patch.object(module.httpx, "put", return_value=response) as mock_put:
+            module.ensure_canonical_payload_indexes(COLLECTION_GITHUB)
+
+        fields = {c.kwargs["json"]["field_name"] for c in mock_put.call_args_list}
+        assert fields == set(canonical_payload_indexes(COLLECTION_GITHUB))
+
+    def test_field_schemas_are_json_serializable(self):
+        """Structured schemas (keyword is_tenant, text tokenizer) survive REST."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_json")
+
+        response = MagicMock(status_code=200)
+        with patch.object(module.httpx, "put", return_value=response) as mock_put:
+            module.ensure_canonical_payload_indexes(COLLECTION_CODE_PATTERNS)
+
+        sent = {
+            c.kwargs["json"]["field_name"]: c.kwargs["json"]["field_schema"]
+            for c in mock_put.call_args_list
+        }
+        assert sent["timestamp"] == "datetime"
+        assert sent["group_id"]["type"] == "keyword"
+        assert sent["group_id"]["is_tenant"] is True
+        assert sent["content"]["type"] == "text"
+        assert sent["content"]["tokenizer"] == "word"
+
+    def test_manifest_recreate_with_empty_schema_still_indexes(self):
+        """A manifest whose captured payload_schema is empty is backstopped."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_manifest")
+
+        response = MagicMock(status_code=200)
+        with patch.object(module.httpx, "put", return_value=response) as mock_put:
+            ok, err = module.create_collection_from_manifest_schema(
+                COLLECTION_CONVENTIONS,
+                {"params": {"vectors": {"size": 768, "distance": "Cosine"}}},
+            )
+            assert ok is True, err
+            # The manifest carried no payload_schema — nothing was recreated.
+            index_calls = [c for c in mock_put.call_args_list if "/index" in c.args[0]]
+            assert index_calls == []
+
+            module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
+
+        fields = {
+            c.kwargs["json"]["field_name"]
+            for c in mock_put.call_args_list
+            if "/index" in c.args[0]
+        }
+        assert fields == set(canonical_payload_indexes(COLLECTION_CONVENTIONS))

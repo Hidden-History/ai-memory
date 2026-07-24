@@ -37,6 +37,8 @@ except ImportError:
     )
     sys.exit(1)
 
+# BUG-530: src/ on the path for the canonical payload-index set
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 # BUG-275: load split env files before module-level os.environ.get() reads (BP-153 §3)
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _env_loader import load_install_env
@@ -423,6 +425,67 @@ def create_collection_from_manifest_schema(
 # scripts/backup_qdrant.py:_build_schema_fingerprint so a live collection can
 # be compared against a manifest entry without importing across scripts. The
 # shared-helper refactor is tracked as a separate post-merge low-severity TD.
+
+
+def _rest_field_schema(field_schema) -> str | dict:
+    """Render a canonical field schema for the REST index endpoint."""
+    if isinstance(field_schema, str):
+        # PayloadSchemaType is a str enum — the REST API takes its bare value.
+        return str(getattr(field_schema, "value", field_schema))
+    return field_schema.model_dump(exclude_none=True, mode="json")
+
+
+def ensure_canonical_payload_indexes(collection_name: str) -> None:
+    """Apply the canonical payload-index set to a restored collection.
+
+    BUG-530 backstop, applied after the recover so it covers both restore
+    branches. The fresh-install branch recreates only what the manifest's
+    captured ``payload_schema`` held — nothing, when the backed-up collection
+    was itself missing indexes; the existing-target branch never recreates
+    indexes at all. Either way the restored collection can end up without the
+    ``timestamp`` range index that ``get_recent()`` needs.
+
+    A snapshot recover leaves the target's existing payload indexes in place,
+    so creating them here is durable. ``create_payload_index`` is idempotent,
+    so this only adds what is missing and never disturbs restored data.
+
+    Best-effort: a restore that has already landed its data must not fail
+    because one index could not be created.
+    """
+    try:
+        from memory.qdrant_client import canonical_payload_indexes
+    except Exception as e:  # pragma: no cover - src/ unavailable in a bare env
+        print(
+            f"      {YELLOW}!{RESET} Canonical payload indexes not applied "
+            f"({e}) — search may be degraded"
+        )
+        return
+
+    timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
+    headers = {**get_headers(), "Content-Type": "application/json"}
+
+    for field_name, field_schema in canonical_payload_indexes(collection_name).items():
+        try:
+            response = httpx.put(
+                f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/index",
+                headers=headers,
+                json={
+                    "field_name": field_name,
+                    "field_schema": _rest_field_schema(field_schema),
+                },
+                timeout=timeout_config,
+            )
+            if response.status_code != 200:
+                print(
+                    f"      {YELLOW}!{RESET} Canonical index '{field_name}' not "
+                    f"created (HTTP {response.status_code}) — search on this "
+                    f"field may be degraded"
+                )
+        except Exception as e:
+            print(
+                f"      {YELLOW}!{RESET} Canonical index '{field_name}' not "
+                f"created ({e}) — search on this field may be degraded"
+            )
 
 
 def _normalize_payload_schema(payload_schema: dict | None) -> dict:
@@ -968,6 +1031,11 @@ def main() -> int:
                 return 4
             else:
                 print(f"      {GREEN}✓{RESET} Point count verified ({restored_count})")
+
+            # BUG-530: the restored collection carries only the indexes the
+            # backup captured — none, if the backed-up collection was itself
+            # missing them. Apply the canonical set as a backstop.
+            ensure_canonical_payload_indexes(target)
 
         except Exception as e:
             print(f"      {RED}✗ Error: {e}{RESET}")

@@ -14,10 +14,11 @@ Four scenarios:
 
 1. ``test_round_trip_fresh_install`` — back up, delete the collection, then
    restore via the real ``restore_qdrant.py`` CLI. Asserts byte-equivalent
-   schema, exact point count, and that a random 5% sample of points retains
-   its dense + sparse + ColBERT vectors and payload. This is the regression
-   guard for TD-517 R-1 (the single-vector prefab that broke hybrid-schema
-   restores).
+   vector/HNSW/quantization schema, a payload-index set that is a superset of
+   both the backup's and the canonical set (BUG-530), exact point count, and
+   that a random 5% sample of points retains its dense + sparse + ColBERT
+   vectors and payload. This is the regression guard for TD-517 R-1 (the
+   single-vector prefab that broke hybrid-schema restores).
 
 2. ``test_rollback_preserves_existing_on_failure`` — back up, mutate the
    live collection, then run a restore that fails *after* a successful
@@ -54,6 +55,8 @@ from urllib.parse import urlparse
 
 import httpx
 import pytest
+
+from memory.qdrant_client import canonical_payload_indexes
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
@@ -342,11 +345,22 @@ def test_round_trip_fresh_install(tmp_path: Path) -> None:
             f"STDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
         )
 
-        # Schema must be byte-equivalent (TD-517 R-1).
+        # Vector/HNSW/quantization schema must be byte-equivalent (TD-517 R-1).
         fingerprint_after = _schema_fingerprint(collection)
-        assert json.dumps(fingerprint_after, sort_keys=True) == json.dumps(
-            fingerprint_before, sort_keys=True
-        ), "schema fingerprint drifted across the round-trip"
+        for section in ("params", "hnsw_config", "quantization_config"):
+            assert json.dumps(fingerprint_after[section], sort_keys=True) == json.dumps(
+                fingerprint_before[section], sort_keys=True
+            ), f"{section} drifted across the round-trip"
+
+        # BUG-530: restore applies the canonical payload-index set as a
+        # backstop, so the restored collection is a superset of what was
+        # backed up — never fewer indexes, and never missing `timestamp`.
+        assert set(fingerprint_after["payload_schema"]) >= set(
+            fingerprint_before["payload_schema"]
+        ), "restore lost a payload index that the backup carried"
+        assert set(fingerprint_after["payload_schema"]) >= set(
+            canonical_payload_indexes(collection)
+        ), "restore did not apply the canonical payload-index set"
 
         # Exact point count restored (TD-517 R-5).
         assert _count(collection) == POINT_COUNT

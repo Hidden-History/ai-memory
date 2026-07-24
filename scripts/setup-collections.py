@@ -25,15 +25,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from qdrant_client.models import (
     Distance,
     HnswConfigDiff,
-    KeywordIndexParams,
     Modifier,
-    PayloadSchemaType,
     ScalarQuantization,
     ScalarQuantizationConfig,
     ScalarType,
     SparseVectorParams,
-    TextIndexParams,
-    TokenizerType,
     VectorParams,
 )
 
@@ -45,7 +41,7 @@ from memory.config import (
     COLLECTION_JIRA_DATA,
     get_config,
 )
-from memory.qdrant_client import get_qdrant_client
+from memory.qdrant_client import ensure_payload_indexes, get_qdrant_client
 
 logger = logging.getLogger(__name__)
 
@@ -179,151 +175,13 @@ def create_collections(dry_run: bool = False, force: bool = False) -> None:
                 quantization_config=quantization_config,
             )
 
-            # Create keyword indexes for filtering
-            # These enable fast payload filtering for multi-tenancy and provenance
-
-            # group_id uses is_tenant=True for optimized multi-project storage layout
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="group_id",
-                field_schema=KeywordIndexParams(
-                    type="keyword",
-                    is_tenant=True,  # Optimizes storage for multi-tenant filtering
-                ),
-            )
-
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="type",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="source_hook",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-
-            # BP-038 Section 3.3: content_hash index for O(1) dedup lookup
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="content_hash",
-                field_schema=KeywordIndexParams(type="keyword"),
-            )
-
-            # Create full-text index on content field
-            # Enables hybrid search (semantic + keyword)
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="content",
-                field_schema=TextIndexParams(
-                    type="text",
-                    tokenizer=TokenizerType.WORD,
-                    min_token_len=2,
-                    max_token_len=20,
-                ),
-            )
-
-            # BP-038 Section 2.1: timestamp index for recency queries
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="timestamp",
-                field_schema=PayloadSchemaType.DATETIME,
-            )
-
-            # v2.0.6: Freshness and decay payload indexes (SPEC-008, FAIL-003 fix)
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="decay_score",
-                field_schema=PayloadSchemaType.FLOAT,
-            )
-
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="freshness_status",
-                field_schema=PayloadSchemaType.KEYWORD,
-            )
-
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="source_authority",
-                field_schema=PayloadSchemaType.FLOAT,
-            )
-
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="is_current",
-                field_schema=PayloadSchemaType.BOOL,
-            )
-
-            client.create_payload_index(
-                collection_name=collection_name,
-                field_name="version",
-                field_schema=PayloadSchemaType.INTEGER,
-            )
-
-            # BP-038 Section 2.1: file_path index for code-patterns only
-            # Enables file-specific pattern lookup
-            if collection_name == COLLECTION_CODE_PATTERNS:
-                client.create_payload_index(
-                    collection_name=collection_name,
-                    field_name="file_path",
-                    field_schema=PayloadSchemaType.KEYWORD,
-                )
-
-            # Parzival agent_id index for discussions only
-            # Enables tenant-optimized filtering for agent_id=parzival queries
-            if collection_name == COLLECTION_DISCUSSIONS:
-                client.create_payload_index(
-                    collection_name=collection_name,
-                    field_name="agent_id",
-                    field_schema=KeywordIndexParams(
-                        type="keyword",
-                        is_tenant=True,
-                    ),
-                )
-
-            # PLAN-010: GitHub-specific indexes for github collection
-            if collection_name == COLLECTION_GITHUB:
-                github_indexes = [
-                    ("source", KeywordIndexParams(type="keyword", is_tenant=True)),
-                    ("github_id", PayloadSchemaType.INTEGER),
-                    ("file_path", PayloadSchemaType.KEYWORD),
-                    ("sha", PayloadSchemaType.KEYWORD),
-                    ("state", PayloadSchemaType.KEYWORD),
-                    ("last_synced", PayloadSchemaType.DATETIME),
-                    ("update_batch_id", PayloadSchemaType.KEYWORD),
-                ]
-                for field_name, schema_type in github_indexes:
-                    client.create_payload_index(
-                        collection_name=collection_name,
-                        field_name=field_name,
-                        field_schema=schema_type,
-                    )
-                print(f"  Created {len(github_indexes)} GitHub-specific indexes")
-
-            # PLAN-004 Phase 2: Jira-specific indexes for jira-data collection
-            if collection_name == COLLECTION_JIRA_DATA:
-                jira_indexes = [
-                    ("jira_project", PayloadSchemaType.KEYWORD),
-                    ("jira_issue_key", PayloadSchemaType.KEYWORD),
-                    ("jira_issue_type", PayloadSchemaType.KEYWORD),
-                    ("jira_status", PayloadSchemaType.KEYWORD),
-                    ("jira_priority", PayloadSchemaType.KEYWORD),
-                    ("jira_author", PayloadSchemaType.KEYWORD),
-                    ("jira_reporter", PayloadSchemaType.KEYWORD),
-                    ("jira_labels", PayloadSchemaType.KEYWORD),
-                    ("jira_comment_id", PayloadSchemaType.KEYWORD),
-                ]
-
-                for field_name, schema_type in jira_indexes:
-                    client.create_payload_index(
-                        collection_name=collection_name,
-                        field_name=field_name,
-                        field_schema=schema_type,
-                    )
-
-                print(f"  Created {len(jira_indexes)} Jira-specific indexes")
+            # Create the canonical payload indexes for filtering.
+            # These enable fast payload filtering for multi-tenancy and
+            # provenance, full-text hybrid search, and recency ordering.
+            # The set (base + per-collection extras) is authored once in
+            # memory.qdrant_client so every recreate path stays in sync.
+            ensured = ensure_payload_indexes(client, collection_name)
+            print(f"  Created {len(ensured)} payload indexes")
 
         except Exception as e:
             logger.error(f"Failed to setup {collection_name}: {e}")

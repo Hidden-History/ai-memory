@@ -636,11 +636,15 @@ def qdrant_client(qdrant_base_url: str) -> Generator:
             )
 
         # Create group_id index with is_tenant=True for both collections (AC 4.2.3)
-        from src.memory.qdrant_client import create_group_id_index
+        from src.memory.qdrant_client import BASE_PAYLOAD_INDEXES
 
         for collection in ["code-patterns", "conventions"]:
             try:
-                create_group_id_index(client, collection)
+                client.create_payload_index(
+                    collection_name=collection,
+                    field_name="group_id",
+                    field_schema=BASE_PAYLOAD_INDEXES["group_id"],
+                )
             except Exception as e:
                 # Index may already exist - acceptable
                 if "already exists" not in str(e).lower():
