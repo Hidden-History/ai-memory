@@ -76,6 +76,24 @@ logger.propagate = False
 # Note: Inline metrics removed - using push_* functions from metrics_push module instead
 # See TECH-DEBT-070 for push-based metrics architecture
 
+# BUG-530: a collection that lost its payload indexes makes get_recent() raise
+# instead of returning. Without an explicit signal the operator only sees an empty
+# injection and assumes memory is simply empty. Matched on the message rather than
+# the exception type — QdrantUnavailable is also raised for unrelated failures.
+INDEX_ERROR_MARKERS = ("no range index", "index required but not found")
+
+DEGRADED_INDEX_NOTICE = (
+    "⚠️ AI Memory is running in DEGRADED MODE: a required Qdrant payload index is "
+    "missing, so recent-memory retrieval failed and no memory was injected. "
+    "Recreate the collection payload indexes to restore recall."
+)
+
+
+def is_index_shaped_error(exc: BaseException) -> bool:
+    """True when an exception message indicates a missing Qdrant payload index."""
+    message = str(exc).lower()
+    return any(marker in message for marker in INDEX_ERROR_MARKERS)
+
 
 def inject_with_priority(
     session_summaries: list[dict], other_memories: list[dict], token_budget: int
@@ -762,6 +780,9 @@ def main():
             # Phase 1: Retrieve session summaries (60% of budget)
             # Phase 2: Retrieve other memories (40% of budget)
 
+            # BUG-530: set when a retrieval failed because a payload index is missing
+            _index_degraded = False
+
             if config.parzival_enabled:
                 # PARZIVAL PATH: Deterministic retrieval, decisions only
                 from memory.search import MemorySearch
@@ -833,6 +854,7 @@ def main():
                             "parzival_session_summaries_retrieval_failed",
                             extra={"session_id": session_id, "error": str(e)},
                         )
+                        _index_degraded = _index_degraded or is_index_shaped_error(e)
                         session_summaries = []
 
                     # Other memories: decisions ONLY (no conventions, no patterns)
@@ -891,6 +913,7 @@ def main():
                             "other_memories_retrieval_failed",
                             extra={"session_id": session_id, "error": str(e)},
                         )
+                        _index_degraded = _index_degraded or is_index_shaped_error(e)
                 finally:
                     searcher.close()
 
@@ -996,6 +1019,7 @@ def main():
                             "compact_decisions_retrieval_failed",
                             extra={"session_id": session_id, "error": str(e)},
                         )
+                        _index_degraded = _index_degraded or is_index_shaped_error(e)
                         decisions = []
 
                     _retrieval_ms = (time.perf_counter() - _retrieval_start) * 1000
@@ -1032,6 +1056,7 @@ def main():
                         "compact_session_summaries_retrieval_failed",
                         extra={"session_id": session_id, "error": str(e)},
                     )
+                    _index_degraded = _index_degraded or is_index_shaped_error(e)
                     session_summaries = []
                     decisions = []
                 finally:
@@ -1311,6 +1336,13 @@ def main():
                     f"<retrieved_context>\n{conversation_context}\n</retrieved_context>"
                 )
 
+                # BUG-530: injection is incomplete — say so instead of degrading silently
+                if _index_degraded:
+                    print(DEGRADED_INDEX_NOTICE, file=sys.stderr)
+                    formatted_context = (
+                        f"{DEGRADED_INDEX_NOTICE}\n\n{formatted_context}"
+                    )
+
                 # TASK-034: Append Parzival constraints after compact
                 if config.parzival_enabled:
                     try:
@@ -1373,13 +1405,20 @@ def main():
                     file=sys.stderr,
                 )
 
+                # BUG-530: an empty injection caused by a missing payload index is a
+                # failure, not an empty memory — surface it rather than staying silent
+                if _index_degraded:
+                    print(DEGRADED_INDEX_NOTICE, file=sys.stderr)
+
                 # Empty context JSON
                 print(
                     json.dumps(
                         {
                             "hookSpecificOutput": {
                                 "hookEventName": "SessionStart",
-                                "additionalContext": "",
+                                "additionalContext": (
+                                    DEGRADED_INDEX_NOTICE if _index_degraded else ""
+                                ),
                             }
                         }
                     )
