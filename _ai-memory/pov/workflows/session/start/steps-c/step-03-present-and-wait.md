@@ -84,7 +84,7 @@ Parzival always guides the user with a clear recommendation and reasoning. Based
 - Recommend reconciling those pending updates — state it ahead of any plan, story, or task-continuation recommendation, even when a task is in progress
 - If a blocker also exists, address the blocker first; pending updates are still stated ahead of plan/task work
 - Explain that these are the operator's scaffolded files that have drifted from their shipped templates, and that Section 5 reconciles them on request
-- State the plan/task recommendation second, after the pending-updates recommendation — never in place of it
+- State the plan/task recommendation after the pending-updates recommendation (and after any blocker recommendation per above) — never in place of it
 
 Format:
 ```
