@@ -46,7 +46,7 @@ def emit_trace_event(
     data: dict,
     trace_id: str | None = None,
     span_id: str | None = None,
-    parent_span_id: str | None | object = _UNSET,
+    parent_span_id: str | object | None = _UNSET,
     session_id: str | None = None,
     project_id: str | None = None,
     start_time: datetime | None = None,
