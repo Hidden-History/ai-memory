@@ -295,6 +295,7 @@ def ensure_sparse_config(
         print(f"    1/6 Creating temp collection '{tmp_name}'...")
         create_collection_with_sparse(client, tmp_name, src_config, sparse_config)
         recreate_payload_indices(client, tmp_name, src_payload_schema)
+        ensure_canonical_payload_indices(client, tmp_name)
 
         # Step 2: Scroll all data from source → temp
         print(f"    2/6 Copying {src_count} points to temp...")

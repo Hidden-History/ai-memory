@@ -26,6 +26,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from qdrant_client.models import KeywordIndexParams, PayloadSchemaType
 
 from memory.config import (
     COLLECTION_CODE_PATTERNS,
@@ -142,13 +143,13 @@ class TestEnsurePayloadIndexes:
 
     @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
     def test_schema_matches_canonical_set(self, collection):
-        """post-ensure payload_schema keys == the canonical set (incl. extras)."""
+        """post-ensure payload_schema (names AND field_schema values) == canonical."""
         client = FakeQdrantClient()
 
         ensure_payload_indexes(client, collection)
 
-        assert client.schema_keys(collection) == set(
-            canonical_payload_indexes(collection)
+        assert client.payload_schemas[collection] == canonical_payload_indexes(
+            collection
         )
 
     @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
@@ -197,6 +198,44 @@ class TestEnsurePayloadIndexes:
         ensured = ensure_payload_indexes(client, COLLECTION_DISCUSSIONS)
 
         assert set(ensured) == set(canonical_payload_indexes(COLLECTION_DISCUSSIONS))
+
+
+class TestGithubFieldSchemaTypes:
+    """Literal-value checks restoring the type/param assertions deleted from
+    tests/unit/connectors/github/test_schema.py when the dead GITHUB_INDEXES
+    list was retired for the single authoring site (TD-874).
+
+    These compare against hardcoded expected values, NOT against
+    ``canonical_payload_indexes()`` — a check derived from that same function
+    can never fail when the regression is in its own source data
+    (``BASE_PAYLOAD_INDEXES`` / ``COLLECTION_PAYLOAD_INDEXES``), since both
+    sides of the comparison would drift together.
+    """
+
+    @pytest.fixture
+    def github_schema(self):
+        client = FakeQdrantClient()
+        ensure_payload_indexes(client, COLLECTION_GITHUB)
+        return client.payload_schemas[COLLECTION_GITHUB]
+
+    def test_source_is_tenant_keyword(self, github_schema):
+        """source uses KeywordIndexParams(type='keyword', is_tenant=True) (BUG-116)."""
+        schema = github_schema["source"]
+        assert isinstance(schema, KeywordIndexParams)
+        assert schema.type == "keyword"
+        assert schema.is_tenant is True
+
+    def test_github_id_is_integer(self, github_schema):
+        assert github_schema["github_id"] == PayloadSchemaType.INTEGER
+
+    def test_last_synced_is_datetime(self, github_schema):
+        assert github_schema["last_synced"] == PayloadSchemaType.DATETIME
+
+    def test_is_current_is_bool(self, github_schema):
+        assert github_schema["is_current"] == PayloadSchemaType.BOOL
+
+    def test_source_authority_is_float(self, github_schema):
+        assert github_schema["source_authority"] == PayloadSchemaType.FLOAT
 
 
 # ─── Path 1: setup-collections.py ─────────────────────────────────────────────
