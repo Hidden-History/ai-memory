@@ -122,17 +122,20 @@ _CORE_SUBDIRS = ("src", "scripts", "docker")
 
 
 class InstallDirCheck:
-    """Confirms the AI-Memory install directory and its core subdirs exist."""
+    """Confirms the AI-Memory install directory exists, is a directory (not
+    a file), and has its core subdirs."""
 
     id = "install-dir-present"
     category = "runtime"
 
     def run(self, ctx: dict) -> CheckResult:
-        install_dir = Path(
-            os.environ.get(INSTALL_DIR_ENV, DEFAULT_INSTALL_DIR)
-        ).expanduser()
+        # A present-but-empty (or whitespace-only) env var must be treated
+        # like an absent one — os.environ.get's default only applies when
+        # the key is missing.
+        raw = os.environ.get(INSTALL_DIR_ENV, "").strip() or DEFAULT_INSTALL_DIR
+        install_dir = Path(raw).expanduser()
 
-        if not install_dir.is_dir():
+        if not install_dir.exists():
             return CheckResult(
                 check_id=self.id,
                 category=self.category,
@@ -140,6 +143,20 @@ class InstallDirCheck:
                 message=f"install directory not found: {install_dir}",
                 remediation="Run scripts/install.sh to install AI-Memory.",
                 evidence={"install_dir": str(install_dir), "exists": False},
+            )
+
+        if not install_dir.is_dir():
+            return CheckResult(
+                check_id=self.id,
+                category=self.category,
+                status="fail",
+                message=f"install path exists but is not a directory: {install_dir}",
+                remediation="Run scripts/install.sh to install AI-Memory.",
+                evidence={
+                    "install_dir": str(install_dir),
+                    "exists": True,
+                    "is_dir": False,
+                },
             )
 
         missing = [d for d in _CORE_SUBDIRS if not (install_dir / d).is_dir()]
@@ -178,7 +195,13 @@ def run_checks(
     results: list[CheckResult] = []
     for check in registry if registry is not None else REGISTRY:
         try:
-            results.append(check.run(ctx))
+            result = check.run(ctx)
+            if not isinstance(result, CheckResult):
+                raise TypeError(
+                    f"{getattr(check, 'id', check.__class__.__name__)!r} "
+                    f"returned {type(result).__name__}, expected CheckResult"
+                )
+            results.append(result)
         except Exception as exc:  # isolate one bad check from the rest
             results.append(
                 CheckResult(
@@ -217,8 +240,9 @@ def exit_code_for(results: list[CheckResult]) -> int:
 
 def redact(results: list[CheckResult]) -> list[CheckResult]:
     """PASS-THROUGH STUB (P1). P2 replaces the body with the real scrub pass
-    over every result's message/remediation/evidence. Callers must not skip
-    this call even though it is currently a no-op."""
+    over every result's message/remediation; no surface renders `evidence` in
+    P1, so whether/how P2 also scrubs it is deferred to P2, not decided here.
+    Callers must not skip this call even though it is currently a no-op."""
     return results
 
 
@@ -259,11 +283,13 @@ def render_json(results: list[CheckResult]) -> list[dict]:
 def maybe_offer_report(results: list[CheckResult], *, interactive: bool) -> None:
     """Seam for the P3 consent-gated GitHub-issue reporter.
 
-    P1 stub: always a no-op. P3 replaces this body with: interactive-only,
-    default-No `Report this to the AI-Memory project? [y/N]` prompt; CI /
-    non-interactive (`interactive=False`) never prompts and never files; the
-    body sent is the already-redacted report (`redact(results)`), never a
-    fresh unscrubbed dump.
+    P1 stub: always a no-op, and receives raw `results` — same as
+    `render_human`/`render_json` — because redaction is each surface's own
+    responsibility, not the caller's. P3 replaces this body with:
+    interactive-only, default-No `Report this to the AI-Memory project?
+    [y/N]` prompt; CI/non-interactive (`interactive=False`) never prompts
+    and never files; P3 MUST compute `redact(results)` here, inside this
+    seam, before using it as the issue body — never a fresh unscrubbed dump.
     """
     return None
 
@@ -274,7 +300,10 @@ def maybe_offer_report(results: list[CheckResult], *, interactive: bool) -> None
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="aim-verify", description=__doc__)
+    parser = argparse.ArgumentParser(
+        prog="aim-verify",
+        description="AI-Memory post-install self-diagnostic: runs read-only checks and reports pass/warn/fail.",
+    )
     parser.add_argument(
         "--json", action="store_true", help="machine-readable JSON output"
     )
@@ -291,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     else:
         print(render_human(results))
 
-    maybe_offer_report(results, interactive=sys.stdin.isatty())
+    maybe_offer_report(results, interactive=bool(sys.stdin and sys.stdin.isatty()))
 
     return exit_code_for(results)
 

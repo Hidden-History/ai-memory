@@ -71,6 +71,31 @@ def test_runner_isolates_a_crashing_check_as_its_own_fail():
     assert "boom" in results[1].message or "crashed" in results[1].message
 
 
+class _BadReturnCheck:
+    """A Check whose run() forgets its return statement — a plausible real
+    bug that must not crash the runner or reach render_json/worst_status."""
+
+    id = "bad-return"
+    category = "fake"
+
+    def run(self, ctx):
+        return None
+
+
+def test_runner_isolates_a_non_checkresult_return_as_its_own_fail():
+    registry = [_FakeCheck("ok", "pass"), _BadReturnCheck()]
+    results = av.run_checks(registry=registry)
+    assert len(results) == 2
+    assert results[0].status == "pass"
+    assert results[1].check_id == "bad-return"
+    assert results[1].category == "fake"
+    assert results[1].status == "fail"
+    # Must not have crashed reaching this point — worst_status/exit_code_for
+    # operate on real CheckResult objects, not the offending None.
+    assert av.worst_status(results) == "fail"
+    assert av.exit_code_for(results) == 1
+
+
 def test_checkresult_rejects_unknown_status():
     with pytest.raises(ValueError):
         av.CheckResult(check_id="x", category="y", status="bogus", message="m")
@@ -198,6 +223,55 @@ def test_install_dir_check_fails_when_subdir_missing(tmp_path, monkeypatch):
     assert "docker" in result.message
 
 
+@pytest.mark.parametrize("blank_value", ["", "   "])
+def test_install_dir_check_blank_env_var_falls_back_to_default(
+    blank_value, monkeypatch, tmp_path
+):
+    # A present-but-empty OR whitespace-only env var must be treated like an
+    # absent one, not resolved via Path("   ").expanduser() -> a bogus
+    # relative path under cwd, which would spuriously pass or fail on
+    # incidental cwd contents rather than the real default.
+    fake_default = tmp_path / "default-install"
+    for sub in ("src", "scripts", "docker"):
+        (fake_default / sub).mkdir(parents=True)
+    monkeypatch.setattr(av, "DEFAULT_INSTALL_DIR", str(fake_default))
+    monkeypatch.setenv(av.INSTALL_DIR_ENV, blank_value)
+
+    result = av.InstallDirCheck().run(ctx={})
+    assert result.status == "pass"
+    assert result.evidence["install_dir"] == str(fake_default)
+
+
+def test_install_dir_check_reports_truthfully_when_path_is_a_file(
+    tmp_path, monkeypatch
+):
+    not_a_dir = tmp_path / "install-dir-but-actually-a-file"
+    not_a_dir.write_text("oops")
+    monkeypatch.setenv(av.INSTALL_DIR_ENV, str(not_a_dir))
+
+    result = av.InstallDirCheck().run(ctx={})
+    assert result.status == "fail"
+    assert "not a directory" in result.message
+    assert result.evidence["exists"] is True
+    assert result.evidence["is_dir"] is False
+
+
+def test_install_dir_check_reports_truthfully_when_path_is_a_symlink_to_a_file(
+    tmp_path, monkeypatch
+):
+    real_file = tmp_path / "actual-file"
+    real_file.write_text("oops")
+    symlink = tmp_path / "install-dir-symlink"
+    symlink.symlink_to(real_file)
+    monkeypatch.setenv(av.INSTALL_DIR_ENV, str(symlink))
+
+    result = av.InstallDirCheck().run(ctx={})
+    assert result.status == "fail"
+    assert "not a directory" in result.message
+    assert result.evidence["exists"] is True
+    assert result.evidence["is_dir"] is False
+
+
 def test_example_check_is_registered_end_to_end(monkeypatch, tmp_path):
     """run -> render -> exit, exercised through the real module-level REGISTRY."""
     install_dir = tmp_path / "ai-memory"
@@ -214,3 +288,31 @@ def test_example_check_is_registered_end_to_end(monkeypatch, tmp_path):
         row["check"] == "install-dir-present" and row["status"] == "pass"
         for row in payload
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI — stdin guard and --help.
+# ---------------------------------------------------------------------------
+
+
+def test_main_does_not_crash_when_stdin_is_none(monkeypatch, tmp_path, capsys):
+    # Detached/pythonw environments can have sys.stdin is None; isatty()
+    # would raise AttributeError on None.
+    install_dir = tmp_path / "ai-memory"
+    for sub in ("src", "scripts", "docker"):
+        (install_dir / sub).mkdir(parents=True)
+    monkeypatch.setenv(av.INSTALL_DIR_ENV, str(install_dir))
+    monkeypatch.setattr(av.sys, "stdin", None)
+
+    exit_code = av.main([])
+    assert exit_code == 0
+
+
+def test_help_does_not_dump_the_full_module_docstring(capsys):
+    with pytest.raises(SystemExit):
+        av.main(["--help"])
+    out = capsys.readouterr().out
+    # The module docstring's internal architecture/contract prose must not
+    # leak into --help; only a short one-line description belongs there.
+    assert "Standing contract" not in out
+    assert "REPORT-ONLY" not in out
