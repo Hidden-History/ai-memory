@@ -30,10 +30,8 @@ EMPTY_OUTPUT = {"hookSpecificOutput": {"additionalContext": ""}}
 
 # BUG-530: a collection that lost its payload indexes makes retrieval raise instead
 # of returning. Without an explicit signal the operator only sees an empty injection
-# and assumes memory is simply empty. Matched on the message rather than the
-# exception type — QdrantUnavailable is also raised for unrelated failures.
-INDEX_ERROR_MARKERS = ("no range index", "index required but not found")
-
+# and assumes memory is simply empty. Detection lives in injection.retrieve_bootstrap_context
+# and is surfaced here via the returned meta channel (meta["index_degraded"]).
 DEGRADED_INDEX_NOTICE = (
     "⚠️ AI Memory is running in DEGRADED MODE: a required Qdrant payload index is "
     "missing, so recent-memory retrieval failed and no memory was injected. "
@@ -41,12 +39,6 @@ DEGRADED_INDEX_NOTICE = (
 )
 
 DEGRADED_OUTPUT = {"hookSpecificOutput": {"additionalContext": DEGRADED_INDEX_NOTICE}}
-
-
-def _is_index_shaped_error(exc: BaseException) -> bool:
-    """True when an exception message indicates a missing Qdrant payload index."""
-    message = str(exc).lower()
-    return any(marker in message for marker in INDEX_ERROR_MARKERS)
 
 
 def _output_json(data: dict) -> None:
@@ -132,6 +124,14 @@ def main() -> int:
         results, _retrieval_meta = retrieve_bootstrap_context(
             search_client, project_name, config
         )
+        if _retrieval_meta.get("index_degraded"):
+            logger.warning(
+                "degraded_missing_payload_index",
+                extra={"adapter": "gemini.session_start"},
+            )
+            _output_json(DEGRADED_OUTPUT)
+            return 0
+
         selected, tokens_used = select_results_greedy(
             results, config.bootstrap_token_budget
         )
@@ -153,15 +153,8 @@ def main() -> int:
         _output_json(output)
         return 0
 
-    except Exception as e:
+    except Exception:
         logger.exception("retrieval_error")
-        if _is_index_shaped_error(e):
-            logger.warning(
-                "degraded_missing_payload_index",
-                extra={"adapter": "gemini.session_start", "error": str(e)},
-            )
-            _output_json(DEGRADED_OUTPUT)
-            return 0
         _output_json(EMPTY_OUTPUT)
         return 0
 

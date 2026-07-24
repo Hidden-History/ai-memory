@@ -424,6 +424,19 @@ def _aggregate_chunked_result(client, result: dict) -> dict:
     return aggregated
 
 
+# BUG-530: a collection that lost its payload indexes makes get_recent() raise
+# instead of returning. Without an explicit signal the operator only sees an empty
+# injection and assumes memory is simply empty. Matched on the message rather than
+# the exception type — QdrantUnavailable is also raised for unrelated failures.
+INDEX_ERROR_MARKERS = ("no range index", "index required but not found")
+
+
+def _is_index_shaped_error(exc: BaseException) -> bool:
+    """True when an exception message indicates a missing Qdrant payload index."""
+    message = str(exc).lower()
+    return any(marker in message for marker in INDEX_ERROR_MARKERS)
+
+
 def retrieve_bootstrap_context(
     search_client: MemorySearch,
     project_name: str,
@@ -454,7 +467,8 @@ def retrieve_bootstrap_context(
         Tuple of (results, meta) where results is the list of result dicts
         in layer priority order ready for greedy fill, and meta is a dict
         carrying {fallback_signaled, rejects} populated by the Layer 1
-        ceiling pre-filter (BP-158 P2).
+        ceiling pre-filter (BP-158 P2), and {index_degraded} set True when
+        any layer's retrieval hit a missing-payload-index failure (BUG-530).
     """
     _trace_start = datetime.now(tz=timezone.utc)
     results = []
@@ -465,7 +479,7 @@ def retrieve_bootstrap_context(
     # BP-158 P2: meta dict carries the C-3 ceiling rejection signal so the
     # bootstrap consumer can emit a FALLBACK-NEEDED marker without the
     # caller needing to compute it independently.
-    meta: dict = {"fallback_signaled": False, "rejects": []}
+    meta: dict = {"fallback_signaled": False, "rejects": [], "index_degraded": False}
 
     # LAYERED PRIORITY RETRIEVAL for Parzival sessions
     # No conventions — they are noise for PM oversight
@@ -538,6 +552,8 @@ def retrieve_bootstrap_context(
                 last_handoff = []
         results.extend(last_handoff)
     except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+        if _is_index_shaped_error(e):
+            meta["index_degraded"] = True
         logger.warning(
             "bootstrap_handoff_unavailable",
             extra={"error": str(e)},
@@ -554,6 +570,8 @@ def retrieve_bootstrap_context(
         results.extend(decisions)
         _decisions_count = len(decisions)
     except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+        if _is_index_shaped_error(e):
+            meta["index_degraded"] = True
         logger.warning(
             "bootstrap_decisions_unavailable",
             extra={"error": str(e)},
@@ -575,6 +593,8 @@ def retrieve_bootstrap_context(
         results.extend(insights)
         _agent_count = len(last_handoff) + len(insights)
     except (QdrantUnavailable, ConnectionError, TimeoutError) as e:
+        if _is_index_shaped_error(e):
+            meta["index_degraded"] = True
         logger.warning(
             "bootstrap_insights_unavailable",
             extra={"error": str(e)},
@@ -594,6 +614,8 @@ def retrieve_bootstrap_context(
         results.extend(github_enrichment)
         _github_count = len(github_enrichment)
     except (QdrantUnavailable, EmbeddingError, ConnectionError, TimeoutError) as e:
+        if _is_index_shaped_error(e):
+            meta["index_degraded"] = True
         logger.warning(
             "bootstrap_github_unavailable",
             extra={"error": str(e)},

@@ -180,13 +180,35 @@ def test_hook_stays_silent_for_non_index_failure(capsys):
 # ---------------------------------------------------------------------------
 
 
+def _mock_search_config():
+    """Config double with the numeric fields retrieve_bootstrap_context touches."""
+    config = MagicMock()
+    config.bootstrap_token_budget = 2000
+    config.handoff_ceiling_tokens = 2000
+    config.github_sync_usable = False
+    return config
+
+
 def _run_adapter(module, error: Exception):
-    """Run an adapter's main() with bootstrap retrieval raising `error`."""
+    """Run an adapter's main() with MemorySearch.get_recent raising `error`.
+
+    Patches at the real seam (MemorySearch.get_recent) so the exception
+    propagates through the REAL retrieve_bootstrap_context() and is surfaced
+    via its meta channel — not via a mocked retrieve_bootstrap_context.
+    """
     payload = json.dumps({"session_id": "sess-p2", "cwd": "/test"})
+
+    searcher = MagicMock()
+    searcher.get_recent.side_effect = error
 
     with contextlib.ExitStack() as ctx:
         ctx.enter_context(patch.object(sys, "stdin", io.StringIO(payload)))
-        ctx.enter_context(patch("memory.config.MemoryConfig", MagicMock()))
+        ctx.enter_context(
+            patch(
+                "memory.config.MemoryConfig",
+                MagicMock(return_value=_mock_search_config()),
+            )
+        )
         ctx.enter_context(
             patch("memory.health.check_qdrant_health", MagicMock(return_value=True))
         )
@@ -194,9 +216,8 @@ def _run_adapter(module, error: Exception):
         ctx.enter_context(
             patch("memory.project.resolve_project_id", return_value="test-project")
         )
-        ctx.enter_context(patch("memory.search.MemorySearch", MagicMock()))
         ctx.enter_context(
-            patch("memory.injection.retrieve_bootstrap_context", side_effect=error)
+            patch("memory.search.MemorySearch", MagicMock(return_value=searcher))
         )
 
         assert module.main() == 0
