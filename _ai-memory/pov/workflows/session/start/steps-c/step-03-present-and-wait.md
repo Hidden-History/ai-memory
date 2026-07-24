@@ -80,6 +80,12 @@ Parzival always guides the user with a clear recommendation and reasoning. Based
 - Recommend addressing the highest-severity blocker first
 - Explain why resolving it unblocks progress
 
+**If Step 2 surfaced a Pending Updates count greater than 0**:
+- Recommend reconciling those pending updates FIRST — state it ahead of any plan, story, or task-continuation recommendation, even when a task is in progress
+- If a blocker also exists, address the blocker first; pending updates are still stated ahead of plan/task work
+- Explain that these are the operator's scaffolded files that have drifted from their shipped templates, and that Section 5 reconciles them on request
+- State the plan/task recommendation second, after the pending-updates recommendation — never in place of it
+
 Format:
 ```
 ### Recommendation
@@ -135,7 +141,7 @@ Present the returned `entries` severity-ranked as a numbered list — for each: 
   python3 "${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}/_ai-memory/pov/skills/aim-content-drift/scripts/reconcile_helper.py" reconcile --project-root <project-root> --id <entry-id> --disposition <applied|deferred|dismissed|resolved>
   ```
 
-- For **approve/applied** the helper runs the reconciliation engine (backup-before-write, crash-atomic, staleness-checked) and reports `decision` + `action_taken` (migrated | preserved | no-op | refreshed) + `backup_path`. Relay that outcome factually. On a non-zero status, the helper's JSON error payload carries an `error_type`. If `error_type` is `StaleManifestError`: ask whether the operator already hand-conformed the file outside this workflow — if so, re-invoke with **resolved**; otherwise re-run the installer to regenerate the manifest. For any OTHER `error_type` (e.g. `MigrationChainError`), surface the `error_type` and the engine's message factually — do NOT tell the operator to re-run the installer, and do NOT retry or hand-edit either.
+- For **approve/applied** the helper runs the reconciliation engine (backup-before-write, crash-atomic, staleness-checked) and reports `decision` + `action_taken` (migrated | preserved | no-op | refreshed) + `backup_path`. Relay that outcome factually. **Conformance guard**: a `migrated` / `preserved` / `no-op` outcome proves ONLY that the reconcile/migration chain found nothing left to change — it is NOT a measurement of whether the file's structure matches the current template. Template structure is a separate check (the template-parity oracle) that this branch does not run. Relay `decision` + `action_taken` and nothing more: FORBIDDEN to characterize a `preserved` / `no-op` / `migrated` outcome as proof that the file is structurally conformant, or to imply conformance has been checked unless the oracle was actually run. On a non-zero status, the helper's JSON error payload carries an `error_type`. If `error_type` is `StaleManifestError`: ask whether the operator already hand-conformed the file outside this workflow — if so, re-invoke with **resolved**; otherwise re-run the installer to regenerate the manifest. For any OTHER `error_type` (e.g. `MigrationChainError`), surface the `error_type` and the engine's message factually — do NOT tell the operator to re-run the installer, and do NOT retry or hand-edit either.
 - For **resolved**, the helper stamps the disposition against the file's current on-disk hash without invoking the reconciliation engine — this is why it never raises `StaleManifestError`, even though the deployed file has already diverged from the manifest snapshot. Re-nag suppression still keys off the entry's `new_template_hash`, identically to `applied`/`dismissed`; the on-disk hash is recorded separately, for audit only. Reports `action_taken: "stamped-resolved-out-of-band"`.
 - The helper records the disposition to `<project-root>/.audit/state/reconcile-dispositions.json`, keyed to the entry id + its current `new_template_hash`. A disposed entry will NOT re-surface at Step 2 unless that template hash moves in a later install.
 - Move to the next selected entry only after the current one is recorded.
