@@ -293,24 +293,50 @@ class TestMigrateV221Path:
 # ─── Path 4: restore_qdrant.py ────────────────────────────────────────────────
 
 
+def _mock_get_response(fields) -> MagicMock:
+    """Fake GET /collections/{name} reporting `fields` as indexed (BP-194 Q1 read-back)."""
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "result": {
+            "payload_schema": {name: {} for name in fields},
+            "config": {"params": {}},
+        }
+    }
+    return response
+
+
 class TestRestorePath:
     def test_canonical_indexes_applied_over_rest(self):
         """The restore backstop PUTs the full canonical set for the collection."""
         module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1")
 
-        response = MagicMock(status_code=200)
-        with patch.object(module.httpx, "put", return_value=response) as mock_put:
+        put_response = MagicMock(status_code=200)
+        get_response = _mock_get_response(canonical_payload_indexes(COLLECTION_GITHUB))
+        with (
+            patch.object(module.httpx, "put", return_value=put_response) as mock_put,
+            patch.object(module.httpx, "get", return_value=get_response),
+        ):
             module.ensure_canonical_payload_indexes(COLLECTION_GITHUB)
 
         fields = {c.kwargs["json"]["field_name"] for c in mock_put.call_args_list}
         assert fields == set(canonical_payload_indexes(COLLECTION_GITHUB))
+        # BP-194 Q1: async by default — every index PUT must pass wait=true.
+        assert all(
+            c.kwargs.get("params") == {"wait": True} for c in mock_put.call_args_list
+        )
 
     def test_field_schemas_are_json_serializable(self):
         """Structured schemas (keyword is_tenant, text tokenizer) survive REST."""
         module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_json")
 
-        response = MagicMock(status_code=200)
-        with patch.object(module.httpx, "put", return_value=response) as mock_put:
+        put_response = MagicMock(status_code=200)
+        get_response = _mock_get_response(
+            canonical_payload_indexes(COLLECTION_CODE_PATTERNS)
+        )
+        with (
+            patch.object(module.httpx, "put", return_value=put_response) as mock_put,
+            patch.object(module.httpx, "get", return_value=get_response),
+        ):
             module.ensure_canonical_payload_indexes(COLLECTION_CODE_PATTERNS)
 
         sent = {
@@ -327,8 +353,14 @@ class TestRestorePath:
         """A manifest whose captured payload_schema is empty is backstopped."""
         module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_manifest")
 
-        response = MagicMock(status_code=200)
-        with patch.object(module.httpx, "put", return_value=response) as mock_put:
+        put_response = MagicMock(status_code=200)
+        get_response = _mock_get_response(
+            canonical_payload_indexes(COLLECTION_CONVENTIONS)
+        )
+        with (
+            patch.object(module.httpx, "put", return_value=put_response) as mock_put,
+            patch.object(module.httpx, "get", return_value=get_response),
+        ):
             ok, err = module.create_collection_from_manifest_schema(
                 COLLECTION_CONVENTIONS,
                 {"params": {"vectors": {"size": 768, "distance": "Cosine"}}},
@@ -346,3 +378,101 @@ class TestRestorePath:
             if "/index" in c.args[0]
         }
         assert fields == set(canonical_payload_indexes(COLLECTION_CONVENTIONS))
+
+    def test_missing_canonical_field_after_ensure_raises(self):
+        """BLOCKER fix: a canonical field absent from the read-back fails loud.
+
+        BP-194 Q1: wait=true is bounded by an internal queue timeout, so the
+        PUT responses alone are not proof the index landed. If the read-back
+        shows a canonical field still missing, this must raise rather than
+        silently report success (issue #337's failure mode).
+        """
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_missing")
+
+        canonical = canonical_payload_indexes(COLLECTION_CONVENTIONS)
+        incomplete = {k: v for k, v in canonical.items() if k != "timestamp"}
+        put_response = MagicMock(status_code=200)
+        get_response = _mock_get_response(incomplete)
+        with (
+            patch.object(module.httpx, "put", return_value=put_response),
+            patch.object(module.httpx, "get", return_value=get_response),
+            pytest.raises(RuntimeError, match="timestamp"),
+        ):
+            module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
+
+
+class TestRestoreSchemaCompatGate:
+    """BP-194 Q4: the existing-target restore gate excludes payload_schema."""
+
+    def test_index_only_difference_does_not_block(self):
+        """An index-set-only difference between manifest and live target is ignored."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_gate_relax")
+
+        manifest_schema = {
+            "params": {"vectors": {"size": 768, "distance": "Cosine"}},
+            "hnsw_config": {"m": 16},
+            "quantization_config": None,
+            "payload_schema": {"group_id": {"data_type": "keyword"}},
+        }
+        live_schema = {
+            "params": {"vectors": {"size": 768, "distance": "Cosine"}},
+            "hnsw_config": {"m": 16},
+            "quantization_config": None,
+            "payload_schema": {},  # fewer indexes than the manifest — benign
+        }
+        assert module._data_compat_signature(
+            manifest_schema
+        ) == module._data_compat_signature(live_schema)
+
+    def test_vector_dimension_difference_still_hard_fails(self):
+        """A real data-incompatible difference (vector dim) still blocks restore."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_gate_strict")
+
+        manifest_schema = {
+            "params": {"vectors": {"size": 768, "distance": "Cosine"}},
+            "hnsw_config": {"m": 16},
+            "quantization_config": None,
+            "payload_schema": {},
+        }
+        live_schema = {
+            "params": {"vectors": {"size": 1536, "distance": "Cosine"}},
+            "hnsw_config": {"m": 16},
+            "quantization_config": None,
+            "payload_schema": {},
+        }
+        assert module._data_compat_signature(
+            manifest_schema
+        ) != module._data_compat_signature(live_schema)
+
+    def test_quantization_difference_still_hard_fails(self):
+        """A quantization-config difference still blocks restore."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_gate_quant")
+
+        manifest_schema = {
+            "params": {"vectors": {"size": 768, "distance": "Cosine"}},
+            "hnsw_config": {"m": 16},
+            "quantization_config": None,
+            "payload_schema": {"group_id": {"data_type": "keyword"}},
+        }
+        live_schema = {
+            "params": {"vectors": {"size": 768, "distance": "Cosine"}},
+            "hnsw_config": {"m": 16},
+            "quantization_config": {"scalar": {"type": "int8"}},
+            "payload_schema": {},
+        }
+        assert module._data_compat_signature(
+            manifest_schema
+        ) != module._data_compat_signature(live_schema)
+
+
+class TestEnsurePayloadIndexesReadBack:
+    """BP-194 Q1: the SDK path also reads back and fails loud (qdrant_client.py)."""
+
+    def test_missing_field_after_ensure_raises(self):
+        client = MagicMock()
+        # get_collection reports every canonical field except one.
+        incomplete = {k: object() for k in list(BASE_PAYLOAD_INDEXES) if k != "version"}
+        client.get_collection.return_value = SimpleNamespace(payload_schema=incomplete)
+
+        with pytest.raises(RuntimeError, match="version"):
+            ensure_payload_indexes(client, COLLECTION_CONVENTIONS)

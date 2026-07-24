@@ -400,9 +400,13 @@ def create_collection_from_manifest_schema(
         # suppressing it silently — degraded search was previously the only
         # (and much later) symptom an operator had to go on.
         try:
+            # BP-194 Q1: payload-index writes are async by default — wait=true
+            # blocks until the index is actually applied instead of just
+            # acknowledged, so a subsequent get_collection() reflects it.
             index_response = httpx.put(
                 f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{target_name}/index",
                 headers=headers,
+                params={"wait": True},
                 json={"field_name": field_name, "field_schema": field_schema},
                 timeout=timeout_config,
             )
@@ -449,8 +453,18 @@ def ensure_canonical_payload_indexes(collection_name: str) -> None:
     so creating them here is durable. ``create_payload_index`` is idempotent,
     so this only adds what is missing and never disturbs restored data.
 
-    Best-effort: a restore that has already landed its data must not fail
-    because one index could not be created.
+    BP-194 Q1: each PUT passes ``wait=true`` so the write blocks until
+    applied, but ``wait`` is itself bounded by an internal update-queue
+    timeout — so this reads back ``payload_schema`` afterward and fails loud
+    if any canonical field is still missing, rather than trusting the PUT
+    responses alone (issue #337: 2/11 indexes visible immediately, the rest
+    ~3s later, with no wait/verify to catch the gap).
+
+    Raises:
+        RuntimeError: if a canonical field is missing from the collection's
+            payload_schema after every index has been ensured with
+            wait=true. A restore whose data landed but whose indexes did not
+            must not be reported as a silent success.
     """
     try:
         from memory.qdrant_client import canonical_payload_indexes
@@ -464,11 +478,19 @@ def ensure_canonical_payload_indexes(collection_name: str) -> None:
     timeout_config = httpx.Timeout(connect=3.0, read=30.0, write=5.0, pool=3.0)
     headers = {**get_headers(), "Content-Type": "application/json"}
 
-    for field_name, field_schema in canonical_payload_indexes(collection_name).items():
+    # BP-194 Q2, empirically confirmed against our Qdrant v1.16.3 (REST and
+    # SDK): create-field-index never raises on conflict — identical config is
+    # a no-op, a different config (including a different type) silently
+    # overwrites. The per-field try/except below is defensive visibility for
+    # transport-level failures (timeouts, connection errors), not a
+    # config-conflict guard; the read-back verify below is the real net.
+    canonical = canonical_payload_indexes(collection_name)
+    for field_name, field_schema in canonical.items():
         try:
             response = httpx.put(
                 f"http://{QDRANT_HOST}:{QDRANT_PORT}/collections/{collection_name}/index",
                 headers=headers,
+                params={"wait": True},
                 json={
                     "field_name": field_name,
                     "field_schema": _rest_field_schema(field_schema),
@@ -486,6 +508,19 @@ def ensure_canonical_payload_indexes(collection_name: str) -> None:
                 f"      {YELLOW}!{RESET} Canonical index '{field_name}' not "
                 f"created ({e}) — search on this field may be degraded"
             )
+
+    live = fetch_live_schema(collection_name)
+    live_fields = set((live or {}).get("payload_schema") or {})
+    missing = set(canonical) - live_fields
+    if missing:
+        print(
+            f"      {RED}✗ Canonical payload indexes missing on "
+            f"'{collection_name}' after ensure: {sorted(missing)}{RESET}"
+        )
+        raise RuntimeError(
+            f"Canonical payload indexes missing on '{collection_name}' after "
+            f"restore: {sorted(missing)}"
+        )
 
 
 def _normalize_payload_schema(payload_schema: dict | None) -> dict:
@@ -524,9 +559,21 @@ def _build_schema_fingerprint(get_collection_result: dict) -> dict:
     }
 
 
-def _fingerprint_signature(schema: dict | None) -> str:
-    """Stable JSON encoding of a schema fingerprint for diff display."""
-    return json.dumps(schema or {}, sort_keys=True, separators=(",", ":"))
+def _data_compat_signature(schema: dict | None) -> str:
+    """Stable JSON encoding of a schema fingerprint's data-compatibility subset.
+
+    BP-194 Q4: payload indexes are derived, rebuildable structures — Q2:
+    ``create_payload_index`` is idempotent-or-overwrite, never destructive —
+    so a difference in only the index set is not a true incompatibility and
+    must not block a restore (the post-restore ensure-indexes backstop
+    reconciles it). Excludes ``payload_schema``; keeps ``params`` (vectors,
+    sparse_vectors, shard_number, on_disk_payload), ``hnsw_config``, and
+    ``quantization_config`` strict, since a difference there would make the
+    restored vector data unreadable or misinterpreted.
+    """
+    data = dict(schema or {})
+    data.pop("payload_schema", None)
+    return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
 
 def fetch_live_schema(collection_name: str) -> dict | None:
@@ -956,12 +1003,13 @@ def main() -> int:
                 # explicitly out of scope for this script; operators are
                 # routed to a per-version migrate_*.py instead.
                 live_schema = fetch_live_schema(target)
-                manifest_sig = _fingerprint_signature(manifest_schema)
-                live_sig = _fingerprint_signature(live_schema)
+                manifest_sig = _data_compat_signature(manifest_schema)
+                live_sig = _data_compat_signature(live_schema)
                 if manifest_sig != live_sig:
                     print(f"      {RED}✗ Schema mismatch on '{target}'.{RESET}")
                     print(
-                        f"      {GRAY}  Backup fingerprint differs from live target.{RESET}"
+                        f"      {GRAY}  Backup fingerprint differs from live target "
+                        f"(vectors/HNSW/quantization/sparse config).{RESET}"
                     )
                     print(
                         f"      {GRAY}  Cross-version restore is not supported by backup_qdrant.py / restore_qdrant.py.{RESET}"

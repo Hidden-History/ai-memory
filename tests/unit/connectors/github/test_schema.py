@@ -1,20 +1,19 @@
 """Tests for GitHub data schema and collection setup (SPEC-005).
 
-Tests MemoryType enum additions, content hash computation, index definitions,
-source authority mapping, and collection constants.
+Tests MemoryType enum additions, content hash computation, source authority
+mapping, and collection constants. Payload-index creation for the github
+collection is exercised via ``memory.qdrant_client.ensure_payload_indexes``
+(TD-874 — the single authoring site; see tests/unit/test_payload_index_helper.py),
+not this module.
 """
-
-from unittest.mock import MagicMock
 
 import pytest
 
 from memory.connectors.github.schema import (
     AUTHORITY_TIER_MAP,
     GITHUB_COLLECTION,
-    GITHUB_INDEXES,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
-    create_github_indexes,
     get_authority_tier,
     get_source_authority,
 )
@@ -117,71 +116,9 @@ def test_content_hash_whitespace_sensitivity():
     assert h1 != h2
 
 
-# -- Index Definition Tests ----------------------------------------------------
-
-
-def test_github_indexes_count():
-    """Exactly 10 GitHub indexes defined."""
-    assert len(GITHUB_INDEXES) == 10
-
-
-def test_source_index_is_tenant():
-    """source index has is_tenant=True via KeywordIndexParams (BP-075, BUG-116)."""
-    from qdrant_client.models import KeywordIndexParams
-
-    source_idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "source")
-    assert isinstance(source_idx["schema"], KeywordIndexParams)
-    assert source_idx["schema"].is_tenant is True
-
-
-def test_only_source_is_tenant():
-    """Only source index uses KeywordIndexParams with is_tenant."""
-    from qdrant_client.models import KeywordIndexParams
-
-    tenant_indexes = [
-        i
-        for i in GITHUB_INDEXES
-        if isinstance(i["schema"], KeywordIndexParams)
-        and getattr(i["schema"], "is_tenant", False)
-    ]
-    assert len(tenant_indexes) == 1
-    assert tenant_indexes[0]["field_name"] == "source"
-
-
-def test_all_required_indexes_defined():
-    """All required index fields are present."""
-    field_names = {i["field_name"] for i in GITHUB_INDEXES}
-    required = {
-        "source",
-        "github_id",
-        "file_path",
-        "sha",
-        "state",
-        "last_synced",
-        "content_hash",
-        "is_current",
-        "source_authority",
-        "update_batch_id",
-    }
-    assert field_names == required
-
-
 def test_discussions_collection_constant():
     """Collection constant points to github."""
     assert GITHUB_COLLECTION == "github"
-
-
-def test_all_indexes_have_schema():
-    """Every index definition has a schema field."""
-    for idx in GITHUB_INDEXES:
-        assert "schema" in idx, f"Missing schema for {idx['field_name']}"
-        assert "field_name" in idx
-
-
-def test_no_duplicate_index_fields():
-    """No duplicate field names in index definitions."""
-    field_names = [i["field_name"] for i in GITHUB_INDEXES]
-    assert len(field_names) == len(set(field_names))
 
 
 # -- Source Authority Tests -----------------------------------------------------
@@ -239,167 +176,3 @@ def test_backward_compat_authority_tier_map_alias():
 def test_backward_compat_get_authority_tier_alias():
     """get_authority_tier is a backward-compatible alias for get_source_authority."""
     assert get_authority_tier is get_source_authority
-
-
-# -- Index Schema Type Tests ---------------------------------------------------
-
-
-def test_source_index_is_keyword():
-    """source index uses KeywordIndexParams with type='keyword' (BUG-116)."""
-    from qdrant_client.models import KeywordIndexParams
-
-    source_idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "source")
-    assert isinstance(source_idx["schema"], KeywordIndexParams)
-    assert source_idx["schema"].type == "keyword"
-
-
-def test_is_current_index_is_bool():
-    """is_current index uses BOOL schema type."""
-    from qdrant_client.models import PayloadSchemaType
-
-    idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "is_current")
-    assert idx["schema"] == PayloadSchemaType.BOOL
-
-
-def test_last_synced_index_is_datetime():
-    """last_synced index uses DATETIME schema type."""
-    from qdrant_client.models import PayloadSchemaType
-
-    idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "last_synced")
-    assert idx["schema"] == PayloadSchemaType.DATETIME
-
-
-def test_integer_indexes():
-    """github_id uses INTEGER schema type."""
-    from qdrant_client.models import PayloadSchemaType
-
-    idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "github_id")
-    assert idx["schema"] == PayloadSchemaType.INTEGER
-
-
-def test_source_authority_index_is_float():
-    """source_authority uses FLOAT schema type (canonical v2.0.6 field)."""
-    from qdrant_client.models import PayloadSchemaType
-
-    idx = next(i for i in GITHUB_INDEXES if i["field_name"] == "source_authority")
-    assert idx["schema"] == PayloadSchemaType.FLOAT
-
-
-# -- create_github_indexes() Function Tests -----------------------------------
-
-
-class TestCreateGitHubIndexes:
-    """Tests for create_github_indexes() function logic."""
-
-    def test_creates_all_10_indexes(self):
-        """create_github_indexes creates all 10 indexes on clean collection."""
-        mock_client = MagicMock()
-        result = create_github_indexes(mock_client)
-        assert result == {"created": 10, "skipped": 0}
-        assert mock_client.create_payload_index.call_count == 10
-
-    def test_idempotent_skips_existing(self):
-        """Running create_github_indexes twice doesn't error — skips existing."""
-        mock_client = MagicMock()
-        # Simulate "already exists" error for all indexes
-        mock_client.create_payload_index.side_effect = Exception("already exists")
-        result = create_github_indexes(mock_client)
-        assert result == {"created": 0, "skipped": 10}
-
-    def test_is_tenant_encoded_in_schema_not_kwarg(self):
-        """BUG-116: is_tenant is in KeywordIndexParams, not a direct kwarg."""
-        from qdrant_client.models import KeywordIndexParams
-
-        mock_client = MagicMock()
-        create_github_indexes(mock_client)
-
-        # Verify NO call passes is_tenant as a direct keyword argument
-        for call in mock_client.create_payload_index.call_args_list:
-            kwargs = call[1] if call[1] else {}
-            assert (
-                "is_tenant" not in kwargs
-            ), f"is_tenant should not be a direct kwarg (field: {kwargs.get('field_name')})"
-
-        # Verify source field_schema is KeywordIndexParams with is_tenant=True
-        for call in mock_client.create_payload_index.call_args_list:
-            kwargs = call[1] if call[1] else {}
-            if kwargs.get("field_name") == "source":
-                assert isinstance(kwargs["field_schema"], KeywordIndexParams)
-                assert kwargs["field_schema"].is_tenant is True
-
-    def test_returns_correct_counts_mixed(self):
-        """Mixed success/failure returns correct created/skipped counts."""
-        mock_client = MagicMock()
-        # First 5 succeed, last 5 fail
-        side_effects = [None] * 5 + [Exception("already exists")] * 5
-        mock_client.create_payload_index.side_effect = side_effects
-        result = create_github_indexes(mock_client)
-        assert result == {"created": 5, "skipped": 5}
-
-    def test_unexpected_exception_propagates(self):
-        """Non-'already exists' exceptions are re-raised."""
-        mock_client = MagicMock()
-        mock_client.create_payload_index.side_effect = RuntimeError(
-            "connection refused"
-        )
-        with pytest.raises(RuntimeError, match="connection refused"):
-            create_github_indexes(mock_client)
-
-    def test_timeout_retries_once_then_succeeds(self):
-        """BUG-116/TASK-023: Timeout on first attempt retries once and succeeds."""
-        mock_client = MagicMock()
-        call_count = 0
-
-        def side_effect(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            # First call: timeout, retry succeeds, rest succeed
-            if call_count == 1:
-                raise TimeoutError("Connection timed out")
-            return None
-
-        mock_client.create_payload_index.side_effect = side_effect
-
-        result = create_github_indexes(mock_client)
-
-        # First index: timeout + retry = 2 calls, then 9 more = 11 total
-        assert mock_client.create_payload_index.call_count == 11
-        assert result["created"] == 10
-        assert result["skipped"] == 0
-
-    def test_timeout_retry_also_fails_raises(self):
-        """If retry after timeout also fails, should raise."""
-        mock_client = MagicMock()
-        mock_client.create_payload_index.side_effect = TimeoutError(
-            "Connection timed out"
-        )
-
-        with pytest.raises(TimeoutError):
-            create_github_indexes(mock_client)
-
-    def test_timeout_string_match_retries(self):
-        """Errors containing 'timeout' in message also trigger retry."""
-        mock_client = MagicMock()
-        call_count = 0
-
-        def side_effect(**kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise Exception("Request timeout after 30s")
-            return None
-
-        mock_client.create_payload_index.side_effect = side_effect
-
-        result = create_github_indexes(mock_client)
-
-        assert result["created"] == 10
-
-    def test_return_dict_keys_are_created_and_skipped(self):
-        """BUG-116: Return dict has 'created' and 'skipped', NOT 'existing'."""
-        mock_client = MagicMock()
-        result = create_github_indexes(mock_client)
-
-        assert "created" in result
-        assert "skipped" in result
-        assert "existing" not in result

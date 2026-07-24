@@ -8,6 +8,7 @@ Tests verify:
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -46,6 +47,28 @@ def _get_index_calls(mock_client):
         )
         for c in mock_client.create_payload_index.call_args_list
     ]
+
+
+def _configure_index_tracking(client: MagicMock) -> MagicMock:
+    """Make ``create_payload_index`` calls reflected by ``get_collection().payload_schema``.
+
+    BUG-530/PLAN-036 P1: ``ensure_payload_indexes()`` now reads back
+    ``get_collection().payload_schema`` to verify every canonical index
+    landed (BP-194 Q1) — a bare ``MagicMock``'s unconfigured
+    ``payload_schema`` iterates as empty, so ``create_collections()`` would
+    otherwise always report every index missing.
+    """
+    schemas: dict[str, dict] = {}
+
+    def _record_index(collection_name, field_name, field_schema, **_):
+        schemas.setdefault(collection_name, {})[field_name] = field_schema
+
+    def _get_collection(collection_name):
+        return SimpleNamespace(payload_schema=dict(schemas.get(collection_name, {})))
+
+    client.create_payload_index.side_effect = _record_index
+    client.get_collection.side_effect = _get_collection
+    return client
 
 
 def _load_module(path, name):
@@ -90,7 +113,7 @@ class TestSetupCollectionsV206Indexes:
     def mock_client(self):
         client = MagicMock()
         client.collection_exists.return_value = False
-        return client
+        return _configure_index_tracking(client)
 
     def test_v206_indexes_created_for_all_base_collections(self, mock_client):
         """All 5 v2.0.6 indexes are created for every base collection."""
@@ -155,7 +178,7 @@ class TestInlineStorageInHnswConfig:
     def mock_client(self):
         client = MagicMock()
         client.collection_exists.return_value = False
-        return client
+        return _configure_index_tracking(client)
 
     def test_create_collections_sets_inline_storage(self, mock_client):
         """TD-106: create_collection is called with HnswConfigDiff(inline_storage=True)."""

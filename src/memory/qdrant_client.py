@@ -288,6 +288,12 @@ def ensure_payload_indexes(client: QdrantClient, collection_name: str) -> list[s
         Exception: Propagates the client error if an index cannot be created.
             Callers that must not abort on a single index failure (migration
             and restore backstops) are responsible for catching it.
+        RuntimeError: if, after every create call, a canonical field is still
+            missing from ``get_collection().payload_schema``. The SDK's
+            ``create_payload_index`` defaults ``wait=True`` (synchronous), but
+            BP-194 Q1: ``wait`` is itself bounded by an internal update-queue
+            timeout, so this reads back the live schema to confirm the index
+            actually landed rather than trusting the create call alone.
     """
     fields = canonical_payload_indexes(collection_name)
     for field_name, field_schema in fields.items():
@@ -296,6 +302,15 @@ def ensure_payload_indexes(client: QdrantClient, collection_name: str) -> list[s
             field_name=field_name,
             field_schema=field_schema,
         )
+
+    live_fields = set(client.get_collection(collection_name).payload_schema or {})
+    missing = set(fields) - live_fields
+    if missing:
+        raise RuntimeError(
+            f"Canonical payload indexes missing on '{collection_name}' after "
+            f"ensure_payload_indexes: {sorted(missing)}"
+        )
+
     logger.info(
         "payload_indexes_ensured",
         extra={"collection": collection_name, "fields": len(fields)},

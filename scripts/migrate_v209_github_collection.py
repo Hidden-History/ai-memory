@@ -33,21 +33,17 @@ from qdrant_client.models import (
     Filter,
     FilterSelector,
     HnswConfigDiff,
-    KeywordIndexParams,
     MatchAny,
     MatchValue,
-    PayloadSchemaType,
     PointStruct,
     ScalarQuantization,
     ScalarQuantizationConfig,
     ScalarType,
-    TextIndexParams,
-    TokenizerType,
     VectorParams,
 )
 
 from memory.config import get_config
-from memory.qdrant_client import get_qdrant_client
+from memory.qdrant_client import ensure_payload_indexes, get_qdrant_client
 
 # Configuration
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -138,57 +134,12 @@ def create_github_collection(client, dry_run: bool) -> bool:
             quantization_config=quantization_config,
         )
 
-        # Standard indexes (same as all collections)
-        standard_indexes = [
-            ("group_id", KeywordIndexParams(type="keyword", is_tenant=True)),
-            ("type", PayloadSchemaType.KEYWORD),
-            ("source_hook", PayloadSchemaType.KEYWORD),
-            ("content_hash", KeywordIndexParams(type="keyword")),
-            (
-                "content",
-                TextIndexParams(
-                    type="text",
-                    tokenizer=TokenizerType.WORD,
-                    min_token_len=2,
-                    max_token_len=20,
-                ),
-            ),
-            ("timestamp", PayloadSchemaType.DATETIME),
-            ("decay_score", PayloadSchemaType.FLOAT),
-            ("freshness_status", PayloadSchemaType.KEYWORD),
-            ("source_authority", PayloadSchemaType.FLOAT),
-            ("is_current", PayloadSchemaType.BOOL),
-            ("version", PayloadSchemaType.INTEGER),
-        ]
-
-        for field_name, schema_type in standard_indexes:
-            client.create_payload_index(
-                collection_name="github",
-                field_name=field_name,
-                field_schema=schema_type,
-            )
-
-        # GitHub-specific indexes
-        github_indexes = [
-            ("source", KeywordIndexParams(type="keyword", is_tenant=True)),
-            ("github_id", PayloadSchemaType.INTEGER),
-            ("file_path", PayloadSchemaType.KEYWORD),
-            ("sha", PayloadSchemaType.KEYWORD),
-            ("state", PayloadSchemaType.KEYWORD),
-            ("last_synced", PayloadSchemaType.DATETIME),
-            ("update_batch_id", PayloadSchemaType.KEYWORD),
-        ]
-
-        for field_name, schema_type in github_indexes:
-            client.create_payload_index(
-                collection_name="github",
-                field_name=field_name,
-                field_schema=schema_type,
-            )
-
-        total_indexes = len(standard_indexes) + len(github_indexes)
+        # TD-874: single authoring site for the canonical payload-index set
+        # (BUG-530/PLAN-036 P1) — was a third, hand-rolled copy of the index
+        # list here.
+        ensured = ensure_payload_indexes(client, "github")
         print(
-            f"  {GREEN}✓{RESET} Created github collection with {total_indexes} indexes"
+            f"  {GREEN}✓{RESET} Created github collection with {len(ensured)} indexes"
         )
         return True
 

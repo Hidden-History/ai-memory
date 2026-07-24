@@ -12,10 +12,8 @@ from .code_sync import CodeBlobSync, CodeSyncResult
 from .schema import (
     AUTHORITY_TIER_MAP,
     GITHUB_COLLECTION,
-    GITHUB_INDEXES,
     SOURCE_AUTHORITY_MAP,
     compute_content_hash,
-    create_github_indexes,
     get_authority_tier,
     get_source_authority,
 )
@@ -24,7 +22,6 @@ from .sync import GitHubSyncEngine, SyncResult
 __all__ = [
     "AUTHORITY_TIER_MAP",
     "GITHUB_COLLECTION",
-    "GITHUB_INDEXES",
     "SOURCE_AUTHORITY_MAP",
     "CodeBlobSync",
     "CodeSyncResult",
@@ -34,7 +31,6 @@ __all__ = [
     "RateLimitExceeded",
     "SyncResult",
     "compute_content_hash",
-    "create_github_indexes",
     "get_authority_tier",
     "get_source_authority",
 ]
