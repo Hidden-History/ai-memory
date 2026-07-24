@@ -396,7 +396,61 @@ class TestRestorePath:
         with (
             patch.object(module.httpx, "put", return_value=put_response),
             patch.object(module.httpx, "get", return_value=get_response),
+            patch.object(module.time, "sleep"),
             pytest.raises(RuntimeError, match="timestamp"),
+        ):
+            module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
+
+    def test_slow_landing_index_recovers_within_poll_budget(self):
+        """A field missing on the first read-back but present on a later one
+        does not raise — the bounded poll gives a slow index time to land."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_slow_land")
+
+        canonical = canonical_payload_indexes(COLLECTION_CONVENTIONS)
+        incomplete = _mock_get_response(
+            {k: v for k, v in canonical.items() if k != "timestamp"}
+        )
+        complete = _mock_get_response(canonical)
+        put_response = MagicMock(status_code=200)
+        with (
+            patch.object(module.httpx, "put", return_value=put_response),
+            patch.object(
+                module.httpx, "get", side_effect=[incomplete, incomplete, complete]
+            ),
+            patch.object(module.time, "sleep"),
+        ):
+            module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
+
+    def test_transient_verify_get_failure_does_not_raise(self):
+        """A read-back GET that keeps raising (timeout/connection error) is
+        inconclusive, not "all fields missing" — it must not raise (and so
+        must not trigger the caller's rollback of an otherwise-good restore).
+        """
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_get_fail")
+
+        put_response = MagicMock(status_code=200)
+        with (
+            patch.object(module.httpx, "put", return_value=put_response),
+            patch.object(
+                module.httpx, "get", side_effect=module.httpx.ConnectError("boom")
+            ),
+            patch.object(module.time, "sleep"),
+        ):
+            module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
+
+    def test_collection_confirmed_absent_after_ensure_still_raises(self):
+        """A read-back that cleanly reports 404 (collection absent) the whole
+        poll budget is a definitive answer, not a transient blip — it must
+        still fail loud."""
+        module = _load_script(RESTORE_SCRIPT, "restore_qdrant_p1_absent")
+
+        put_response = MagicMock(status_code=200)
+        absent_get = MagicMock(status_code=404)
+        with (
+            patch.object(module.httpx, "put", return_value=put_response),
+            patch.object(module.httpx, "get", return_value=absent_get),
+            patch.object(module.time, "sleep"),
+            pytest.raises(RuntimeError, match=COLLECTION_CONVENTIONS),
         ):
             module.ensure_canonical_payload_indexes(COLLECTION_CONVENTIONS)
 
@@ -470,9 +524,42 @@ class TestEnsurePayloadIndexesReadBack:
 
     def test_missing_field_after_ensure_raises(self):
         client = MagicMock()
-        # get_collection reports every canonical field except one.
+        # get_collection reports every canonical field except one, every attempt.
         incomplete = {k: object() for k in list(BASE_PAYLOAD_INDEXES) if k != "version"}
         client.get_collection.return_value = SimpleNamespace(payload_schema=incomplete)
 
-        with pytest.raises(RuntimeError, match="version"):
+        with (
+            patch("memory.qdrant_client.time.sleep"),
+            pytest.raises(RuntimeError, match="version"),
+        ):
             ensure_payload_indexes(client, COLLECTION_CONVENTIONS)
+
+    def test_slow_landing_index_recovers_within_poll_budget(self):
+        """A field missing on the first read-back but present on a later one
+        does not raise — the bounded poll gives a slow index time to land."""
+        client = MagicMock()
+        canonical = canonical_payload_indexes(COLLECTION_CONVENTIONS)
+        incomplete = {k: object() for k in canonical if k != "timestamp"}
+        complete = {k: object() for k in canonical}
+        client.get_collection.side_effect = [
+            SimpleNamespace(payload_schema=incomplete),
+            SimpleNamespace(payload_schema=incomplete),
+            SimpleNamespace(payload_schema=complete),
+        ]
+
+        with patch("memory.qdrant_client.time.sleep"):
+            ensured = ensure_payload_indexes(client, COLLECTION_CONVENTIONS)
+
+        assert set(ensured) == set(canonical)
+
+    def test_transient_verify_get_failure_does_not_raise(self):
+        """get_collection() raising on every read-back attempt is inconclusive,
+        not "all fields missing" — it must not raise (a transient verify-GET
+        blip must not roll back an otherwise-good restore)."""
+        client = MagicMock()
+        client.get_collection.side_effect = ConnectionError("boom")
+
+        with patch("memory.qdrant_client.time.sleep"):
+            ensured = ensure_payload_indexes(client, COLLECTION_CONVENTIONS)
+
+        assert set(ensured) == set(canonical_payload_indexes(COLLECTION_CONVENTIONS))

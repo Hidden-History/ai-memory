@@ -4511,13 +4511,10 @@ setup_github_indexes() {
         "$INSTALL_DIR/.venv/bin/python" -c "
 import sys
 sys.path.insert(0, '$INSTALL_DIR/src')
-from memory.qdrant_client import get_qdrant_client
-from memory.connectors.github.schema import create_github_indexes
+from memory.qdrant_client import get_qdrant_client, ensure_payload_indexes
 client = get_qdrant_client()
-counts = create_github_indexes(client)
-created = counts.get('created', 0)
-existing = counts.get('skipped', 0)
-print(f'OK: {created} created, {existing} already existed')
+ensured = ensure_payload_indexes(client, 'github')
+print(f'OK: {len(ensured)} indexes ensured')
 " 2>&1
     ) || rc=$?
     if [[ $rc -ne 0 || -z "$result" ]]; then

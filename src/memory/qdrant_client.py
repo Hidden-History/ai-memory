@@ -10,6 +10,7 @@ Best Practices: https://softlandia.com/articles/deploying-qdrant-with-grpc-auth-
 import hashlib
 import logging
 import os
+import time
 import warnings
 from typing import Any
 
@@ -109,6 +110,12 @@ COLLECTION_PAYLOAD_INDEXES: dict[str, dict[str, Any]] = {
         "jira_comment_id": PayloadSchemaType.KEYWORD,
     },
 }
+
+# BP-194 Q1: bounded-poll budget for the payload-index read-back verify — an
+# index landing after wait=True's internal update-queue timeout needs a few
+# retries, not an immediate fail.
+PAYLOAD_INDEX_READBACK_ATTEMPTS = 5
+PAYLOAD_INDEX_READBACK_INTERVAL_S = 2.0
 
 
 class QdrantUnavailable(Exception):
@@ -288,12 +295,16 @@ def ensure_payload_indexes(client: QdrantClient, collection_name: str) -> list[s
         Exception: Propagates the client error if an index cannot be created.
             Callers that must not abort on a single index failure (migration
             and restore backstops) are responsible for catching it.
-        RuntimeError: if, after every create call, a canonical field is still
-            missing from ``get_collection().payload_schema``. The SDK's
+        RuntimeError: if, after the read-back poll budget is exhausted, a
+            canonical field is still missing from
+            ``get_collection().payload_schema``. The SDK's
             ``create_payload_index`` defaults ``wait=True`` (synchronous), but
             BP-194 Q1: ``wait`` is itself bounded by an internal update-queue
-            timeout, so this reads back the live schema to confirm the index
-            actually landed rather than trusting the create call alone.
+            timeout, so this polls the live schema over a short budget to
+            confirm the index actually landed rather than trusting the create
+            call alone. A read-back that never succeeds (the ``get_collection``
+            call itself keeps failing) is treated as inconclusive, not as
+            "all fields missing" — it does not raise.
     """
     fields = canonical_payload_indexes(collection_name)
     for field_name, field_schema in fields.items():
@@ -303,8 +314,32 @@ def ensure_payload_indexes(client: QdrantClient, collection_name: str) -> list[s
             field_schema=field_schema,
         )
 
-    live_fields = set(client.get_collection(collection_name).payload_schema or {})
-    missing = set(fields) - live_fields
+    # Bounded-poll the read-back: distinguish a genuinely missing field from
+    # a transient verify-GET failure, and give a slow-landing index (large
+    # collection, update-queue timeout) a chance to show up before failing.
+    missing = set(fields)
+    payload_schema = None
+    last_error: Exception | None = None
+    for attempt in range(PAYLOAD_INDEX_READBACK_ATTEMPTS):
+        try:
+            payload_schema = client.get_collection(collection_name).payload_schema
+        except Exception as e:  # transient verify-GET failure, not "missing"
+            last_error = e
+            payload_schema = None
+        else:
+            missing = set(fields) - set(payload_schema or {})
+            if not missing:
+                break
+        if attempt < PAYLOAD_INDEX_READBACK_ATTEMPTS - 1:
+            time.sleep(PAYLOAD_INDEX_READBACK_INTERVAL_S)
+
+    if payload_schema is None and last_error is not None:
+        logger.warning(
+            "payload_indexes_verify_inconclusive",
+            extra={"collection": collection_name, "error": str(last_error)},
+        )
+        return list(fields)
+
     if missing:
         raise RuntimeError(
             f"Canonical payload indexes missing on '{collection_name}' after "

@@ -34,7 +34,11 @@ from memory.config import (
     COLLECTION_GITHUB,
     COLLECTION_JIRA_DATA,
 )
-from memory.qdrant_client import canonical_payload_indexes, ensure_payload_indexes
+from memory.qdrant_client import (
+    COLLECTION_PAYLOAD_INDEXES,
+    canonical_payload_indexes,
+    ensure_payload_indexes,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -60,6 +64,20 @@ def _client(ephemeral_qdrant: dict) -> QdrantClient:
         https=False,
         check_compatibility=False,
     )
+
+
+def _test_collection_name(logical_collection: str) -> str:
+    """A run-scoped, never-real collection name for a logical collection kind.
+
+    ``ephemeral_qdrant`` reuses any ambient QDRANT_HOST/PORT that isn't
+    exactly :26350 as if it were a disposable CI-provisioned instance — but
+    that ambient instance could be a real, non-26350 Qdrant belonging to
+    another project. Operating under the literal collection name
+    (code-patterns, github, ...) would create-then-delete that real
+    collection. Prefixing guarantees these tests can never collide with a
+    real collection name regardless of which Qdrant the fixture resolves to.
+    """
+    return f"aim_teeth_{logical_collection}_{uuid.uuid4().hex[:8]}"
 
 
 def _bare_collection(client: QdrantClient, name: str) -> None:
@@ -104,20 +122,29 @@ def _load_script(path: Path, name: str, ephemeral_qdrant: dict):
 
 class TestEnsurePayloadIndexesRealQdrant:
     @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
-    def test_full_canonical_set_immediately_present(self, ephemeral_qdrant, collection):
-        # Uses the literal collection name so COLLECTION_PAYLOAD_INDEXES extras
-        # (e.g. github's github_id, jira-data's jira_issue_key) are exercised.
+    def test_full_canonical_set_immediately_present(
+        self, ephemeral_qdrant, collection, monkeypatch
+    ):
+        # Test-prefixed physical name (never a real collection — see
+        # _test_collection_name); the extras for `collection` are mirrored
+        # under that name so COLLECTION_PAYLOAD_INDEXES extras (e.g. github's
+        # github_id, jira-data's jira_issue_key) are still exercised.
+        test_name = _test_collection_name(collection)
+        extras = COLLECTION_PAYLOAD_INDEXES.get(collection, {})
+        if extras:
+            monkeypatch.setitem(COLLECTION_PAYLOAD_INDEXES, test_name, extras)
+
         client = _client(ephemeral_qdrant)
-        _bare_collection(client, collection)
+        _bare_collection(client, test_name)
         try:
-            ensure_payload_indexes(client, collection)
-            live = set(client.get_collection(collection).payload_schema or {})
-            assert live == set(canonical_payload_indexes(collection)), (
+            ensure_payload_indexes(client, test_name)
+            live = set(client.get_collection(test_name).payload_schema or {})
+            assert live == set(canonical_payload_indexes(test_name)), (
                 f"{collection}: canonical set not fully present immediately "
                 f"after ensure_payload_indexes (async-write race, issue #337)"
             )
         finally:
-            client.delete_collection(collection)
+            client.delete_collection(test_name)
 
 
 # ─── Path: scripts/memory/migrate_v2_collections.py ────────────────────────────
@@ -164,21 +191,30 @@ def test_migrate_v221_ensure_canonical_payload_indices_real_qdrant(ephemeral_qdr
 class TestRestoreEnsureCanonicalIndexesRealQdrant:
     @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
     def test_full_canonical_set_immediately_present_over_rest(
-        self, ephemeral_qdrant, collection
+        self, ephemeral_qdrant, collection, monkeypatch
     ):
+        # Test-prefixed physical name (never a real collection — see
+        # _test_collection_name); the extras for `collection` are mirrored
+        # under that name so COLLECTION_PAYLOAD_INDEXES extras are still
+        # exercised.
+        test_name = _test_collection_name(collection)
+        extras = COLLECTION_PAYLOAD_INDEXES.get(collection, {})
+        if extras:
+            monkeypatch.setitem(COLLECTION_PAYLOAD_INDEXES, test_name, extras)
+
         module = _load_script(RESTORE_SCRIPT, "restore_teeth", ephemeral_qdrant)
         client = _client(ephemeral_qdrant)
-        _bare_collection(client, collection)
+        _bare_collection(client, test_name)
         try:
-            module.ensure_canonical_payload_indexes(collection)
-            live = set(client.get_collection(collection).payload_schema or {})
-            assert live == set(canonical_payload_indexes(collection)), (
+            module.ensure_canonical_payload_indexes(test_name)
+            live = set(client.get_collection(test_name).payload_schema or {})
+            assert live == set(canonical_payload_indexes(test_name)), (
                 f"{collection}: canonical set not fully present immediately "
                 f"after restore's REST ensure_canonical_payload_indexes "
                 f"(async-write race, issue #337)"
             )
         finally:
-            client.delete_collection(collection)
+            client.delete_collection(test_name)
 
     def test_raises_loud_when_indexes_cannot_land(self, ephemeral_qdrant):
         """BLOCKER fix: a canonical field missing after ensure fails loud.

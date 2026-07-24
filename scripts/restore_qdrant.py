@@ -24,6 +24,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -58,6 +59,12 @@ QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 # Timeouts
 SNAPSHOT_UPLOAD_TIMEOUT = 300  # 5 minutes for large uploads
 SNAPSHOT_RECOVER_TIMEOUT = 120  # 2 minutes for recovery
+
+# BP-194 Q1: bounded-poll budget for the payload-index read-back verify —
+# an index landing after wait=true's internal update-queue timeout needs a
+# few retries, not an immediate fail.
+READBACK_POLL_ATTEMPTS = 5
+READBACK_POLL_INTERVAL_S = 2.0
 
 # Colors
 GREEN = "\033[92m"
@@ -455,15 +462,18 @@ def ensure_canonical_payload_indexes(collection_name: str) -> None:
 
     BP-194 Q1: each PUT passes ``wait=true`` so the write blocks until
     applied, but ``wait`` is itself bounded by an internal update-queue
-    timeout — so this reads back ``payload_schema`` afterward and fails loud
-    if any canonical field is still missing, rather than trusting the PUT
-    responses alone (issue #337: 2/11 indexes visible immediately, the rest
-    ~3s later, with no wait/verify to catch the gap).
+    timeout — so this reads back ``payload_schema`` afterward, polling over
+    a short budget, and fails loud if any canonical field is still missing
+    once that budget is spent, rather than trusting the PUT responses alone
+    (issue #337: 2/11 indexes visible immediately, the rest ~3s later, with
+    no wait/verify to catch the gap). A read-back GET that never succeeds is
+    treated as inconclusive, not as "all fields missing" — a transient GET
+    failure must not roll back a restore whose data and indexes both landed.
 
     Raises:
-        RuntimeError: if a canonical field is missing from the collection's
-            payload_schema after every index has been ensured with
-            wait=true. A restore whose data landed but whose indexes did not
+        RuntimeError: if a canonical field is still missing from the
+            collection's payload_schema after the read-back poll budget is
+            exhausted. A restore whose data landed but whose indexes did not
             must not be reported as a silent success.
     """
     try:
@@ -509,9 +519,49 @@ def ensure_canonical_payload_indexes(collection_name: str) -> None:
                 f"created ({e}) — search on this field may be degraded"
             )
 
-    live = fetch_live_schema(collection_name)
-    live_fields = set((live or {}).get("payload_schema") or {})
-    missing = set(canonical) - live_fields
+    # Bounded-poll the read-back: on a large collection, wait=true can still
+    # land after its internal update-queue timeout, so a single immediate GET
+    # can show a field as missing when it is only slow. Re-check a few times
+    # before concluding an index is genuinely absent. ``fetch_live_schema``
+    # returning None is a definitive answer (collection absent, HTTP 404) —
+    # the transient case is the GET call itself failing (timeout/connection
+    # error), which is caught separately and must not be read as "missing".
+    missing: set[str] = set(canonical)
+    verify_failed = False
+    for attempt in range(READBACK_POLL_ATTEMPTS):
+        try:
+            live = fetch_live_schema(collection_name)
+        except Exception as e:
+            verify_failed = True
+            print(
+                f"      {YELLOW}!{RESET} Read-back GET failed for "
+                f"'{collection_name}' (attempt {attempt + 1}/"
+                f"{READBACK_POLL_ATTEMPTS}): {e}"
+            )
+        else:
+            verify_failed = False
+            live_fields = set((live or {}).get("payload_schema") or {})
+            missing = set(canonical) - live_fields
+            if not missing:
+                break
+        if attempt < READBACK_POLL_ATTEMPTS - 1:
+            time.sleep(READBACK_POLL_INTERVAL_S)
+
+    if verify_failed:
+        # The read-back GET never completed on the final attempt — distinct
+        # from "index missing". Treating this as a missing-index failure
+        # would roll back a restore whose data and indexes may both be fine;
+        # surface it as inconclusive instead and let the operator confirm
+        # manually.
+        print(
+            f"      {YELLOW}!{RESET} Could not verify canonical payload indexes "
+            f"on '{collection_name}' — read-back GET kept failing after "
+            f"{READBACK_POLL_ATTEMPTS} attempts. Indexes were submitted with "
+            f"wait=true but verification is inconclusive; confirm manually "
+            f"with GET /collections/{collection_name}."
+        )
+        return
+
     if missing:
         print(
             f"      {RED}✗ Canonical payload indexes missing on "
