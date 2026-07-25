@@ -13,7 +13,9 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -29,6 +31,16 @@ doctor = importlib.util.module_from_spec(_spec)
 # this (module_from_spec alone does not register in sys.modules).
 sys.modules[_spec.name] = doctor
 _spec.loader.exec_module(doctor)
+
+
+# Every test that runs the FULL check set must pin the payload-indexes check at
+# a dead endpoint. Without QDRANT_HOST/QDRANT_PORT in docker/.env the check
+# falls back to the documented default (localhost:26350) — the operator's LIVE
+# install — which would turn these unit tests into network calls against real
+# data and make their results depend on that instance's schema. Port 1 is
+# reserved and never listening, so the check SKIPs deterministically and SKIP
+# never affects an exit code.
+_NO_QDRANT = {"QDRANT_HOST": "127.0.0.1", "QDRANT_PORT": "1"}
 
 
 def _write_env(path: Path, **kv: str) -> None:
@@ -288,6 +300,7 @@ def test_main_default_exit_zero_even_with_warning(tmp_path, capsys):
         install_dir / "docker" / ".env",
         MONITORING_ENABLED="true",
         COMPOSE_PROFILES="",
+        **_NO_QDRANT,
     )
     _link_venv_python(install_dir)
     _write_stub_forwarder(install_dir, list(doctor.DELIVERY_MANIFEST))
@@ -303,6 +316,7 @@ def test_main_strict_exit_nonzero_with_warning(tmp_path, capsys):
         install_dir / "docker" / ".env",
         MONITORING_ENABLED="true",
         COMPOSE_PROFILES="",
+        **_NO_QDRANT,
     )
     _link_venv_python(install_dir)
     _write_stub_forwarder(install_dir, list(doctor.DELIVERY_MANIFEST))
@@ -317,9 +331,99 @@ def test_main_strict_exit_zero_when_all_pass(tmp_path):
         install_dir / "docker" / ".env",
         MONITORING_ENABLED="true",
         COMPOSE_PROFILES="monitoring",
+        **_NO_QDRANT,
     )
     _link_venv_python(install_dir)
     _write_stub_forwarder(install_dir, list(doctor.DELIVERY_MANIFEST))
 
     rc = doctor.main(["--install-dir", str(install_dir), "--strict"])
     assert rc == 0
+
+
+# ---------------------------------------------------------------------------
+# payload-indexes (PLAN-036 P3) — adapter behaviour without a live Qdrant.
+# The type-fidelity teeth run against a real Qdrant in
+# tests/integration/test_payload_index_doctor.py; what matters here is that the
+# check is registered and that it degrades safely when Qdrant is not there.
+# ---------------------------------------------------------------------------
+
+
+def test_payload_indexes_is_registered_in_run_checks(tmp_path):
+    install_dir = _install_skeleton(tmp_path)
+    _write_env(install_dir / "docker" / ".env", **_NO_QDRANT)
+
+    names = [r.name for r in doctor.run_checks(install_dir)]
+
+    assert "payload-indexes" in names
+
+
+def test_payload_indexes_skips_when_not_installed(tmp_path):
+    install_dir = _install_skeleton(tmp_path)
+
+    result = doctor.check_payload_indexes(install_dir)
+
+    assert result.status == doctor.Status.SKIP
+    assert "not installed" in result.detail
+
+
+def test_payload_indexes_skips_on_non_numeric_port(tmp_path):
+    install_dir = _install_skeleton(tmp_path)
+    _write_env(install_dir / "docker" / ".env", QDRANT_PORT="not-a-port")
+
+    result = doctor.check_payload_indexes(install_dir)
+
+    assert result.status == doctor.Status.SKIP
+    assert "not a number" in result.detail
+
+
+def test_payload_indexes_skips_fast_when_qdrant_is_down(tmp_path):
+    """Unreachable is SKIP, never WARNING — a read-only checker cannot assert a
+    divergence it did not observe (PLAN-036 §2a, P3 row)."""
+    install_dir = _install_skeleton(tmp_path)
+    _write_env(install_dir / "docker" / ".env", **_NO_QDRANT)
+
+    started = time.monotonic()
+    result = doctor.check_payload_indexes(install_dir)
+    elapsed = time.monotonic() - started
+
+    assert result.status == doctor.Status.SKIP
+    assert "not reachable" in result.detail
+    assert elapsed < doctor.PAYLOAD_INDEX_TIMEOUT_S * 3
+
+
+def test_payload_indexes_reports_no_credential_when_unreachable(tmp_path):
+    install_dir = _install_skeleton(tmp_path)
+    _write_env(install_dir / "docker" / ".env", **_NO_QDRANT)
+    _write_env(
+        install_dir / "docker" / ".env.secrets", QDRANT_API_KEY="s3cr3t-doctor-key"
+    )
+
+    detail = doctor.check_payload_indexes(install_dir).detail
+
+    assert "s3cr3t-doctor-key" not in detail
+    assert "http://" not in detail and "https://" not in detail
+
+
+def test_install_advisory_path_completes_with_qdrant_down(tmp_path):
+    """The install.sh blast radius (scripts/install.sh::run_aim_doctor_advisory).
+
+    That function runs this script on EVERY install, without --strict, and does
+    not bound it with a timeout — so a hang here would hang an install. Invoked
+    the same way install.sh invokes it, with Qdrant down: it must exit 0 and
+    return promptly.
+    """
+    install_dir = _install_skeleton(tmp_path)
+    _write_env(install_dir / "docker" / ".env", **_NO_QDRANT)
+
+    started = time.monotonic()
+    proc = subprocess.run(
+        [sys.executable, str(_SCRIPT), "--install-dir", str(install_dir)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    elapsed = time.monotonic() - started
+
+    assert proc.returncode == 0, proc.stderr
+    assert "[SKIP] payload-indexes" in proc.stdout
+    assert elapsed < 30

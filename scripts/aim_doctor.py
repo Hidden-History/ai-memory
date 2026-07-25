@@ -25,6 +25,15 @@ Checks:
    ``run-with-env.sh`` forwarded none of it, so the whole surface was
    silently inert.
 
+3. payload-indexes — diffs each live collection's ``payload_schema`` against
+   the canonical index set (BUG-530 / issue #337, PLAN-036 P3). Type-aware:
+   reports a canonical field that is missing AND one that is present but
+   declared with a diverging type or params — notably a lost (or silently
+   added) ``is_tenant``, which is an isolation boundary, not a perf nit. The
+   diff lives in ``memory.payload_index_doctor`` so ``aim-verify`` can register
+   the same check rather than reimplement it; this is only the adapter.
+   Read-only: it never creates or repairs an index.
+
 Exit codes:
     0 - no WARNING (or WARNING present but --strict not given)
     1 - a WARNING was found and --strict was given
@@ -43,9 +52,15 @@ import os
 import subprocess
 import sys
 import tempfile
+import warnings
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+
+# Hard connect/read bound for the payload-index check. scripts/install.sh runs
+# this file on every install (run_aim_doctor_advisory), so an unreachable
+# Qdrant must cost a bounded wait, not an install.
+PAYLOAD_INDEX_TIMEOUT_S = 5
 
 # Config-delivery manifest (F-D1-1 class check) — TD-578.
 #
@@ -285,10 +300,119 @@ def check_config_delivery(install_dir: Path) -> CheckResult:
     )
 
 
+def check_payload_indexes(install_dir: Path) -> CheckResult:
+    """Diff live collection payload indexes against the canonical set (PLAN-036 P3).
+
+    Failure policy per PLAN-036 §2a (P3 row): PASS when clean, WARNING per
+    missing/mismatched field, SKIP when unreachable or unverifiable — a
+    read-only checker must not assert a divergence it cannot see.
+
+    ``scripts/install.sh::run_aim_doctor_advisory`` runs this file on **every**
+    install, so this check puts a network call in the installer's path. It runs
+    without ``--strict``, so a WARNING cannot fail an install — but a hang
+    would. Hence the hard-bounded timeout below and the unreachable → SKIP
+    policy: Qdrant being down must cost one bounded connect attempt, not an
+    install.
+
+    The import is local (not module-level) so aim_doctor.py keeps working with
+    no third-party dependencies when the memory package or qdrant-client is not
+    importable — that case SKIPs rather than crashing the other checks.
+    """
+    name = "payload-indexes"
+    env_file = install_dir / "docker" / ".env"
+    secrets_file = install_dir / "docker" / ".env.secrets"
+
+    if not env_file.exists() and not secrets_file.exists():
+        return CheckResult(
+            name,
+            Status.SKIP,
+            "no docker/.env or docker/.env.secrets found — not installed",
+        )
+
+    src_dir = Path(__file__).resolve().parent.parent / "src"
+    if src_dir.is_dir() and str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+    try:
+        from qdrant_client import QdrantClient
+
+        from memory.payload_index_doctor import audit_payload_indexes
+    except ImportError as e:
+        return CheckResult(
+            name, Status.SKIP, f"payload-index check unavailable: {type(e).__name__}"
+        )
+
+    host = _read_env_key("QDRANT_HOST", secrets_file, env_file) or "localhost"
+    port = _read_env_key("QDRANT_PORT", secrets_file, env_file) or "26350"
+    api_key = _read_env_key("QDRANT_API_KEY", secrets_file, env_file) or None
+    use_https = (
+        _read_env_key("QDRANT_USE_HTTPS", secrets_file, env_file).lower() == "true"
+    )
+
+    try:
+        port_num = int(port)
+    except ValueError:
+        return CheckResult(name, Status.SKIP, f"QDRANT_PORT={port!r} is not a number")
+
+    with warnings.catch_warnings():
+        # An http+api_key connection warns on every client construction. This
+        # check makes one read-only call and does not own connection-security
+        # policy; surfacing that warning here would only add noise to installer
+        # output.
+        warnings.filterwarnings(
+            "ignore", message="Api key is used with an insecure connection"
+        )
+        try:
+            client = QdrantClient(
+                host=host,
+                port=port_num,
+                api_key=api_key,
+                https=use_https,
+                timeout=PAYLOAD_INDEX_TIMEOUT_S,
+                check_compatibility=False,
+            )
+            audit = audit_payload_indexes(client)
+        except Exception as e:
+            # Type name only — a client error can carry the connection URL.
+            return CheckResult(
+                name, Status.SKIP, f"Qdrant not reachable ({type(e).__name__})"
+            )
+
+    if audit.unreachable:
+        return CheckResult(
+            name, Status.SKIP, f"Qdrant not reachable ({audit.unreachable})"
+        )
+    if not audit.collections:
+        return CheckResult(
+            name, Status.SKIP, "no canonical collections present — nothing to verify"
+        )
+
+    unverifiable = audit.unverifiable
+    divergences = audit.divergences
+    if divergences:
+        detail = f"{len(divergences)} divergence(s): " + "; ".join(
+            d.describe() for d in divergences
+        )
+        if unverifiable:
+            detail += f" (could not read: {', '.join(unverifiable)})"
+        return CheckResult(name, Status.WARNING, detail)
+    if unverifiable:
+        return CheckResult(
+            name,
+            Status.SKIP,
+            f"payload schema unreadable for: {', '.join(unverifiable)}",
+        )
+    return CheckResult(
+        name,
+        Status.PASS,
+        f"canonical payload indexes intact on {len(audit.collections)} collection(s)",
+    )
+
+
 def run_checks(install_dir: Path) -> list[CheckResult]:
     return [
         check_tier1_derived_state(install_dir),
         check_config_delivery(install_dir),
+        check_payload_indexes(install_dir),
     ]
 
 
