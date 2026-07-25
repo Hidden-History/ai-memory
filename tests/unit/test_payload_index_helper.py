@@ -143,7 +143,21 @@ class TestEnsurePayloadIndexes:
 
     @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
     def test_schema_matches_canonical_set(self, collection):
-        """post-ensure payload_schema (names AND field_schema values) == canonical."""
+        """ensure_payload_indexes forwards canonical_payload_indexes() intact.
+
+        Guarantees: every canonical field reaches the client, each paired with
+        the schema object it was authored with, and nothing extra is created.
+        Catches a dropped field, a transposed name/schema pair, a substituted
+        schema object, and surplus indexes.
+
+        Does NOT cover: any regression in the canonical set itself. Both sides
+        of the comparison derive from BASE_PAYLOAD_INDEXES /
+        COLLECTION_PAYLOAD_INDEXES, so a wrong type or a lost is_tenant flag in
+        those dicts moves the expected value with the actual one and this
+        assertion stays green. Value-level regressions in the source data are
+        covered by TestGithubFieldSchemaTypes and TestTenantOptimizedFields,
+        which compare against hardcoded literals.
+        """
         client = FakeQdrantClient()
 
         ensure_payload_indexes(client, collection)
@@ -192,12 +206,20 @@ class TestEnsurePayloadIndexes:
         assert client.schema_keys(COLLECTION_GITHUB) == first
 
     def test_returns_ensured_fields(self):
-        """The return value names every field that was ensured."""
+        """The return value names exactly the fields actually created.
+
+        Compared against the indexes recorded on the client — the observed
+        side effect — rather than against canonical_payload_indexes(), which
+        is the very call the helper used to build its return value and so
+        could never disagree with it. Callers (restore, the migrate scripts)
+        log and act on this list, so a return value that drifts from what was
+        actually created has to fail.
+        """
         client = FakeQdrantClient()
 
         ensured = ensure_payload_indexes(client, COLLECTION_DISCUSSIONS)
 
-        assert set(ensured) == set(canonical_payload_indexes(COLLECTION_DISCUSSIONS))
+        assert set(ensured) == set(client.payload_schemas[COLLECTION_DISCUSSIONS])
 
 
 class TestGithubFieldSchemaTypes:
@@ -236,6 +258,86 @@ class TestGithubFieldSchemaTypes:
 
     def test_source_authority_is_float(self, github_schema):
         assert github_schema["source_authority"] == PayloadSchemaType.FLOAT
+
+
+# Hand-transcribed from src/memory/qdrant_client.py (BASE_PAYLOAD_INDEXES and
+# COLLECTION_PAYLOAD_INDEXES): the exact set of fields carrying is_tenant=True
+# for each collection.
+#
+# Deliberately hardcoded literals, NOT derived from those dicts. A set computed
+# from the canonical source would move together with any regression in it, so
+# the comparison could never fail — the same tautology that made the earlier
+# `payload_schemas[c] == canonical_payload_indexes(c)` proposal pass with a
+# tenant flag deliberately dropped.
+EXPECTED_TENANT_FIELDS: dict[str, set[str]] = {
+    COLLECTION_CODE_PATTERNS: {"group_id"},
+    COLLECTION_CONVENTIONS: {"group_id"},
+    COLLECTION_DISCUSSIONS: {"group_id", "agent_id"},
+    COLLECTION_GITHUB: {"group_id", "source"},
+    COLLECTION_JIRA_DATA: {"group_id"},
+}
+
+
+class TestTenantOptimizedFields:
+    """Which fields get Qdrant's tenant-optimized layout, bounded exactly.
+
+    ``is_tenant=True`` drives Qdrant's physical point ordering, so it is
+    load-bearing for the project's two separation axes:
+
+    * ``group_id``            — project separation (every collection)
+    * ``discussions.agent_id`` — agent separation *within* a project
+
+    An unguarded ``is_tenant`` is therefore an unguarded isolation boundary,
+    not a performance nit: losing it degrades filtering with no failing signal,
+    which is the BUG-530 signature exactly. Both axes are asserted deliberately
+    below so that neither is protected only as a side effect of some other
+    test.
+
+    Bounding the set in BOTH directions also restores the intent of the deleted
+    ``test_only_source_is_tenant`` — which fields receive tenant-optimized
+    layout. That test's original assertion is false by design now that
+    ``group_id`` carries ``is_tenant=True`` too, so it was correctly not
+    restored verbatim; this generalises its intent to every collection. It
+    additionally catches an ``is_tenant`` silently ADDED to a high-cardinality
+    field, a performance footgun nothing else detects.
+    """
+
+    @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
+    def test_tenant_optimized_fields_are_bounded(self, collection):
+        """Exactly the expected fields carry is_tenant=True — no more, no less."""
+        client = FakeQdrantClient()
+
+        ensure_payload_indexes(client, collection)
+
+        tenant_fields = {
+            name
+            for name, schema in client.payload_schemas[collection].items()
+            if getattr(schema, "is_tenant", None) is True
+        }
+        assert tenant_fields == EXPECTED_TENANT_FIELDS[collection]
+
+    @pytest.mark.parametrize("collection", ALL_COLLECTIONS)
+    def test_group_id_is_tenant_keyword(self, collection):
+        """Axis 1 — project separation: group_id is tenant-optimized everywhere."""
+        client = FakeQdrantClient()
+
+        ensure_payload_indexes(client, collection)
+
+        schema = client.payload_schemas[collection]["group_id"]
+        assert isinstance(schema, KeywordIndexParams)
+        assert schema.type == "keyword"
+        assert schema.is_tenant is True
+
+    def test_discussions_agent_id_is_tenant_keyword(self):
+        """Axis 2 — agent separation within a project: discussions.agent_id."""
+        client = FakeQdrantClient()
+
+        ensure_payload_indexes(client, COLLECTION_DISCUSSIONS)
+
+        schema = client.payload_schemas[COLLECTION_DISCUSSIONS]["agent_id"]
+        assert isinstance(schema, KeywordIndexParams)
+        assert schema.type == "keyword"
+        assert schema.is_tenant is True
 
 
 # ─── Path 1: setup-collections.py ─────────────────────────────────────────────
@@ -624,6 +726,4 @@ class TestEnsurePayloadIndexesReadBack:
         client.get_collection.side_effect = ConnectionError("boom")
 
         with patch("memory.qdrant_client.time.sleep"):
-            ensured = ensure_payload_indexes(client, COLLECTION_CONVENTIONS)
-
-        assert set(ensured) == set(canonical_payload_indexes(COLLECTION_CONVENTIONS))
+            ensure_payload_indexes(client, COLLECTION_CONVENTIONS)
