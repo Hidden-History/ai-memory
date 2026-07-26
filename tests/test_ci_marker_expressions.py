@@ -15,13 +15,19 @@ workflow file is checked automatically.
 
 Matcher scope, stated explicitly (an unstated matcher's completeness claim
 is unsupportable even when the answer happens to be right):
-  - Recognizes a shell command that starts with the literal token `pytest`,
-    after joining backslash-continued lines into one logical line. This
-    structurally excludes `python -m pip`, `python -m build`, and
-    `install -m 0755` -- none of them start with `pytest`.
-  - Does NOT recognize the `python -m pytest ...` module-invocation form.
-    No such invocation exists in this repo today; if one is added, this
-    gate will silently miss it.
+  - Recognizes all three forms the repo already treats as equivalent
+    pytest invocations (`tests/test_error_context_retrieval.py`'s
+    BUILD_TEST_PATTERNS["pytest"]): bare `pytest ...`, `python -m
+    pytest ...`, and `python3 -m pytest ...` -- after joining
+    backslash-continued lines into one logical line. This structurally
+    excludes `python -m pip`, `python -m build`, and `install -m 0755`:
+    none of them have the literal token `pytest` immediately after an
+    optional `python[3] -m `.
+  - Does NOT recognize a pytest invocation reached through a shell
+    variable, alias, or wrapper script (e.g. `$PYTEST_BIN tests/`, or a
+    Makefile target that itself calls pytest) -- no regex over the
+    workflow YAML can see through that indirection. No such indirection
+    exists in this repo's workflows today.
   - Only inspects YAML-mapping `run:` step values (both block-scalar and
     plain-string forms). It does not follow `uses:`-based composite
     actions or reusable workflow calls.
@@ -48,10 +54,15 @@ DELIBERATE_REGRESSION_RUNNERS = {
     ("regression-nightly.yml", "regression"),
 }
 
-# A `pytest` command word: start of a logical line, or after a shell
-# separator (`;`, `&&`, `||`, `|`).
+# A pytest invocation in any of the three forms the repo already treats as
+# equivalent (tests/test_error_context_retrieval.py BUILD_TEST_PATTERNS):
+# bare `pytest`, `python -m pytest`, `python3 -m pytest`. The lookbehind
+# requires a non-identifier boundary before the match (start of string,
+# whitespace, quote, or shell separator) so it doesn't fire inside a larger
+# word, while still matching regardless of what precedes it on the line
+# (e.g. embedded after `unshare -rn ... _ python -m pytest ...`).
 _PYTEST_INVOCATION_RE = re.compile(
-    r"(?:^|[;&|]\s*)pytest\s+(?P<args>[^\n;&|]*)",
+    r"(?<![\w./-])(?:python3?\s+-m\s+)?pytest\s+(?P<args>[^\n;&|]*)",
     re.MULTILINE,
 )
 
@@ -213,6 +224,44 @@ def test_python_module_invocations_are_not_pytest_commands(tmp_path):
         "          install -m 0755 script.sh /usr/local/bin/script.sh\n"
     )
     assert check_marker_expression(workflow) == []
+
+
+def test_python_dash_m_pytest_form_is_detected(tmp_path):
+    """`python -m pytest ...` and `python3 -m pytest ...` must be
+    recognized as pytest invocations (matches
+    tests/test_error_context_retrieval.py's BUILD_TEST_PATTERNS["pytest"]
+    definition), not just the bare `pytest ...` form."""
+    workflow = tmp_path / "module_form.yml"
+    workflow.write_text(
+        "jobs:\n"
+        "  unit:\n"
+        "    steps:\n"
+        '      - run: python -m pytest tests/ -m "not quarantine"\n'
+        '      - run: python3 -m pytest tests/ -m "not quarantine"\n'
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 2
+
+
+def test_python_dash_m_pytest_embedded_after_wrapper_is_detected(tmp_path):
+    """Reproduces the exact shape used by this project's own safety
+    instruction for running gate tests in a network-isolated namespace:
+    `unshare -rn sh -c '...' _ python -m pytest ... -m "not quarantine"`.
+    The pytest invocation is not at the start of the line or after a
+    shell separator here -- it follows a bare positional argument -- so
+    the matcher must not require either of those anchors."""
+    workflow = tmp_path / "wrapped.yml"
+    workflow.write_text(
+        "jobs:\n"
+        "  unit:\n"
+        "    steps:\n"
+        "      - run: |\n"
+        "          unshare -rn sh -c 'ip link set lo up && exec \"$@\"' _ \\\n"
+        '            python -m pytest tests/ -m "not quarantine"\n'
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 1
+    assert "not quarantine" in violations[0]
 
 
 def test_line_continuation_invocation_is_detected(tmp_path):
