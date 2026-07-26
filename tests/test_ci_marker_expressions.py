@@ -58,6 +58,12 @@ is unsupportable even when the answer happens to be right):
     over-reporting, never under-reporting, which matches this gate's
     fail-loud bias. It does not follow `uses:`-based composite actions
     or reusable workflow calls.
+  - Also recognizes `PYTEST_ADDOPTS` set directly in shell text within a
+    `run:` block -- as an inline prefix on the pytest command itself
+    (`PYTEST_ADDOPTS='-m "..."' pytest ...`), an `export PYTEST_ADDOPTS=...`
+    statement earlier in the same block, or a `>> "$GITHUB_ENV"` write for
+    a later step -- none of which appear as a YAML `env:` mapping and so
+    would otherwise be invisible to the scope above.
   - Recognizes `-m` in every form pytest's own argument parser resolves
     to the `markexpr` value (verified against the installed pytest via
     `_pytest.config.get_config()._parser.parse_known_and_unknown_args`):
@@ -69,6 +75,21 @@ is unsupportable even when the answer happens to be right):
     without a full short-option grammar risks misreading unrelated
     dash-prefixed tokens. No such combined-flag invocation exists in this
     repo's workflows today.
+  - The bare-attached form (`-mexpr`, no space/`=`) is only recognized up
+    to the first whitespace character: `-mnot quarantine` captures just
+    `not` as the expression, not `not quarantine`, because nothing marks
+    where a space-free attached expression ends. The truncated `not` fails
+    to parse on its own, so this is over-reported as unsafe (fail-loud),
+    never silently accepted -- but it means this form is NOT recognized
+    unqualified for any expression containing a space, contrary to what a
+    bare reading of the line above might suggest.
+  - A `${{ ... }}` GitHub Actions expression inside an `-m` value (e.g. a
+    marker driven by a workflow input or matrix variable) is not resolved
+    -- the literal `${{ ... }}` text is handed to pytest's expression
+    compiler, which rejects the `$`/`{` characters with a `SyntaxError`,
+    correctly landing on the unsafe verdict via the same path as any other
+    unparseable expression. No such indirection exists in this repo's
+    workflows today.
   - When more than one `-m` flag appears on the same invocation (or the
     same `PYTEST_ADDOPTS` value), the LAST one is evaluated -- pytest's
     `-m` is a store action, so a repeated flag has its earlier
@@ -83,12 +104,33 @@ is unsupportable even when the answer happens to be right):
     distinct identifier) as containing the exclusion it does not have,
     and reads `not regression or slow` as safe when it in fact selects a
     regression-marked test that is also marked `slow`. An expression
-    pytest itself cannot parse is treated as unsafe (fails loud) rather
-    than skipped. Verified against the pytest version installed at
-    authoring time, within this repo's pinned range (`pyproject.toml`
-    `pytest>=9.0.3,<10.0.0`); an upstream change to this private API
-    inside that range would surface as an import or evaluation error in
-    this file, not a silent gap.
+    pytest itself cannot parse, or one whose parse tree is too deep for
+    Python's recursion limit (`RecursionError`), is treated as unsafe
+    (fails loud) rather than skipped. Verified against the pytest version
+    installed at authoring time, within this repo's pinned range
+    (`pyproject.toml` `pytest>=9.0.3,<10.0.0`); an upstream change to this
+    private API inside that range would surface as an import or evaluation
+    error in this file, not a silent gap.
+  - An EMPTY `markexpr` (`-m ""`) is treated as unsafe, not safe: pytest's
+    own `deselect_by_mark` does `if not matchexpr: return`, so an empty `-m`
+    performs NO deselection at all and the entire suite -- including every
+    `regression`-marked test -- runs. This is a fail-open, not a false
+    negative on one expression, and is distinct from a whitespace-only
+    `markexpr` (`-m " "`), which IS truthy to that same check and compiles
+    to a constant-false expression that correctly deselects everything
+    (genuinely safe, if a strange thing to write).
+  - The existential check enumerates every combination of the OTHER
+    identifiers an expression names, which is O(2^N). An expression naming
+    more than 15 other identifiers is treated as unsafe (fail-loud) rather
+    than enumerated, to bound this cost -- measured at ~0.2s per expression
+    at the cap and ~9s at 20 identifiers, growing exponentially from there.
+    No marker expression in this repo's workflows today names more than 2
+    other identifiers.
+  - A keyword-argument matcher (e.g. `-m "regression and device(serial=
+    '1')"`, valid under pytest's `ident kwargs?` `-m` grammar since pytest
+    8.4) does not raise: the identifier-truthiness callback accepts and
+    discards any kwargs pytest's evaluator passes it, rather than only a
+    bare mark name.
 """
 
 from __future__ import annotations
@@ -136,6 +178,14 @@ _MARKER_FLAG_RE = re.compile(r"(?<!\S)-m[\s=]*(?:'([^']*)'|\"([^\"]*)\"|(\S+))")
 _IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _EXPRESSION_KEYWORDS = {"and", "or", "not", "True", "False"}
 
+# `PYTEST_ADDOPTS=<rest-of-line>` set directly in shell text within a `run:`
+# block -- as an inline prefix on the pytest command itself, an `export`
+# statement earlier in the same block, or a `>> "$GITHUB_ENV"` write for a
+# later step -- none of which appear as a YAML `env:` mapping, so none of
+# them are visible to anything that only reads `env:`. The lookbehind keeps
+# this from firing on a longer variable name ending in `_PYTEST_ADDOPTS`.
+_SHELL_ADDOPTS_RE = re.compile(r"(?<![A-Za-z0-9_])PYTEST_ADDOPTS=(?P<rest>[^\n]*)")
+
 
 def _join_line_continuations(run_text: str) -> str:
     """Collapse shell `\\\n` continuations into spaces so a multi-line
@@ -153,21 +203,41 @@ def _last_marker_flag(text: str) -> str | None:
     return marker
 
 
+_MAX_MARKER_IDENTIFIERS = 15  # itertools.product below is O(2^N); no marker
+# expression in this repo's workflows today names more than 2 other
+# identifiers. Measured worst case at N=15 is ~0.2s per expression; N=20
+# reaches ~9s, and the growth is exponential from there -- an expression
+# over this cap is treated as unsafe (fail-loud) rather than enumerated.
+
+
 def _selects_regression(marker: str) -> bool:
     """True if `marker` could select a test carrying the `regression` mark,
     for ANY combination of the other identifiers it names. Existential
     over pytest's own keyword-expression evaluator, not a substring test.
-    A syntactically invalid expression is treated as unsafe."""
+    An empty `markexpr` is treated as unsafe: pytest's own `deselect_by_mark`
+    does `if not matchexpr: return`, so `-m ""` performs NO deselection and
+    the entire suite (including `regression`-marked tests) runs -- unlike a
+    whitespace-only expression, which IS truthy to that check and compiles
+    to a constant-false expression that correctly deselects everything. A
+    syntactically invalid or too-deeply-nested expression is treated as
+    unsafe, as is one naming more than `_MAX_MARKER_IDENTIFIERS` other
+    identifiers (see cap rationale above)."""
+    if not marker:
+        return True
     try:
         compiled = Expression.compile(marker)
-    except SyntaxError:
+    except (SyntaxError, RecursionError):
         return True
     identifiers = set(_IDENTIFIER_RE.findall(marker)) - _EXPRESSION_KEYWORDS
     other_identifiers = sorted(identifiers - {"regression"})
+    if len(other_identifiers) > _MAX_MARKER_IDENTIFIERS:
+        return True
     for combo in itertools.product((False, True), repeat=len(other_identifiers)):
         truthy = dict(zip(other_identifiers, combo, strict=True))
         truthy["regression"] = True
-        if compiled.evaluate(lambda name, truthy=truthy: truthy.get(name, False)):
+        if compiled.evaluate(
+            lambda name, truthy=truthy, **kwargs: truthy.get(name, False)
+        ):
             return True
     return False
 
@@ -186,6 +256,8 @@ def _iter_run_blocks(yaml_path: Path):
     data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     jobs = (data or {}).get("jobs") or {}
     for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
         for step in job.get("steps") or []:
             if not isinstance(step, dict):
                 continue
@@ -229,15 +301,39 @@ def find_pytest_invocations(yaml_path: Path) -> list[tuple[str, str | None]]:
     return results
 
 
+def _shell_set_addopts(run_text: str) -> list[str]:
+    """Return every `PYTEST_ADDOPTS` value set directly in shell text within
+    a `run:` block -- an inline prefix on the pytest command itself, an
+    `export PYTEST_ADDOPTS=...` statement earlier in the block, or a
+    `>> "$GITHUB_ENV"` write for a later step. A leading quote character is
+    stripped so the value reads the same as an unwrapped YAML `env:` value;
+    a trailing shell artefact (closing quote, `>> "$GITHUB_ENV"`, a
+    following ` pytest ...`) is left in place but does not affect
+    `_last_marker_flag`, which only looks for its own `-m` pattern."""
+    values = []
+    for match in _SHELL_ADDOPTS_RE.finditer(run_text):
+        rest = match.group("rest")
+        if rest[:1] in ("'", '"'):
+            rest = rest[1:]
+        values.append(rest)
+    return values
+
+
 def find_pytest_addopts_markers(yaml_path: Path) -> list[tuple[str, str | None]]:
     """Return (addopts_text, marker_expr_or_None) for every `PYTEST_ADDOPTS`
-    env value found at workflow-, job-, or step-scope."""
+    value found at workflow-, job-, or step-scope -- via a YAML `env:`
+    mapping, or set directly in shell text within a `run:` block (inline
+    prefix, `export`, or a `>> "$GITHUB_ENV"` write)."""
     results = []
     for env in _iter_env_blocks(yaml_path):
         value = env.get("PYTEST_ADDOPTS")
         if not isinstance(value, str):
             continue
         results.append((value, _last_marker_flag(value)))
+    for run_text in _iter_run_blocks(yaml_path):
+        joined = _join_line_continuations(run_text)
+        for value in _shell_set_addopts(joined):
+            results.append((value, _last_marker_flag(value)))
     return results
 
 
@@ -576,4 +672,159 @@ def test_pytest_addopts_env_safe_value_does_not_flag(tmp_path):
         "        env:\n"
         "          PYTEST_ADDOPTS: '-m \"not regression and not quarantine\"'\n"
     )
+    assert check_marker_expression(workflow) == []
+
+
+def test_empty_marker_expression_is_unsafe(tmp_path):
+    """F1 (CRITICAL): pytest's own `deselect_by_mark` does `if not matchexpr:
+    return` -- an empty `-m ""` performs NO deselection at all, so the ENTIRE
+    suite (including `regression`-marked tests) runs. `Expression.compile("")`
+    is structurally constant-false, which would score every enumerated
+    combination as safe if the existential check ran at all -- this is a
+    fail-open, not merely a false-negative on one expression."""
+    workflow = tmp_path / "empty_marker.yml"
+    workflow.write_text(
+        "jobs:\n" "  unit:\n" "    steps:\n" '      - run: pytest tests/ -m ""\n'
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 1
+
+
+def test_whitespace_only_marker_expression_is_safe(tmp_path):
+    """F1: `-m " "` is a non-empty string, so it IS truthy to pytest's `if
+    not matchexpr: return` check -- pytest proceeds to compile and evaluate
+    it, and a whitespace-only expression is constant-false, so it correctly
+    deselects every test (including any `regression`-marked ones). This is
+    the case that must NOT be conflated with the empty-string fail-open
+    above: the two look similar as text but behave oppositely at runtime."""
+    workflow = tmp_path / "whitespace_marker.yml"
+    workflow.write_text(
+        "jobs:\n" "  unit:\n" "    steps:\n" '      - run: pytest tests/ -m " "\n'
+    )
+    assert check_marker_expression(workflow) == []
+
+
+def test_marker_expression_identifier_count_is_capped(tmp_path):
+    """F2: `itertools.product` over the other identifiers an expression
+    names is O(2^N). An expression naming more identifiers than the cap
+    must be treated as UNSAFE (fail-loud) rather than enumerated -- silently
+    skipping it would reopen a false-negative, and enumerating it risks the
+    CI job's own timeout. The identifiers are AND-ed together (not OR-ed) so
+    only the single all-True combination -- the LAST one `itertools.product`
+    would enumerate -- satisfies the expression; an implementation that
+    enumerates instead of capping cannot short-circuit early on this shape,
+    so the wall-clock assertion below actually exercises the cap rather than
+    an incidental early exit."""
+    many_ids = " and ".join(f"id{i}" for i in range(18))
+    expr = f"regression and {many_ids}"
+    workflow = tmp_path / "too_many_identifiers.yml"
+    workflow.write_text(
+        "jobs:\n" "  unit:\n" "    steps:\n" f'      - run: pytest tests/ -m "{expr}"\n'
+    )
+    import time
+
+    start = time.time()
+    violations = check_marker_expression(workflow)
+    elapsed = time.time() - start
+    assert len(violations) == 1
+    assert elapsed < 2.0, f"identifier cap did not bound enumeration cost ({elapsed}s)"
+
+
+def test_shell_inline_pytest_addopts_prefix_is_flagged(tmp_path):
+    """F3: `PYTEST_ADDOPTS='...' pytest ...` sets the override as a shell
+    variable prefix on the same command -- the `-m` inside it sits in `run:`
+    text the gate already reads, just outside the invocation regex's `args`
+    span (it precedes the `pytest` token rather than following it)."""
+    workflow = tmp_path / "inline_addopts.yml"
+    workflow.write_text(
+        "jobs:\n"
+        "  unit:\n"
+        "    steps:\n"
+        "      - run: PYTEST_ADDOPTS='-m \"not quarantine\"' pytest tests/\n"
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 1
+    assert "not quarantine" in violations[0]
+
+
+def test_shell_export_pytest_addopts_is_flagged(tmp_path):
+    """F3: `export PYTEST_ADDOPTS=...` on its own line, followed by a bare
+    `pytest` invocation later in the same `run:` block, is the canonical
+    shell idiom for setting env ahead of a command -- and is invisible to
+    a matcher that only reads YAML `env:` mappings."""
+    workflow = tmp_path / "export_addopts.yml"
+    workflow.write_text(
+        "jobs:\n"
+        "  unit:\n"
+        "    steps:\n"
+        "      - run: |\n"
+        "          export PYTEST_ADDOPTS='-m \"not quarantine\"'\n"
+        "          pytest tests/\n"
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 1
+    assert "not quarantine" in violations[0]
+
+
+def test_github_env_pytest_addopts_is_flagged(tmp_path):
+    """F3: writing `PYTEST_ADDOPTS=...` to `$GITHUB_ENV` in one step makes it
+    part of every later step's environment in the same job -- the canonical
+    GitHub Actions idiom for cross-step env, and invisible to anything that
+    only reads YAML `env:` mappings since it never appears as one."""
+    workflow = tmp_path / "github_env_addopts.yml"
+    workflow.write_text(
+        "jobs:\n"
+        "  unit:\n"
+        "    steps:\n"
+        '      - run: echo \'PYTEST_ADDOPTS=-m "not quarantine"\' >> "$GITHUB_ENV"\n'
+        "      - run: pytest tests/\n"
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 1
+    assert "not quarantine" in violations[0]
+
+
+def test_kwargs_matcher_expression_does_not_crash(tmp_path):
+    """F4: pytest >=8.4's `-m` grammar allows `ident kwargs?` (e.g. keyword
+    matchers). The existential check's identifier-truthiness lambda must
+    accept and ignore kwargs rather than raising `TypeError` -- a crash here
+    is not a safety hole, but it is undocumented and contradicts the
+    docstring's claim that only unparseable expressions get special
+    handling."""
+    workflow = tmp_path / "kwargs_marker.yml"
+    workflow.write_text(
+        "jobs:\n"
+        "  unit:\n"
+        "    steps:\n"
+        "      - run: |\n"
+        "          pytest tests/ -m \"regression and device(serial='1')\"\n"
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 1
+
+
+def test_deeply_nested_expression_is_unsafe_not_a_crash(tmp_path):
+    """F5: `Expression.compile()` raises `RecursionError`, not `SyntaxError`,
+    on a very long expression -- only `SyntaxError` was caught, so this
+    crashed the gate instead of returning the documented clean unsafe
+    verdict."""
+    long_expr = " or ".join(["regression"] * 5000)
+    workflow = tmp_path / "deeply_nested.yml"
+    workflow.write_text(
+        "jobs:\n"
+        "  unit:\n"
+        "    steps:\n"
+        f'      - run: pytest tests/ -m "{long_expr}"\n'
+    )
+    violations = check_marker_expression(workflow)
+    assert len(violations) == 1
+
+
+def test_non_dict_job_value_does_not_crash(tmp_path):
+    """F6: `_iter_run_blocks` lacked the `isinstance(job, dict)` guard its
+    sibling `_iter_env_blocks` already has -- a malformed or YAML-anchor-
+    collapsed job value that isn't a mapping must be skipped, not crash the
+    gate."""
+    workflow = tmp_path / "non_dict_job.yml"
+    workflow.write_text("jobs:\n  unit: null\n")
     assert check_marker_expression(workflow) == []
