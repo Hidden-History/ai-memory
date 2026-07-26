@@ -137,7 +137,12 @@ jobs:
           # separator, so a wrapped command silently drops everything after the
           # first line -- which cost a CI run where pytest ran without its
           # flags and the leftovers came back as "sh: -q: not found".
-          RUN="$PY tests/datastore_tripwire.py --report tripwire-report.json -- $PY -m pytest tests/ -m 'not regression and not quarantine' -q -p no:cacheprovider -p no:randomly --tb=no"
+          # --junitxml: the ratchet needs to know how many tests actually ran,
+          # not just that the process exited. A run that selects a fraction of
+          # the suite exits 0 and connects to almost nothing, which reads as the
+          # best result ever recorded. The floor in the baseline is checked
+          # against this file.
+          RUN="$PY tests/datastore_tripwire.py --report tripwire-report.json -- $PY -m pytest tests/ -m 'not regression and not quarantine' -q -p no:cacheprovider -p no:randomly --tb=no --junitxml=pytest-report.xml"
           if [ "${{ steps.netns.outputs.mode }}" = "sudo" ]; then
             sudo -E env -u QDRANT_URL -u QDRANT_PORT -u QDRANT_GRPC_PORT \
               -u EMBEDDING_PORT -u EMBEDDING_SERVICE_PORT -u LANGFUSE_BASE_URL \
@@ -147,12 +152,22 @@ jobs:
               -u EMBEDDING_PORT -u EMBEDDING_SERVICE_PORT -u LANGFUSE_BASE_URL \
               unshare -rn sh -c 'ip link set lo up && exec "$@"' _ sh -c "$RUN"
           fi
+          # This step deliberately does not use `set -e`: pytest failing is not
+          # this job's verdict, the ratchet is. But a *missing* report is not a
+          # verdict either -- it means the wrapper never got far enough to write
+          # one, and the ratchet must not be handed a stale file from an earlier
+          # step or an empty one.
+          if [ ! -s tripwire-report.json ]; then
+            echo "::error::The tripwire wrote no report, so the run cannot be graded."
+            exit 1
+          fi
 
       - name: Ratchet - connections to production must not increase
         run: |
           '${{ steps.netns.outputs.python }}' tests/datastore_tripwire.py \
             --check tripwire-report.json \
-            --baseline tests/datastore_isolation_baseline.json
+            --baseline tests/datastore_isolation_baseline.json \
+            --junit pytest-report.xml
 
       - name: Upload the accept report
         if: always()

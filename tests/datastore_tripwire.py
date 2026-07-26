@@ -52,6 +52,7 @@ import socket
 import subprocess
 import sys
 import threading
+from xml.etree import ElementTree
 
 # The operator's real services. 26351 is the live Qdrant gRPC port from
 # docker/.env; 6334 is qdrant-client's own gRPC default, used whenever that
@@ -70,6 +71,21 @@ CLASSIFY_TIMEOUT = 0.4
 # hang-guard for a control that never connects -- not the thing that decides the
 # result.
 SELF_TEST_CLASSIFY_TIMEOUT = 30.0
+
+# The only wrapped exit codes that mean a suite actually ran.
+#
+# 0 is a clean run and 1 is a run with failing tests -- both executed the suite,
+# so both produced a connection count worth comparing. Every other pytest exit
+# code means the suite did not run: 2 interrupted (a collection error), 3
+# internal error, 4 usage error, 5 nothing collected.
+#
+# That distinction is the whole point. A run that dies before executing anything
+# connects to nothing, so it reports a count of zero -- which the ratchet, left
+# to compare numbers alone, reads as the best result it has ever seen. A zero
+# from a dead run is the absence of a measurement, not a clean bill of health,
+# and it is the same "counter reading zero because it is broken" failure the
+# self-test exists to catch, one layer further out.
+HEALTHY_WRAPPED_EXIT_CODES = frozenset({0, 1})
 
 
 class Tripwire:
@@ -343,18 +359,99 @@ def _grpc_probe(port):
     return True
 
 
-def check_ratchet(report_path, baseline_path):
+def collected_tests(junit_path):
+    """Return how many test cases the wrapped run actually reported.
+
+    Read from pytest's own JUnit XML rather than parsed out of its console
+    output, because the console format is presentation and changes between
+    versions while the XML attribute is a contract.
+    """
+    root = ElementTree.parse(junit_path).getroot()
+    suites = root.iter("testsuite") if root.tag == "testsuites" else [root]
+    return sum(int(suite.get("tests", 0)) for suite in suites)
+
+
+def check_run_happened(report, baseline, junit_path):
+    """Fail unless the wrapped run executed the suite it claims to have.
+
+    A ratchet compares a measurement to a ceiling, so it has to establish there
+    *was* a measurement before the comparison means anything. Two ways a run can
+    produce a passing number without proving anything, both observed here:
+
+      * it died before executing -- collection error, usage error, no tests
+        collected. Nothing connects, so the count is zero and the ceiling is
+        trivially satisfied.
+      * it executed a fraction of the suite -- a mis-typed path or a marker
+        expression that silently selected forty tests instead of thousands. The
+        exit code is a clean 0 and the count is honestly low, because most of
+        the suite never ran.
+
+    The exit code catches the first and cannot catch the second; the collected
+    floor catches the second. Both are needed.
+
+    Returns an error message, or None when the run is trustworthy.
+    """
+    exit_code = report.get("wrapped_exit_code")
+    if exit_code not in HEALTHY_WRAPPED_EXIT_CODES:
+        return (
+            f"the wrapped run exited {exit_code!r}, so the suite did not "
+            "execute and this report measures nothing.\n"
+            f"Only {sorted(HEALTHY_WRAPPED_EXIT_CODES)} mean a suite ran (clean, "
+            "or with failing tests). Anything else is a collection error, a "
+            "usage error, an internal error, or an empty selection -- and a run "
+            "that never executed connects to nothing, so its count of zero is "
+            "the absence of a measurement rather than a clean result.\n"
+            "Fix the run itself; do not read this number."
+        )
+
+    floor = baseline.get("min_tests")
+    if floor is None:
+        return None
+    if not junit_path:
+        return (
+            f"the baseline sets min_tests={floor} but no --junit report was "
+            "passed, so the number of tests that actually ran is unknown. A "
+            "floor that cannot be evaluated is not a floor."
+        )
+    try:
+        seen = collected_tests(junit_path)
+    except (OSError, ElementTree.ParseError) as exc:
+        return (
+            f"could not read the JUnit report at {junit_path}: {exc}. The run "
+            "was supposed to write one, so its absence means the run did not "
+            "get as far as it claims."
+        )
+    if seen < floor:
+        return (
+            f"the wrapped run reported {seen} tests, below the floor of {floor}.\n"
+            "Most of the suite did not run, so a low connection count says "
+            "nothing about the tests that were skipped. Check the paths and the "
+            "-m expression before trusting any number in this report."
+        )
+    print(f"run health: exit={exit_code} tests={seen} (floor {floor})")
+    return None
+
+
+def check_ratchet(report_path, baseline_path, junit_path=None):
     """Fail when data-carrying accepts rise above the recorded baseline.
 
     A ratchet rather than a fixed threshold: the count varies run to run because
     gRPC retries a variable number of times, so a hard number would flake. What
     matters is the direction -- a new test that reaches production pushes the
     count up, and that is the regression worth failing on.
+
+    The comparison is only reached once the run has been shown to have happened
+    -- see check_run_happened for why a number alone cannot be trusted.
     """
     with open(report_path) as handle:
         report = json.load(handle)
     with open(baseline_path) as handle:
         baseline = json.load(handle)
+
+    broken = check_run_happened(report, baseline, junit_path)
+    if broken:
+        print(f"\nFAIL: {broken}")
+        return 1
 
     # Gated number includes unclassified connections -- see Tripwire._classify.
     observed = report["total_gated"]
@@ -415,6 +512,10 @@ def main():
     parser.add_argument("--report", help="write the accept report here")
     parser.add_argument("--check", help="ratchet-check a report written earlier")
     parser.add_argument("--baseline", help="baseline file for --check")
+    parser.add_argument(
+        "--junit",
+        help="pytest JUnit XML from the wrapped run, for the collected-tests floor",
+    )
     parser.add_argument("cmd", nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
@@ -424,7 +525,7 @@ def main():
     if args.check:
         if not args.baseline:
             parser.error("--check requires --baseline")
-        return check_ratchet(args.check, args.baseline)
+        return check_ratchet(args.check, args.baseline, args.junit)
 
     cmd = args.cmd[1:] if args.cmd and args.cmd[0] == "--" else args.cmd
     if not cmd:
