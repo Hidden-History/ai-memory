@@ -58,6 +58,7 @@ class TestProjectScopedStorage:
         assert result["status"] == "stored"
         assert result["memory_id"] is not None
 
+    @pytest.mark.integration
     def test_store_memory_without_cwd_fails(self, qdrant_client):
         """Test store_memory fails without cwd parameter.
 
@@ -189,6 +190,7 @@ class TestProjectScopedRetrieval:
 class TestPayloadIndexCreation:
     """Test payload index creation with is_tenant=True (AC 4.2.3)."""
 
+    @pytest.mark.integration
     def test_payload_index_exists_for_group_id(self, qdrant_client):
         """Test group_id payload index exists with is_tenant=True.
 
@@ -417,6 +419,7 @@ class TestErrorHandling:
         with pytest.raises(ValueError, match="project detection failed"):
             detect_project(str(invalid_path))
 
+    @pytest.mark.integration
     def test_none_cwd_raises_clear_error(self, qdrant_client):
         """Test None cwd raises clear ValueError.
 

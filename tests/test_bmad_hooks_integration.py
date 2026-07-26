@@ -37,6 +37,8 @@ from typing import Any
 
 import pytest
 
+from tests.datastore_guard import SENTINEL_URL
+
 
 def _qdrant_available() -> bool:
     """Check if Qdrant is available for integration tests.
@@ -683,7 +685,10 @@ class TestHooksWithRealQdrant:
                 "--sync",  # Synchronous for testing
                 "--skip-duplicate-check",  # Allow repeated test runs
             ],
-            env={"QDRANT_URL": "http://localhost:26350"},
+            # TD-881: this was the operator's live URL as a literal, so it
+            # overrode whatever target the caller had set and pointed a real
+            # hook script at real data. Derive it instead.
+            env={"QDRANT_URL": os.environ.get("QDRANT_URL", SENTINEL_URL)},
         )
 
         assert store_result["exit_code"] == 0
@@ -697,7 +702,10 @@ class TestHooksWithRealQdrant:
         search_result_2 = run_hook_script(
             search_script,
             args=["--query", "authentication JWT tokens", "--limit", "5"],
-            env={"QDRANT_URL": "http://localhost:26350"},
+            # TD-881: this was the operator's live URL as a literal, so it
+            # overrode whatever target the caller had set and pointed a real
+            # hook script at real data. Derive it instead.
+            env={"QDRANT_URL": os.environ.get("QDRANT_URL", SENTINEL_URL)},
         )
 
         assert search_result_2["exit_code"] == 0

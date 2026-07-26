@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "Ratchet baseline for the Datastore Isolation workflow (TD-881).",
+    "",
+    "max_data_carrying is a CEILING THAT MAY ONLY EVER FALL. CI fails when a run",
+    "exceeds it, which is the signal that something new in the suite reaches the",
+    "operator's real services. When a run comes in under it, lower this number so",
+    "the ground gained cannot be given back.",
+    "",
+    "It is not zero, and that is deliberate. Zero would require every test that",
+    "spawns a real hook script to be re-pointed at a throwaway instance -- roughly",
+    "eighteen more files, tracked separately as a burn-down. What protects the",
+    "operator today is the network namespace: every one of these connections lands",
+    "on the tripwire inside the namespace and reaches nothing real. This number",
+    "measures test hygiene; the namespace provides the safety.",
+    "",
+    "Measured on the CI-scope suite (-m 'not regression and not quarantine') with",
+    "a cleared environment, inside unshare -rn, ordering fixed via -p no:randomly.",
+    "Two consecutive runs gave 228 and 229; the variance is gRPC retry jitter on",
+    "26351. The ceiling carries a small allowance over the observed maximum so",
+    "that jitter alone cannot fail the gate.",
+    "",
+    "Before this work the same measurement was 147 accepts / 122 data-carrying",
+    "across the three ports then being watched, with 101 on the Qdrant REST port",
+    "that tests write through. That port now sits at 4. The total rose only",
+    "because Langfuse (23100) was added to the watched set and turned out to",
+    "account for 204 connections that had never been measured before."
+  ],
+  "max_data_carrying": 235,
+  "jitter_allowance": 8,
+  "observed": {
+    "26350": 4,
+    "26351": 12,
+    "28080": 9,
+    "23100": 204,
+    "6334": 0
+  },
+  "pre_fix_reference": {
+    "note": "Same command before this work; 23100 was not yet watched.",
+    "accepts": {
+      "26350": 101,
+      "26351": 37,
+      "28080": 9
+    },
+    "data_carrying": {
+      "26350": 101,
+      "26351": 12,
+      "28080": 9
+    }
+  }
+}
