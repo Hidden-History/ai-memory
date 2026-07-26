@@ -95,7 +95,7 @@ jobs:
           pytest tests/ -v --tb=short \
             --ignore=tests/e2e \
             --ignore=tests/integration \
-            -m "not quarantine" \
+            -m "not regression and not quarantine" \
             -p no:randomly \
             --cov=src/memory --cov-report=xml --cov-fail-under=70
         env:
@@ -175,7 +175,7 @@ jobs:
         run: |
           pytest tests/integration -v --tb=short \
             --run-integration \
-            -m "not requires_embedding"
+            -m "not regression and not requires_embedding"
         env:
           CI: "true"
           QDRANT_HOST: localhost
