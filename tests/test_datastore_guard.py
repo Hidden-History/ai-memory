@@ -17,6 +17,8 @@ import ast
 import inspect
 import os
 import pathlib
+import socket
+import time
 from typing import ClassVar
 
 import pytest
@@ -33,6 +35,7 @@ from tests.datastore_guard import (
     port_from_url,
     resolved_ports,
 )
+from tests.datastore_tripwire import Tripwire
 
 TESTS_DIR = pathlib.Path(__file__).parent
 LIVE_QDRANT_PORT = 26350
@@ -320,6 +323,80 @@ class TestUngatedTestsStayGated:
         assert not ungated, (
             "root-level tests take a live-service fixture with no gating "
             f"marker, so a plain `pytest tests/` runs them: {ungated}"
+        )
+
+
+class TestTripwireClassification:
+    """The oracle must fail toward "breach", never toward "harmless probe".
+
+    CI caught the original version doing the opposite: it treated "no bytes
+    within 0.4s" as a probe, so on a loaded runner a real payload connection was
+    recorded as harmless. Because the ratchet gates on that number, the error
+    direction was toward under-reporting -- a genuine regression could pass under
+    the ceiling. These tests pin the corrected direction.
+    """
+
+    @staticmethod
+    def _free_port():
+        """A port nothing is using, so these never touch a production port."""
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            return probe.getsockname()[1]
+
+    def _observe(self, client, classify_timeout=1.0):
+        port = self._free_port()
+        tripwire = Tripwire([port], classify_timeout=classify_timeout)
+        tripwire.arm()
+        try:
+            client(port)
+        finally:
+            tripwire.disarm()
+        return tripwire.report(), str(port)
+
+    def test_payload_connection_counts_as_data_carrying(self):
+        def client(port):
+            with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+                sock.sendall(b"GET / HTTP/1.1\r\n\r\n")
+
+        report, key = self._observe(client)
+        assert report["data_carrying"][key] == 1
+        assert report["probes"][key] == 0
+        assert report["total_gated"] == 1
+
+    def test_bare_probe_is_not_gated(self):
+        """connect-then-close carries nothing and must not read as a breach."""
+
+        def client(port):
+            socket.create_connection(("127.0.0.1", port), timeout=5).close()
+
+        report, key = self._observe(client)
+        assert report["probes"][key] == 1
+        assert report["data_carrying"][key] == 0
+        assert report["total_gated"] == 0
+
+    def test_slow_payload_is_gated_not_written_off_as_a_probe(self):
+        """The exact CI failure: a real client too slow for the budget.
+
+        With a deliberately tiny budget the classifier cannot see the payload in
+        time. It must record the connection as undecided and gate it -- the old
+        behaviour scored this as a probe and lost a real connection from the
+        count.
+        """
+
+        def client(port):
+            with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+                time.sleep(0.5)
+                sock.sendall(b"slow but entirely real")
+
+        report, key = self._observe(client, classify_timeout=0.05)
+        assert report["unclassified"][key] == 1
+        assert report["probes"][key] == 0, "an undecided connection is not a probe"
+        assert report["total_gated"] == 1, "an undecided connection must be gated"
+
+    def test_gated_total_is_data_plus_unclassified(self):
+        report, _ = self._observe(lambda port: None)
+        assert report["total_gated"] == (
+            report["total_data_carrying"] + report["total_unclassified"]
         )
 
 

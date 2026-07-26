@@ -25,7 +25,12 @@ Two consequences. The accept total includes connections that would not have
 happened without the tripwire, so it can never be expected to reach zero by
 arithmetic alone. And a bare probe is counted separately from a connection that
 carried bytes, because a probe cannot read or write anything while a real client
-can: that is what ``data_carrying`` is for, and why the ratchet gates on it.
+can.
+
+The ratchet therefore gates on ``total_gated`` -- data-carrying connections plus
+any the classifier could not decide. Unclassified ones are included on purpose:
+see ``Tripwire._classify`` for why an undecided connection has to count as a
+breach rather than as a probe.
 
 Why the self-test is not optional
 ---------------------------------
@@ -42,6 +47,7 @@ which no client library can bypass.
 import argparse
 import contextlib
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -52,11 +58,24 @@ import threading
 # variable is unset. 23100 is Langfuse, which the suite also reaches.
 PRODUCTION_PORTS = (26350, 26351, 28080, 23100, 6334)
 
+# How long the measurement path waits for a connection to declare itself. This
+# is a throughput budget, not a correctness knob: a connection that misses it is
+# recorded as `unclassified` and gated as though it carried data, so the number
+# can be tuned for speed without weakening the oracle.
+CLASSIFY_TIMEOUT = 0.4
+
+# The self-test does not race this budget at all. Its control client sends its
+# payload and only then closes, and TCP delivers those in order, so the server's
+# recv returns the bytes before it can ever see EOF. The timeout below is a
+# hang-guard for a control that never connects -- not the thing that decides the
+# result.
+SELF_TEST_CLASSIFY_TIMEOUT = 30.0
+
 
 class Tripwire:
     """Binds ports and counts accepts until stopped."""
 
-    def __init__(self, ports):
+    def __init__(self, ports, classify_timeout=CLASSIFY_TIMEOUT):
         self.ports = list(ports)
         self.counts = dict.fromkeys(self.ports, 0)
         # A bare liveness probe (connect + close, no payload) cannot read or
@@ -64,6 +83,11 @@ class Tripwire:
         # request line, or the HTTP/2 preface. Counting them apart keeps a
         # harmless probe from reading as a data breach.
         self.data_counts = dict.fromkeys(self.ports, 0)
+        self.probe_counts = dict.fromkeys(self.ports, 0)
+        # Connections that produced neither definite outcome inside the budget.
+        # See _classify: these are counted as breaches, not as probes.
+        self.unclassified_counts = dict.fromkeys(self.ports, 0)
+        self._classify_timeout = classify_timeout
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._listeners = {}
@@ -103,16 +127,49 @@ class Tripwire:
             with self._lock:
                 self.counts[port] += 1
             try:
-                conn.settimeout(0.4)
-                try:
-                    payload = conn.recv(65536)
-                except OSError:
-                    payload = b""
-                if payload:
-                    with self._lock:
-                        self.data_counts[port] += 1
+                self._classify(port, conn)
             finally:
                 conn.close()
+
+    def _classify(self, port, conn):
+        """Decide whether a connection carried data, and fail toward "it did".
+
+        Exactly two outcomes are definite, and both are events rather than
+        elapsed time:
+
+          * bytes arrive              -> a real client; it spoke a protocol
+          * recv returns b"" (EOF)    -> the peer closed having sent nothing,
+                                         which is precisely a liveness probe
+
+        Anything else -- a timeout, a reset -- is *not* evidence of a probe. It
+        is absence of evidence, and it is counted as `unclassified` and gated
+        alongside data-carrying connections.
+
+        That direction is the whole point. The previous version treated "no
+        bytes within 0.4s" as a probe, so a real payload connection on a loaded
+        runner was recorded as harmless. The ratchet gates on this number, so
+        the error direction was toward *under*-reporting: a genuine regression
+        could slip in under the ceiling. A guard may cost a false alarm; it may
+        not quietly miss a breach.
+
+        Note also that a timeout cannot be made safe by enlarging it. A larger
+        timeout is still a bet on the machine being fast enough, which is the
+        "works on my machine" property this plan exists to remove. The
+        self-test's determinism comes from TCP ordering instead -- see
+        _payload_control.
+        """
+        try:
+            conn.settimeout(self._classify_timeout)
+            payload = conn.recv(65536)
+        except (TimeoutError, OSError):
+            with self._lock:
+                self.unclassified_counts[port] += 1
+            return
+        with self._lock:
+            if payload:
+                self.data_counts[port] += 1
+            else:
+                self.probe_counts[port] += 1
 
     def disarm(self):
         self._stop.set()
@@ -123,11 +180,21 @@ class Tripwire:
                 srv.close()
 
     def report(self, wrapped_exit_code=None):
+        data = sum(self.data_counts.values())
+        unclassified = sum(self.unclassified_counts.values())
         return {
             "accepts": {str(p): self.counts[p] for p in self.ports},
             "data_carrying": {str(p): self.data_counts[p] for p in self.ports},
+            "probes": {str(p): self.probe_counts[p] for p in self.ports},
+            "unclassified": {str(p): self.unclassified_counts[p] for p in self.ports},
             "total_accepts": sum(self.counts.values()),
-            "total_data_carrying": sum(self.data_counts.values()),
+            "total_data_carrying": data,
+            "total_probes": sum(self.probe_counts.values()),
+            "total_unclassified": unclassified,
+            # What the ratchet gates on. Unclassified connections are included
+            # because they might have carried data; excluding them would let a
+            # regression hide behind a slow runner.
+            "total_gated": data + unclassified,
             "wrapped_exit_code": wrapped_exit_code,
         }
 
@@ -141,11 +208,27 @@ def _connect(port):
         sock.close()
 
 
-def self_test():
-    """Prove the counter can both stay silent and rise. Returns an exit code."""
-    probe_port = PRODUCTION_PORTS[0]
+def _payload_control(port):
+    """Connect, send, then close -- in that order, deliberately.
 
-    quiet = Tripwire(PRODUCTION_PORTS)
+    TCP delivers the payload before the FIN, so the server's recv returns the
+    bytes and can never observe EOF first. The classification is therefore
+    settled by protocol ordering, not by whether the machine was fast enough.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(10.0)
+    try:
+        sock.connect(("127.0.0.1", port))
+        sock.sendall(b"GET / HTTP/1.1\r\nHost: tripwire-self-test\r\n\r\n")
+    finally:
+        sock.close()
+
+
+def self_test():
+    """Prove the counter stays silent, rises, and classifies. Returns exit code."""
+    probe_port, grpc_port = PRODUCTION_PORTS[0], PRODUCTION_PORTS[1]
+
+    quiet = Tripwire(PRODUCTION_PORTS, classify_timeout=SELF_TEST_CLASSIFY_TIMEOUT)
     quiet.arm()
     quiet.disarm()
     if quiet.report()["total_accepts"] != 0:
@@ -153,48 +236,111 @@ def self_test():
         return 1
     print("  negative control: 0 accepts with nothing connecting -- OK")
 
-    live = Tripwire(PRODUCTION_PORTS)
+    live = Tripwire(PRODUCTION_PORTS, classify_timeout=SELF_TEST_CLASSIFY_TIMEOUT)
     live.arm()
+    grpc_ran = False
     try:
         if not _connect(probe_port):
             print(f"SELF-TEST FAIL: could not reach the tripwire on {probe_port}")
             return 1
-        _grpc_probe(probe_port)
+        _payload_control(probe_port)
+        grpc_ran = _grpc_probe(grpc_port)
     finally:
         live.disarm()
 
     result = live.report()
-    if result["accepts"][str(probe_port)] < 1:
-        print("SELF-TEST FAIL: counter did not rise on a deliberate connection")
-        return 1
-    print(f"  positive control: raw socket counted -- {result['accepts']}")
+    port, gport = str(probe_port), str(grpc_port)
 
-    if result["data_carrying"][str(probe_port)] < 1:
+    if result["accepts"][port] < 2:
+        print("SELF-TEST FAIL: counter did not rise on deliberate connections")
+        return 1
+    print(f"  positive control: accepts counted -- {result['accepts']}")
+
+    if result["probes"][port] < 1:
+        print(
+            "SELF-TEST FAIL: a connect-then-close carried no bytes but was not "
+            "classified as a probe, so the two cases are not being told apart"
+        )
+        return 1
+    print(f"  positive control: bare probe classified -- {result['probes']}")
+
+    if result["data_carrying"][port] < 1:
         print(
             "SELF-TEST FAIL: a payload-carrying connection was not classified "
             "as data-carrying, so the oracle cannot tell a probe from a breach"
         )
         return 1
     print(f"  positive control: payload classified -- {result['data_carrying']}")
-    print("SELF-TEST PASS: the counter can stay silent and can rise.")
+
+    if result["total_unclassified"]:
+        print(
+            "SELF-TEST FAIL: "
+            f"{result['total_unclassified']} connection(s) could not be "
+            f"classified ({result['unclassified']}). Every control here has a "
+            "definite outcome, so this means the classifier is racing the "
+            "machine rather than reading the protocol."
+        )
+        return 1
+    print("  no unclassified connections -- classification is deterministic")
+
+    if grpc_ran:
+        if result["accepts"][gport] < 1:
+            print(
+                "SELF-TEST FAIL: a real gRPC connection was made but the "
+                f"counter on {grpc_port} did not rise. This is the exact case a "
+                "socket-layer guard is blind to; the tripwire must see it."
+            )
+            return 1
+        print(f"  positive control: gRPC counted on {grpc_port} -- OK")
+    elif os.environ.get("TRIPWIRE_REQUIRE_GRPC", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        print(
+            "SELF-TEST FAIL: grpcio is not importable, so the gRPC leg of the "
+            "positive control did not run, and TRIPWIRE_REQUIRE_GRPC is set.\n"
+            "That leg is not optional here: gRPC is what an earlier "
+            "socket-layer guard could not see, and it is why this tripwire "
+            "counts at the accept layer. A positive control that silently omits "
+            "its most important case is the defect that guard had.\n"
+            "grpcio ships with the pinned qdrant-client[grpc] extra -- if it is "
+            "missing, the interpreter running this is probably not the one the "
+            "dependencies were installed into."
+        )
+        return 1
+    else:
+        print(
+            "  DEGRADED CONTROL: grpcio not importable, gRPC leg SKIPPED. "
+            "This control is weaker than it looks; set TRIPWIRE_REQUIRE_GRPC=1 "
+            "to make this a failure."
+        )
+
+    print("SELF-TEST PASS: the counter can stay silent, rise, and classify.")
     return 0
 
 
 def _grpc_probe(port):
-    """Drive a real gRPC connection, the path a socket-layer guard cannot see."""
+    """Drive a real gRPC connection; return whether the leg actually ran.
+
+    This is the leg that matters most. grpcio's C-core never enters Python's
+    ``socket`` module, so a guard patching ``socket`` sees nothing here while
+    real connections reach the protected port. The caller decides how loudly to
+    complain when grpcio is missing -- what it must not do is report OK.
+    """
     try:
         import grpc
     except ImportError:
-        print("  (grpcio unavailable; skipped the gRPC leg of the positive control)")
-        return
+        return False
     channel = grpc.insecure_channel(f"127.0.0.1:{port}")
     try:
-        grpc.channel_ready_future(channel).result(timeout=3)
-    except Exception:
-        # Expected: the tripwire accepts and drops. The accept is the signal.
-        pass
+        with contextlib.suppress(Exception):
+            # Expected to fail: the tripwire accepts and drops the connection.
+            # The accept is the signal, not the RPC outcome.
+            grpc.channel_ready_future(channel).result(timeout=5)
     finally:
         channel.close()
+    return True
 
 
 def check_ratchet(report_path, baseline_path):
@@ -210,29 +356,53 @@ def check_ratchet(report_path, baseline_path):
     with open(baseline_path) as handle:
         baseline = json.load(handle)
 
-    observed = report["total_data_carrying"]
-    allowed = baseline["max_data_carrying"]
+    # Gated number includes unclassified connections -- see Tripwire._classify.
+    observed = report["total_gated"]
+    allowed = baseline["max_gated"]
     # Headroom for run-to-run gRPC retry jitter. Only a drop clearly outside it
     # is worth tightening the ceiling for; nagging about jitter trains people to
     # ignore the message.
     jitter = baseline.get("jitter_allowance", 0)
 
-    print(f"data-carrying accepts: observed={observed} baseline={allowed}")
-    print(f"  per port observed: {report['data_carrying']}")
-    print(f"  total accepts (incl. bare probes): {report['total_accepts']}")
+    print(f"gated connections: observed={observed} baseline={allowed}")
+    print(f"  data-carrying: {report['data_carrying']}")
+    print(f"  unclassified (counted as breaches): {report['unclassified']}")
+    print(f"  bare probes (not gated): {report['probes']}")
+    print(f"  total accepts: {report['total_accepts']}")
+
+    failed = False
+
+    # Per-port ceilings, where the counts are stable enough to be tight. The
+    # total has to carry headroom for gRPC retry jitter, and a loose total could
+    # hide a handful of new connections to the port that actually gets written
+    # through. 26350 is that port and it does not move, so it is gated exactly.
+    for port, ceiling in sorted(baseline.get("max_per_port", {}).items()):
+        seen = report["data_carrying"].get(port, 0) + report["unclassified"].get(
+            port, 0
+        )
+        if seen > ceiling:
+            print(
+                f"\nFAIL: port {port} saw {seen} gated connections, above its "
+                f"ceiling of {ceiling}. This port is watched exactly because it "
+                "is stable; a rise here is a real change, not jitter."
+            )
+            failed = True
 
     if observed > allowed:
         print(
-            f"\nFAIL: {observed} data-carrying connections to production ports, "
+            f"\nFAIL: {observed} gated connections to production ports, "
             f"above the baseline of {allowed}.\n"
             "Something new in the suite reaches the operator's datastore. Point "
             "it at a throwaway instance, or gate it as an integration test."
         )
+        failed = True
+
+    if failed:
         return 1
 
     if observed < allowed - jitter:
         print(
-            f"\nThe count fell to {observed}. Lower max_data_carrying in "
+            f"\nThe count fell to {observed}. Lower max_gated in "
             f"{baseline_path} so the ground gained cannot be given back."
         )
     print("\nPASS: no increase in connections to production ports.")
