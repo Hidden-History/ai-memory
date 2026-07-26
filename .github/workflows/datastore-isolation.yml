@@ -92,8 +92,17 @@ jobs:
           # it at collection time. Inside the namespace that download fails DNS
           # and aborts collection for the whole run, so it is fetched here while
           # the network still exists.
-          python3 -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
-          echo "warmed: $(ls -1 "$TIKTOKEN_CACHE_DIR" | wc -l) cache entrie(s)"
+          #
+          # Both encodings the suite asks for. cl100k_base is imported during
+          # collection; p50k_base is requested by a truncation test, and warming
+          # only the first left that test failing on DNS instead of asserting
+          # anything. If a new encoding is introduced, add it here -- the symptom
+          # is a name-resolution error inside the namespace.
+          for enc in cl100k_base p50k_base; do
+            python3 -c "import sys, tiktoken; tiktoken.get_encoding(sys.argv[1])" "$enc"
+            echo "warmed $enc"
+          done
+          echo "cache entries: $(ls -1 "$TIKTOKEN_CACHE_DIR" | wc -l)"
 
       - name: Prove the tripwire counter works
         env:

@@ -2,11 +2,12 @@
   "_comment": [
     "Ratchet baseline for the Datastore Isolation workflow (TD-881).",
     "",
-    "max_gated is a CEILING THAT MAY ONLY EVER FALL. CI fails when a run exceeds",
-    "it, which is the signal that something new in the suite reaches the",
-    "operator's real services. When a run comes in under it, lower this number so",
-    "the ground gained cannot be given back.",
+    "These ceilings MAY ONLY EVER FALL. CI fails when a run exceeds one, which is",
+    "the signal that something new in the suite reaches the operator's real",
+    "services. When a run comes in under, lower the number so the ground gained",
+    "cannot be given back.",
     "",
+    "WHAT IS COUNTED",
     "The gated number is data-carrying connections PLUS connections the classifier",
     "could not decide. Undecided ones are included deliberately: a connection that",
     "did not declare itself inside the budget might have carried data, and scoring",
@@ -14,46 +15,71 @@
     "See Tripwire._classify. Bare probes -- a peer that closed having sent nothing",
     "-- are a definite outcome and are not gated.",
     "",
-    "It is not zero, and that is deliberate. Zero would require every test that",
-    "spawns a real hook script to be re-pointed at a throwaway instance -- roughly",
-    "eighteen more files, tracked separately as a burn-down. What protects the",
-    "operator today is the network namespace: every one of these connections lands",
-    "on the tripwire inside the namespace and reaches nothing real. This number",
-    "measures test hygiene; the namespace provides the safety.",
+    "IT IS NOT ZERO, DELIBERATELY",
+    "Zero would require every test that spawns a real hook script to be re-pointed",
+    "at a throwaway instance -- roughly eighteen more files, tracked separately as",
+    "a burn-down. What protects the operator is the network namespace: every one of",
+    "these connections lands on the tripwire inside the namespace and reaches",
+    "nothing real. These numbers measure test hygiene; the namespace is the safety.",
+    "",
+    "THESE NUMBERS ARE MEASURED IN CI, AND A LOCAL RUN WILL NOT MATCH",
+    "The two environments target different ports, because a maintainer machine has",
+    "an AI-Memory install and a runner does not:",
+    "  CI     26350=4  26351=0   28080=6  23100=0    6334=17  -> gated 27",
+    "  local  26350=4  26351=23  28080=9  23100=204  6334=0   -> gated 238-240",
+    "On a runner QDRANT_GRPC_PORT is unset, so qdrant-client falls back to its own",
+    "gRPC default of 6334; locally that variable is set to 26351 by the operator's",
+    "docker/.env, which src/memory/classifier/config.py loads into the environment.",
+    "Langfuse is absent on a runner, so 23100 goes quiet there while dominating",
+    "locally. Both 26351 and 6334 therefore have to be watched -- an earlier design",
+    "watched neither.",
+    "The gate runs in CI, so these ceilings are CI-referenced. Do not raise them to",
+    "accommodate a local run; a local total above max_gated is expected.",
+    "",
+    "max_gated is 40 against a measured 27, and jitter_allowance is set so that",
+    "27 does not read as a drop worth tightening. The headroom exists because the",
+    "6334 gRPC count comes from connection retries and moves run to run. If a run",
+    "comes in materially below 27, lower both.",
+    "",
+    "26350 IS THE ONE THAT MATTERS",
+    "It is the Qdrant REST port -- the one tests actually write through -- and it",
+    "measured exactly 4 on both a runner and a maintainer machine. max_per_port",
+    "gates it exactly, so a new test reaching the datastore fails immediately even",
+    "though the whole-suite total carries headroom for gRPC retry jitter.",
     "",
     "Before this work the same measurement was 147 accepts / 122 data-carrying",
-    "across the three ports then being watched, with 101 on the Qdrant REST port",
-    "that tests write through. That port now sits at 4. The total rose only",
-    "because Langfuse (23100) was added to the watched set and turned out to",
-    "account for 204 connections that had never been measured before.",
-    "",
-    "Two gates. max_gated is the whole-suite total and carries headroom, because",
-    "the gRPC retry count moves run to run and a flaky gate gets ignored. Three",
-    "consecutive local runs measured 238 / 239 / 240 (data-carrying stable at 228;",
-    "the movement is all in unclassified, tracking 26351). A CI runner may sit",
-    "higher: slower classification turns definite outcomes into unclassified ones,",
-    "which is the conservative direction by design. Set this from the first green",
-    "CI run rather than raising it blindly if it trips.",
-    "",
-    "max_per_port is the tight half. 26350 is the Qdrant REST port -- the one",
-    "tests actually write through -- and it does not move off 4. Gating it exactly",
-    "means a new test reaching the datastore fails immediately, even though the",
-    "total has enough slack to hide a handful of connections.",
-    "",
-    "Measured on the CI-scope suite (-m 'not regression and not quarantine') with",
-    "a cleared environment, inside unshare -rn, ordering fixed via -p no:randomly."
+    "across the three ports then being watched, with 101 on 26350. Measured on the",
+    "CI-scope suite (-m 'not regression and not quarantine') with a cleared",
+    "environment, inside a network namespace, ordering fixed via -p no:randomly."
   ],
-  "max_gated": 250,
-  "jitter_allowance": 10,
-  "observed": {
+  "max_gated": 40,
+  "jitter_allowance": 13,
+  "max_per_port": {
+    "26350": 4,
+    "28080": 9
+  },
+  "observed_ci": {
+    "26350": 4,
+    "26351": 0,
+    "28080": 6,
+    "23100": 0,
+    "6334": 17,
+    "gated_total": 27
+  },
+  "observed_local": {
     "26350": 4,
     "26351": 23,
     "28080": 9,
     "23100": 204,
-    "6334": 0
+    "6334": 0,
+    "gated_totals": [
+      238,
+      239,
+      240
+    ]
   },
   "pre_fix_reference": {
-    "note": "Same command before this work; 23100 was not yet watched.",
+    "note": "Same command before this work; 23100 and 6334 were not yet watched.",
     "accepts": {
       "26350": 101,
       "26351": 37,
@@ -64,14 +90,5 @@
       "26351": 12,
       "28080": 9
     }
-  },
-  "max_per_port": {
-    "26350": 4,
-    "28080": 9
-  },
-  "observed_gated_totals": [
-    238,
-    239,
-    240
-  ]
+  }
 }
