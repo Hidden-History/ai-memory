@@ -11,21 +11,27 @@ import os
 
 import pytest
 
+from tests.datastore_guard import assert_not_production, install_safe_defaults
+
 
 def pytest_configure(config):
     """Configure environment for integration tests.
 
     Sets EMBEDDING_READ_TIMEOUT to 60s for CPU-bound embedding operations.
     The 7B Nomic Embed Code model on CPU requires 20-30s per embedding.
-    Sets QDRANT_URL to correct host port (26350 not container port 6333).
+
+    TD-876: this used to default QDRANT_URL to the operator's live install for
+    the whole directory, while the only refusal lived inside a single fixture
+    and so protected nothing but that fixture's own consumers. The refusal is
+    now directory-wide and shared with the root conftest, so the two levels
+    cannot drift into two different answers.
     """
     # Only set if not already configured (allows override)
     if "EMBEDDING_READ_TIMEOUT" not in os.environ:
         os.environ["EMBEDDING_READ_TIMEOUT"] = "60.0"
 
-    # Set correct Qdrant URL for integration tests (host port, not container port)
-    if "QDRANT_URL" not in os.environ:
-        os.environ["QDRANT_URL"] = "http://localhost:26350"
+    install_safe_defaults()
+    assert_not_production()
 
 
 def pytest_collection_modifyitems(items):

@@ -1,0 +1,328 @@
+"""Regression gate for the production-datastore guard (TD-881, TD-876).
+
+Every test here names a specific defect that was live in this repository and
+fails if that defect returns. They are deliberately written against the
+mechanism rather than the symptom: three separate live-write paths were closed,
+and each had already survived one round of "fixed" because the fix was checked
+by reasoning instead of by a test.
+
+These assert *configuration* safety only. The load-bearing protection is the
+network namespace the suite runs inside, whose oracle is the tripwire
+accept-counter in .github/workflows/datastore-isolation.yml. Nothing in this
+file can prove a connection was not made -- do not let it grow into something
+that claims to.
+"""
+
+import ast
+import inspect
+import os
+import pathlib
+from typing import ClassVar
+
+import pytest
+
+from memory.config import MemoryConfig
+from tests import conftest as root_conftest
+from tests.datastore_guard import (
+    LIVE_OPT_IN_ENV,
+    PRODUCTION_PORTS,
+    SENTINEL_PORT,
+    SENTINEL_URL,
+    assert_not_production,
+    install_safe_defaults,
+    port_from_url,
+    resolved_ports,
+)
+
+TESTS_DIR = pathlib.Path(__file__).parent
+LIVE_QDRANT_PORT = 26350
+
+
+class TestProductionPortSet:
+    """The guard has to know which ports are production."""
+
+    def test_config_defaults_are_all_protected(self):
+        """A port default in config.py that the guard does not know is a hole.
+
+        Catches the drift this set is exposed to: the values are written out in
+        datastore_guard rather than derived at runtime, so this test is what
+        keeps them honest.
+        """
+        fields = MemoryConfig.model_fields
+        assert fields["qdrant_port"].default in PRODUCTION_PORTS
+        assert fields["embedding_port"].default in PRODUCTION_PORTS
+        langfuse_port = port_from_url(fields["langfuse_base_url"].default)
+        assert langfuse_port in PRODUCTION_PORTS
+
+    def test_grpc_port_is_protected(self):
+        """26351 is the live gRPC port and is not represented in config.py.
+
+        It comes from docker/.env (QDRANT_GRPC_PORT). A guard derived purely
+        from config defaults would omit it -- which is exactly how an earlier
+        design ended up protecting the wrong set while appearing to work.
+        """
+        assert 26351 in PRODUCTION_PORTS
+        assert 6334 in PRODUCTION_PORTS  # qdrant-client's own gRPC default
+
+
+class TestSentinel:
+    """The sentinel has to be usable, and has to stay not-a-real-service."""
+
+    def test_sentinel_satisfies_config_constraints(self):
+        """A sentinel outside ge=1024/le=65535 breaks collection, not the run.
+
+        Regression: an earlier sentinel of port 1 made MemoryConfig raise a
+        pydantic ValidationError during collection, which fails the suite for a
+        reason unrelated to the thing being guarded.
+        """
+        field = MemoryConfig.model_fields["qdrant_port"]
+        bounds = {type(m).__name__: m for m in field.metadata}
+        assert bounds["Ge"].ge <= SENTINEL_PORT <= bounds["Le"].le
+
+    def test_sentinel_is_outside_the_ephemeral_range(self):
+        """The kernel must never auto-assign the sentinel to a live process."""
+        try:
+            low, high = (
+                pathlib.Path("/proc/sys/net/ipv4/ip_local_port_range")
+                .read_text()
+                .split()
+            )
+        except OSError:
+            pytest.skip("ip_local_port_range unavailable on this platform")
+        assert not int(low) <= SENTINEL_PORT <= int(high)
+
+    def test_sentinel_is_not_a_production_port(self):
+        assert SENTINEL_PORT not in PRODUCTION_PORTS
+
+
+class TestRefusal:
+    """assert_not_production must refuse, and must not be bypassable by luck."""
+
+    @pytest.mark.parametrize("port", sorted(PRODUCTION_PORTS))
+    def test_every_production_port_is_refused(self, port):
+        with pytest.raises(pytest.UsageError, match="Refusing to run"):
+            assert_not_production({"QDRANT_PORT": str(port)})
+
+    def test_production_url_is_refused(self):
+        """The port can arrive inside a URL rather than as a bare port var."""
+        with pytest.raises(pytest.UsageError, match="Refusing to run"):
+            assert_not_production({"QDRANT_URL": "http://localhost:26350"})
+
+    def test_auxiliary_production_vars_do_not_block_the_run(self):
+        """The refusal is scoped to the Qdrant target, on purpose.
+
+        src/memory/classifier/config.py loads the operator's real
+        ~/.ai-memory/docker/.env into os.environ during collection, and does not
+        honour AI_MEMORY_INSTALL_DIR, so EMBEDDING_PORT / QDRANT_GRPC_PORT /
+        LANGFUSE_BASE_URL sit at their production values in every run. Refusing
+        on those produced 5889 setup errors and no actionable signal. They are
+        still counted by the tripwire, which is where that exposure is tracked.
+        """
+        assert_not_production(
+            {
+                "LANGFUSE_BASE_URL": "http://localhost:23100",
+                "EMBEDDING_PORT": "28080",
+                "QDRANT_GRPC_PORT": "26351",
+            }
+        )
+
+    def test_sentinel_target_is_permitted(self):
+        assert_not_production({"QDRANT_URL": SENTINEL_URL})
+
+    def test_ephemeral_target_is_permitted(self):
+        """A throwaway instance on an arbitrary port must not be refused."""
+        assert_not_production({"QDRANT_PORT": "46731"})
+
+    def test_opt_in_permits_a_deliberate_live_run(self):
+        assert_not_production(
+            {"QDRANT_PORT": str(LIVE_QDRANT_PORT), LIVE_OPT_IN_ENV: "1"}
+        )
+
+    def test_opt_in_is_not_triggered_by_an_arbitrary_value(self):
+        """`AI_MEMORY_ALLOW_LIVE_DATASTORE=0` must not count as opting in."""
+        with pytest.raises(pytest.UsageError):
+            assert_not_production(
+                {"QDRANT_PORT": str(LIVE_QDRANT_PORT), LIVE_OPT_IN_ENV: "0"}
+            )
+
+
+class TestSafeDefaults:
+    """install_safe_defaults is the replacement for the autouse override."""
+
+    def test_untargeted_run_gets_the_sentinel(self):
+        env = {}
+        install_safe_defaults(env)
+        assert env["QDRANT_URL"] == SENTINEL_URL
+        assert env["QDRANT_PORT"] == str(SENTINEL_PORT)
+        assert LIVE_QDRANT_PORT not in resolved_ports(env)
+
+    def test_an_explicit_caller_target_is_never_overwritten(self):
+        """The defect that made every earlier mitigation useless.
+
+        A session-scoped autouse fixture rewrote QDRANT_URL/QDRANT_PORT to the
+        live instance from inside the pytest process, after any pre-launch check
+        had passed. Honouring the caller is the whole fix.
+        """
+        env = {"QDRANT_URL": "http://localhost:46731", "QDRANT_PORT": "46731"}
+        install_safe_defaults(env)
+        assert env["QDRANT_URL"] == "http://localhost:46731"
+        assert env["QDRANT_PORT"] == "46731"
+
+
+class TestMechanismsStayClosed:
+    """Static checks on the three live-write paths TD-881 enumerated."""
+
+    def test_qdrant_base_url_does_not_default_to_production(self):
+        """Mechanism 1: the fixture's own default was the live port."""
+        source = inspect.getsource(root_conftest.qdrant_base_url)
+        assert str(LIVE_QDRANT_PORT) not in source
+
+    def test_integration_test_env_assigns_no_target_directly(self):
+        """Mechanism 2: the autouse fixture hard-set QDRANT_URL/QDRANT_PORT.
+
+        It must delegate to the shared helper, never assign a target itself --
+        a direct assignment here is what no caller could defend against.
+        """
+        source = inspect.getsource(root_conftest.integration_test_env)
+        assert 'os.environ["QDRANT_URL"] =' not in source
+        assert 'os.environ["QDRANT_PORT"] =' not in source
+        assert "install_safe_defaults()" in source
+
+    def test_no_test_hardcodes_the_live_url_in_a_subprocess_env(self):
+        """Mechanism 3: a literal live URL in a subprocess `env=` mapping.
+
+        Globbed rather than pinned to known files, so a new occurrence anywhere
+        under tests/ fails this instead of going unnoticed.
+        """
+        offenders = []
+        for path in TESTS_DIR.rglob("test_*.py"):
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+            ):
+                stripped = line.strip()
+                if stripped.startswith("#"):
+                    continue
+                if (
+                    'env={"QDRANT_URL"' in stripped
+                    and str(LIVE_QDRANT_PORT) in stripped
+                ):
+                    offenders.append(f"{path.relative_to(TESTS_DIR)}:{lineno}")
+        assert not offenders, (
+            "subprocess env= must derive the Qdrant URL, not literal the live "
+            f"install: {offenders}"
+        )
+
+
+class TestSharedGuard:
+    """TD-876: one implementation, applied at both conftest levels."""
+
+    @pytest.mark.parametrize(
+        "conftest_path", ["conftest.py", "integration/conftest.py"]
+    )
+    def test_conftest_uses_the_shared_guard(self, conftest_path):
+        source = (TESTS_DIR / conftest_path).read_text(encoding="utf-8")
+        assert "datastore_guard" in source
+        assert "assert_not_production()" in source
+        assert "install_safe_defaults()" in source
+
+    def test_neither_conftest_defaults_to_the_live_port(self):
+        for conftest_path in ("conftest.py", "integration/conftest.py"):
+            source = (TESTS_DIR / conftest_path).read_text(encoding="utf-8")
+            for lineno, line in enumerate(source.splitlines(), 1):
+                stripped = line.strip()
+                if stripped.startswith("#") or "=" not in stripped:
+                    continue
+                assert (
+                    f"localhost:{LIVE_QDRANT_PORT}" not in stripped
+                ), f"{conftest_path}:{lineno} assigns the live datastore"
+
+
+class TestUngatedTestsStayGated:
+    """The 16 root-level tests that ran against live data on a plain pytest."""
+
+    # Fixtures that hand a test a real connection to a live service.
+    LIVE_FIXTURES: ClassVar[frozenset] = frozenset(
+        {"qdrant_client", "qdrant_base_url", "async_qdrant_client"}
+    )
+    GATING_MARKERS: ClassVar[frozenset] = frozenset(
+        {
+            "integration",
+            "e2e",
+            "quarantine",
+            "regression",
+            "skip",
+            "requires_qdrant",
+            "requires_embedding",
+            "requires_docker_stack",
+        }
+    )
+
+    @classmethod
+    def _marker_name(cls, node):
+        node = node.func if isinstance(node, ast.Call) else node
+        parts = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+        parts.reverse()
+        if len(parts) >= 3 and parts[:2] == ["pytest", "mark"]:
+            return parts[2]
+        return None
+
+    @classmethod
+    def _module_markers(cls, tree):
+        markers = set()
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets
+            ):
+                values = (
+                    node.value.elts
+                    if isinstance(node.value, (ast.List, ast.Tuple))
+                    else [node.value]
+                )
+                markers.update(filter(None, (cls._marker_name(v) for v in values)))
+        return markers
+
+    @classmethod
+    def _collect_ungated(cls, node, markers, path, ungated):
+        """Walk a module or class body, recording un-gated live-fixture tests."""
+        for child in node.body:
+            own = markers | {
+                m
+                for m in map(cls._marker_name, getattr(child, "decorator_list", []))
+                if m
+            }
+            if isinstance(child, ast.ClassDef):
+                cls._collect_ungated(child, own, path, ungated)
+            elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                if not child.name.startswith("test_"):
+                    continue
+                takes_live = {a.arg for a in child.args.args} & cls.LIVE_FIXTURES
+                if takes_live and not (own & cls.GATING_MARKERS):
+                    ungated.append(f"{path.name}::{child.name}")
+
+    def test_no_root_level_test_takes_a_live_fixture_ungated(self):
+        """Root-level unmarked tests match neither branch of the skip gate.
+
+        That gate keys only on the integration/e2e keyword or an /integration/
+        or /e2e/ path segment, so a test sitting directly under tests/ with no
+        marker is never deselected -- not by the gate, and not by
+        `-m "not quarantine"` either, because it carries no markers at all.
+        """
+        ungated = []
+        for path in sorted(TESTS_DIR.glob("test_*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            self._collect_ungated(tree, self._module_markers(tree), path, ungated)
+
+        assert not ungated, (
+            "root-level tests take a live-service fixture with no gating "
+            f"marker, so a plain `pytest tests/` runs them: {ungated}"
+        )
+
+
+def test_guard_is_active_in_this_very_session():
+    """The suite running right now must not be pointed at production."""
+    assert not resolved_ports(os.environ) & PRODUCTION_PORTS

@@ -11,11 +11,19 @@ The pre-P1 "shared" group_id marker is removed; best practices store and
 retrieve under the caller's project group_id like code-patterns/discussions.
 """
 
+import pytest
 from conftest import wait_for_condition
 
 from src.memory.models import MemoryType
 from src.memory.search import MemorySearch, retrieve_best_practices
 from src.memory.storage import store_best_practice
+
+# Every test in this module takes the live `qdrant_client` fixture, which writes
+# on setup. TD-881: they carried no marker at all, so neither the integration
+# gate (which keys on the `integration` keyword or an /integration/ path segment)
+# nor `-m "not quarantine"` ever deselected them, and a plain `pytest tests/`
+# ran all 13 against the operator's real collections.
+pytestmark = pytest.mark.integration
 
 
 class TestBestPracticesProjectScoped:

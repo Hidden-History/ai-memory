@@ -96,8 +96,12 @@ class TestMemoryConfig:
         assert config.log_level == "DEBUG"
         assert config.log_format == "text"
 
-    def test_config_singleton_with_lru_cache(self):
+    def test_config_singleton_with_lru_cache(self, monkeypatch):
         """AC 7.4.1: get_config() returns singleton via lru_cache (thread-safe)."""
+        # Asserts the built-in default, so it must not read an ambient target.
+        # This passed only because a fixture used to set QDRANT_PORT to the same
+        # value as the default -- the live install (TD-881).
+        monkeypatch.delenv("QDRANT_PORT", raising=False)
         reset_config()
 
         config1 = get_config()
@@ -392,8 +396,10 @@ LOG_LEVEL=WARNING
         with pytest.raises(ValidationError, match="frozen"):
             config.similarity_threshold = 0.9  # type: ignore
 
-    def test_helper_methods(self):
+    def test_helper_methods(self, monkeypatch):
         """AC 7.4.1: Helper methods return proper URLs."""
+        # Asserts the default-derived URL, so the ambient target must be cleared.
+        monkeypatch.delenv("QDRANT_PORT", raising=False)
         reset_config()
         config = get_config()
 
@@ -418,6 +424,8 @@ LOG_LEVEL=WARNING
     def test_monitoring_host_separate_from_qdrant(self, monkeypatch):
         """Code Review Fix: monitoring_host is independent of qdrant_host."""
         reset_config()
+        # The assertion below pins the default port, so clear any ambient one.
+        monkeypatch.delenv("QDRANT_PORT", raising=False)
         monkeypatch.setenv("QDRANT_HOST", "qdrant.example.com")
         monkeypatch.setenv("MONITORING_HOST", "monitoring.example.com")
         monkeypatch.setenv("MONITORING_PORT", "9000")
@@ -432,6 +440,8 @@ LOG_LEVEL=WARNING
 
     def test_reset_config_clears_cache(self, monkeypatch):
         """AC 7.4.1: reset_config() clears lru_cache for test isolation."""
+        # The first assertion pins the default port, so clear any ambient one.
+        monkeypatch.delenv("QDRANT_PORT", raising=False)
         reset_config()
 
         # Get initial config
