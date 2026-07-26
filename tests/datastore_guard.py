@@ -15,6 +15,22 @@ namespace cannot cover: a developer typing a bare ``pytest tests/`` with no
 wrapper. It makes the *default target* safe, and refuses a production target
 outright unless the caller opts in deliberately.
 
+What it does not cover
+----------------------
+Both entry points are pytest hooks in a conftest, so ``pytest --noconftest``
+skips them and no refusal happens: 40 tests collect against a live target with
+this module never imported. Nothing here can close that, because there is no
+conftest left to close it from -- a mechanism surviving ``--noconftest`` would
+have to live outside the test tree, in a ``-p`` plugin entry point or a
+``sitecustomize``.
+
+The exposure is contained today rather than blocked: files taking a live
+fixture also import from ``conftest``, so under ``--noconftest`` they fail at
+import instead of connecting. That is a property of how the suite happens to be
+written, not a guarantee this module provides, and it is written down here
+because the alternative is a docstring claiming protection that does not exist.
+The namespace is what actually holds for every invocation.
+
 It is not, and must not become, a connect-time guard. A previous design patched
 ``socket.connect`` and was blind to the production client's gRPC path, because
 grpcio's C-core never enters Python's ``socket`` module -- it passed its own
@@ -86,6 +102,27 @@ def port_from_url(url):
 # and they are the three mechanisms TD-881 enumerated.
 QDRANT_TARGET_VARS = ("QDRANT_PORT", "QDRANT_URL")
 
+# Where a client lands when neither of those variables is set.
+#
+# Absence is not safety. MemoryConfig has no QDRANT_URL field at all, and its
+# qdrant_port field default is this port -- the operator's live REST port -- so
+# removing the variable does not leave the suite pointed nowhere. It leaves it
+# pointed at production. On a normal install the same removal also uncovers
+# ~/.ai-memory/docker/.env, which MemoryConfig reads through env_file and which
+# names the same port, so both routes out of an empty environment arrive here.
+#
+# BP-197's rule is that a guard reading configuration can be defeated by
+# anything that WRITES configuration. This is its removal-side twin: defeated by
+# anything that DELETES configuration. Reproduced on a live install -- clearing
+# QDRANT_PORT made resolved_ports() return an empty set and the refusal pass,
+# while MemoryConfig resolved 26350. That is why an empty environment reports
+# this port rather than an empty set: the guard has to answer "where would a
+# client actually connect", not "what did the caller happen to type".
+#
+# tests/test_datastore_guard.py pins this to the field default, so a change to
+# config.py fails a test instead of quietly moving the fallback.
+CONFIG_FALLBACK_PORT = 26350
+
 
 def resolved_ports(env=None):
     """Return the Qdrant port(s) the suite is currently pointed at.
@@ -109,6 +146,10 @@ def resolved_ports(env=None):
     The ordering that makes this safe: pytest_configure installs the sentinel
     before collection begins, and the loader above only fills keys that are
     *absent*, so it can never overwrite the Qdrant target.
+
+    An environment naming neither variable resolves to CONFIG_FALLBACK_PORT
+    rather than to nothing -- see that constant for why an empty answer here was
+    a false report of safety.
     """
     env = os.environ if env is None else env
     ports = set()
@@ -118,6 +159,8 @@ def resolved_ports(env=None):
     port = port_from_url(env.get("QDRANT_URL"))
     if port is not None:
         ports.add(port)
+    if not ports:
+        ports.add(CONFIG_FALLBACK_PORT)
     return ports
 
 
@@ -129,10 +172,28 @@ def install_safe_defaults(env=None):
     session-scoped autouse fixture rewrote the caller's target to the live
     instance from *inside* the pytest process, after any pre-launch check had
     already passed, so no env-var mitigation could survive it.
+
+    A caller that sets only one half of the pair gets the other half derived
+    from it, never defaulted independently. Two independent ``setdefault`` calls
+    produced a target that disagreed with itself: .github/workflows/test.yml's
+    integration job sets only ``QDRANT_PORT: 6333``, so the port readers aimed at
+    the CI service container while the URL readers -- ``wait_for_qdrant_healthy``
+    among them -- aimed at the sentinel and polled it until it timed out.
+    tests/integration/test_backup_restore_round_trip.py still carries a
+    hand-rolled workaround for exactly that split.
     """
     env = os.environ if env is None else env
-    env.setdefault("QDRANT_URL", SENTINEL_URL)
-    env.setdefault("QDRANT_PORT", str(SENTINEL_PORT))
+    url, port = env.get("QDRANT_URL"), env.get("QDRANT_PORT")
+    if url and not port:
+        derived = port_from_url(url)
+        if derived is not None:
+            env["QDRANT_PORT"] = str(derived)
+    elif port and not url:
+        host = env.get("QDRANT_HOST") or SENTINEL_HOST
+        env["QDRANT_URL"] = f"http://{host}:{port}"
+    elif not url and not port:
+        env["QDRANT_URL"] = SENTINEL_URL
+        env["QDRANT_PORT"] = str(SENTINEL_PORT)
 
 
 def assert_not_production(env=None):

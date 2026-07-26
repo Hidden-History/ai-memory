@@ -50,10 +50,20 @@
     "Before this work the same measurement was 147 accepts / 122 data-carrying",
     "across the three ports then being watched, with 101 on 26350. Measured on the",
     "CI-scope suite (-m 'not regression and not quarantine') with a cleared",
-    "environment, inside a network namespace, ordering fixed via -p no:randomly."
+    "environment, inside a network namespace, ordering fixed via -p no:randomly.",
+    "",
+    "A CEILING NEEDS A FLOOR UNDER IT",
+    "min_tests is not a ratchet -- it is what stops the ratchet grading a run that",
+    "never happened. Every ceiling here is satisfied most easily by a suite that",
+    "does not execute: it connects to nothing, so it scores zero. The CI-scope run",
+    "reports 6486 tests (5802 passed, 684 skipped), and the floor sits at 5000 so a",
+    "run that collects a fraction of the suite fails instead of setting a new best",
+    "score. Raise it when the suite grows; a floor that trails far behind the real",
+    "count stops catching partial selections. See check_run_happened."
   ],
   "max_gated": 40,
   "jitter_allowance": 13,
+  "min_tests": 5000,
   "max_per_port": {
     "26350": 4,
     "28080": 9

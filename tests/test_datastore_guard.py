@@ -15,6 +15,7 @@ that claims to.
 
 import ast
 import inspect
+import json
 import os
 import pathlib
 import socket
@@ -26,6 +27,7 @@ import pytest
 from memory.config import MemoryConfig
 from tests import conftest as root_conftest
 from tests.datastore_guard import (
+    CONFIG_FALLBACK_PORT,
     LIVE_OPT_IN_ENV,
     PRODUCTION_PORTS,
     SENTINEL_PORT,
@@ -35,7 +37,7 @@ from tests.datastore_guard import (
     port_from_url,
     resolved_ports,
 )
-from tests.datastore_tripwire import Tripwire
+from tests.datastore_tripwire import Tripwire, check_run_happened
 
 TESTS_DIR = pathlib.Path(__file__).parent
 LIVE_QDRANT_PORT = 26350
@@ -120,9 +122,14 @@ class TestRefusal:
         LANGFUSE_BASE_URL sit at their production values in every run. Refusing
         on those produced 5889 setup errors and no actionable signal. They are
         still counted by the tripwire, which is where that exposure is tracked.
+
+        The Qdrant target here is an ephemeral port so that this asserts what it
+        says it does. Without one the environment names no target at all, which
+        is its own refusal -- see TestEmptyEnvironmentIsNotSafety.
         """
         assert_not_production(
             {
+                "QDRANT_PORT": "46731",
                 "LANGFUSE_BASE_URL": "http://localhost:23100",
                 "EMBEDDING_PORT": "28080",
                 "QDRANT_GRPC_PORT": "26351",
@@ -247,17 +254,27 @@ class TestUngatedTestsStayGated:
     LIVE_FIXTURES: ClassVar[frozenset] = frozenset(
         {"qdrant_client", "qdrant_base_url", "async_qdrant_client"}
     )
+    # Only markers that deselect a test *unconditionally*, on the plain
+    # `pytest tests/` this class is about.
+    #
+    #   integration / e2e  -- deselected by the skip gate in conftest, which
+    #                         keys on the keyword or the path segment
+    #   regression         -- excluded by addopts: -m 'not regression'
+    #   skip               -- never runs, by construction
+    #
+    # `requires_qdrant`, `requires_embedding` and `requires_docker_stack` were
+    # counted here and are not gates at all. conftest's skip_if_service_available
+    # path skips them only when the service is *unavailable*, so on the operator
+    # machine TD-881 is about -- where Qdrant is up -- they permit the test to
+    # run rather than hold it back. A root test taking `qdrant_client` and
+    # marked only `@pytest.mark.requires_qdrant` satisfied this oracle while
+    # doing precisely what TD-881 forbids.
+    #
+    # `quarantine` was counted too and has no skip hook anywhere. The
+    # CI-scope command passes -m 'not quarantine' explicitly, but addopts does
+    # not, and a bare `pytest tests/` is the case being checked here.
     GATING_MARKERS: ClassVar[frozenset] = frozenset(
-        {
-            "integration",
-            "e2e",
-            "quarantine",
-            "regression",
-            "skip",
-            "requires_qdrant",
-            "requires_embedding",
-            "requires_docker_stack",
-        }
+        {"integration", "e2e", "regression", "skip"}
     )
 
     @classmethod
@@ -324,6 +341,106 @@ class TestUngatedTestsStayGated:
             "root-level tests take a live-service fixture with no gating "
             f"marker, so a plain `pytest tests/` runs them: {ungated}"
         )
+
+
+class TestEmptyEnvironmentIsNotSafety:
+    """Clearing the target does not point the suite nowhere -- it points it home.
+
+    BP-197's rule is that a guard reading configuration can be defeated by
+    anything that writes configuration. This is the removal-side twin: MemoryConfig
+    has no QDRANT_URL field and its qdrant_port default is the operator's live
+    REST port, so an empty environment resolves to production rather than to
+    nothing. A guard that reported "no target" for an empty environment would
+    wave through exactly the case it exists to catch.
+    """
+
+    def test_fallback_matches_the_config_field_default(self):
+        """Pinned, so a change in config.py fails here instead of drifting."""
+        assert MemoryConfig.model_fields["qdrant_port"].default == CONFIG_FALLBACK_PORT
+
+    def test_empty_environment_resolves_to_the_live_port(self):
+        assert CONFIG_FALLBACK_PORT in resolved_ports({})
+
+    def test_empty_environment_is_refused(self):
+        with pytest.raises(pytest.UsageError, match="Refusing to run"):
+            assert_not_production({})
+
+    def test_config_really_does_resolve_there(self):
+        """The claim above, checked against MemoryConfig rather than asserted."""
+        assert MemoryConfig.model_fields["qdrant_port"].default == LIVE_QDRANT_PORT
+
+
+class TestRunHealthGatesTheRatchet:
+    """A count is only evidence if the run that produced it actually happened.
+
+    Both holes here are fail-open: a run that dies or that executes a fraction of
+    the suite connects to almost nothing, so its low count reads as the best
+    result ever recorded. The ratchet has to establish there was a measurement
+    before comparing it to anything.
+    """
+
+    @staticmethod
+    def _report(exit_code):
+        return {"total_gated": 0, "wrapped_exit_code": exit_code}
+
+    @staticmethod
+    def _junit(tmp_path, tests):
+        path = tmp_path / "pytest-report.xml"
+        path.write_text(f'<testsuites><testsuite tests="{tests}"/></testsuites>')
+        return str(path)
+
+    @pytest.mark.parametrize("exit_code", [2, 3, 4, 5, 127, None])
+    def test_a_run_that_did_not_execute_is_rejected(self, exit_code, tmp_path):
+        """Exit 2 is a collection error, 4 a usage error, 5 nothing selected.
+
+        Observed for real: a malformed wrapper made pytest run without its flags
+        and the leftovers exited 127. Had a report been written, it would have
+        carried a near-zero count straight past the ceiling.
+        """
+        problem = check_run_happened(
+            self._report(exit_code), {}, self._junit(tmp_path, 6000)
+        )
+        assert problem is not None
+        assert "did not execute" in problem
+
+    @pytest.mark.parametrize("exit_code", [0, 1])
+    def test_a_run_that_executed_is_accepted(self, exit_code, tmp_path):
+        """1 means tests failed, which is still a run that connected or did not."""
+        assert (
+            check_run_happened(
+                self._report(exit_code),
+                {"min_tests": 5000},
+                self._junit(tmp_path, 6000),
+            )
+            is None
+        )
+
+    def test_a_partial_run_is_rejected(self, tmp_path):
+        """Exit 0 with a fraction of the suite: honest count, meaningless one."""
+        problem = check_run_happened(
+            self._report(0), {"min_tests": 5000}, self._junit(tmp_path, 40)
+        )
+        assert problem is not None
+        assert "below the floor" in problem
+
+    def test_a_floor_with_no_junit_report_is_rejected(self):
+        """A floor that cannot be evaluated must not silently pass."""
+        problem = check_run_happened(self._report(0), {"min_tests": 5000}, None)
+        assert problem is not None
+        assert "not a floor" in problem
+
+    def test_an_unreadable_junit_report_is_rejected(self, tmp_path):
+        bad = tmp_path / "truncated.xml"
+        bad.write_text("<testsuites><testsuite tests=")
+        problem = check_run_happened(self._report(0), {"min_tests": 5000}, str(bad))
+        assert problem is not None
+
+    def test_the_shipped_baseline_sets_a_floor(self):
+        """Without min_tests the partial-run hole is open in the real config."""
+        baseline = json.loads(
+            (TESTS_DIR / "datastore_isolation_baseline.json").read_text()
+        )
+        assert baseline.get("min_tests", 0) > 0
 
 
 class TestTripwireClassification:
