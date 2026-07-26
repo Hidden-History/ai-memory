@@ -28,6 +28,23 @@ is unsupportable even when the answer happens to be right):
     Makefile target that itself calls pytest) -- no regex over the
     workflow YAML can see through that indirection. No such indirection
     exists in this repo's workflows today.
+  - Does NOT recognize a path-prefixed pytest binary (e.g.
+    `./venv/bin/pytest tests/ -m "not quarantine"` or `/usr/bin/pytest
+    ...`) -- the lookbehind that keeps the matcher from firing inside a
+    larger word also excludes a preceding `/` or `.`. This is a literal
+    pytest invocation, not indirection, and is a more plausible future
+    form than an alias. No such invocation exists in this repo's
+    workflows today.
+  - DELIBERATELY over-matches inside shell comments and quoted prose
+    (e.g. a commented-out `# pytest tests/ -m "not quarantine"`, or
+    `echo "we run pytest tests/ -m foo"`) -- the matcher has no notion of
+    shell comment or quoting context. This is a deliberate fail-loud
+    bias, not an oversight: a false positive here fails CI loudly and
+    gets fixed; a false negative would silently run the live-service
+    tests in CI, which is the TD-898 harm this gate exists to prevent.
+    Narrowing the anchor to eliminate the over-match would reopen that
+    false-negative risk, so it is intentionally left as-is. No such
+    comment or prose exists in this repo's workflows today.
   - Only inspects YAML-mapping `run:` step values (both block-scalar and
     plain-string forms). It does not follow `uses:`-based composite
     actions or reusable workflow calls.
