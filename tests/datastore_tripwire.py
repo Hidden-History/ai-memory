@@ -433,12 +433,25 @@ def check_run_happened(report, baseline, junit_path):
 
 
 def check_ratchet(report_path, baseline_path, junit_path=None):
-    """Fail when data-carrying accepts rise above the recorded baseline.
+    """Fail when data-carrying accepts rise above a port's recorded ceiling.
 
     A ratchet rather than a fixed threshold: the count varies run to run because
     gRPC retries a variable number of times, so a hard number would flake. What
     matters is the direction -- a new test that reaches production pushes the
     count up, and that is the regression worth failing on.
+
+    The gate is per-port. The whole-suite total is printed but nothing fails on
+    it, because a total over these ports cannot detect what a total was for. The
+    tripwire binds only PRODUCTION_PORTS, so the total is by construction the sum
+    of the per-port counts: a port nobody thought to watch is never bound, never
+    contributes, and cannot move it. The total therefore caught nothing the
+    per-port ceilings do not already catch, while carrying all of the jitter --
+    it read 25, 38 and 37 against a ceiling of 40 across three green runs, all of
+    that spread coming from one retry-prone port. A gate that cannot catch its
+    own quarry but can fail on noise gets raised, raised again, then ignored.
+    What replaces it is the coverage assertion in tests/test_datastore_guard.py:
+    every bound port must carry a ceiling, which answers "did we forget to gate
+    something" directly instead of by proxy.
 
     The comparison is only reached once the run has been shown to have happened
     -- see check_run_happened for why a number alone cannot be trusted.
@@ -454,14 +467,10 @@ def check_ratchet(report_path, baseline_path, junit_path=None):
         return 1
 
     # Gated number includes unclassified connections -- see Tripwire._classify.
+    # Printed as a trend line only; the gate below is per-port.
     observed = report["total_gated"]
-    allowed = baseline["max_gated"]
-    # Headroom for run-to-run gRPC retry jitter. Only a drop clearly outside it
-    # is worth tightening the ceiling for; nagging about jitter trains people to
-    # ignore the message.
-    jitter = baseline.get("jitter_allowance", 0)
 
-    print(f"gated connections: observed={observed} baseline={allowed}")
+    print(f"gated connections: {observed} total (informational -- gate is per-port)")
     print(f"  data-carrying: {report['data_carrying']}")
     print(f"  unclassified (counted as breaches): {report['unclassified']}")
     print(f"  bare probes (not gated): {report['probes']}")
@@ -469,10 +478,11 @@ def check_ratchet(report_path, baseline_path, junit_path=None):
 
     failed = False
 
-    # Per-port ceilings, where the counts are stable enough to be tight. The
-    # total has to carry headroom for gRPC retry jitter, and a loose total could
-    # hide a handful of new connections to the port that actually gets written
-    # through. 26350 is that port and it does not move, so it is gated exactly.
+    # The gate. Each port carries its own ceiling, sized to what that port
+    # actually does: 26350 is pinned exactly because it is the REST write path
+    # and does not move, while a retry-prone client default is given room. A
+    # ceiling is the maximum across every environment the gate runs in -- see the
+    # baseline's own notes.
     for port, ceiling in sorted(baseline.get("max_per_port", {}).items()):
         seen = report["data_carrying"].get(port, 0) + report["unclassified"].get(
             port, 0
@@ -480,28 +490,15 @@ def check_ratchet(report_path, baseline_path, junit_path=None):
         if seen > ceiling:
             print(
                 f"\nFAIL: port {port} saw {seen} gated connections, above its "
-                f"ceiling of {ceiling}. This port is watched exactly because it "
-                "is stable; a rise here is a real change, not jitter."
+                f"ceiling of {ceiling}.\n"
+                "Something new in the suite reaches that service. Point it at a "
+                "throwaway instance, or gate it as an integration test."
             )
             failed = True
-
-    if observed > allowed:
-        print(
-            f"\nFAIL: {observed} gated connections to production ports, "
-            f"above the baseline of {allowed}.\n"
-            "Something new in the suite reaches the operator's datastore. Point "
-            "it at a throwaway instance, or gate it as an integration test."
-        )
-        failed = True
 
     if failed:
         return 1
 
-    if observed < allowed - jitter:
-        print(
-            f"\nThe count fell to {observed}. Lower max_gated in "
-            f"{baseline_path} so the ground gained cannot be given back."
-        )
     print("\nPASS: no increase in connections to production ports.")
     return 0
 
