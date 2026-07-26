@@ -54,6 +54,17 @@ import pytest
 # 6334 is qdrant-client's own gRPC default, reachable whenever the env var is
 # unset. tests/test_datastore_guard.py asserts this set stays in sync with the
 # config defaults, so drift fails a test instead of silently weakening the guard.
+#
+# 6333 -- qdrant-client's REST default, the exact counterpart of 6334 -- is
+# deliberately ABSENT, and the omission is load-bearing rather than an
+# oversight. .github/workflows/test.yml runs its integration job against a
+# Qdrant service container on 6333 and sets QDRANT_PORT: "6333"; adding it here
+# would make the guard refuse that job on every run. 6333 is a CI service port
+# in this repository, not an operator port, so refusing it would block a
+# legitimate target while protecting nothing. The asymmetry with 6334 is real:
+# 6334 is reached by accident when QDRANT_GRPC_PORT is unset, whereas 6333 is
+# only ever reached deliberately. CI measured 6334 at the highest count of any
+# port on the first green run, which is what settled it.
 PRODUCTION_PORTS = frozenset({26350, 26351, 28080, 23100, 6334})
 
 # Escape hatch for a deliberate run against real services.

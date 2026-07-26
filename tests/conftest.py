@@ -799,9 +799,19 @@ def skip_if_service_unavailable(request):
     ):
         return  # No service requirements, continue test
 
-    # Get configured ports from environment
-    qdrant_port = int(os.environ.get("QDRANT_PORT", "26350"))
-    embedding_port = int(os.environ.get("EMBEDDING_SERVICE_PORT", "28080"))
+    # Get configured ports from environment.
+    #
+    # The fallbacks are the sentinel, never a live port. An availability probe
+    # that defaults to production connects to the operator's real services on
+    # any run that did not set these -- which is TD-881's headline pattern, and
+    # the probe is not exempt from it just because it sends no bytes.
+    #
+    # QDRANT_PORT was dormant here only because install_safe_defaults always
+    # populates that key. EMBEDDING_SERVICE_PORT was not dormant at all: nothing
+    # populates it, so a bare `pytest tests/` probed the live embedding service
+    # on every run.
+    qdrant_port = int(os.environ.get("QDRANT_PORT", str(SENTINEL_PORT)))
+    embedding_port = int(os.environ.get("EMBEDDING_SERVICE_PORT", str(SENTINEL_PORT)))
     api_port = int(os.environ.get("MONITORING_API_PORT", "28000"))
     streamlit_port = int(os.environ.get("STREAMLIT_PORT", "28501"))
 

@@ -55,6 +55,8 @@ from urllib.parse import urlparse
 import httpx
 import pytest
 
+from tests.datastore_guard import SENTINEL_HOST, SENTINEL_PORT, SENTINEL_URL
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "scripts"
 BACKUP_SCRIPT = SCRIPTS_DIR / "backup_qdrant.py"
@@ -62,19 +64,27 @@ RESTORE_SCRIPT = SCRIPTS_DIR / "restore_qdrant.py"
 
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "")
 
-# Connection resolution: prefer explicit QDRANT_HOST + QDRANT_PORT (the CI
-# integration job sets these, and the integration conftest force-injects a
-# QDRANT_URL default that does not match the CI Qdrant port). Fall back to
-# QDRANT_URL otherwise.
+# Connection resolution: prefer explicit QDRANT_HOST + QDRANT_PORT, falling
+# back to QDRANT_URL.
+#
+# This preference used to exist because install_safe_defaults set QDRANT_URL and
+# QDRANT_PORT from two independent defaults, so a caller supplying only the port
+# -- as the CI integration job does -- got a URL pointing at the sentinel while
+# the port pointed at the service container. The helper now derives the missing
+# member from the one that was supplied, so the two can no longer disagree. The
+# ordering is kept because it is still the more direct read.
+#
+# The fallbacks are the sentinel, not the operator's live install: a default
+# that names a real datastore is what TD-881 was about.
 if os.environ.get("QDRANT_HOST") and os.environ.get("QDRANT_PORT"):
     QDRANT_HOST = os.environ["QDRANT_HOST"]
     QDRANT_PORT = int(os.environ["QDRANT_PORT"])
     QDRANT_URL = f"http://{QDRANT_HOST}:{QDRANT_PORT}"
 else:
-    QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:26350")
+    QDRANT_URL = os.environ.get("QDRANT_URL", SENTINEL_URL)
     _parsed = urlparse(QDRANT_URL)
-    QDRANT_HOST = _parsed.hostname or "localhost"
-    QDRANT_PORT = _parsed.port or 26350
+    QDRANT_HOST = _parsed.hostname or SENTINEL_HOST
+    QDRANT_PORT = _parsed.port or SENTINEL_PORT
 
 # Production-shape volume: comfortably over the 100-point realistic-size bar.
 POINT_COUNT = 120
