@@ -37,6 +37,7 @@ from tests.datastore_guard import (
     port_from_url,
     resolved_ports,
 )
+from tests.datastore_tripwire import PRODUCTION_PORTS as tripwire_ports
 from tests.datastore_tripwire import Tripwire, check_run_happened
 
 TESTS_DIR = pathlib.Path(__file__).parent
@@ -450,6 +451,45 @@ class TestRunHealthGatesTheRatchet:
         bad.write_text("<testsuites><testsuite tests=")
         problem = check_run_happened(self._report(0), {"min_tests": 5000}, str(bad))
         assert problem is not None
+
+    def test_every_bound_port_carries_a_ceiling(self):
+        """What replaces the retired whole-suite total.
+
+        That total was supposed to catch a port nobody thought to watch, and by
+        construction it could not: the tripwire binds only PRODUCTION_PORTS and
+        cannot count traffic to a port it never bound, so the total is just the
+        sum of the per-port counts. An unwatched port is unbound, contributes
+        zero, and never moves it -- while the total carried all the retry jitter
+        and came within three of failing a clean run.
+
+        This asks the question the total was a proxy for, directly: is every
+        port the tripwire binds actually gated? It cannot false-trip, and it
+        fails the moment a port is added to PRODUCTION_PORTS without a ceiling.
+        """
+        baseline = json.loads(
+            (TESTS_DIR / "datastore_isolation_baseline.json").read_text()
+        )
+        bound = {str(port) for port in tripwire_ports}
+        ceilinged = set(baseline.get("max_per_port", {}))
+        assert bound == ceilinged, (
+            "every port the tripwire binds must carry a per-port ceiling, since "
+            "nothing else gates it now: "
+            f"unceilinged={sorted(bound - ceilinged)} "
+            f"stale={sorted(ceilinged - bound)}"
+        )
+
+    def test_the_write_path_port_is_pinned_exactly(self):
+        """26350 is the REST port tests write through and does not jitter.
+
+        It measured exactly 4 on a runner and on a maintainer machine, every
+        run. A ceiling with headroom here would let a new test reaching the
+        datastore hide inside the slack, which is the regression that matters
+        most.
+        """
+        baseline = json.loads(
+            (TESTS_DIR / "datastore_isolation_baseline.json").read_text()
+        )
+        assert baseline["max_per_port"][str(LIVE_QDRANT_PORT)] == 4
 
     def test_the_shipped_baseline_sets_a_floor(self):
         """Without min_tests the partial-run hole is open in the real config."""
