@@ -35,6 +35,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
+    env:
+      # Inside the namespace there is no external network at all -- that is the
+      # point -- so anything that downloads on first use has to be warmed
+      # beforehand. Pinning the cache to the workspace keeps it reachable
+      # whether the suite runs as the user or under sudo, whose HOME differs.
+      TIKTOKEN_CACHE_DIR: ${{ github.workspace }}/.tiktoken-cache
+
     steps:
       - uses: actions/checkout@v4
 
@@ -77,6 +84,17 @@ jobs:
           echo "python=$(command -v python3)" >> "$GITHUB_OUTPUT"
           echo "using interpreter: $(command -v python3)"
 
+      - name: Warm caches that need the network
+        run: |
+          set -euo pipefail
+          mkdir -p "$TIKTOKEN_CACHE_DIR"
+          # tiktoken downloads its encoding on first use, and some tests import
+          # it at collection time. Inside the namespace that download fails DNS
+          # and aborts collection for the whole run, so it is fetched here while
+          # the network still exists.
+          python3 -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
+          echo "warmed: $(ls -1 "$TIKTOKEN_CACHE_DIR" | wc -l) cache entrie(s)"
+
       - name: Prove the tripwire counter works
         env:
           # The gRPC leg is the one that retired the socket-layer design. In CI
@@ -106,9 +124,11 @@ jobs:
           # general test workflow keeps randomisation; this job trades it for a
           # measurement that means the same thing each time.
           PY='${{ steps.netns.outputs.python }}'
-          RUN="$PY tests/datastore_tripwire.py --report tripwire-report.json --
-               $PY -m pytest tests/ -m \"not regression and not quarantine\"
-               -q -p no:cacheprovider -p no:randomly --tb=no"
+          # One line, deliberately. `sh -c` treats a newline as a command
+          # separator, so a wrapped command silently drops everything after the
+          # first line -- which cost a CI run where pytest ran without its
+          # flags and the leftovers came back as "sh: -q: not found".
+          RUN="$PY tests/datastore_tripwire.py --report tripwire-report.json -- $PY -m pytest tests/ -m 'not regression and not quarantine' -q -p no:cacheprovider -p no:randomly --tb=no"
           if [ "${{ steps.netns.outputs.mode }}" = "sudo" ]; then
             sudo -E env -u QDRANT_URL -u QDRANT_PORT -u QDRANT_GRPC_PORT \
               -u EMBEDDING_PORT -u EMBEDDING_SERVICE_PORT -u LANGFUSE_BASE_URL \
