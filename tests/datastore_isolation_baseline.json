@@ -2,10 +2,17 @@
   "_comment": [
     "Ratchet baseline for the Datastore Isolation workflow (TD-881).",
     "",
-    "max_data_carrying is a CEILING THAT MAY ONLY EVER FALL. CI fails when a run",
-    "exceeds it, which is the signal that something new in the suite reaches the",
+    "max_gated is a CEILING THAT MAY ONLY EVER FALL. CI fails when a run exceeds",
+    "it, which is the signal that something new in the suite reaches the",
     "operator's real services. When a run comes in under it, lower this number so",
     "the ground gained cannot be given back.",
+    "",
+    "The gated number is data-carrying connections PLUS connections the classifier",
+    "could not decide. Undecided ones are included deliberately: a connection that",
+    "did not declare itself inside the budget might have carried data, and scoring",
+    "it as a harmless probe would let a real regression hide behind a slow runner.",
+    "See Tripwire._classify. Bare probes -- a peer that closed having sent nothing",
+    "-- are a definite outcome and are not gated.",
     "",
     "It is not zero, and that is deliberate. Zero would require every test that",
     "spawns a real hook script to be re-pointed at a throwaway instance -- roughly",
@@ -14,23 +21,33 @@
     "on the tripwire inside the namespace and reaches nothing real. This number",
     "measures test hygiene; the namespace provides the safety.",
     "",
-    "Measured on the CI-scope suite (-m 'not regression and not quarantine') with",
-    "a cleared environment, inside unshare -rn, ordering fixed via -p no:randomly.",
-    "Two consecutive runs gave 228 and 229; the variance is gRPC retry jitter on",
-    "26351. The ceiling carries a small allowance over the observed maximum so",
-    "that jitter alone cannot fail the gate.",
-    "",
     "Before this work the same measurement was 147 accepts / 122 data-carrying",
     "across the three ports then being watched, with 101 on the Qdrant REST port",
     "that tests write through. That port now sits at 4. The total rose only",
     "because Langfuse (23100) was added to the watched set and turned out to",
-    "account for 204 connections that had never been measured before."
+    "account for 204 connections that had never been measured before.",
+    "",
+    "Two gates. max_gated is the whole-suite total and carries headroom, because",
+    "the gRPC retry count moves run to run and a flaky gate gets ignored. Three",
+    "consecutive local runs measured 238 / 239 / 240 (data-carrying stable at 228;",
+    "the movement is all in unclassified, tracking 26351). A CI runner may sit",
+    "higher: slower classification turns definite outcomes into unclassified ones,",
+    "which is the conservative direction by design. Set this from the first green",
+    "CI run rather than raising it blindly if it trips.",
+    "",
+    "max_per_port is the tight half. 26350 is the Qdrant REST port -- the one",
+    "tests actually write through -- and it does not move off 4. Gating it exactly",
+    "means a new test reaching the datastore fails immediately, even though the",
+    "total has enough slack to hide a handful of connections.",
+    "",
+    "Measured on the CI-scope suite (-m 'not regression and not quarantine') with",
+    "a cleared environment, inside unshare -rn, ordering fixed via -p no:randomly."
   ],
-  "max_data_carrying": 235,
-  "jitter_allowance": 8,
+  "max_gated": 250,
+  "jitter_allowance": 10,
   "observed": {
     "26350": 4,
-    "26351": 12,
+    "26351": 23,
     "28080": 9,
     "23100": 204,
     "6334": 0
@@ -47,5 +64,14 @@
       "26351": 12,
       "28080": 9
     }
-  }
+  },
+  "max_per_port": {
+    "26350": 4,
+    "28080": 9
+  },
+  "observed_gated_totals": [
+    238,
+    239,
+    240
+  ]
 }

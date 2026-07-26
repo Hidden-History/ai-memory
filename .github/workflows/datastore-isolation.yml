@@ -68,15 +68,29 @@ jobs:
             sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null \
             || echo '<absent>')"
 
+          # Resolve the interpreter NOW, as the normal user, and use this
+          # absolute path everywhere below. `sudo python3` resolves through
+          # root's PATH and lands on the system interpreter, which never saw
+          # `pip install -e .[dev]` -- so grpcio and pytest are simply absent
+          # there. That is what made the first CI run report the gRPC leg as
+          # unavailable while still printing OK.
+          echo "python=$(command -v python3)" >> "$GITHUB_OUTPUT"
+          echo "using interpreter: $(command -v python3)"
+
       - name: Prove the tripwire counter works
+        env:
+          # The gRPC leg is the one that retired the socket-layer design. In CI
+          # its absence is a failure, not a footnote.
+          TRIPWIRE_REQUIRE_GRPC: "1"
         run: |
           set -euo pipefail
+          PY='${{ steps.netns.outputs.python }}'
           if [ "${{ steps.netns.outputs.mode }}" = "sudo" ]; then
-            sudo unshare -n sh -c 'ip link set lo up && exec "$@"' _ \
-              python3 tests/datastore_tripwire.py --self-test
+            sudo -E unshare -n sh -c 'ip link set lo up && exec "$@"' _ \
+              "$PY" tests/datastore_tripwire.py --self-test
           else
             unshare -rn sh -c 'ip link set lo up && exec "$@"' _ \
-              python3 tests/datastore_tripwire.py --self-test
+              "$PY" tests/datastore_tripwire.py --self-test
           fi
 
       - name: Run the CI-scope suite behind the tripwire
@@ -91,9 +105,10 @@ jobs:
           # a comparable number run to run, so ordering is fixed here. The
           # general test workflow keeps randomisation; this job trades it for a
           # measurement that means the same thing each time.
-          RUN='python3 tests/datastore_tripwire.py --report tripwire-report.json --
-               python3 -m pytest tests/ -m "not regression and not quarantine"
-               -q -p no:cacheprovider -p no:randomly --tb=no'
+          PY='${{ steps.netns.outputs.python }}'
+          RUN="$PY tests/datastore_tripwire.py --report tripwire-report.json --
+               $PY -m pytest tests/ -m \"not regression and not quarantine\"
+               -q -p no:cacheprovider -p no:randomly --tb=no"
           if [ "${{ steps.netns.outputs.mode }}" = "sudo" ]; then
             sudo -E env -u QDRANT_URL -u QDRANT_PORT -u QDRANT_GRPC_PORT \
               -u EMBEDDING_PORT -u EMBEDDING_SERVICE_PORT -u LANGFUSE_BASE_URL \
@@ -106,7 +121,7 @@ jobs:
 
       - name: Ratchet - connections to production must not increase
         run: |
-          python3 tests/datastore_tripwire.py \
+          '${{ steps.netns.outputs.python }}' tests/datastore_tripwire.py \
             --check tripwire-report.json \
             --baseline tests/datastore_isolation_baseline.json
 
