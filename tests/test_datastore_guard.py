@@ -198,28 +198,44 @@ class TestMechanismsStayClosed:
         assert 'os.environ["QDRANT_PORT"] =' not in source
         assert "install_safe_defaults()" in source
 
-    def test_no_test_hardcodes_the_live_url_in_a_subprocess_env(self):
-        """Mechanism 3: a literal live URL in a subprocess `env=` mapping.
+    def test_no_test_hardcodes_a_production_port_in_a_subprocess_env(self):
+        """Mechanism 3: a literal production target in a subprocess `env=`.
 
-        Globbed rather than pinned to known files, so a new occurrence anywhere
-        under tests/ fails this instead of going unnoticed.
+        Parsed rather than string-matched. The substring version of this check
+        required QDRANT_URL to be the *first* key of a double-quoted dict
+        literal written on one physical line, and matched only port 26350 --
+        so a non-first key, a multi-line dict, single quotes, or any other
+        production port slipped past while the docstring claimed "a new
+        occurrence anywhere under tests/ fails this".
+
+        Walking the AST instead: every dict literal passed as `env=` to any
+        call, every string value in it, matched against the whole production
+        port set.
         """
         offenders = []
-        for path in TESTS_DIR.rglob("test_*.py"):
-            for lineno, line in enumerate(
-                path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
-            ):
-                stripped = line.strip()
-                if stripped.startswith("#"):
+        for path in sorted(TESTS_DIR.rglob("test_*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
                     continue
-                if (
-                    'env={"QDRANT_URL"' in stripped
-                    and str(LIVE_QDRANT_PORT) in stripped
-                ):
-                    offenders.append(f"{path.relative_to(TESTS_DIR)}:{lineno}")
+                for keyword in node.keywords:
+                    if keyword.arg != "env" or not isinstance(keyword.value, ast.Dict):
+                        continue
+                    for value in keyword.value.values:
+                        if not isinstance(value, ast.Constant) or not isinstance(
+                            value.value, str
+                        ):
+                            continue
+                        port = port_from_url(value.value) or (
+                            int(value.value) if value.value.isdigit() else None
+                        )
+                        if port in PRODUCTION_PORTS:
+                            offenders.append(
+                                f"{path.relative_to(TESTS_DIR)}:{value.lineno} -> {port}"
+                            )
         assert not offenders, (
-            "subprocess env= must derive the Qdrant URL, not literal the live "
-            f"install: {offenders}"
+            "subprocess env= must derive its Qdrant target, not hardcode the "
+            f"operator's live install: {offenders}"
         )
 
 
