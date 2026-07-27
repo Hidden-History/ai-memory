@@ -67,3 +67,13 @@ def _isolate_ai_memory_state(request, monkeypatch, tmp_path_factory):
             if isinstance(nested, types.ModuleType) and id(nested) not in seen:
                 seen.add(id(nested))
                 _redirect_roots(nested, home, monkeypatch)
+
+
+# ---------------------------------------------------------------------------
+# MUTATION PROOF ONLY -- Shape A (skip-driven), reproducing BUG-536.
+# Every test collects and then skips; pytest still exits 0. This must turn the
+# job RED via the executed-test floor. REVERTED immediately after the run.
+# ---------------------------------------------------------------------------
+@pytest.fixture(autouse=True)
+def _mutation_proof_force_mass_skip():
+    pytest.skip("mutation proof: forced mass-skip (BUG-536 shape)")
