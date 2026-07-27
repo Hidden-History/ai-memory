@@ -118,7 +118,7 @@ jobs:
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-release.xml \
-            --min-executed 1 \
+            --min-executed 5000 \
             --label "the release suite"
 
       - name: Verify Docker stack

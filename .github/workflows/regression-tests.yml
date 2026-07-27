@@ -86,7 +86,7 @@ jobs:
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-regression.xml \
-            --min-executed 1 \
+            --min-executed 4 \
             --label "the regression suite"
 
       - name: Run evaluations dry-run (quality gate check)

@@ -99,6 +99,8 @@ jobs:
             -p no:randomly \
             --junitxml=test-results-unit.xml \
             --cov=src/memory --cov-report=xml --cov-fail-under=70
+        env:
+          CI: "true"
 
       # GR-01: pytest exits 0 whether the suite passed or skipped itself away.
       # The floor is what tells those apart.
@@ -106,10 +108,8 @@ jobs:
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-unit.xml \
-            --min-executed 1 \
+            --min-executed 5000 \
             --label "the unit suite"
-        env:
-          CI: "true"
 
       - name: Upload coverage
         if: matrix.python-version == '3.11'
@@ -201,7 +201,7 @@ jobs:
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-integration.xml \
-            --min-executed 1 \
+            --min-executed 340 \
             --label "the integration suite"
 
   # ============================================================================
@@ -264,7 +264,7 @@ jobs:
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-aim-sot.xml \
-            --min-executed 1 \
+            --min-executed 150 \
             --label "the aim-sot skill tests"
 
   # ============================================================================
