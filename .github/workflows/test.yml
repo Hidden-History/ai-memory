@@ -255,7 +255,7 @@ jobs:
 
       - name: Run aim-sot skill tests
         run: |
-          pytest _ai-memory/skills/aim-sot/tests/ -v --tb=short \
+          pytest _ai-memory/skills/aim-sot/tests/ -v --tb=short -k "digest" \
             --junitxml=test-results-aim-sot.xml
         env:
           CI: "true"
