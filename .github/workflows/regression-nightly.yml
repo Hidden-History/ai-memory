@@ -64,7 +64,8 @@ jobs:
 
       - name: Run regression test suite
         run: |
-          pytest tests/test_regression.py -v --tb=short -m regression
+          pytest tests/test_regression.py -v --tb=short -m regression \
+            --junitxml=test-results-regression.xml
         env:
           LANGFUSE_ENABLED: "true"
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
@@ -72,6 +73,19 @@ jobs:
           LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+
+      # BUG-536: this job ran `4 skipped ... in 2.06s` and reported success,
+      # every night, for an unknown span. The `langfuse` fixture calls
+      # auth_check() and converts any failure into pytest.skip, so an
+      # unreachable or unconfigured Langfuse turns the entire suite into skips
+      # while pytest still exits 0. There is no exit code that distinguishes
+      # that from a clean pass -- only the executed count does.
+      - name: Executed-test floor - regression suite
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-regression.xml \
+            --min-executed 1 \
+            --label "the nightly regression suite"
 
       - name: Run evaluations dry-run (quality gate check)
         run: |

@@ -52,7 +52,16 @@ import socket
 import subprocess
 import sys
 import threading
-from xml.etree import ElementTree
+
+# This file runs in two contexts and the import has to work in both: CI invokes
+# it as a script (`python3 tests/datastore_tripwire.py`, so sys.path[0] is
+# tests/ and the repo root is absent), while tests/test_datastore_guard.py
+# imports it as `tests.datastore_tripwire` (so the repo root is on sys.path and
+# tests/ is not). One implementation of the floor, reachable from both.
+try:
+    from tests.ci_executed_floor import check_floor
+except ImportError:  # pragma: no cover - exercised by the script entry point
+    from ci_executed_floor import check_floor
 
 # The operator's real services. 26351 is the live Qdrant gRPC port from
 # docker/.env; 6334 is qdrant-client's own gRPC default, used whenever that
@@ -359,18 +368,6 @@ def _grpc_probe(port):
     return True
 
 
-def collected_tests(junit_path):
-    """Return how many test cases the wrapped run actually reported.
-
-    Read from pytest's own JUnit XML rather than parsed out of its console
-    output, because the console format is presentation and changes between
-    versions while the XML attribute is a contract.
-    """
-    root = ElementTree.parse(junit_path).getroot()
-    suites = root.iter("testsuite") if root.tag == "testsuites" else [root]
-    return sum(int(suite.get("tests", 0)) for suite in suites)
-
-
 def check_run_happened(report, baseline, junit_path):
     """Fail unless the wrapped run executed the suite it claims to have.
 
@@ -381,13 +378,20 @@ def check_run_happened(report, baseline, junit_path):
       * it died before executing -- collection error, usage error, no tests
         collected. Nothing connects, so the count is zero and the ceiling is
         trivially satisfied.
-      * it executed a fraction of the suite -- a mis-typed path or a marker
-        expression that silently selected forty tests instead of thousands. The
-        exit code is a clean 0 and the count is honestly low, because most of
-        the suite never ran.
+      * it executed a fraction of the suite -- a mis-typed path, a marker
+        expression that silently selected forty tests instead of thousands, or
+        a service outage that turned every test into a skip. The exit code is a
+        clean 0 and the count is honestly low, because most of the suite never
+        ran.
 
-    The exit code catches the first and cannot catch the second; the collected
+    The exit code catches the first and cannot catch the second; the executed
     floor catches the second. Both are needed.
+
+    The floor is on tests that EXECUTED, not tests that were collected. It used
+    to be the latter, and that was an instance of the very defect this file
+    exists to catch: JUnit's ``tests`` attribute counts skips, so the old gate
+    passed a run in which all ~6,500 tests collected and every one skipped --
+    satisfied without the property it stood for. See tests/ci_executed_floor.py.
 
     Returns an error message, or None when the run is trustworthy.
     """
@@ -404,31 +408,26 @@ def check_run_happened(report, baseline, junit_path):
             "Fix the run itself; do not read this number."
         )
 
-    floor = baseline.get("min_tests")
+    # The old collected-basis key. A baseline still carrying it would otherwise
+    # be read as "no floor configured" and the gate would silently vanish --
+    # the same class of quiet disablement this module exists to prevent.
+    if "min_tests" in baseline:
+        return (
+            "this baseline still sets 'min_tests', which counted COLLECTED "
+            "tests. That number includes skips, so it was satisfied by a run "
+            "in which every test skipped and nothing executed. Rename the key "
+            "to 'min_executed' and set it against tests that actually ran -- "
+            "see tests/ci_executed_floor.py."
+        )
+
+    floor = baseline.get("min_executed")
     if floor is None:
         return None
-    if not junit_path:
-        return (
-            f"the baseline sets min_tests={floor} but no --junit report was "
-            "passed, so the number of tests that actually ran is unknown. A "
-            "floor that cannot be evaluated is not a floor."
-        )
-    try:
-        seen = collected_tests(junit_path)
-    except (OSError, ElementTree.ParseError) as exc:
-        return (
-            f"could not read the JUnit report at {junit_path}: {exc}. The run "
-            "was supposed to write one, so its absence means the run did not "
-            "get as far as it claims."
-        )
-    if seen < floor:
-        return (
-            f"the wrapped run reported {seen} tests, below the floor of {floor}.\n"
-            "Most of the suite did not run, so a low connection count says "
-            "nothing about the tests that were skipped. Check the paths and the "
-            "-m expression before trusting any number in this report."
-        )
-    print(f"run health: exit={exit_code} tests={seen} (floor {floor})")
+
+    problem = check_floor(junit_path, floor, "the tripwire-wrapped suite")
+    if problem:
+        return problem
+    print(f"run health: exit={exit_code}")
     return None
 
 

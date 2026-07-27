@@ -97,7 +97,17 @@ jobs:
             --ignore=tests/integration \
             -m "not quarantine" \
             -p no:randomly \
+            --junitxml=test-results-unit.xml \
             --cov=src/memory --cov-report=xml --cov-fail-under=70
+
+      # GR-01: pytest exits 0 whether the suite passed or skipped itself away.
+      # The floor is what tells those apart.
+      - name: Executed-test floor - unit suite
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-unit.xml \
+            --min-executed 1 \
+            --label "the unit suite"
         env:
           CI: "true"
 
@@ -175,13 +185,24 @@ jobs:
         run: |
           pytest tests/integration -v --tb=short \
             --run-integration \
-            -m "not requires_embedding"
+            -m "not requires_embedding" \
+            --junitxml=test-results-integration.xml
         env:
           CI: "true"
           QDRANT_HOST: localhost
           QDRANT_PORT: "6333"
           QDRANT_API_KEY: ci-integration-test-key
           QDRANT_READ_ONLY_API_KEY: ci-integration-test-key-ro
+
+      # BUG-535 was exactly this job: 159 of 498 selected tests skipped away
+      # because conftest re-pointed QDRANT_PORT from inside the process, and the
+      # job reported green with 30 broken tests hidden behind the mask.
+      - name: Executed-test floor - integration suite
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-integration.xml \
+            --min-executed 1 \
+            --label "the integration suite"
 
   # ============================================================================
   # TEMPLATE PARITY CI GATES - source-repo-only wiring checks (PLAN-035 §3a).
@@ -234,9 +255,17 @@ jobs:
 
       - name: Run aim-sot skill tests
         run: |
-          pytest _ai-memory/skills/aim-sot/tests/ -v --tb=short
+          pytest _ai-memory/skills/aim-sot/tests/ -v --tb=short \
+            --junitxml=test-results-aim-sot.xml
         env:
           CI: "true"
+
+      - name: Executed-test floor - aim-sot skill tests
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-aim-sot.xml \
+            --min-executed 1 \
+            --label "the aim-sot skill tests"
 
   # ============================================================================
   # E2E TESTS - Playwright browser tests (optional, runs after integration)
@@ -618,6 +647,15 @@ jobs:
           QDRANT_HOST: localhost
           QDRANT_PORT: "26350"
           QDRANT_API_KEY: ci-e2e-test-key
+
+      # This job already wrote a JUnit report; nothing read it. A report nobody
+      # checks is not a floor.
+      - name: Executed-test floor - e2e suite
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-e2e.xml \
+            --min-executed 1 \
+            --label "the e2e suite"
 
       - name: Capture Docker logs on failure
         if: failure()
