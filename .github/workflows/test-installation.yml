@@ -175,9 +175,6 @@ jobs:
             --junitxml=test-results-platform-macos.xml
 
       - name: Executed-test floor - platform suite
-        env:
-          AI_MEMORY_INSTALL_DIR: ${{ github.workspace }}/test-install
-          SKIP_DOCKER_CHECKS: "true"
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-platform-macos.xml \
