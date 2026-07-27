@@ -110,7 +110,16 @@ jobs:
       - name: Run tests
         id: tests
         run: |
-          pytest tests/ -v --ignore=tests/e2e --ignore=tests/integration -m "not quarantine" -p no:randomly
+          pytest tests/ -v --ignore=tests/e2e --ignore=tests/integration -m "not quarantine" -p no:randomly --junitxml=test-results-release.xml
+
+      # A release is the last place a suite that quietly ran nothing should be
+      # able to sign off on itself.
+      - name: Executed-test floor - release suite
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-release.xml \
+            --min-executed 1 \
+            --label "the release suite"
 
       - name: Verify Docker stack
         id: docker

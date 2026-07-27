@@ -401,9 +401,12 @@ class TestRunHealthGatesTheRatchet:
         return {"total_gated": 0, "wrapped_exit_code": exit_code}
 
     @staticmethod
-    def _junit(tmp_path, tests):
+    def _junit(tmp_path, tests, skipped=0):
         path = tmp_path / "pytest-report.xml"
-        path.write_text(f'<testsuites><testsuite tests="{tests}"/></testsuites>')
+        path.write_text(
+            f'<testsuites><testsuite tests="{tests}" skipped="{skipped}"/>'
+            "</testsuites>"
+        )
         return str(path)
 
     @pytest.mark.parametrize("exit_code", [2, 3, 4, 5, 127, None])
@@ -426,7 +429,7 @@ class TestRunHealthGatesTheRatchet:
         assert (
             check_run_happened(
                 self._report(exit_code),
-                {"min_tests": 5000},
+                {"min_executed": 5000},
                 self._junit(tmp_path, 6000),
             )
             is None
@@ -435,21 +438,60 @@ class TestRunHealthGatesTheRatchet:
     def test_a_partial_run_is_rejected(self, tmp_path):
         """Exit 0 with a fraction of the suite: honest count, meaningless one."""
         problem = check_run_happened(
-            self._report(0), {"min_tests": 5000}, self._junit(tmp_path, 40)
+            self._report(0), {"min_executed": 5000}, self._junit(tmp_path, 40)
         )
         assert problem is not None
         assert "below the floor" in problem
 
+    def test_a_fully_skipped_run_is_rejected(self, tmp_path):
+        """The migration's whole point, as a test.
+
+        Every test collected, every one skipped, pytest exits 0. Under the old
+        collected-basis floor this PASSED -- ``tests`` includes skips, so 6000
+        collected cleared a floor of 5000 while nothing executed. That is
+        BUG-536's exact shape, and it was passing this gate.
+        """
+        problem = check_run_happened(
+            self._report(0),
+            {"min_executed": 5000},
+            self._junit(tmp_path, 6000, skipped=6000),
+        )
+        assert problem is not None
+        assert "executed 0 tests" in problem
+
+    def test_a_mostly_skipped_run_is_rejected(self, tmp_path):
+        """BUG-535's shape: collected in full, a third of it skipped away."""
+        problem = check_run_happened(
+            self._report(0),
+            {"min_executed": 5000},
+            self._junit(tmp_path, 6000, skipped=2000),
+        )
+        assert problem is not None
+        assert "below the floor" in problem
+
+    def test_a_baseline_on_the_old_collected_key_is_rejected(self, tmp_path):
+        """A stale ``min_tests`` must fail loudly, never be ignored.
+
+        ``baseline.get("min_executed")`` returning None means "no floor
+        configured", so a baseline left on the old key would disable the gate
+        silently -- the same quiet disablement the floor exists to prevent.
+        """
+        problem = check_run_happened(
+            self._report(0), {"min_tests": 5000}, self._junit(tmp_path, 6000)
+        )
+        assert problem is not None
+        assert "min_tests" in problem
+
     def test_a_floor_with_no_junit_report_is_rejected(self):
         """A floor that cannot be evaluated must not silently pass."""
-        problem = check_run_happened(self._report(0), {"min_tests": 5000}, None)
+        problem = check_run_happened(self._report(0), {"min_executed": 5000}, None)
         assert problem is not None
         assert "not a floor" in problem
 
     def test_an_unreadable_junit_report_is_rejected(self, tmp_path):
         bad = tmp_path / "truncated.xml"
         bad.write_text("<testsuites><testsuite tests=")
-        problem = check_run_happened(self._report(0), {"min_tests": 5000}, str(bad))
+        problem = check_run_happened(self._report(0), {"min_executed": 5000}, str(bad))
         assert problem is not None
 
     def test_every_bound_port_carries_a_ceiling(self):
@@ -491,12 +533,24 @@ class TestRunHealthGatesTheRatchet:
         )
         assert baseline["max_per_port"][str(LIVE_QDRANT_PORT)] == 4
 
-    def test_the_shipped_baseline_sets_a_floor(self):
-        """Without min_tests the partial-run hole is open in the real config."""
+    def test_the_shipped_baseline_sets_an_executed_floor(self):
+        """Without min_executed the partial-run hole is open in the real config."""
         baseline = json.loads(
             (TESTS_DIR / "datastore_isolation_baseline.json").read_text()
         )
-        assert baseline.get("min_tests", 0) > 0
+        assert baseline.get("min_executed", 0) > 0
+
+    def test_the_shipped_baseline_has_left_the_collected_basis(self):
+        """The migration, pinned so it cannot quietly revert.
+
+        ``min_tests`` counted collected tests, skips included, so it was
+        satisfiable by a run that executed nothing. Its reappearance would
+        restore the exact hole BUG-536 came through.
+        """
+        baseline = json.loads(
+            (TESTS_DIR / "datastore_isolation_baseline.json").read_text()
+        )
+        assert "min_tests" not in baseline
 
 
 class TestTripwireClassification:

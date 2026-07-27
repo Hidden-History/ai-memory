@@ -66,7 +66,8 @@ jobs:
         # When this step RUNS, failures are real and BLOCK the merge.
         if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
-          pytest tests/test_regression.py -v --tb=short -m regression
+          pytest tests/test_regression.py -v --tb=short -m regression \
+            --junitxml=test-results-regression.xml
         env:
           LANGFUSE_ENABLED: "true"
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
@@ -74,6 +75,19 @@ jobs:
           LANGFUSE_BASE_URL: ${{ secrets.LANGFUSE_BASE_URL }}
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+
+      # Carries the SAME condition as the step above, deliberately. When the
+      # secrets are absent the suite is skipped on purpose (fork PRs, BP-149),
+      # no report is written, and a floor evaluated there would fail on the
+      # intended behaviour rather than on the defect. The floor guards the case
+      # where the suite was supposed to run and did not.
+      - name: Executed-test floor - regression suite
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-regression.xml \
+            --min-executed 1 \
+            --label "the regression suite"
 
       - name: Run evaluations dry-run (quality gate check)
         # Skipped when Langfuse/Qdrant secrets are absent (e.g., fork PRs).
