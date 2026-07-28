@@ -3,10 +3,14 @@ name: Regression Tests (Nightly)
 # =============================================================================
 # NIGHTLY REGRESSION TESTS
 # =============================================================================
-# This workflow provides regression coverage that PR-triggered workflows cannot
-# achieve because GitHub secrets are not available to fork PRs. The PR workflow
-# (regression-tests.yml) uses a secret-gated `if:` condition that evaluates false
-# on every PR from a fork, causing those regression tests to silently skip.
+# This workflow EXISTS TO PROVIDE regression coverage that PR-triggered
+# workflows cannot: GitHub secrets are not available to fork PRs, so the PR
+# workflow (regression-tests.yml) carries a secret-gated `if:` that evaluates
+# false on every fork PR and skips those regression tests.
+#
+# It provides no such coverage today, and the present tense would be a lie: the
+# credentials named below are not configured, so this workflow skips as well.
+# It will provide that coverage once they exist -- not before.
 #
 # This workflow used to run unconditionally, on the reasoning that schedule and
 # push-to-main are both secrets-available contexts. That reasoning was sound and
