@@ -147,7 +147,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers -m 'not regression'"
+addopts = "-ra -v --tb=short --strict-markers -m 'not regression'"
 norecursedirs = ["archived", ".git", "__pycache__", ".pytest_cache"]
 markers = [
     "integration: integration tests requiring Docker stack",
