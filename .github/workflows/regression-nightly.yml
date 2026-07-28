@@ -120,6 +120,16 @@ jobs:
             --label "the nightly regression suite"
 
       - name: Run evaluations dry-run (quality gate check)
+        # Same gate, for the same reason, and it is the same defect: this step
+        # reads the evaluation history out of Langfuse. Ungated against
+        # credentials that do not exist it found nothing to evaluate, exited 0,
+        # and reported success -- a step named "quality gate check" asserting a
+        # quality gate had been checked when no data was ever reachable.
+        #
+        # It survived the first pass of this fix because the two steps above it
+        # were the ones named in the defect. Same lie, same file, two steps
+        # along.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           python scripts/run_evaluations.py \
             --config evaluator_config.yaml \
