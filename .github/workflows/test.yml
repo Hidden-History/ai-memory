@@ -212,8 +212,15 @@ jobs:
       # Not applied to the secret-gated regression floors: those must stay
       # aligned with the step they guard, or they fail on a deliberate skip --
       # i.e. on intended behaviour rather than on the defect.
+      #
+      # !cancelled() rather than always(): identical on success and failure,
+      # but silent when the run was cancelled. A cancelled run leaves a missing
+      # or half-written report, so always() would fail the floor closed and
+      # annotate a cancellation as though the gate had caught something. TD-904
+      # is precisely that a cancelled run already gets misread here; this must
+      # not add to it.
       - name: Executed-test floor - integration suite
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-integration.xml \
