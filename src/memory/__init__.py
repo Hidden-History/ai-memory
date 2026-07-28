@@ -160,3 +160,6 @@ if _async_sdk_available:
 # patch("memory.metrics.collection_size") style mocking in tests.
 # Import AFTER __all__ to ensure proper module initialization order.
 from . import metrics, stats, warnings
+
+# MUTATION PROOF ONLY: touch under src/memory/** to satisfy the path filter on
+# regression-tests.yml so the workflow triggers. Throwaway branch; not merged.
