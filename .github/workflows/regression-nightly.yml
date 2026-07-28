@@ -8,15 +8,26 @@ name: Regression Tests (Nightly)
 # (regression-tests.yml) uses a secret-gated `if:` condition that evaluates false
 # on every PR from a fork, causing those regression tests to silently skip.
 #
-# This workflow runs unconditionally (no secret gating) because:
-#   1. It only triggers on schedule (nightly) and push-to-main events
-#   2. Both contexts are secrets-available (repo-owned workflows have secret access)
-#   3. Push-to-main means the PR was already merged, so failures indicate real issues
+# This workflow used to run unconditionally, on the reasoning that schedule and
+# push-to-main are both secrets-available contexts. That reasoning was sound and
+# its premise was false: the credentials it names are not configured, so every
+# run executed zero tests and reported success -- a green asserting that a
+# regression suite had run when none ever had.
+#
+# It is now gated on the same condition as the PR sibling. Note what that does
+# and does not do: it creates NO coverage. It converts a lying green into an
+# honest skip. The suite does not run until the credentials exist, and the
+# executed-test floor below fails the job the moment they exist but the suite
+# still under-runs.
+#
+# The gate variables are declared at JOB level, not on the steps. A step's own
+# `if:` cannot read an env var set on that same step, so declaring them there
+# would pin the condition false forever and disable this workflow silently.
 #
 # See TD-397 and BP-149 for context.
 #
 # PRs rely on: unit tests, integration tests, E2E tests
-# Regression tests run: post-merge (push-to-main) and nightly
+# Regression tests run: post-merge (push-to-main) and nightly, once credentials exist
 # =============================================================================
 
 on:
@@ -46,6 +57,14 @@ jobs:
     name: Regression Tests (Nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Job level, not step level, and that placement is load-bearing: a step's
+    # own `if:` cannot read an env var defined on that same step. Declared here
+    # the condition below evaluates against the real secret; declared on the
+    # step it would read empty forever, and the suite would skip permanently
+    # even once credentials exist -- a gate that silently disables itself.
+    env:
+      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
 
     steps:
       - uses: actions/checkout@v7
@@ -63,6 +82,14 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run regression test suite
+        # Gated exactly as the PR sibling is (BP-149). Without this the job ran
+        # unconditionally against credentials that do not exist, so every test
+        # skipped and the job reported success -- a green asserting a regression
+        # suite had run when none ever had.
+        #
+        # This creates no coverage. It converts a lying green into an honest
+        # skip; the suite still does not run until the credentials exist.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           pytest tests/test_regression.py -v --tb=short -m regression \
             --junitxml=test-results-regression.xml
@@ -81,6 +108,11 @@ jobs:
       # while pytest still exits 0. There is no exit code that distinguishes
       # that from a clean pass -- only the executed count does.
       - name: Executed-test floor - regression suite
+        # Same condition as the step it guards: when the suite is skipped on
+        # purpose no report is written, and a floor evaluated there would fail
+        # on the intended behaviour instead of on the defect. The floor guards
+        # the case where the suite was supposed to run and did not.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           python3 tests/ci_executed_floor.py \
             --junit test-results-regression.xml \
