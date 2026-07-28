@@ -20,9 +20,10 @@ name: Regression Tests (Nightly)
 # executed-test floor below fails the job the moment they exist but the suite
 # still under-runs.
 #
-# The gate variables are declared at JOB level, not on the steps. A step's own
-# `if:` cannot read an env var set on that same step, so declaring them there
-# would pin the condition false forever and disable this workflow silently.
+# The gate variables are declared at JOB level. The executed-test floor step
+# declares no env of its own, so a job-level declaration is the only thing its
+# condition can read; declared only on the steps, that one gate would evaluate
+# empty forever and skip permanently. See the note beside the env block.
 #
 # See TD-397 and BP-149 for context.
 #
@@ -51,17 +52,25 @@ permissions:
 jobs:
   # ============================================================================
   # REGRESSION TESTS - Live Langfuse + Qdrant required
-  # No secret gating - runs unconditionally in secrets-available context
+  # Secret-gated: skips explicitly when those credentials are absent, rather
+  # than running against them and reporting success
   # ============================================================================
   regression-tests:
     name: Regression Tests (Nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Job level, not step level, and that placement is load-bearing: a step's
-    # own `if:` cannot read an env var defined on that same step. Declared here
-    # the condition below evaluates against the real secret; declared on the
-    # step it would read empty forever, and the suite would skip permanently
+    # Job level, and that placement is load-bearing for one of the three gated
+    # steps: the executed-test floor declares no env of its own, so a job-level
+    # declaration is the only thing its condition can read. Put these only on
+    # the steps and that gate evaluates empty forever and skips permanently,
     # even once credentials exist -- a gate that silently disables itself.
+    #
+    # (The other two gated steps carry their own copies and would resolve
+    # either way: a step's `if:` CAN read env set on that same step. That was
+    # measured on a scratch workflow, not assumed -- an earlier version of this
+    # comment asserted the opposite and was wrong.)
+    #
+    # Declaring once here also keeps this file identical to the PR sibling.
     env:
       LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
