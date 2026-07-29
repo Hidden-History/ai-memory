@@ -55,7 +55,7 @@ typer>=0.26.7,<1.0.0
 # spaCy imports click at package load; without an explicit pin the
 # classifier-worker image can resolve without click and `import spacy`
 # raises ModuleNotFoundError, silently degrading the scanner to L1+L2.
-click>=8.4.1,<9.0.0
+click>=8.4.2,<9.0.0
 
 # Cron schedule parsing for evaluator-scheduler daemon (S-16.5, DEC-110)
 croniter>=2.0.0,<7.0.0
