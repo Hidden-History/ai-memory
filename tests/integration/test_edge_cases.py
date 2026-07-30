@@ -212,11 +212,11 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
 @pytest.mark.parametrize(
     "malformed_input,error_pattern",
     [
-        pytest.param("", r"short|empty|required", id="empty-string"),
+        pytest.param("", r"short|empty", id="empty-string"),
         pytest.param("a" * 100001, r"maximum|length|100", id="exceeds-max-length"),
         pytest.param("   \n\t  ", r"short|empty|whitespace", id="whitespace-only"),
         # Issue 1 fix: Added None test case per AC 5.4.2
-        pytest.param(None, r"None|type|NoneType|required|content", id="none-content"),
+        pytest.param(None, r"None|type|NoneType|content", id="none-content"),
         # Issue 1 fix: Added dict test case per AC 5.4.2
         pytest.param(
             {"key": "value"}, r"str|type|string|dict", id="dict-instead-of-string"
@@ -233,7 +233,9 @@ def test_malformed_input_handled_gracefully(malformed_input, error_pattern):
     Critical: No silent failures - all errors must raise ValidationError.
 
     Issue 1 fix: Added None and dict test cases per AC 5.4.2
-    Issue 8 fix: Using specific ValidationError (with TypeError fallback for None/dict)
+    Issue 8 fix: Using specific exception types. TypeError is deliberately excluded —
+    it also fires when a required keyword argument is missing from the call, which
+    would mask that failure as a passing assertion.
 
     Per 2026 research:
     - @pytest.mark.parametrize for DRY principle
@@ -247,8 +249,10 @@ def test_malformed_input_handled_gracefully(malformed_input, error_pattern):
     storage = MemoryStorage()
 
     # Issue 8 fix: Use specific exception types
-    # ValidationError for string validation, TypeError for None/dict
-    expected_exceptions = (ValidationError, TypeError, ValueError, AttributeError)
+    # TypeError deliberately excluded: store_memory() also raises TypeError when a
+    # required keyword argument is missing from the call, which would mask that
+    # failure as a passing assertion here.
+    expected_exceptions = (ValidationError, ValueError, AttributeError)
 
     with pytest.raises(expected_exceptions, match=error_pattern):
         storage.store_memory(
@@ -333,8 +337,10 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
     if invalid_field == "memory_type" or invalid_field == "source_hook":
         kwargs[invalid_field] = value
 
-    # Issue 8 fix: Use specific ValidationError
-    with pytest.raises((ValidationError, ValueError, TypeError), match=error_pattern):
+    # Issue 8 fix: Use specific exception types. TypeError is deliberately excluded —
+    # it also fires when a required keyword argument is missing from the call, which
+    # would mask that failure as a passing assertion.
+    with pytest.raises((ValidationError, ValueError), match=error_pattern):
         storage.store_memory(**kwargs)
 
 
