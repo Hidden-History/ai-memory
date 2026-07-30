@@ -352,6 +352,10 @@ class TestPersistentStorage:
 
 @pytest.mark.integration
 @pytest.mark.requires_docker_stack
+@pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Requires docker-compose control - not available in CI service containers",
+)
 class TestPortConfiguration:
     """AC 1.1.3 - Port Configuration"""
 
@@ -381,6 +385,10 @@ class TestPortConfiguration:
 
 @pytest.mark.integration
 @pytest.mark.requires_docker_stack
+@pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Requires docker-compose control - not available in CI service containers",
+)
 class TestHealthcheck:
     """Verify Qdrant service is accessible"""
 
