@@ -76,7 +76,6 @@ from src.memory.models import MemoryType
 from src.memory.queue import MemoryQueue
 from src.memory.search import MemorySearch
 from src.memory.storage import MemoryStorage
-from src.memory.validation import ValidationError
 
 # 2026 Best Practice: Use pytest-timeout to detect hanging tests
 # BP-035: Tests require Qdrant for storage/search operations
@@ -209,33 +208,64 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
         )
 
 
+# The expected exception is declared per-param rather than as one shared tuple.
+# A shared tuple lets any param pass on any listed type, which is how the TypeError
+# raised for a missing keyword argument once satisfied assertions written to
+# exercise validation.
+#
+# The two non-string params genuinely expect TypeError: the security scanner's
+# re.finditer() runs on raw content before hashing and validation and has no
+# isinstance guard, so None and dict fail there. Their patterns are anchored to
+# that exact message because the missing-argument error is also a TypeError — the
+# declared type cannot separate the two, only the message can. Do not loosen them.
+#
+# This holds while content scanning is on, which is the default and is required
+# for these two params to pass at all. With security_scanning_enabled False, or
+# security_scan_session_mode set to "off", the scanner is bypassed and the same
+# inputs raise AttributeError from compute_content_hash() instead. That
+# configuration is out of scope here and fails loudly on the type mismatch rather
+# than passing silently.
 @pytest.mark.parametrize(
-    "malformed_input,error_pattern",
+    "malformed_input,expected_exception,error_pattern",
     [
-        pytest.param("", r"short|empty", id="empty-string"),
-        pytest.param("a" * 100001, r"maximum|length|100", id="exceeds-max-length"),
-        pytest.param("   \n\t  ", r"short|empty|whitespace", id="whitespace-only"),
+        pytest.param("", ValueError, r"short|empty", id="empty-string"),
+        pytest.param(
+            "a" * 100001, ValueError, r"maximum|length|100", id="exceeds-max-length"
+        ),
+        pytest.param(
+            "   \n\t  ", ValueError, r"short|empty|whitespace", id="whitespace-only"
+        ),
         # Issue 1 fix: Added None test case per AC 5.4.2
-        pytest.param(None, r"None|type|NoneType|content", id="none-content"),
+        pytest.param(
+            None,
+            TypeError,
+            r"expected string or bytes-like object, got 'NoneType'",
+            id="none-content",
+        ),
         # Issue 1 fix: Added dict test case per AC 5.4.2
         pytest.param(
-            {"key": "value"}, r"str|type|string|dict", id="dict-instead-of-string"
+            {"key": "value"},
+            TypeError,
+            r"expected string or bytes-like object, got 'dict'",
+            id="dict-instead-of-string",
         ),
     ],
 )
 @pytest.mark.timeout(10)
-def test_malformed_input_handled_gracefully(malformed_input, error_pattern):
+def test_malformed_input_handled_gracefully(
+    malformed_input, expected_exception, error_pattern
+):
     """Verify malformed input doesn't crash system (FR34, FR44).
 
     Tests input validation at storage boundary layer.
     Per 2026 best practice: Fail fast with clear error messages.
 
-    Critical: No silent failures - all errors must raise ValidationError.
+    Critical: No silent failures - every malformed input must raise, and nothing
+    may be stored.
 
     Issue 1 fix: Added None and dict test cases per AC 5.4.2
-    Issue 8 fix: Using specific exception types. TypeError is deliberately excluded —
-    it also fires when a required keyword argument is missing from the call, which
-    would mask that failure as a passing assertion.
+    Issue 8 fix: Expected exception type is declared per-param; see the comment
+    above the parametrize block for why the type is not shared across params.
 
     Per 2026 research:
     - @pytest.mark.parametrize for DRY principle
@@ -248,13 +278,7 @@ def test_malformed_input_handled_gracefully(malformed_input, error_pattern):
     """
     storage = MemoryStorage()
 
-    # Issue 8 fix: Use specific exception types
-    # TypeError deliberately excluded: store_memory() also raises TypeError when a
-    # required keyword argument is missing from the call, which would mask that
-    # failure as a passing assertion here.
-    expected_exceptions = (ValidationError, ValueError, AttributeError)
-
-    with pytest.raises(expected_exceptions, match=error_pattern):
+    with pytest.raises(expected_exception, match=error_pattern):
         storage.store_memory(
             content=malformed_input,
             cwd="/tmp/malformed-test",
@@ -337,10 +361,11 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
     if invalid_field == "memory_type" or invalid_field == "source_hook":
         kwargs[invalid_field] = value
 
-    # Issue 8 fix: Use specific exception types. TypeError is deliberately excluded —
-    # it also fires when a required keyword argument is missing from the call, which
-    # would mask that failure as a passing assertion.
-    with pytest.raises((ValidationError, ValueError), match=error_pattern):
+    # Issue 8 fix: All three params reach payload validation, which raises
+    # ValueError, so the type is uniform and needs no per-param column. TypeError
+    # stays out: store_memory() also raises it when a required keyword argument is
+    # missing from the call, which would mask that failure as a passing assertion.
+    with pytest.raises(ValueError, match=error_pattern):
         storage.store_memory(**kwargs)
 
 
