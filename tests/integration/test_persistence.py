@@ -111,6 +111,11 @@ def cleanup_test_memories():
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Requires docker-compose control of the project's compose file "
+    "— CI runs Qdrant via a service container, not this compose stack.",
+)
 def test_data_persists_across_docker_restart(
     qdrant_client, tmp_path, cleanup_test_memories
 ):
@@ -430,6 +435,11 @@ def test_queue_file_survives_process_restart(tmp_path):
 
 @pytest.mark.integration
 @pytest.mark.slow
+@pytest.mark.skipif(
+    os.environ.get("CI") == "true",
+    reason="Requires docker-compose control of the project's compose file "
+    "— CI runs Qdrant via a service container, not this compose stack.",
+)
 def test_data_persists_through_multiple_restarts(
     qdrant_client, tmp_path, cleanup_test_memories
 ):
