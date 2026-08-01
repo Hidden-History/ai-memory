@@ -35,7 +35,8 @@ Test Execution:
     - @pytest.mark.parametrize for DRY principle
     - Regex error pattern matching in pytest.raises
     - try/finally cleanup for Docker operations
-    - Direct Qdrant verification (not just Python state)
+    - Direct Qdrant scrolls written against stored state (not just Python
+      state); neither scroll in this file is reached today (see Superseded)
     - cleanup_edge_case_memories fixture for test isolation (Issue 6)
     - Import from conftest instead of sys.path.insert (Issue 7)
 
@@ -60,6 +61,15 @@ current behaviour):
     - Issue 8: the single shared expected-exception type has been replaced by a
       per-parametrized-case declaration. See the comment above the
       malformed-input parametrize block for why the type cannot be shared.
+    - Issue 5: not delivered by these tests. No call site in this file passes a
+      group_id. store_memory and MemorySearch.search both declare that parameter
+      keyword-only with no default, so every call here raises a keyword-arity
+      TypeError at call time, before any project isolation could apply.
+    - Issue 3: the search retrieval verification is written but cannot report a
+      failure. Its call passes cwd, which is not a parameter of
+      MemorySearch.search, and omits the required group_id; the resulting
+      TypeError is caught by a broad except and reported as an embedding-service
+      warning, so a real retrieval failure would look the same.
 """
 
 import concurrent.futures
@@ -100,7 +110,7 @@ TEST_RUN_ID = f"edge-{int(time.time())}"
 
 @pytest.mark.timeout(60)  # 1 minute timeout for this specific test
 def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
-    """Verify concurrent writes don't corrupt data (FR34, NFR-R4).
+    """Concurrent-write corruption test; no store call reaches Qdrant (FR34, NFR-R4).
 
     Tests thread safety of MemoryStorage.store_memory() under concurrent load.
     Uses ThreadPoolExecutor (2026 best practice for I/O-bound operations).
@@ -114,8 +124,11 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
     - Per-future timeouts for fail-fast behavior
     - Default max_workers = min(32, os.cpu_count() + 4) in Python 3.13
 
-    Issue 3 fix: Added search retrieval verification per AC 5.4.1
-    Issue 5 fix: Added group_id isolation
+    Issue 3 fix: search retrieval verification is written below, but it cannot
+    report a failure. See the Superseded note in the module docstring.
+    Issue 5 fix: not delivered. This test passes no group_id; store_memory
+    declares that parameter keyword-only with no default, so the store helper
+    below raises a keyword-arity TypeError before any memory is written.
 
     Sources:
     - https://docs.python.org/3/library/concurrent.futures.html
@@ -123,7 +136,8 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
     """
     storage = MemoryStorage()
 
-    # Issue 5: Use unique group_id for test isolation
+    # Issue 5: unique per-run value. It is interpolated into cwd below; it is
+    # never passed as a group_id, so it provides no project isolation.
     test_group_id = f"concurrent-test-{TEST_RUN_ID}"
 
     def store_memory(index: int) -> dict:
@@ -185,8 +199,12 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
     stored_count = sum(1 for s in statuses if s == "stored")
     assert stored_count > 0, "No memories were stored (all duplicates)"
 
-    # Issue 3 fix: Verify all memories retrievable via search (AC 5.4.1)
-    # Note: Search requires embedding service - gracefully skip if unavailable
+    # Issue 3 fix: written to verify all memories retrievable via search
+    # (AC 5.4.1). It cannot fire today: the call passes cwd, which is not a
+    # parameter of MemorySearch.search, and omits the required group_id, so it
+    # raises TypeError before any search runs. The except below catches that
+    # TypeError and reports it as an embedding-service problem, so a signature
+    # error and a real outage are indistinguishable here.
     try:
         search = MemorySearch()
         search_results = search.search(
@@ -277,7 +295,7 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
 def test_malformed_input_handled_gracefully(
     malformed_input, expected_exception, error_pattern
 ):
-    """Verify malformed input doesn't crash system (FR34, FR44).
+    """Malformed-input validation test; no param reaches validation (FR34, FR44).
 
     Tests input validation at storage boundary layer.
     Per 2026 best practice: Fail fast with clear error messages.
@@ -285,12 +303,18 @@ def test_malformed_input_handled_gracefully(
     Critical: No silent failures - each malformed input must raise the exception
     type declared for its param, with a message matching that param's pattern.
 
-    The trailing Qdrant scroll is inert and proves nothing today. It filters on
-    group_id == "malformed-test", while the store_memory() call below passes no
-    group_id at all, so no row can ever carry that value and the assertion cannot
-    fail whatever the code under test does. It is kept rather than deleted
-    because it becomes a real check once the call site supplies a group_id; until
-    then it must not be read as evidence that nothing was stored.
+    The trailing Qdrant scroll is unreachable today, so it is dead code rather
+    than a weak check. The store_memory() call below passes no group_id, and
+    store_memory declares that parameter keyword-only with no default, so the
+    call raises a keyword-arity TypeError before its body runs. For the three
+    params declaring ValueError that TypeError is not caught and propagates out;
+    for the two declaring TypeError it is caught, but its message does not match
+    the param's pattern. Either way the with-block exits by exception and control
+    never reaches the scroll. It is kept rather than deleted because it is part
+    of the intended check, but it must not be read as evidence that nothing was
+    stored, and two independent changes are needed before it becomes one: the
+    call site must supply a group_id, and the value supplied must be the one this
+    scroll filters on.
 
     Issue 1 fix: Added None and dict test cases per AC 5.4.2
     Issue 8 fix: Expected exception type is declared per-param; see the comment
@@ -298,10 +322,11 @@ def test_malformed_input_handled_gracefully(
 
     Per 2026 research:
     - @pytest.mark.parametrize for DRY principle
-    - Regex pattern matching validates error messages
-    - Direct Qdrant verification is present but inert until the call site
-      supplies a group_id (see above); it does not yet establish that no
-      partial write occurred
+    - Regex patterns are declared per param, but no param's pattern is matched
+      today (see above)
+    - Direct Qdrant verification is written but unreachable (see above); it does
+      not establish that no partial write occurred, and supplying a group_id at
+      the call site would not by itself make it establish that
 
     Sources:
     - https://docs.pytest.org/en/stable/how-to/parametrize.html
@@ -318,10 +343,10 @@ def test_malformed_input_handled_gracefully(
             session_id="test-malformed",
         )
 
-    # Inert check (see docstring): this filters on a group_id that no call in
-    # this test ever writes, so it cannot fail and does not yet verify that no
-    # data was stored. It becomes a real check once the call site supplies a
-    # group_id.
+    # Unreachable today (see docstring): the with-block above always exits by
+    # exception, so control never gets here. The filter below also names a
+    # group_id value that no call in this test writes, so reaching this code
+    # would not be sufficient on its own.
     client = QdrantClient(url=QDRANT_URL, timeout=5.0)
 
     # Query for test data that should NOT exist
@@ -335,8 +360,7 @@ def test_malformed_input_handled_gracefully(
         limit=10,
     )
 
-    # Empty for the reason above regardless of the code under test, so this
-    # asserts nothing yet.
+    # Never evaluated today, for the reason above.
     assert (
         len(results[0]) == 0
     ), f"Malformed data was stored despite validation error: {results[0]}"
@@ -367,7 +391,7 @@ def test_malformed_input_handled_gracefully(
 )
 @pytest.mark.timeout(10)
 def test_invalid_metadata_fields(invalid_field, value, error_pattern):
-    """Verify metadata field validation (FR44).
+    """Metadata field validation test; no param reaches validation (FR44).
 
     Tests validation of required and enum fields per schema.
     Per 2026 best practice: Validate at API boundaries.
@@ -400,10 +424,11 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
     # would reach payload validation and raise ValueError. None of them reaches it
     # today: kwargs below carries no group_id, and store_memory declares group_id
     # keyword-only with no default, so the call raises a keyword-arity TypeError
-    # before the function body runs. That is precisely why TypeError stays out of
-    # the declared type — admitting it would let the arity failure satisfy this
-    # assertion and read as a pass. The uniform ValueError holds only once the
-    # call site supplies a group_id.
+    # before the function body runs. TypeError stays out of the declared type
+    # because these params are written for payload validation, not for the arity
+    # error; it is the pattern, not the declared type, that keeps the arity
+    # message from being read as a pass. The uniform ValueError holds only once
+    # the call site supplies a group_id.
     with pytest.raises(ValueError, match=error_pattern):
         storage.store_memory(**kwargs)
 
@@ -413,17 +438,25 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
 )
 @pytest.mark.timeout(60)
 def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
-    """Verify Qdrant unavailable results in queue, not crash (FR30, FR34, NFR-R5).
+    """Qdrant-outage queueing test; skipped, validates nothing (FR30, FR34, NFR-R5).
 
     Tests graceful degradation per architectural requirement:
     "Hooks must ALWAYS exit 0 or 1, never crash Claude"
 
-    This test validates the complete failure recovery path:
+    This test is written to cover the complete failure recovery path:
     1. Qdrant down → storage.store_memory() should handle gracefully
     2. Memory queued with QDRANT_UNAVAILABLE reason
     3. Backfill script can process queue
 
-    Issue 4 fix: Added queue verification per AC 5.4.3
+    It validates none of it today. The skip marker above keeps it from running.
+    Were it unskipped, the store_memory() call in step 1 passes no group_id, so
+    it would raise a keyword-arity TypeError instead of degrading gracefully;
+    the except below would catch that TypeError and then fail its own assertion,
+    because the arity message names none of qdrant, unavailable or connect.
+    Steps 2 and 3 would not be reached.
+
+    Issue 4 fix: queue verification is written below; the skip marker keeps it
+    from running.
 
     Per 2026 research:
     - try/finally pattern ensures Docker cleanup
@@ -513,14 +546,19 @@ def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
 
 @pytest.mark.timeout(120)  # 2 minutes
 def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories):
-    """Verify embedding timeout results in pending status (FR34, NFR-P2).
+    """Embedding-timeout pending-status test; errors before storing (FR34, NFR-P2).
 
     Tests performance degradation handling:
     - Embedding service slow/timeout → Store with pending status
     - Memory retrievable (without embedding)
     - Backfill script can complete embedding later
 
-    Issue 5 fix: Added group_id isolation
+    Issue 5 fix: not delivered. The store_memory() call below passes no
+    group_id, and store_memory declares that parameter keyword-only with no
+    default, so the call raises a keyword-arity TypeError. Nothing here
+    suppresses it, so this test errors at that call: the Qdrant scroll and both
+    assertions below it are never evaluated, rather than failing. The scroll
+    additionally filters on a group_id value that no call writes.
 
     Per 2026 research:
     - unittest.mock for controlled failure injection
@@ -533,7 +571,8 @@ def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories
 
     storage = MemoryStorage()
 
-    # Issue 5: Use unique group_id for test isolation
+    # Issue 5: unique per-run value. It is interpolated into cwd below and into
+    # the scroll filter; it is never passed as a group_id, so nothing stores it.
     test_group_id = f"timeout-test-{TEST_RUN_ID}"
     unique_content = f"Embedding timeout test - unique {int(time.time() * 1000000)}"
 
