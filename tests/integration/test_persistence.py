@@ -114,8 +114,8 @@ def cleanup_test_memories():
 @pytest.mark.skipif(
     os.environ.get("CI") == "true",
     reason="Runs `docker compose restart qdrant` against the project's own "
-    "compose file — no CI job provides that Qdrant instance to restart "
-    "(see TD-936 for background).",
+    "compose file — no CI job that collects this test provides a "
+    "compose-managed Qdrant instance to restart (see TD-936 for background).",
 )
 def test_data_persists_across_docker_restart(
     qdrant_client, tmp_path, cleanup_test_memories
@@ -439,8 +439,8 @@ def test_queue_file_survives_process_restart(tmp_path):
 @pytest.mark.skipif(
     os.environ.get("CI") == "true",
     reason="Runs `docker compose restart qdrant` against the project's own "
-    "compose file — no CI job provides that Qdrant instance to restart "
-    "(see TD-936 for background).",
+    "compose file — no CI job that collects this test provides a "
+    "compose-managed Qdrant instance to restart (see TD-936 for background).",
 )
 def test_data_persists_through_multiple_restarts(
     qdrant_client, tmp_path, cleanup_test_memories
