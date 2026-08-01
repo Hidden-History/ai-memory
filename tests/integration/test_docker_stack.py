@@ -173,7 +173,7 @@ def docker_stack(docker_compose_path: str) -> Generator[None, None, None]:
 @pytest.mark.requires_docker_stack
 @pytest.mark.skipif(
     os.environ.get("CI") == "true",
-    reason="Requires docker-compose control - not available in CI service containers",
+    reason="Requires docker-compose control - collides with the integration job's own Qdrant service container, which already holds the host port this compose stack would bind",
 )
 class TestPersistentStorage:
     """AC 1.1.2 - Persistent Storage Verification"""
@@ -354,7 +354,7 @@ class TestPersistentStorage:
 @pytest.mark.requires_docker_stack
 @pytest.mark.skipif(
     os.environ.get("CI") == "true",
-    reason="Requires docker-compose control - not available in CI service containers",
+    reason="Requires docker-compose control - collides with the integration job's own Qdrant service container, which already holds the host port this compose stack would bind",
 )
 class TestPortConfiguration:
     """AC 1.1.3 - Port Configuration"""
@@ -387,7 +387,7 @@ class TestPortConfiguration:
 @pytest.mark.requires_docker_stack
 @pytest.mark.skipif(
     os.environ.get("CI") == "true",
-    reason="Requires docker-compose control - not available in CI service containers",
+    reason="Requires docker-compose control - collides with the integration job's own Qdrant service container, which already holds the host port this compose stack would bind",
 )
 class TestHealthcheck:
     """Verify Qdrant service is accessible"""
