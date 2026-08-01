@@ -104,7 +104,8 @@ pytestmark = [
 # Use environment variables for port configuration
 QDRANT_URL = os.environ.get("QDRANT_URL", "http://localhost:26350")
 
-# Issue 5: Unique test group ID for isolation
+# Issue 5: unique per-run id. Tests interpolate it into cwd; it is never passed
+# as a group_id, so it provides no project isolation.
 TEST_RUN_ID = f"edge-{int(time.time())}"
 
 
@@ -400,7 +401,8 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
 
     Per 2026 research:
     - Parametrization avoids test duplication
-    - Explicit error patterns ensure correct validation
+    - Explicit error patterns are declared, but no param reaches the validation
+      they describe (see below)
 
     Sources:
     - https://docs.pytest.org/en/stable/how-to/parametrize.html
@@ -562,7 +564,7 @@ def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories
 
     Per 2026 research:
     - unittest.mock for controlled failure injection
-    - Direct Qdrant verification for data integrity
+    - Direct Qdrant verification is written below but is not reached (see above)
 
     Sources:
     - https://docs.python.org/3/library/unittest.mock.html
