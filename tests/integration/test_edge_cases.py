@@ -53,7 +53,7 @@ Story 5.4 Code Review Fixes:
     - Issue 5: Added group_id isolation
     - Issue 6: Using cleanup_edge_case_memories fixture
     - Issue 7: Import from conftest (no sys.path.insert)
-    - Issue 8: Using specific ValidationError exception
+    - Issue 8: Expected exception declared per parametrized case
 """
 
 import concurrent.futures
@@ -213,14 +213,23 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
 # raised for a missing keyword argument once satisfied assertions written to
 # exercise validation.
 #
-# The two non-string params genuinely expect TypeError: the security scanner's
-# re.finditer() runs on raw content before hashing and validation and has no
-# isinstance guard, so None and dict fail there. Their patterns are anchored to
-# that exact message because the missing-argument error is also a TypeError — the
-# declared type cannot separate the two, only the message can. Do not loosen them.
+# The two non-string params declare TypeError for the security scanner's
+# re.finditer(), which runs on raw content before hashing and validation and has
+# no isinstance guard. That path is not reached yet. Every param here shares one
+# store_memory() call site that passes no group_id, and store_memory declares
+# group_id keyword-only with no default, so Python raises a keyword-arity
+# TypeError at call time, before any of the function body runs. Until the call
+# site supplies a group_id, that arity error is the only TypeError these two
+# params can produce, and it does not match either pattern.
 #
-# This holds while content scanning is on, which is the default and is required
-# for these two params to pass at all. With security_scanning_enabled False, or
+# The patterns are anchored to the scanner's exact message precisely because the
+# arity error is also a TypeError — the declared type cannot separate the two,
+# only the message can. That anchoring is what stops the arity error from being
+# absorbed as a false pass, so do not loosen them.
+#
+# Once the call site supplies a group_id and the scanner path is reached, these
+# two params further rest on content scanning being on, which is the default and
+# is required for them to pass at all. With security_scanning_enabled False, or
 # security_scan_session_mode set to "off", the scanner is bypassed and the same
 # inputs raise AttributeError from compute_content_hash() instead. That
 # configuration is out of scope here and fails loudly on the type mismatch rather
@@ -260,8 +269,8 @@ def test_malformed_input_handled_gracefully(
     Tests input validation at storage boundary layer.
     Per 2026 best practice: Fail fast with clear error messages.
 
-    Critical: No silent failures - every malformed input must raise, and nothing
-    may be stored.
+    Critical: No silent failures - each malformed input must raise the exception
+    type declared for its param, with a message matching that param's pattern.
 
     Issue 1 fix: Added None and dict test cases per AC 5.4.2
     Issue 8 fix: Expected exception type is declared per-param; see the comment
