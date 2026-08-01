@@ -53,7 +53,13 @@ Story 5.4 Code Review Fixes:
     - Issue 5: Added group_id isolation
     - Issue 6: Using cleanup_edge_case_memories fixture
     - Issue 7: Import from conftest (no sys.path.insert)
-    - Issue 8: Expected exception declared per parametrized case
+    - Issue 8: Using specific ValidationError exception
+
+Superseded since Story 5.4 (the list above is a record of that story, not of
+current behaviour):
+    - Issue 8: the single shared expected-exception type has been replaced by a
+      per-parametrized-case declaration. See the comment above the
+      malformed-input parametrize block for why the type cannot be shared.
 """
 
 import concurrent.futures
@@ -214,13 +220,20 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
 # exercise validation.
 #
 # The two non-string params declare TypeError for the security scanner's
-# re.finditer(), which runs on raw content before hashing and validation and has
-# no isinstance guard. That path is not reached yet. Every param here shares one
-# store_memory() call site that passes no group_id, and store_memory declares
-# group_id keyword-only with no default, so Python raises a keyword-arity
-# TypeError at call time, before any of the function body runs. Until the call
-# site supplies a group_id, that arity error is the only TypeError these two
-# params can produce, and it does not match either pattern.
+# re.finditer(), which runs on raw content after the cwd and group_id checks but
+# before content hashing and payload validation, and has no isinstance guard.
+# That path is not reached yet. Every param here shares one store_memory() call
+# site that passes no group_id, and store_memory declares group_id keyword-only
+# with no default, so Python raises a keyword-arity TypeError at call time,
+# before any of the function body runs. Until the call site supplies a group_id,
+# that arity error is the only TypeError these two params can produce, and it
+# does not match either pattern.
+#
+# That arity error is not confined to the two non-string params. It fires for
+# every param in this block, the three ValueError params included: they never
+# reach the payload validation that would raise their ValueError, so they do not
+# pass either — they error at the call site, for the same missing group_id. No
+# case here currently exercises the validation it was written to exercise.
 #
 # The patterns are anchored to the scanner's exact message precisely because the
 # arity error is also a TypeError — the declared type cannot separate the two,
@@ -272,6 +285,13 @@ def test_malformed_input_handled_gracefully(
     Critical: No silent failures - each malformed input must raise the exception
     type declared for its param, with a message matching that param's pattern.
 
+    The trailing Qdrant scroll is inert and proves nothing today. It filters on
+    group_id == "malformed-test", while the store_memory() call below passes no
+    group_id at all, so no row can ever carry that value and the assertion cannot
+    fail whatever the code under test does. It is kept rather than deleted
+    because it becomes a real check once the call site supplies a group_id; until
+    then it must not be read as evidence that nothing was stored.
+
     Issue 1 fix: Added None and dict test cases per AC 5.4.2
     Issue 8 fix: Expected exception type is declared per-param; see the comment
     above the parametrize block for why the type is not shared across params.
@@ -279,7 +299,9 @@ def test_malformed_input_handled_gracefully(
     Per 2026 research:
     - @pytest.mark.parametrize for DRY principle
     - Regex pattern matching validates error messages
-    - Direct Qdrant verification ensures no partial writes
+    - Direct Qdrant verification is present but inert until the call site
+      supplies a group_id (see above); it does not yet establish that no
+      partial write occurred
 
     Sources:
     - https://docs.pytest.org/en/stable/how-to/parametrize.html
@@ -296,7 +318,10 @@ def test_malformed_input_handled_gracefully(
             session_id="test-malformed",
         )
 
-    # Verify no data stored (check Qdrant directly)
+    # Inert check (see docstring): this filters on a group_id that no call in
+    # this test ever writes, so it cannot fail and does not yet verify that no
+    # data was stored. It becomes a real check once the call site supplies a
+    # group_id.
     client = QdrantClient(url=QDRANT_URL, timeout=5.0)
 
     # Query for test data that should NOT exist
@@ -310,7 +335,8 @@ def test_malformed_input_handled_gracefully(
         limit=10,
     )
 
-    # Should be empty - no malformed data stored
+    # Empty for the reason above regardless of the code under test, so this
+    # asserts nothing yet.
     assert (
         len(results[0]) == 0
     ), f"Malformed data was stored despite validation error: {results[0]}"
@@ -370,10 +396,14 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
     if invalid_field == "memory_type" or invalid_field == "source_hook":
         kwargs[invalid_field] = value
 
-    # Issue 8 fix: All three params reach payload validation, which raises
-    # ValueError, so the type is uniform and needs no per-param column. TypeError
-    # stays out: store_memory() also raises it when a required keyword argument is
-    # missing from the call, which would mask that failure as a passing assertion.
+    # Issue 8 fix: the three params share one declared exception type because each
+    # would reach payload validation and raise ValueError. None of them reaches it
+    # today: kwargs below carries no group_id, and store_memory declares group_id
+    # keyword-only with no default, so the call raises a keyword-arity TypeError
+    # before the function body runs. That is precisely why TypeError stays out of
+    # the declared type — admitting it would let the arity failure satisfy this
+    # assertion and read as a pass. The uniform ValueError holds only once the
+    # call site supplies a group_id.
     with pytest.raises(ValueError, match=error_pattern):
         storage.store_memory(**kwargs)
 
