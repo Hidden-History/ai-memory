@@ -63,13 +63,23 @@ current behaviour):
       malformed-input parametrize block for why the type cannot be shared.
     - Issue 5: not delivered by these tests. No call site in this file passes a
       group_id. store_memory and MemorySearch.search both declare that parameter
-      keyword-only with no default, so every call here raises a keyword-arity
-      TypeError at call time, before any project isolation could apply.
-    - Issue 3: the search retrieval verification is written but cannot report a
-      failure. Its call passes cwd, which is not a parameter of
-      MemorySearch.search, and omits the required group_id; the resulting
-      TypeError is caught by a broad except and reported as an embedding-service
-      warning, so a real retrieval failure would look the same.
+      keyword-only with no default, so no call here can apply project isolation.
+      Only four of the six call sites raise, though: the four executed
+      store_memory calls raise a keyword-arity TypeError naming the missing
+      group_id. The other two raise nothing because neither executes -- the
+      MemorySearch.search call is unreachable (see Issue 3 below) and the
+      store_memory call in test_qdrant_unavailable_queues_memory sits behind a
+      skip marker. The search call would also fail for a different reason than
+      the store calls: it passes cwd, which search does not accept, so Python
+      reports the unexpected keyword and never reaches the missing group_id.
+    - Issue 3: the search retrieval verification is written but never runs.
+      test_concurrent_writes_no_corruption terminates before reaching it (see
+      that test's docstring), so the search call, the broad except around it and
+      the warning it would emit are all dead code. Were it reached, its call
+      passes cwd, which is not a parameter of MemorySearch.search, so it would
+      raise TypeError for the unexpected keyword before any search ran, and the
+      broad except would report that signature error as an embedding-service
+      warning.
 """
 
 import concurrent.futures
@@ -125,11 +135,17 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
     - Per-future timeouts for fail-fast behavior
     - Default max_workers = min(32, os.cpu_count() + 4) in Python 3.13
 
-    Issue 3 fix: search retrieval verification is written below, but it cannot
-    report a failure. See the Superseded note in the module docstring.
+    Issue 3 fix: search retrieval verification is written below but never runs.
+    See the Superseded note in the module docstring.
     Issue 5 fix: not delivered. This test passes no group_id; store_memory
     declares that parameter keyword-only with no default, so the store helper
-    below raises a keyword-arity TypeError before any memory is written.
+    below raises a keyword-arity TypeError before any memory is written. All 20
+    submitted futures fail that way, so the first one collected re-raises the
+    TypeError, the broad except catches it, and pytest.fail() runs. pytest.fail()
+    raises Failed, which derives from BaseException rather than Exception, so
+    nothing downstream catches it and the test terminates inside the collection
+    loop. Everything after that loop -- the four assertions, the search retrieval
+    block and its warning -- is dead code, not a weak check.
 
     Sources:
     - https://docs.python.org/3/library/concurrent.futures.html
@@ -201,11 +217,14 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
     assert stored_count > 0, "No memories were stored (all duplicates)"
 
     # Issue 3 fix: written to verify all memories retrievable via search
-    # (AC 5.4.1). It cannot fire today: the call passes cwd, which is not a
-    # parameter of MemorySearch.search, and omits the required group_id, so it
-    # raises TypeError before any search runs. The except below catches that
-    # TypeError and reports it as an embedding-service problem, so a signature
-    # error and a real outage are indistinguishable here.
+    # (AC 5.4.1). None of this block runs today -- the test already terminated in
+    # the collection loop above (see docstring), so the call, the except and the
+    # warning are dead code. Were it reached, the call passes cwd, which is not a
+    # parameter of MemorySearch.search, so Python would raise TypeError for the
+    # unexpected keyword before any search ran; it also omits the required
+    # group_id, but that is never the error reported. The except below would
+    # catch that TypeError and report it as an embedding-service problem, making
+    # a signature error and a real outage indistinguishable.
     try:
         search = MemorySearch()
         search_results = search.search(
@@ -428,9 +447,13 @@ def test_invalid_metadata_fields(invalid_field, value, error_pattern):
     # keyword-only with no default, so the call raises a keyword-arity TypeError
     # before the function body runs. TypeError stays out of the declared type
     # because these params are written for payload validation, not for the arity
-    # error; it is the pattern, not the declared type, that keeps the arity
-    # message from being read as a pass. The uniform ValueError holds only once
-    # the call site supplies a group_id.
+    # error. Here the declared type alone is what keeps the arity error from
+    # being read as a pass: TypeError is not a subclass of ValueError, so
+    # pytest.raises never catches it and never consults the pattern, and the test
+    # errors out instead. That is the inverse of the malformed-input block above,
+    # where two params declare TypeError and only the message can separate the
+    # arity error from the one they were written for. The uniform ValueError
+    # holds only once the call site supplies a group_id.
     with pytest.raises(ValueError, match=error_pattern):
         storage.store_memory(**kwargs)
 
