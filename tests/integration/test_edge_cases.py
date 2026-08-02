@@ -195,7 +195,9 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
     assert len(results) == 20, f"Expected 20 results, got {len(results)}"
 
     # Verify no crashes occurred (all results returned)
-    # Core test: System didn't crash under concurrent load
+    # Written as the core test: System didn't crash under concurrent load. It
+    # establishes nothing today -- the test already terminated in the loop
+    # above, having crashed under exactly that load.
 
     # Verify all memory IDs are unique (no collision)
     memory_ids = [
@@ -240,8 +242,11 @@ def test_concurrent_writes_no_corruption(cleanup_edge_case_memories):
             "memories stored but not retrievable!"
         )
     except Exception as e:
-        # Embedding service unavailable - skip search verification with warning
-        # Core concurrent write test still validates data integrity
+        # Dead: the test terminated in the collection loop above, so this
+        # handler never runs. It was written for an embedding-service outage,
+        # but the exception it would receive is the signature error from the cwd
+        # keyword above, not an outage; and the concurrent write test it falls
+        # back on establishes no data integrity, having reached no assertion.
         import warnings
 
         warnings.warn(
@@ -524,7 +529,10 @@ def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
         # Attempt to store memory (should handle gracefully)
         storage = MemoryStorage()
 
-        # This should NOT crash - should handle QdrantUnavailable gracefully
+        # Written to assert this does NOT crash and degrades via
+        # QdrantUnavailable. Dead (skip marker); and were it live, the call
+        # raises the keyword-arity TypeError for the missing group_id, which is
+        # not QdrantUnavailable -- see this test's docstring.
         try:
             result = storage.store_memory(
                 content="Qdrant unavailable test - should queue",
@@ -542,8 +550,11 @@ def test_qdrant_unavailable_queues_memory(cleanup_edge_case_memories):
                     final_stats.get("total_items", 0) > initial_queue_count
                 ), "Memory should be queued when Qdrant unavailable"
         except Exception as e:
-            # Expected: QdrantUnavailable or similar
-            # The exception name might vary based on implementation
+            # Written expecting QdrantUnavailable or similar, on the basis that
+            # the exception name might vary by implementation. Dead (skip
+            # marker), and the expectation is wrong regardless: the arity
+            # TypeError arrives here instead, and its message satisfies none of
+            # the three substrings the assertion below tests for.
             error_msg = str(e).lower()
             assert (
                 "qdrant" in error_msg
@@ -607,7 +618,8 @@ def test_embedding_timeout_queues_with_pending_status(cleanup_edge_case_memories
         "embed",
         side_effect=EmbeddingError("Embedding service timeout"),
     ):
-        # Should NOT crash - store with pending status
+        # Written to assert this does NOT crash and stores with pending status.
+        # It does crash: the call omits the required group_id (see docstring).
         result = storage.store_memory(
             content=unique_content,
             cwd=f"/tmp/{test_group_id}",
