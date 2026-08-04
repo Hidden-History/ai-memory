@@ -1,0 +1,378 @@
+# candidate-g1-sonnet.yaml
+#
+# PLAN-035 P2 Phase A, Group 1 — blind-derivation candidate.
+# Independently derived registry entries for 17 Group-1 oversight templates
+# (convention/register/log/heartbeat classes), per PLAN-035 §3a schema:
+#   template, produces (singleton|family), target|glob, class (BP-191),
+#   required_skeleton (C1), conventions (C6), consumed_by (C4 wiring).
+#
+# SOURCES CONSULTED (cite-per-field below; these are the canonical ones):
+#   - PLAN-035-pov-template-update-correctness.md §3a (schema + C1/C6 defs) and §5 (acceptance battery)
+#   - BP-189-preserve-class-structural-conformance-verification-2026.md
+#     (C1 subset semantic: required_skeleton ⊆ actual; extras + all values out of scope)
+#   - ai-memory/_ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py
+#     FALLBACK_REGISTRY dict[str, Contract] (authoritative C6 cap source) + Contract
+#     dataclass in pov/lib/governance/contract.py
+#   - BP-191-per-class-oversight-archival-retention-policy-2026.md (BP-191 class taxonomy:
+#     heartbeat / append-only-log / live-index / register / detail-record)
+#   - Each template's own front-matter (cited as "front-matter" below) and the LIVE
+#     oversight/ files (read to sanity-check pins against real conformant/non-conformant
+#     instances per the §5 oracle-truth test)
+#
+# SCOPE: C1 (required_skeleton) + C6 (conventions) only. consumed_by (C4 wiring) is
+# NOT derived here — deriving it requires grepping every POV-workflow reference to each
+# target, which is outside this dispatch's scope (see completion report frictions).
+# produces/target/glob/class are filled where directly evidenced, to keep entries
+# schema-shaped; low-confidence/inferred values are marked inline with a comment.
+
+- template: templates/oversight/tracking/blockers-log.md
+  produces: singleton
+  target: tracking/blockers-log.md
+  class: register  # front-matter
+  required_skeleton:
+    required_sections:
+      - "## Active Blockers"
+      - "## Blocker Details"
+      - "## Resolved Blockers"
+      - "## Severity Definitions"
+  conventions:
+    entry_pattern: '^### BLK-\d+'   # H3 detail-record boundary (template: "### BLK-001: [Title]")
+    cap_lines: 100   # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 15       # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    # no `order` — register class is filtered by status (OPEN vs resolved), not
+    # chronologically ordered; front-matter reconciliation says "live = OPEN only",
+    # not a recency rule, so no verifiable order convention pinned.
+  consumed_by: []  # C4 wiring not derived — out of scope, see frictions
+
+- template: templates/oversight/tracking/decision-log.md
+  produces: singleton
+  target: tracking/decision-log.md
+  class: append-only-log  # front-matter
+  required_skeleton:
+    required_sections:
+      - "## How to Use"
+      - "## Entry Format"
+      - "## Decisions"
+  conventions:
+    entry_pattern: '^### DEC-[A-Z0-9-]+-D\d'   # per BP-189 §3a worked example + live file usage
+    order: newest_first   # template's own text: "Format: Append-only — add new entries at the top, newest first"
+    cap_lines: 150   # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 50       # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+  consumed_by: []
+
+- template: templates/oversight/tracking/dependencies.md
+  produces: singleton
+  target: tracking/dependencies.md
+  class: UNCLASSIFIED  # no class: frontmatter, no FALLBACK_REGISTRY entry — genuine C5 gap
+                        # (§3a: "only 9 of 38 declare a class today"); NOT the by-design
+                        # durable-detail-record omission (BP-191 row 5a) — flagged, not guessed.
+  required_skeleton:
+    required_sections:
+      - "## External Dependencies"
+      - "## Package Dependencies"
+      - "## Internal Dependencies"
+      - "## Dependency Health Status"
+      - "## Upcoming Changes"
+      - "## Review Schedule"
+  # no `conventions:` — no cap declared anywhere (absent from FALLBACK_REGISTRY and
+  # front-matter) and no verifiable entry/order rule stated in the template body.
+  consumed_by: []
+
+- template: templates/oversight/tracking/risk-register.md
+  produces: singleton
+  target: tracking/risk-register.md
+  class: register  # front-matter
+  required_skeleton:
+    required_sections:
+      - "## Active Risks"
+      - "## Resolved Risks"
+      - "## Risk Categories"
+      - "## Severity Matrix"
+  conventions:
+    entry_pattern: '^\| RSK-'   # table-row record boundary; more specific than the
+      # generic '^\| ' (FALLBACK_REGISTRY has no entry_pattern for this file — None —
+      # so this is DERIVED, not cited from the contract) to avoid false-matching the
+      # unrelated "Severity Matrix" table rows at the bottom of the file.
+    cap_lines: 120   # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 12       # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    # no `order` — severity-grouped, not chronologically ordered.
+  consumed_by: []
+
+- template: templates/oversight/tracking/scope-change-log.md
+  produces: singleton
+  target: tracking/scope-change-log.md
+  class: UNCLASSIFIED  # no class: frontmatter, no FALLBACK_REGISTRY entry — genuine C5 gap (see dependencies.md note)
+  required_skeleton:
+    required_sections:
+      - "## Active Scope Changes"
+      - "## Scope Change Details"
+      - "## Approved Changes (This Sprint)"
+      - "## Rejected Changes"
+      - "## Scope Drift Indicators"
+  # no `conventions:` — no cap declared anywhere; no verifiable entry/order rule stated.
+  consumed_by: []
+
+- template: templates/oversight/tracking/task-tracker.md
+  produces: singleton
+  target: tracking/task-tracker.md
+  class: register  # front-matter (rotation_trigger: none — thin pointer, check-only)
+  required_skeleton:
+    required_sections:
+      - "## Current Sprint"
+      - "## Naming Convention"
+  conventions:
+    cap_lines: 60    # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 4.5      # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    # no entry_pattern/order — single current-sprint pointer table, not a multi-record log.
+  consumed_by: []
+
+- template: templates/oversight/tracking/technical-debt.md
+  produces: singleton
+  target: tracking/technical-debt.md
+  class: register  # front-matter
+  required_skeleton:
+    required_sections:
+      - "## Debt Summary"
+      - "## Active Technical Debt"
+      - "## Debt by Category"
+      - "## Resolved Debt"
+      - "## Debt Prevention Checklist"
+  conventions:
+    entry_pattern: '^### TD-'   # H3 detail-record boundary (template: "### TD-001: [Title]")
+    cap_lines: 150   # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 15       # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    # no `order` — register class, event-triggered not recency-ordered.
+  consumed_by: []
+
+- template: templates/oversight/session-index/INDEX.md
+  produces: singleton
+  target: session-index/INDEX.md
+  class: live-index  # front-matter
+  required_skeleton:
+    required_sections:
+      - "## How This Works"
+      - "## Current Year"   # NORMALIZED: template ships "## Current Year: [YYYY]" with a
+        # dynamic year suffix (PLAN-035 §3a explicitly calls this out as needing a
+        # normalization rule). Pinned as a prefix match — strip the ": [YYYY]"/real-year
+        # suffix before comparing. Verified against the LIVE file: it has "## 2026-07
+        # (July)" directly with NO "## Current Year" wrapper — this pin correctly
+        # reproduces the §5 oracle-truth test's expected STRUCT_NONCONFORMANT.
+      - "## Archive"
+      - "## Maintenance"
+  conventions:
+    entry_pattern: '^\| '   # source: class-contract (FALLBACK_REGISTRY explicit entry_pattern)
+    cap_lines: 120   # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 10       # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    # no `order` — no explicit recency ordering stated in the template body.
+  consumed_by: []
+
+- template: templates/oversight/session-index/WEEK_TEMPLATE.md
+  produces: family
+  glob: "session-index/*/week-*.md"  # INFERRED, medium-high confidence: session-index/INDEX.md's
+    # own text states "Details: See `[YYYY-MM]/week-N.md`" — not stated in WEEK_TEMPLATE.md itself.
+  class: detail-record  # INFERRED by analogy (BP-191 row 5a "dated session artifacts" subset;
+    # no class: frontmatter on this template, which BP-191 documents as by-design for
+    # detail-record instances, not a C5 gap) — not cited from a class-contract entry.
+  required_skeleton:
+    required_sections:
+      - "## Sessions"
+  # no `conventions:` — detail-record class (single standalone file per week), not an
+  # append-only-log/register/live-index; no cap in FALLBACK_REGISTRY or front-matter.
+  consumed_by: []
+
+- template: templates/oversight/session-index/archive/QUARTER_ARCHIVE_TEMPLATE.md
+  produces: family
+  glob: "session-index/archive/*.md"  # high confidence: session-index/INDEX.md's own text
+    # states "Archive... `archive/[YYYY]-Q[N].md`", and the template itself lives at this path.
+  class: detail-record  # INFERRED by analogy (BP-191 row 5a dated-session-artifact subset), no front-matter class
+  required_skeleton:
+    required_sections:
+      - "## Summary by Month"
+      - "## Session List"
+      - "## Key Decisions This Quarter"
+      - "## Bugs Resolved This Quarter"
+  # no `conventions:` — detail-record class, no cap declared anywhere.
+  consumed_by: []
+
+- template: templates/oversight/bugs/BUG_TEMPLATE.md
+  produces: family
+  glob: "bugs/BUG-*.md"  # high confidence — template's own ID field is "BUG-XXX"
+  class: detail-record  # INFERRED by analogy (BP-191 row 5a); no front-matter class on this template
+  required_skeleton:
+    required_sections:
+      - "## Summary"
+      - "## Environment"
+      - "## Description"
+      - "## Impact"
+      - "## Investigation"
+      - "## Root Cause"
+      - "## Resolution"
+      - "## Verification"
+      - "## Prevention Measures"
+      - "## Metadata"
+      - "## Timeline"
+      - "## Notes"
+  # no `conventions:` — detail-record class, no cap declared anywhere.
+  consumed_by: []
+
+- template: templates/oversight/bugs/ROOT_CAUSE_TEMPLATE.md
+  produces: family
+  glob: "bugs/*ROOT*CAUSE*.md"  # LOW CONFIDENCE — no filename/naming convention is stated
+    # anywhere in this template or in BUG_TEMPLATE.md's reference to it. Flagged as friction:
+    # this glob is a guess, not evidenced.
+  class: detail-record  # INFERRED by analogy (BP-191 row 5a); no front-matter class on this template
+  required_skeleton:
+    required_sections:
+      - "## Executive Summary"
+      - "## Symptom Description"
+      - "## Investigation Process"
+      - "## Root Cause Identified"
+      - "## Why It Wasn't Caught Earlier"
+      - "## Impact Analysis"
+      - "## The \"5 Whys\" Analysis"
+      - "## Lessons Learned"
+      - "## Prevention Measures"
+      - "## Verification"
+      - "## Related Issues"
+      - "## Documentation Updates Required"
+      - "## Metadata"
+      - "## Appendices"
+      - "## Notes"
+  # no `conventions:` — detail-record class, no cap declared anywhere.
+  consumed_by: []
+
+- template: templates/oversight/tech-debt/INDEX.md
+  produces: singleton
+  target: tech-debt/INDEX.md
+  class: register  # front-matter
+  required_skeleton:
+    required_sections:
+      - "## Quick Stats"
+      - "## Open Technical Debt"
+      - "## Closed Technical Debt"
+  conventions:
+    cap_lines: 150   # source: front-matter ONLY. This file is explicitly EXCLUDED from
+      # FALLBACK_REGISTRY (tracking_rotate.py FRESHNESS_OWNED = {"bugs/INDEX.md",
+      # "tech-debt/INDEX.md"} — owned by aim-tracking-freshness, not aim-tracking-rotate).
+      # Not cross-validated against a class-contract; front-matter is the only source.
+    cap_kb: 18       # source: front-matter ONLY (same caveat as cap_lines above)
+    # `order` / `entry_pattern` NOT pinned: the template's own text implies newest-first
+    # for the "Closed Technical Debt" table specifically ("Most recent 10 closed
+    # records"), but the current conventions schema has no per-section field to express
+    # a rule scoped to one table within a two-table file — flagged as friction rather
+    # than mis-pinning a whole-file order value. This file is regenerated by a
+    # different engine (aim-tracking-freshness) not audited in this task.
+  consumed_by: []
+
+- template: templates/oversight/tech-debt/TECH_DEBT_TEMPLATE.md
+  produces: family
+  glob: "tech-debt/TECH-DEBT-*.md"  # high confidence — template's own text: "save the
+    # record as `TECH-DEBT-NNN.md`"
+  class: detail-record  # INFERRED by analogy (BP-191 row 5a); no front-matter class on this template
+  required_skeleton:
+    required_sections:
+      - "### Summary"
+      - "### Evidence"
+      - "### Impact"
+      - "### Suggested Fix"
+      - "### Disposition"
+      # NOTE: the top-level record header ("## TECH-DEBT-{number}: {title}") is a
+      # parametrized heading (like session-index/INDEX.md's "## Current Year: [YYYY]")
+      # and cannot be pinned as a literal string — needs a prefix-match rule
+      # ("## TECH-DEBT-"), flagged as friction below (not fabricated into this pin).
+      # The field table (ID/Severity/Status/Surfaced/Found By/Date Found/Related
+      # Issues) is NOT expressible as required_sections (it's a markdown table, not
+      # a heading) — out of scope for the three BP-189 skeleton kinds, flagged.
+  # no `conventions:` — detail-record class, no cap declared anywhere. The "### Tech-Debt
+  # ID Convention" / "### Status Workflow" / "### Severity Guide" sections below the
+  # `---` in this template are AMBIGUOUS as to whether they're meant to be stripped
+  # from an instantiated TECH-DEBT-NNN.md record or retained — deliberately EXCLUDED
+  # from required_sections above (they read as authoring guidance, not record
+  # structure) and flagged as friction rather than guessed either way.
+  consumed_by: []
+
+- template: templates/oversight/session-logs/SESSION_SNAPSHOT_TEMPLATE.md
+  produces: family
+  glob: "session-logs/SESSION_SNAPSHOT_*.md"  # MEDIUM CONFIDENCE — inferred by analogy to
+    # the sibling family in the same directory, session-logs/SESSION_HANDOFF_*.md
+    # (HANDOFF_GLOB in tracking_rotate.py), not explicitly stated in this template itself.
+  class: detail-record  # INFERRED by analogy: tracking_rotate.py's HANDOFF_CONTRACT for the
+    # sibling SESSION_HANDOFF_*.md family in the SAME directory is
+    # Contract(60, 8, "detail-record", False) — cited as the closest evidenced precedent.
+    # No front-matter class on this template itself.
+  required_skeleton:
+    required_sections:
+      - "## Session Overview"
+      - "## Context at Session Start"
+      - "## Work Completed"
+      - "## Decisions Made"
+      - "## Issues Discovered"
+      - "## Learning & Insights"
+      - "## Context for Next Session"
+      - "## State Information"
+      - "## Collaboration"
+      - "## Resources Used"
+      - "## Metrics"
+      - "## Handoff Notes"
+      - "## Related Artifacts"
+      - "## Session Reflections"
+      - "## Metadata"
+      - "## Notes"
+      - "## Quick Reference"
+  # no `conventions:` — detail-record class, no cap in FALLBACK_REGISTRY for this file
+  # (only the sibling SESSION_HANDOFF_*.md family has HANDOFF_CONTRACT = 60/8; that cap
+  # is NOT this template's — pinning it here would misattribute a different family's
+  # contract, so deliberately omitted and flagged as friction instead).
+  consumed_by: []
+
+- template: templates/oversight/SESSION_WORK_INDEX.md
+  produces: singleton
+  target: SESSION_WORK_INDEX.md
+  class: live-index  # front-matter
+  required_skeleton:
+    required_sections:
+      - "## Current Sprint"
+      - "## Active Task"
+      - "## Last 5 Sessions"
+      - "## Active Blockers"
+      - "## High Priority Risks"
+      - "## Quick Links"
+      # Verified against the LIVE file: it has "## Current State" / "## Project
+      # Health" / "## Active Tasks" instead of the first four above (and DOES have
+      # "Last 5 Sessions" + "Quick Links") — this pin reproduces exactly the §5
+      # oracle-truth test's expected missing set (Current Sprint, Active Task,
+      # Active Blockers, High Priority Risks), no more, no less.
+  conventions:
+    entry_pattern: '^\| '   # source: class-contract (FALLBACK_REGISTRY explicit entry_pattern)
+      # KNOWN IMPRECISION carried forward from source: tracking_rotate.py's own comment
+      # warns this file has FOUR distinct tables and "a bare '^\\| ' match sheds rows
+      # from the wrong table" — the same imprecision applies to a C6 convention check,
+      # not just --apply rotation. Flagged as friction, not silently fixed (the fix is
+      # out of this task's scope).
+    cap_lines: 80    # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 12       # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    # no `order` — source code comment explicitly states "the last-5 window is
+    # hand-managed (ordering not guaranteed newest-first)" — NOT pinning newest_first
+    # since the authoritative source says it is not guaranteed.
+  consumed_by: []
+
+- template: templates/oversight/project-status.md
+  produces: singleton
+  target: project-status.md
+  class: heartbeat  # front-matter
+  required_skeleton:
+    required_sections: []
+    # FRICTION (see completion report): this file has no H2 structure at all — its
+    # entire payload is a fenced ```yaml code block in the body (current_phase,
+    # current_sprint, active_task, baseline_complete, phases_complete{...},
+    # key_files{...}, live_record, last_session_summary, open_issues), which does not
+    # cleanly map onto any of BP-189's three skeleton kinds (required_sections /
+    # required_frontmatter_keys / required_json_keys — the latter two assume REAL
+    # YAML frontmatter or a JSON file, not a fenced YAML block embedded in a markdown
+    # body). Left empty rather than inventing an unsanctioned fourth skeleton kind;
+    # flagged for a schema-design follow-up.
+  conventions:
+    cap_lines: 60    # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    cap_kb: 6        # source: class-contract (FALLBACK_REGISTRY) + front-matter (agree)
+    # no entry_pattern/order — heartbeat class, overwrite-in-place, no history/entries.
+  consumed_by: []
