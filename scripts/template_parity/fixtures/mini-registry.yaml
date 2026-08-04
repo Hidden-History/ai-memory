@@ -1,0 +1,54 @@
+# Tiny hand-authored fixture registry — Phase A skeleton wiring proof ONLY.
+#
+# NOT the real `oversight-templates.yaml` (that registry is authored in
+# parallel by another lane). Shape follows PLAN-035 §3a's schema description
+# literally: template, produces (singleton|family), target|glob, class,
+# required_skeleton, conventions, consumed_by.
+#
+# Deliberately exercises all five finding types the oracle skeleton must wire:
+#   - decision-log entry:  exists, has required_skeleton + conventions
+#                           -> STRUCT_NONCONFORMANT, CONVENTION_VIOLATION, OVER_CAP (stub placeholders)
+#   - PLAN-*.md glob:      two family members exist, required_skeleton only
+#                           -> STRUCT_NONCONFORMANT x2 (stub placeholders)
+#   - SESSION_WORK_INDEX:  declared target, NOT present on disk
+#                           -> UNBACKED (stub placeholder; see oracle script docstring
+#                              for the naming judgment call on this verdict)
+#   - fixtures/project/oversight/random-notes.md is NOT registered anywhere
+#                           -> UNMANAGED (stub placeholder)
+
+templates:
+  - template: templates/oversight/tracking/decision-log.md
+    produces: singleton
+    target: "{PROJECT}/oversight/tracking/decision-log.md"
+    class: append-only-log
+    required_skeleton:
+      required_sections: ["## Decisions"]
+    conventions:
+      entry_pattern: '^### DEC-[A-Z0-9-]+-D\d'
+      order: newest_first
+      cap_lines: 20
+      cap_kb: 5
+    consumed_by:
+      - pov:parzival-decision
+
+  - template: templates/oversight/plans/PLAN_TEMPLATE.md
+    produces: family
+    glob: "{PROJECT}/oversight/plans/PLAN-*.md"
+    class: instance-record
+    required_skeleton:
+      required_frontmatter_keys: [plan_role, status]
+    consumed_by:
+      - pov:parzival-status
+
+  - template: templates/oversight/SESSION_WORK_INDEX_TEMPLATE.md
+    produces: singleton
+    target: "{PROJECT}/oversight/SESSION_WORK_INDEX.md"
+    class: live-index
+    required_skeleton:
+      required_sections:
+        - "## Current Sprint"
+        - "## Active Task"
+        - "## Active Blockers"
+        - "## High Priority Risks"
+    consumed_by:
+      - pov:parzival-status
