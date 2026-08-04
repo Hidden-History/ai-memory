@@ -1,0 +1,620 @@
+# oversight-templates.yaml — CANDIDATE (Group 2, blind-derivation lane "opus")
+# PLAN-035 P2 Phase A. Derives C1 (required_skeleton) + C6 (conventions) for the 24
+# Group-2 templates. Conforms to PLAN-035 §3a schema. Author: Winston (architect).
+#
+# ── DERIVATION CONTRACT (read before consuming any pin) ────────────────────────
+# C1 subset semantic (BP-189): required_skeleton ⊆ actual. ONLY *required* structure
+#   is pinned; extras are always allowed (open-world); NO value is ever asserted by
+#   the skeleton. missing = required − actual is the only finding. Presence-only.
+# Skeleton kinds (BP-189 §2.2): required_sections (markdown headings, incl. the
+#   "## " level prefix), required_frontmatter_keys (YAML frontmatter), required_yaml_keys
+#   / required_line_keys (structured, value-agnostic). ordered:false, match_case:false
+#   are the defaults everywhere unless stated.
+#
+# ── GLOBAL NORMALIZATION RULES (placeholder headings; stated once, applied throughout) ─
+#  N1. A heading whose text is ENTIRELY a placeholder token (e.g. `# <Plan Title>`,
+#      `# [Standard Name] Standard`, `# BP-XXX: [Topic Title]`) is user-supplied content;
+#      it is NOT pinned (pinning it would assert the user's value). The stable structural
+#      sections beneath it are pinned instead.
+#  N2. A heading with a STABLE lead + a variable trailing qualifier (e.g.
+#      `## Status semantics (derived, evidence-linked — never hand-set)`) is normalized to
+#      its stable lead and pinned with a trailing `*` MD043 wildcard (BP-189 §2.2 cites
+#      MD043 `*`): `## Status semantics*`. The `*` matches the qualifier, not a new section.
+#  N3. Numbered headings (`## 1. Goal`) are pinned verbatim WITH the number — the numbering
+#      is part of the template's declared contract.
+#  N4. Leading `**Bold Field**:` metadata lines (Status/ID/Date/etc.) are NOT ATX headings,
+#      so they are outside required_sections. Where a template encodes lifecycle/identity
+#      that way, it is pinned as a C6 convention (id_pattern / *_values enum, presence-only).
+#      See FRICTION F4 — this is a schema-coverage gap flagged for reconcile.
+#
+# ── CAPS POLICY (BP-191 + G2 guidance) ─────────────────────────────────────────
+#  No G2 template carries a cap_lines/cap_kb frontmatter contract. Per BP-191 durable
+#  detail-records (plans/specs/BP/standards/decisions/audits/validations) are NEVER
+#  cap/age-archived, and the brief forbids inventing caps. Therefore NO cap_lines/cap_kb
+#  is emitted for any entry. `retention_trigger` is carried (never|event|none|cap) as the
+#  C6-relevant statement, sourced from the BP-191 class — never as a fabricated number.
+#
+# ── SCOPE OF THIS FILE ─────────────────────────────────────────────────────────
+#  IN: the 24 G2 templates; per-template produces/target|glob/class/required_skeleton/
+#      conventions. `consumed_by` (the C4 wiring lane) is intentionally NOT derived here —
+#      out of task scope. `class:` values use the BP-167/BP-191 vocabulary.
+#  Blind lane: derived without reference to any peer candidate.
+
+schema: oversight-templates/v1
+lane: g2-opus
+group: 2
+
+templates:
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # PLANS  (all three share oversight/plans/*.md — see FRICTION F3: glob needs a
+  #         plan_role frontmatter discriminant to route a file to the right skeleton)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/plans/MASTER_PLAN_TEMPLATE.md
+    produces: family            # a project may hold >1 master plan (one per multi-step initiative)
+    glob: oversight/plans/*.md
+    match_frontmatter: {plan_role: master}   # discriminant — see F3
+    class: detail-record        # durable spine; permanent-retention
+    required_skeleton:
+      derive_from: templates/oversight/plans/MASTER_PLAN_TEMPLATE.md
+      required_frontmatter_keys: [plan_id, plan_role, type, status]
+      required_sections:
+        - "## Ordering rule*"          # N2: "(gate BUILD/VERIFY, not thought)"
+        - "## Status semantics*"       # N2: "(derived, evidence-linked — never hand-set)"
+        - "## SSoT discipline"
+        - "## Master spine*"           # N2: "(one row per canonical step, in order)"
+        - "## Row-maintenance rules"
+        - "## Continuity Log"
+      ordered: false
+      match_case: false
+    conventions:
+      plan_role_value: master                 # discriminant value; distinguishes from PLAN/SESSION
+      plan_id_pattern: '^PLAN-MASTER-'        # frontmatter plan_id: PLAN-MASTER-<DOMAIN>
+      status_values: [draft, active, done, superseded]
+      type_values: [build, ops]
+      retention_trigger: never                # durable — no cap/age (BP-191 row 5a)
+
+  - template: templates/oversight/plans/PLAN_TEMPLATE.md
+    produces: family            # TASK-CONFIRMED: the ~725-record plan_role/PLAN-* family;
+                                # a PLAN_TEMPLATE field-addition already forced a 54-file
+                                # hand-migration no detector caught. Glob MUST cover every PLAN-*.
+    glob: oversight/plans/*.md
+    match_frontmatter: {plan_role: standalone}   # default role; F3 discriminant
+    class: detail-record        # durable; permanent-retention
+    required_skeleton:
+      derive_from: templates/oversight/plans/PLAN_TEMPLATE.md
+      required_frontmatter_keys: [plan_id, type, status]   # plan_role optional (default standalone)
+      required_sections:
+        - "## 1. Goal"
+        - "## 2. Done-Condition"
+        - "## 3. Work Items"
+        - "## 4. Out of Scope / Non-Goals"
+        - "## 5. Verification"
+        - "## 6. Open Questions"
+        - "## 7. Continuity Log"
+      ordered: false            # numbering is stable but assert as set-containment (BP-189 default)
+      match_case: false
+    conventions:
+      plan_id_pattern: '^PLAN-'
+      status_values: [draft, approved, active, done, superseded, abandoned]
+      type_values: [build, ops, maintenance, verification, research]
+      work_item_status_values: [todo, doing, done, blocked]
+      at_most_one_doing: true                 # template: "Exactly one item is `doing` at a time"
+      conditional_required_frontmatter:       # template rule, checkable
+        when: {plan_role: session}
+        require: [master_plan, step_id]
+      retention_trigger: never
+
+  - template: templates/oversight/plans/SESSION_STEP_PLAN_TEMPLATE.md
+    produces: family            # one child plan per session-step — many instances
+    glob: oversight/plans/*.md
+    match_frontmatter: {plan_role: session}   # discriminant — see F3
+    class: detail-record        # durable; permanent-retention
+    required_skeleton:
+      derive_from: templates/oversight/plans/SESSION_STEP_PLAN_TEMPLATE.md
+      required_frontmatter_keys: [plan_id, plan_role, master_plan, step_id, session, type, status]
+      required_sections:
+        - "## 1. Goal"
+        - "## 2. Done-Condition"
+        - "## 3. Work Items"
+        - "## 4. Out of Scope / Non-Goals"
+        - "## 5. Verification"
+        - "## 6. Close-back*"           # N2: "(MANDATORY — what this plan writes into the master row at close)"
+        - "## 7. Open Questions"
+        - "## 8. Continuity Log"
+      ordered: false
+      match_case: false
+    conventions:
+      plan_role_value: session
+      plan_id_pattern: '^PLAN-'
+      status_values: [draft, active, done]
+      type_values: [build, verification]
+      retention_trigger: never
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # SPECS  (FIX-* and SPEC-* disambiguate by filename prefix — no discriminant needed)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+    produces: family
+    glob: oversight/specs/FIX-*.md   # F5: path/prefix inferred from `Fix ID: FIX-XXX`; confirm at reconcile
+    class: detail-record        # durable fix record
+    required_skeleton:
+      derive_from: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+      # No YAML frontmatter — identity/lifecycle are leading **bold** fields (see F4 → conventions)
+      required_sections:
+        - "## Problem Statement"
+        - "## Proposed Solution"
+        - "## Files to Modify"
+        - "## Test Plan"
+        - "## Post-Fix Verification"
+        - "## Rollback Plan"
+        - "## Risk Assessment"
+      ordered: false
+      match_case: false
+    conventions:
+      id_pattern: '\b(FIX|BUG)-\d+\b'         # template: "Fix ID: FIX-XXX (or use BUG-XXX ...)"
+      status_values: [Draft, Review, Approved, Implemented, Verified]
+      retention_trigger: never
+
+  - template: templates/oversight/specs/SPEC_TEMPLATE.md
+    produces: family
+    glob: oversight/specs/SPEC-*.md
+    class: detail-record        # durable spec
+    required_skeleton:
+      derive_from: templates/oversight/specs/SPEC_TEMPLATE.md
+      required_sections:
+        - "## Summary"
+        - "## Context"
+        - "## Requirements"
+        - "## Design"
+        - "## Implementation Plan"
+        - "## Testing Strategy"
+        - "## Deployment"
+        - "## Risk Assessment"
+      ordered: false
+      match_case: false
+    conventions:
+      id_pattern: '\bSPEC-\w+\b'
+      status_values: [Draft, Review, Approved, Implemented, Archived]
+      type_values: [Feature, Enhancement, Fix, Refactor, Infrastructure]
+      retention_trigger: never
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # STANDARDS  (_global vs _project disambiguate by subdirectory)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/standards/_global/_TEMPLATE.md
+    produces: family
+    glob: oversight/standards/_global/*.md
+    glob_exclude: ["_TEMPLATE.md"]
+    class: detail-record        # durable reference standard
+    required_skeleton:
+      derive_from: templates/oversight/standards/_global/_TEMPLATE.md
+      required_sections:
+        - "## Metadata"
+        - "## Applies To"
+        - "## Rules"
+        - "## Examples"
+        - "## Changelog"
+      ordered: false
+      match_case: false
+    conventions:
+      scope_value: GLOBAL                      # Metadata table: Scope | GLOBAL (all BMAD projects)
+      rule_id_pattern: '^G\d+'                 # Rules table ids G1..Gn
+      retention_trigger: never
+
+  - template: templates/oversight/standards/_project/_TEMPLATE.md
+    produces: family
+    glob: oversight/standards/_project/*.md
+    glob_exclude: ["_TEMPLATE.md"]
+    class: detail-record        # durable reference standard
+    required_skeleton:
+      derive_from: templates/oversight/standards/_project/_TEMPLATE.md
+      required_sections:
+        - "## Metadata"
+        - "## Applies To"
+        - "## Rules"
+        - "## Project Context"
+        - "## Examples"
+        - "## Changelog"
+      ordered: false
+      match_case: false
+    conventions:
+      scope_value: PROJECT
+      rule_id_pattern: '^P\d+'                 # Rules table ids P1..Pn
+      retention_trigger: never
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # KNOWLEDGE
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/knowledge/assumption-registry.md
+    produces: singleton         # one per project, fixed path
+    target: oversight/knowledge/assumption-registry.md
+    class: register             # items transition Active→Verified/Invalidated/Superseded
+    required_skeleton:
+      derive_from: templates/oversight/knowledge/assumption-registry.md
+      required_sections:
+        - "## Assumption States"
+        - "## Active Assumptions"
+        - "## Assumptions by Category"
+        - "## Verified Assumptions"
+        - "## Invalidated Assumptions"
+      ordered: false
+      match_case: false
+    conventions:
+      entry_id_pattern: '^### A-\d{3}'         # assumption entries: ### A-001: <title>
+      last_updated_present: true               # "**Last Updated**: [DATE]" freshness marker
+      retention_trigger: none                  # template archives in-place (kept sections); no cap declared
+
+  - template: templates/oversight/knowledge/confidence-map.md
+    produces: singleton
+    target: oversight/knowledge/confidence-map.md
+    class: detail-record        # living singleton knowledge map (no history shedding)
+    required_skeleton:
+      derive_from: templates/oversight/knowledge/confidence-map.md
+      required_sections:
+        - "## Confidence Levels"
+        - "## System Knowledge"
+        - "## Domain Knowledge"
+        - "## Technology Stack"
+        - "## Project-Specific Knowledge"
+        - "## Knowledge Gaps"
+        - "## Verification History"
+      ordered: false
+      match_case: false
+    conventions:
+      last_updated_present: true
+      retention_trigger: none
+
+  - template: templates/oversight/knowledge/best-practices/_TEMPLATE.md
+    produces: family
+    glob: oversight/knowledge/best-practices/BP-*.md   # the BP catalog (excludes index.md, _TEMPLATE.md)
+    class: detail-record        # durable BP catalog entry; permanent-retention
+    required_skeleton:
+      derive_from: templates/oversight/knowledge/best-practices/_TEMPLATE.md
+      required_sections:
+        - "## Metadata"
+        - "## Summary"
+        - "## Applicability Check"
+        - "## Current Best Practice*"   # N2: "(2024-2026)"
+        - "## Sources"
+        - "## Alternative Approaches"
+        - "## Project-Specific Recommendation"
+        - "## Corrections History"
+        - "## Staleness Tracking"
+      ordered: false
+      match_case: false
+    conventions:
+      id_pattern: '\bBP-\w+\b'                 # Metadata table: BP-ID | BP-XXX
+      status_values: [CURRENT, NEEDS_REVIEW, SUPERSEDED, ARCHIVED]
+      confidence_values: [Verified, Informed, Inferred]
+      retention_trigger: never
+
+  - template: templates/oversight/knowledge/best-practices/index.md
+    produces: singleton
+    target: oversight/knowledge/best-practices/index.md
+    class: live-index           # generated quick-reference index
+    required_skeleton:
+      derive_from: templates/oversight/knowledge/best-practices/index.md
+      required_sections:
+        - "## Quick Reference"
+        - "## Status Legend"
+        - "## Usage"
+        - "## Finding Files"
+      ordered: false
+      match_case: false
+    conventions:
+      managed_block_markers:                   # generated block, edited via bp_index.py --write
+        begin: '<!-- BEGIN bp-index'
+        end: '<!-- END bp-index -->'
+      retention_trigger: none                  # regenerated; bounded by BP count
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # RESEARCH
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/research/best-practices-log.md
+    produces: singleton
+    target: oversight/research/best-practices-log.md
+    class: register             # research log, grows by entry
+    required_skeleton:
+      derive_from: templates/oversight/research/best-practices-log.md
+      required_sections:
+        - "## Research Index"
+        - "## Research Entries"
+        - "## Topics Needing Research"
+        - "## Research Freshness"
+      ordered: false
+      match_case: false
+    conventions:
+      entry_id_pattern: '^### BP-\d{3}'        # research entries ### BP-001: <topic>
+      last_updated_present: true
+      retention_trigger: none                  # no cap declared in template
+      # F6: this file's local "BP-001" research-log numbering collides namespace-wise with the
+      #     knowledge/best-practices/ BP-XXX *catalog* ids — same prefix, different registry. Minor.
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # AUDITS
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/audits/AUDIT_TEMPLATE.md
+    produces: family
+    glob: oversight/audits/AUDIT-*.md
+    class: detail-record        # durable audit record
+    required_skeleton:
+      derive_from: templates/oversight/audits/AUDIT_TEMPLATE.md
+      required_sections:
+        - "## Executive Summary"
+        - "## Scope"
+        - "## Methodology"
+        - "## Findings"
+        - "## Recommendations"
+        - "## Risk Assessment"
+        - "## Remediation Plan"
+      ordered: false
+      match_case: false
+    conventions:
+      id_pattern: '\bAUDIT-\w+\b'
+      status_values: [In Progress, Complete, Findings Under Review]
+      confidence_values: [Verified, Informed, Inferred, Uncertain, Unknown]
+      retention_trigger: never
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # LEARNING
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/learning/failure-pattern-library.md
+    produces: singleton
+    target: oversight/learning/failure-pattern-library.md
+    class: register             # failure patterns accrete
+    required_skeleton:
+      derive_from: templates/oversight/learning/failure-pattern-library.md
+      required_sections:
+        - "## How to Use This Library"
+        - "## Failure Patterns"
+        - "## Patterns by Category"
+        - "## Near Misses"
+        - "## Pattern Statistics"
+      ordered: false
+      match_case: false
+    conventions:
+      entry_id_pattern: '^### FP-\d{3}'        # ### FP-001: <pattern name>
+      last_updated_present: true
+      retention_trigger: none
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # VALIDATION
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/validation/VALIDATION_TEMPLATE.md
+    produces: family
+    glob: oversight/validation/VAL-*.md
+    class: detail-record        # durable validation record
+    required_skeleton:
+      derive_from: templates/oversight/validation/VALIDATION_TEMPLATE.md
+      required_sections:
+        - "## Summary"
+        - "## Validation Scope"
+        - "## Acceptance Criteria"
+        - "## Test Cases"
+        - "## Issues Found"
+        - "## Decision"
+      ordered: false
+      match_case: false
+    conventions:
+      id_pattern: '\bVAL-\w+\b'
+      status_values: ["Pass", "Fail", "Pass with Concerns", "In Progress"]
+      confidence_values: [Verified, Informed, Inferred, Uncertain, Unknown]
+      retention_trigger: never
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # VERIFICATION CHECKLISTS  (fixed-path reference checklists — singletons)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/verification/checklists/code-review.md
+    produces: singleton
+    target: oversight/verification/checklists/code-review.md
+    class: detail-record        # reference checklist
+    required_skeleton:
+      derive_from: templates/oversight/verification/checklists/code-review.md
+      required_sections:
+        - "## Review Information"
+        - "## Critical*"          # N2: "(Must Fix)"
+        - "## High Priority*"     # N2: "(Strongly Recommend)"
+        - "## Medium Priority*"   # N2: "(Consider)"
+        - "## Low Priority*"      # N2: "(Optional)"
+        - "## Summary"
+        - "## Issues Found"
+        - "## Recommendation"
+      ordered: false
+      match_case: false
+    conventions:
+      retention_trigger: none
+
+  - template: templates/oversight/verification/checklists/production-ready.md
+    produces: singleton
+    target: oversight/verification/checklists/production-ready.md
+    class: detail-record        # reference checklist
+    required_skeleton:
+      derive_from: templates/oversight/verification/checklists/production-ready.md
+      required_sections:
+        - "## Release Information"
+        - "## Code Quality"
+        - "## Testing"
+        - "## Security"
+        - "## Documentation"
+        - "## Infrastructure"
+        - "## Deployment"
+        - "## Business Readiness"
+        - "## Risk Assessment"
+        - "## Summary"
+        - "## Recommendation"
+      ordered: false
+      match_case: false
+    conventions:
+      retention_trigger: none
+
+  - template: templates/oversight/verification/checklists/story-complete.md
+    produces: singleton
+    target: oversight/verification/checklists/story-complete.md
+    class: detail-record        # reference checklist
+    required_skeleton:
+      derive_from: templates/oversight/verification/checklists/story-complete.md
+      required_sections:
+        - "## Story Information"
+        - "## Acceptance Criteria"
+        - "## Code Quality"
+        - "## Testing"
+        - "## Documentation"
+        - "## Summary"
+        - "## Recommendation"
+        # NOT pinned (template marks "(if applicable)"): Observability, Agent Memory,
+        # Security, Performance — legitimately-optional sections.
+      ordered: false
+      match_case: false
+    conventions:
+      retention_trigger: none
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # AGENT-CONSTRAINTS  (dir mixes a family with singletons — see F7)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/agent-constraints/CONSTRAINT_TEMPLATE.md
+    produces: family
+    glob: oversight/agent-constraints/*.md
+    glob_exclude: ["README.md", "CONSTRAINT_TEMPLATE.md", "EXAMPLE_*.md"]   # F7: exclude the singletons
+    class: detail-record        # constraint doc (deprecate/archive on event, not cap)
+    required_skeleton:
+      derive_from: templates/oversight/agent-constraints/CONSTRAINT_TEMPLATE.md
+      # Required-set is AUTHORITATIVE from README.md "Minimum Structure" (Rule/Rationale/
+      # Examples/Exceptions) — not every H2 of the full template (which over-flags).
+      required_sections:
+        - "## Rule"
+        - "## Rationale"
+        - "## Examples"
+        - "## Exceptions"
+      ordered: false
+      match_case: false
+    conventions:
+      type_values: [Rule, Guideline, Standard, Process]
+      priority_values: [Critical, High, Medium, Low]
+      status_values: [Active, Draft, Deprecated]
+      filename_pattern: '^[a-z0-9]+(-[a-z0-9]+)*\.md$'   # README naming: {agent}-{topic}.md, lowercase-hyphen
+      retention_trigger: event   # README: deprecate-in-place → archive after 30 days (no cap)
+
+  - template: templates/oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+    produces: singleton         # shipped reference example (a canonical CONSTRAINT instance)
+    target: oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+    class: detail-record        # reference/example
+    required_skeleton:
+      derive_from: templates/oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+      # Pinned to the constraint MINIMUM it must keep demonstrating (README minimum-structure),
+      # so the example stays a valid constraint; its richer sections are legitimately extra.
+      required_sections:
+        - "## Rule"
+        - "## Rationale"
+        - "## Examples"
+        - "## Exceptions"
+      ordered: false
+      match_case: false
+    conventions:
+      retention_trigger: none
+
+  - template: templates/oversight/agent-constraints/README.md
+    produces: singleton
+    target: oversight/agent-constraints/README.md
+    class: detail-record        # system documentation (stable, low-churn)
+    required_skeleton:
+      derive_from: templates/oversight/agent-constraints/README.md
+      required_sections:
+        - "## Overview"
+        - "## Why This Exists"
+        - "## How It Works"
+        - "## When to Use"
+        - "## Naming Convention"
+        - "## Constraint Template"
+      ordered: false
+      match_case: false
+    conventions:
+      retention_trigger: none
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # DECISIONS  (the DEC-* record template — distinct from tracking/decision-log.md,
+  #             the G1 append-only log that indexes these. Do not conflate at reconcile.)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/decisions/DECISION_TEMPLATE.md
+    produces: family
+    glob: oversight/decisions/DEC-*.md
+    class: detail-record        # ADR/decision record; permanent, supersede-in-place
+    required_skeleton:
+      derive_from: templates/oversight/decisions/DECISION_TEMPLATE.md
+      required_sections:
+        - "## Summary"
+        - "## Context"
+        - "## Decision"
+        - "## Options Considered"
+        - "## Rationale"
+        - "## Implications"
+        - "## References"
+      ordered: false
+      match_case: false
+    conventions:
+      id_pattern: '\bDEC-\w+\b'
+      status_values: [Proposed, Accepted, Rejected, Superseded, Deprecated]
+      confidence_values: [Verified, Informed, Inferred, Uncertain, Unknown]
+      retention_trigger: never
+
+  # ══════════════════════════════════════════════════════════════════════════
+  # NON-MARKDOWN MEMBERS  (see FRICTION F1 + F2 — flagged for reconcile adjudication)
+  # ══════════════════════════════════════════════════════════════════════════
+
+  - template: templates/oversight/PROJECT_STANDARDS.yaml
+    produces: singleton
+    target: oversight/PROJECT_STANDARDS.yaml
+    class: live-index           # YAML index of standards + topic lookup
+    required_skeleton:
+      kind: yaml                # NOT markdown — required top-level keys, value-agnostic (BP-189 §2.2 required_json_keys analog)
+      derive_from: templates/oversight/PROJECT_STANDARDS.yaml
+      required_yaml_keys: [schema_version, global, project, topic_index]
+      # `last_updated` present in template but treated optional (freshness field, not structural).
+    conventions:
+      schema_version_present: true
+      retention_trigger: none
+      # F2 (DEFECT — flagged): the template declares the top-level key `project:` TWICE —
+      #   once as the project-name string (`project: "[PROJECT_NAME]"`) and once as the
+      #   standards list (`project:` mapping). A duplicate mapping key is invalid YAML; most
+      #   loaders silently keep the LAST, dropping the project-name. required_yaml_keys pins
+      #   `project` once; WHICH `project` it means is ambiguous until the template is fixed.
+      #   Needs source-fix + Will adjudication before this pin is trustworthy.
+
+  - template: templates/oversight/.audit/logs/sanitization-log.jsonl
+    produces: singleton
+    target: oversight/.audit/logs/sanitization-log.jsonl
+    class: append-only-log      # JSONL runtime log, one JSON record per line
+    required_skeleton:
+      kind: jsonl
+      derive_from: null         # no MARKDOWN template; schema derived from observed records (see F1)
+      # Conservative pin: the record-identity backbone every sanitization line must carry.
+      required_line_keys: [timestamp, action, source_type]
+      # Observed-but-NOT-asserted (present in all sampled records, but sample is homogeneous —
+      # see F1: n=2, both action="passed"/findings_count=0; a failed/blocked line's shape is
+      # unobserved, so these 4 are left OPTIONAL rather than risk over-flagging a valid variant):
+      #   findings_count, layers_executed, scan_duration_ms, content_hash
+    conventions:
+      retention_trigger: cap    # append-only log ⇒ cap-class by nature, BUT no cap value is
+                                # declared anywhere I can read; cap_lines/cap_kb intentionally UNPINNED.
+      # F1 (MODELING — needs adjudication; CORRECTED mid-derivation): the file is PRESENT but is
+      #   (a) git-UNTRACKED — not part of the shipped template set (`git ls-files` empty), and
+      #   (b) RUNTIME-GENERATED — its 2 records carry timestamps from THIS session (15:59–16:00Z
+      #       today), i.e. a sanitization hook is writing live logs into templates/oversight/.audit/.
+      #   Strong recommendation: this is runtime pollution of the ship dir, NOT a template — it
+      #   should be gitignored + DROPPED from the shipped-template registry. If instead an EMPTY
+      #   seed is meant to ship, the 2 live records are a data-hygiene defect (shipping session
+      #   content — cf. CLAUDE.md §7 / PLAN-027 "sanctum ships EMPTY"). Will/Parzival to rule.
+      #   required_line_keys above are derived from real records, not guessed — but on n=2.
+
+# ── END (24 template entries) ──────────────────────────────────────────────────
