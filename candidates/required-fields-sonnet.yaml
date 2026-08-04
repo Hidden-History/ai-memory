@@ -1,0 +1,386 @@
+# PLAN-035 P2 Phase B, Lane B — required_fields presence-layer candidate (BLIND, author: arch-rf-sonnet)
+#
+# Method: scanned templates/oversight/** for leading-bold `**Key**:` lines (grep -rlE
+# '^\*\*[A-Za-z][A-Za-z0-9 /_-]*\*\*:'), then read each hit's full header to distinguish:
+#   (a) the FIRST unconditional bold-key block after the title (before the first `---`/first
+#       `##` section, or immediately under a section that has exactly ONE instance, e.g.
+#       SESSION_WORK_INDEX's "## Current Sprint") = structural required_fields
+#   (b) bold-key lines inside a "### <ID>-001: [Title]"-style WORKED EXAMPLE sub-entry (repeatable,
+#       zero-or-many per file — e.g. tracking/technical-debt.md's "### TD-001" block,
+#       knowledge/assumption-registry.md's "### A-001" block, AUDIT_TEMPLATE.md's "#### FINDING-1"
+#       block, VALIDATION_TEMPLATE.md's per-test-case block) = NOT required (example content)
+#   (c) static descriptive prose bold-labels ("**Purpose**:", "**Format**:", "**Authority for
+#       status**:") whose text is fixed boilerplate copied verbatim from the template, not a
+#       per-instance-varying value = NOT pinned (excluded as noise per CLAUDE §2 Simplicity First;
+#       distinguished from (a) by whether the field's VALUE is expected to vary per real instance)
+#
+# 31 templates matched the raw grep; 5 were excluded entirely after reading (see excluded_from_scope):
+# tech-debt/TECH_DEBT_TEMPLATE.md and knowledge/best-practices/_TEMPLATE.md use a `| **Key** | Value |`
+# TABLE format, not leading-bold `**Key**:` lines — a distinct, not-yet-sanctioned presence-layer kind,
+# out of scope for this deliverable. The other grep hits (verification/checklists/*, tracking/dependencies
+# non-header rows, etc.) were confirmed as example/prose-only, not header blocks.
+#
+# Two confidence tiers reported (26 templates total, vs. the ~15 estimate in the dispatch — see notes):
+#   tier: identity-block   — rich multi-field record header (ID/Date/Status/Severity/Type/Confidence-like).
+#                             Directly matches the task's own framing. HIGH confidence.
+#   tier: freshness-marker — singleton register/live-index carrying only a "Last Updated"/"Updated"
+#                             (+ SESSION_WORK_INDEX's Current-Sprint block) header field. Still a
+#                             genuine leading-bold key, unconditionally present, per-instance-varying
+#                             value (a date) — but thinner/less "identity"-like than tier 1.
+#                             MEDIUM confidence; recommend team-lead decide whether to fold into the
+#                             registry or trim, since the ~15 estimate may have meant tier 1 only.
+
+schema_version: 1
+task: PLAN-035-P2-PhaseB-LaneB
+author: arch-rf-sonnet
+deliverable_1_required_fields:
+
+  # ---------- Tier: identity-block (12 templates) ----------
+
+  - template: templates/oversight/bugs/BUG_TEMPLATE.md
+    tier: identity-block
+    required_fields: [ID, Date, Status, Priority, Severity]
+    reasoning: >
+      Lines 3-7, immediately after the H1 and before the first `---`. Five-field header
+      block, one line each, unconditional. No later bold-key blocks in this file (body
+      sections use plain prose/checkbox lists, not additional `**Key**:` lines).
+
+  - template: templates/oversight/bugs/ROOT_CAUSE_TEMPLATE.md
+    tier: identity-block
+    required_fields: [Bug ID, Date, Analyst, Status]
+    reasoning: >
+      Lines 3-6, header block before first `---`. Later bold-key-shaped lines ("Date"/
+      "Investigator" under "### Investigation Timeline" entries at lines 42, 57, 73, 98)
+      are per-timeline-entry repeatable fields (zero-or-many investigation log rows), not
+      required top-level fields — excluded as example content.
+
+  - template: templates/oversight/decisions/DECISION_TEMPLATE.md
+    tier: identity-block
+    required_fields: [ID, Date, Status, Confidence]
+    reasoning: Lines 3-6, header block before first `---`. No other bold-key blocks in the file.
+
+  - template: templates/oversight/audits/AUDIT_TEMPLATE.md
+    tier: identity-block
+    required_fields: [ID, Date, Type, Status, Confidence]
+    reasoning: >
+      Lines 3-7, header block before first `---`. Excluded: "Start Date"/"End Date" under
+      "### Audit Period" (lines 29-30, single optional sub-block of an optional "## Scope"
+      section — not identity-level); "Severity"/"Component"/"Status"/"Related Issues" under
+      "#### FINDING-1" (lines 69-91, explicitly a repeatable per-finding example block, "Repeat
+      structure" noted at line 98); "Created"/"Modified"/"Auditor"/etc. under "## Metadata"
+      (lines 256-262, a plain bullet list using bold labels, redundant with the top header and
+      itself optional/example-flavored).
+
+  - template: templates/oversight/specs/SPEC_TEMPLATE.md
+    tier: identity-block
+    required_fields: [ID, Date, Status, Type]
+    reasoning: >
+      Lines 3-6, header block before first `---`. Excluded: "Purpose"/"Location"/"Interfaces"
+      (line 65-69, per-component sub-block, repeatable) and "Description"/"Pros"/"Cons"/"Why
+      Rejected" (line 170-173, per-alternative-considered example block).
+
+  - template: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+    tier: identity-block
+    required_fields: [Fix ID, Bug ID, Date, Status]
+    reasoning: >
+      Lines 3-6, header block before first `---`. All later bold-key lines (Symptoms/Impact/
+      Strategy/Code Changes/etc.) are section-body prose labels within the fix narrative, not
+      a repeated identity block.
+
+  - template: templates/oversight/validation/VALIDATION_TEMPLATE.md
+    tier: identity-block
+    required_fields: [ID, Date, Type, Status, Confidence]
+    reasoning: >
+      Lines 3-7, header block before first `---`. Excluded: "ID"/"Description"/"Version" under
+      "Item Under Test" (line 20-22) and "ID"/"Priority"/"Status"/etc under "Test Case TC-001"
+      (lines 55-79) — both explicitly repeatable per-item/per-test-case example blocks; "Result"/
+      "Justification" near line 225-227 (per-decision-entry, same reasoning).
+
+  - template: templates/oversight/session-logs/SESSION_SNAPSHOT_TEMPLATE.md
+    tier: identity-block
+    required_fields: [Session ID, Date, Type, Status]
+    reasoning: >
+      Lines 3-6, header block before first `---`. "Start Time"/"End Time"/"Total Duration"
+      (lines 19-21) and "Branch"/"Status" (git-state, lines 147-148) are sub-section detail
+      fields inside the narrative body, not part of the top identity block — excluded.
+
+  - template: templates/oversight/agent-constraints/CONSTRAINT_TEMPLATE.md
+    tier: identity-block
+    required_fields: [Agent, Type, Priority, Status, Created, Last Updated]
+    reasoning: >
+      Lines 3-8, header block before first `---`. Excluded: "Format"/"Background"/"Problems It
+      Solves"/"Benefits"/"Applies To"/"Does NOT Apply To"/"Example N"/"Why This Is Good"/"How to
+      Fix"/"Critical" — all body-section prose labels or repeatable Good/Bad example pairs, not
+      identity metadata.
+
+  - template: templates/oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+    tier: identity-block
+    required_fields: [Agent, Type, Priority, Status, Created, Last Updated]
+    reasoning: >
+      Same header shape as CONSTRAINT_TEMPLATE.md (lines 3-8) — this file `produces: singleton`
+      and is itself a live instance of the constraint shape, so it is pinned identically. Body
+      bold-keys ("Key Takeaway", "Common Mistakes", "Quick Checks", etc.) are prose labels, excluded.
+
+  - template: templates/oversight/session-index/WEEK_TEMPLATE.md
+    tier: identity-block
+    required_fields: [Dates, Total Sessions]
+    reasoning: >
+      Lines 3-4, header block before first `---`. Body uses "- **Task**:" bullet labels under
+      repeatable "### [date-X]" session entries — example content, excluded.
+
+  - template: templates/oversight/session-index/archive/QUARTER_ARCHIVE_TEMPLATE.md
+    tier: identity-block
+    required_fields: [Period, Total Sessions, Archived]
+    reasoning: Lines 3-5, header block before first `---`. No other bold-key blocks in the file.
+
+  # ---------- Tier: freshness-marker (14 templates) ----------
+
+  - template: templates/oversight/SESSION_WORK_INDEX.md
+    tier: freshness-marker
+    required_fields: [Updated, Sprint, Goal, Status]
+    reasoning: >
+      "Updated" (line 15) is the file's freshness datestamp, unconditional. "Sprint"/"Goal"/
+      "Status" (lines 21-23) sit directly under "## Current Sprint" — already a required_section
+      in the frozen registry — and represent the file's single active-sprint identity (not a
+      repeatable entry; the section holds exactly one sprint at a time), so pinning them verifies
+      the section isn't left as a bare heading. Excluded: "Purpose" (line 14) — fixed descriptive
+      boilerplate identical across every instance, not a per-instance-varying value; "Quick Links"
+      bold labels (lines 75-79) are static reference text, not identity data.
+
+  - template: templates/oversight/session-index/INDEX.md
+    tier: freshness-marker
+    required_fields: [Updated]
+    reasoning: >
+      Line 15, header block. Excluded "Purpose" (line 14, static boilerplate — see rationale
+      above) and "Details" (line 34, inside a repeatable per-week table-row example).
+
+  - template: templates/oversight/tracking/blockers-log.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 14, sole header field before first `---`. Body bold-keys ("Raised"/"Blocking"/
+      "Severity"/"Status"/etc., lines 30-52) sit under a worked example blocker entry — excluded.
+
+  - template: templates/oversight/tracking/decision-log.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 14. Excluded "Format" (line 15) — static boilerplate describing append-only order,
+      already captured by this template's existing `conventions.order: newest_first`.
+
+  - template: templates/oversight/tracking/dependencies.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: Line 3, sole bold-key line in the file (no frontmatter, no other header fields).
+
+  - template: templates/oversight/tracking/risk-register.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: Line 14, sole header field before first `---`.
+
+  - template: templates/oversight/tracking/scope-change-log.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 5. Excluded "Purpose" (line 3, static boilerplate). Body bold-keys ("Requested"/
+      "Requested By"/"Status"/etc., lines 21-53) sit under a worked example "### SC-001" entry —
+      excluded.
+
+  - template: templates/oversight/tracking/task-tracker.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: Line 14, sole bold-key line in the file.
+
+  - template: templates/oversight/tracking/technical-debt.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 16. Excluded "Purpose" (line 14, static boilerplate). Body bold-keys ("Category"/
+      "Priority"/"Incurred"/"Status"/etc., lines 37-61) sit under a worked example "### TD-001"
+      entry — excluded.
+
+  - template: templates/oversight/knowledge/assumption-registry.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 5. Excluded "Purpose" (line 3, static boilerplate). Body bold-keys ("Made"/
+      "Status"/"Criticality"/etc., lines 24-40) sit under a worked example "### A-001" entry —
+      excluded.
+
+  - template: templates/oversight/knowledge/confidence-map.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 5. Excluded "Purpose" (line 3, static boilerplate). No other bold-key blocks in
+      the file.
+
+  - template: templates/oversight/learning/failure-pattern-library.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 5. Excluded "Purpose" (line 3, static boilerplate). Body bold-keys ("Category"/
+      "Frequency"/"Last Seen"/etc., lines 22-42) sit under a worked example "### FP-001"
+      entry — excluded.
+
+  - template: templates/oversight/research/best-practices-log.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 5. Excluded "Purpose" (line 3, static boilerplate). Body bold-keys ("Researched"/
+      "Question"/"Confidence"/etc., lines 21-61) sit under a worked example "### BP-001"
+      entry — excluded.
+
+  - template: templates/oversight/tech-debt/INDEX.md
+    tier: freshness-marker
+    required_fields: [Last Updated]
+    reasoning: >
+      Line 14. This file is `reconciliation: "regenerated wholesale by aim-tracking-freshness"`
+      (frontmatter), i.e. a generated index, not hand-authored. Excluded "Authority for status"
+      and "Scope note" (lines 15-16) — fixed explanatory prose about the index's own semantics
+      (the "0" file-count inside "Scope note" is templated but embedded mid-sentence, not a
+      clean standalone field); borderline call, flagged for team-lead reconsideration since this
+      file's header is unusually rich for a freshness-marker-tier template.
+
+deliverable_1_excluded_from_scope:
+  - template: templates/oversight/tech-debt/TECH_DEBT_TEMPLATE.md
+    reason: >
+      Identity metadata ships as a `| Field | Value |` MARKDOWN TABLE (lines 3-11: ID, Severity,
+      Status, Surfaced, Found By, Date Found, Related Issues), not leading-bold `**Key**:` lines.
+      The one true `**Key**:`-shaped match (line 33, "**Filename**: ... The `**Status**` header
+      inside the file is authoritative...") is a sentence referencing the table field, not a
+      structural header line. This is a distinct, not-yet-sanctioned presence-layer kind
+      (table-row fields) — flagging as a friction/gap below rather than silently pinning it.
+  - template: templates/oversight/knowledge/best-practices/_TEMPLATE.md
+    reason: >
+      Same table-format identity block under "## Metadata" (BP-ID, Created, Last Verified,
+      Status, Confidence, Trigger) — out of scope for the same reason.
+
+deliverable_2_glob_confirmations:
+  # Corpora inspected: primary /mnt/e/projects/dev-ai-memory/oversight (richest), plus
+  # /mnt/e/projects/dev-rag-stack/document_pipeline/oversight, /mnt/e/projects/dev-rag-stack/lsp_app/oversight,
+  # /mnt/e/projects/ai-memory-testV2/oversight. Header shapes were spot-checked against the template
+  # to confirm a filename match is a genuine template instance, not a coincidence.
+
+  - template: templates/oversight/session-index/WEEK_TEMPLATE.md
+    frozen_glob: oversight/session-index/*/week-*.md
+    verdict: CONFIRM
+    evidence:
+      - oversight/session-index/2026-03/week-1.md (primary)
+      - oversight/session-index/2026-03/week-2.md (primary)
+    recommendation: clear glob_unverified — real matches found, glob is accurate.
+
+  - template: templates/oversight/session-index/archive/QUARTER_ARCHIVE_TEMPLATE.md
+    frozen_glob: oversight/session-index/archive/*-Q*.md
+    verdict: CONFIRM
+    evidence:
+      - oversight/session-index/archive/2026-Q3.md (primary)
+    recommendation: >
+      clear glob_unverified. Note: archive/ also holds INDEX-ARCHIVE-2026-07-06_005416.md
+      (an archived snapshot of INDEX.md, unrelated family) which does NOT match `*-Q*.md` —
+      no conflict, no glob_exclude needed.
+
+  - template: templates/oversight/bugs/ROOT_CAUSE_TEMPLATE.md
+    frozen_glob: oversight/bugs/ROOT_CAUSE-*.md
+    verdict: PROPOSE_CORRECTION
+    evidence:
+      - oversight/bugs/BUG-004-root-cause-analysis.md (primary) — the ONLY real root-cause
+        record found across all four corpora; zero files named `ROOT_CAUSE-*.md` exist anywhere.
+      - Its header (Investigation Date/Investigator/Bug Report Date/Severity/Status/Fixed By/
+        Verified By) also does NOT match ROOT_CAUSE_TEMPLATE.md's own header shape (Bug ID/Date/
+        Analyst/Status) — the real file predates or diverged from the template's current identity
+        block, a separate content-drift finding beyond this glob task's scope.
+    proposed_glob: oversight/bugs/BUG-*-root-cause*.md
+    recommendation: >
+      Correct the glob to `oversight/bugs/BUG-*-root-cause*.md` (matches the one real instance
+      and the evident naming convention: root-cause docs are filed under the bug's own ID, not
+      a separate ROOT_CAUSE-NNN ID space). Confidence is thin (n=1 real instance) — flag for
+      team-lead/other-lane cross-check before clearing glob_unverified; if adopted, recommend
+      keeping glob_unverified: true one more cycle pending a second real example, OR clear it
+      with a note of the n=1 caveat.
+
+  - template: templates/oversight/session-logs/SESSION_SNAPSHOT_TEMPLATE.md
+    frozen_glob: oversight/session-logs/SESSION_SNAPSHOT_*.md
+    verdict: CONFIRM
+    evidence:
+      - 12+ real matches in primary oversight/session-logs/, e.g. SESSION_SNAPSHOT_2026-01-30_1849.md,
+        SESSION_SNAPSHOT_2026-02-11_PM24_BUG069_070_071.md, SESSION_SNAPSHOT_2026-02-16_PM50_LIVE_TESTING.md
+    recommendation: clear glob_unverified — strongly evidenced, heaviest-used family template found.
+
+  - template: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+    frozen_glob: oversight/specs/FIX-*.md
+    verdict: CONFIRM
+    evidence:
+      - oversight/specs/FIX-BUG-036-g1-full-gate-verdict.md (document_pipeline) — header matches
+        FIX_SPEC_TEMPLATE's shape (Fix ID/Bug ID/Date/Status, plus extra Complexity/Author fields)
+      - oversight/specs/FIX-SC4-CLASSIFY-SPAN.md, FIX-SC7-FLUSH-WORKER-PUSHGATEWAY.md (ai-memory-testV2)
+        — filenames match, though header uses an ad-hoc Issue/Severity/Component/Estimated-Effort
+        shape unrelated to FIX_SPEC_TEMPLATE (content drift, separate from the naming-glob question)
+    recommendation: >
+      clear glob_unverified — evidenced in 2 of 4 corpora. Note for team-lead: the primary
+      project itself (dev-ai-memory) uses a THIRD naming style, `BUG-*-FIX-SPEC.md` (e.g.
+      oversight/specs/BUG-245-FIX-SPEC.md), which does not match this glob — worth deciding
+      whether to broaden the glob or treat it as pre-registry drift out of scope.
+
+  - template: templates/oversight/specs/SPEC_TEMPLATE.md
+    frozen_glob: oversight/specs/SPEC-*.md
+    verdict: CONFIRM
+    evidence:
+      - oversight/specs/SPEC-CORRECTIONS-V207.md (primary; same file also present in ai-memory-testV2)
+    recommendation: >
+      clear glob_unverified — real match exists. Note: most files in oversight/specs/ use
+      free-form Title-Case naming (Chunking-Strategy-V2.md, Core-Architecture-Principle-V2.md,
+      etc.) rather than the SPEC-XXX ID convention — expected, since specs/ is a mixed directory
+      and this template only governs the ID-prefixed subset.
+
+  - template: templates/oversight/audits/AUDIT_TEMPLATE.md
+    frozen_glob: oversight/audits/AUDIT-*.md
+    verdict: CONFIRM
+    evidence:
+      - oversight/audits/AUDIT-001-master-checklist-meta-audit-docintel-lens.md (document_pipeline)
+        — header matches AUDIT_TEMPLATE's shape exactly (ID=AUDIT-001, Date, Type, Status,
+        Confidence)
+      - oversight/audits/AUDIT-002-findings-critical-high.md, AUDIT-002-findings-medium-low.md,
+        AUDIT-002-overview.md, AUDIT-003-phase-1-sample-doc-validation.md (document_pipeline)
+    recommendation: >
+      clear glob_unverified — evidenced (document_pipeline uses it consistently, 5 real files).
+      Note: primary oversight (dev-ai-memory) and ai-memory-testV2 do NOT use this convention
+      for their audits/ contents (free-form names like V2_COMPLIANCE_AUDIT_2026-01-17.md) —
+      adoption is per-project, but the glob itself is real and should stay confirmed.
+
+  - template: templates/oversight/validation/VALIDATION_TEMPLATE.md
+    frozen_glob: oversight/validation/VAL-*.md
+    verdict: ZERO_INSTANCES
+    evidence:
+      - Checked all four corpora's validation/ dirs — zero files anywhere named `VAL-*.md`.
+        Every real file uses free-form descriptive naming instead (e.g.
+        bug-003-verification-2026-01-21.md, hook-validation-report-2026-01-20.md,
+        skills-validation-report-2026-01-20.md, PUBLIC_RELEASE_VERIFICATION_2026-01-27.md).
+    recommendation: >
+      keep glob_unverified: true. This is the one clean "zero instances anywhere" case among
+      the 8 — the ID-based `VAL-NNN` convention appears aspirational, never adopted in practice.
+      Recommend either (a) leaving the glob as documentation-only pending real adoption, or
+      (b) revisiting whether the real free-form naming should be the recognized convention
+      instead — out of scope for this task, flagging for team-lead.
+
+friction_and_defects_noticed:
+  - what: >
+      Two templates (tech-debt/TECH_DEBT_TEMPLATE.md, knowledge/best-practices/_TEMPLATE.md)
+      ship their identity metadata as a markdown TABLE (`| **Field** | Value |`) rather than
+      leading-bold `**Key**:` lines — a third presence-layer shape that BP-189's 3 kinds plus
+      the newly-sanctioned required_yaml_body_keys/required_fields (DEC-PM408-D1) still don't
+      cover. Not fixed here (out of scope — dispatch asked specifically for leading-bold
+      `**Key**:` metadata) but flagging since these two templates carry genuine identity data
+      (ID/Severity/Status for TECH_DEBT; BP-ID/Status/Confidence for best-practices) that is
+      currently un-pinned by any of the 4 sanctioned kinds. Severity: informational, in-scope
+      for a future Phase (candidate: a 5th `required_table_fields` kind).
+  - what: >
+      3 of the 8 glob_unverified globs (AUDIT, FIX_SPEC, ROOT_CAUSE) are evidenced ONLY in
+      sibling projects (document_pipeline / a single primary-repo instance), not in the primary
+      dev-ai-memory oversight/ corpus itself — i.e. the SOURCE project that ships and pins these
+      templates doesn't consistently follow its own shipped naming conventions for audits/fix-specs/
+      root-cause docs. This is consistent with PLAN-035's overall finding that no project is
+      template-conformant, but worth surfacing explicitly since it affects confidence in the
+      "confirm" verdicts above (real-world usage exists, just not where you'd most expect it).
+      Severity: informational, out of scope to fix here.
+  - what: none beyond the above — no blockers, no tooling errors, no ambiguity that required
+      guessing beyond the judgment calls already documented per-template above.
