@@ -1,0 +1,321 @@
+# required-fields-opus.yaml
+# PLAN-035 P2 Phase B, Lane B (required_fields presence-layer) — BLIND PAIR half (arch-rf-opus / Winston).
+# Candidate ONLY. Does not touch the frozen registry, product files, or templates/.
+#
+# Scope (DEC-PM408-D1): the `required_fields` presence-kind captures leading-bold `**Key**:` IDENTITY
+# metadata that BP-189's 3 original kinds (required_sections / required_frontmatter_keys / conventions)
+# do not cover. A pin asserts the PRESENCE of the bold key LINE, never its value (CLAUDE.md §7).
+#
+# Authoring rule applied (stated once, applied uniformly):
+#   PIN a field when it is a BARE, column-1, leading-bold `**Key**:` line that sits in the record's
+#   IDENTITY HEADER (immediately after the H1/H2 title, before the first `##` section) AND that every
+#   CONFORMANT INSTANCE must carry. Field NAMES are pinned; values are never pinned.
+#   EXCLUDE (with reasons, see `excluded` block):
+#     - table-cell metadata `| **Key** | value |`  (a different structural kind, not leading-bold `:`)
+#     - list-prefixed `- **Key**:` instance fields on singleton checklists (per-use, not identity)
+#     - register PER-ENTRY bold fields that only exist when the register is non-empty
+#       (a legitimately-empty conformant register would false-fail a presence check)
+#     - pure freshness/descriptive header lines (`**Purpose**`, `**Last Updated**`) already governed by
+#       the `last_updated_present` convention or non-identity by nature.
+# Line numbers below are traceability anchors into each template AS OF main@22d091a.
+
+schema_version: 1
+lane: B
+author: arch-rf-opus
+
+# ============================================================================
+# DELIVERABLE 1 — required_fields pins (per-template deltas)
+# 13 templates carry a genuine leading-bold identity header and are pinned.
+# ============================================================================
+required_fields_deltas:
+
+  - template: templates/oversight/bugs/BUG_TEMPLATE.md
+    required_fields: [ID, Date, Status, Priority, Severity]
+    trace_lines: {ID: 3, Date: 4, Status: 5, Priority: 6, Severity: 7}
+    reasoning: >-
+      Contiguous identity header at lines 3-7, right under `# Bug Report`. All five are structural
+      record identity. Later `**Affected Users/Business Impact/Workaround**` (43-45) are Impact-section
+      body labels, not identity — excluded.
+
+  - template: templates/oversight/bugs/ROOT_CAUSE_TEMPLATE.md
+    required_fields: ["Bug ID", Date, Analyst, Status]
+    trace_lines: {"Bug ID": 3, Date: 4, Analyst: 5, Status: 6}
+    reasoning: >-
+      Top identity block lines 3-6. `Date` recurs later (42/57/73/98) as per-phase investigation
+      timestamps inside `## Investigation Process` — those are NOT identity and are excluded; only the
+      top-block Date is pinned.
+
+  - template: templates/oversight/decisions/DECISION_TEMPLATE.md
+    required_fields: [ID, Date, Status, Confidence]
+    trace_lines: {ID: 3, Date: 4, Status: 5, Confidence: 6}
+    reasoning: Clean contiguous identity header lines 3-6 under `# Decision`. All four are identity.
+
+  - template: templates/oversight/audits/AUDIT_TEMPLATE.md
+    required_fields: [ID, Date, Type, Status, Confidence]
+    trace_lines: {ID: 3, Date: 4, Type: 5, Status: 6, Confidence: 7}
+    reasoning: >-
+      Identity header lines 3-7 under `# Audit Report`. Excluded: `Start/End Date` (29-30, Scope
+      section), per-finding `Severity/Component/Status` (69-71), and `Next Audit` Date/Scope (219-220)
+      — all body/section-scoped, not record identity.
+
+  - template: templates/oversight/validation/VALIDATION_TEMPLATE.md
+    required_fields: [ID, Date, Type, Status, Confidence]
+    trace_lines: {ID: 3, Date: 4, Type: 5, Status: 6, Confidence: 7}
+    reasoning: >-
+      Identity header lines 3-7. Excluded: `## Validation Scope` fields ID/Description/Version (20-22)
+      and per-test-case ID/Priority/Status (55-57) — section/entry-scoped, not top identity.
+
+  - template: templates/oversight/specs/SPEC_TEMPLATE.md
+    required_fields: [ID, Date, Status, Type]
+    trace_lines: {ID: 3, Date: 4, Status: 5, Type: 6}
+    reasoning: >-
+      Identity header lines 3-6 under `# Spec`. Excluded: component-block Purpose/Location/Interfaces
+      (65-67) which are per-component body labels.
+
+  - template: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+    required_fields: ["Fix ID", "Bug ID", Date, Status]
+    trace_lines: {"Fix ID": 3, "Bug ID": 4, Date: 5, Status: 6}
+    reasoning: >-
+      Identity header lines 3-6. `Fix ID` and `Bug ID` are both shipped (the template supports tracking
+      a fix either standalone or under a bug) — both are identity lines and pinned for presence. Many
+      later `**Key**:` lines (Symptoms/Impact/Strategy/…) are section body labels — excluded.
+
+  - template: templates/oversight/session-logs/SESSION_SNAPSHOT_TEMPLATE.md
+    required_fields: ["Session ID", Date, Type, Status]
+    trace_lines: {"Session ID": 3, Date: 4, Type: 5, Status: 6}
+    reasoning: >-
+      Identity header lines 3-6. Excluded: Start/End/Total time (19-21) and git Branch/Status (147-148)
+      — body detail, not record identity.
+
+  - template: templates/oversight/agent-constraints/CONSTRAINT_TEMPLATE.md
+    required_fields: [Agent, Type, Priority, Status, Created, "Last Updated"]
+    trace_lines: {Agent: 3, Type: 4, Priority: 5, Status: 6, Created: 7, "Last Updated": 8}
+    reasoning: >-
+      Identity header lines 3-8 under `# {Constraint Title}`. The many later bold lines
+      (Background/Benefits/Example/Deprecated/…) are body/section labels and excluded.
+
+  - template: templates/oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+    required_fields: [Agent, Type, Priority, Status, Created, "Last Updated"]
+    trace_lines: {Agent: 3, Type: 4, Priority: 5, Status: 6, Created: 7, "Last Updated": 8}
+    reasoning: >-
+      Shipped concrete EXAMPLE (registry class: singleton, target = the file itself). Carries the same
+      filled-in identity header as CONSTRAINT_TEMPLATE (lines 3-8). Pinned because the shipped file
+      must retain its identity header. NOTE: it is an example, not a produced family — pin is optional
+      if the oracle chooses to exempt shipped examples from parity.
+
+  - template: templates/oversight/session-index/WEEK_TEMPLATE.md
+    required_fields: [Dates, "Total Sessions"]
+    trace_lines: {Dates: 3, "Total Sessions": 4}
+    reasoning: >-
+      Identity header lines 3-4 under `# Week N`. Both are the weekly record's structural identity.
+
+  - template: templates/oversight/session-index/archive/QUARTER_ARCHIVE_TEMPLATE.md
+    required_fields: [Period, "Total Sessions", Archived]
+    trace_lines: {Period: 3, "Total Sessions": 4, Archived: 5}
+    reasoning: Identity header lines 3-5 under `# {Quarter} Archive`. All three are archive-record identity.
+
+  - template: templates/oversight/SESSION_WORK_INDEX.md
+    required_fields: [Sprint, Goal, Status]
+    trace_lines: {Sprint: 21, Goal: 22, Status: 23}
+    reasoning: >-
+      Singleton live-index. The `## Current Sprint` block (bare column-1 leading-bold, lines 21-23) is
+      the index's required identity; the registry already pins `## Current Sprint` as a required section,
+      so these three fields are always present in a conformant instance. Excluded: header `**Purpose**`
+      (14) / `**Updated**` (15) as descriptive/freshness; `## Active Task` uses a `| Field | Value |`
+      table (ID/Title/Status as table rows) — table form, not leading-bold, excluded.
+
+# ============================================================================
+# EXCLUDED — templates that CARRY bold-metadata but get NO required_fields pin.
+# Recorded so the reviewer can see the discrimination that was applied (the brief's
+# "distinguish genuinely-required identity fields from optional/example ones").
+# ============================================================================
+excluded_with_reason:
+
+  - template: templates/oversight/tech-debt/TECH_DEBT_TEMPLATE.md
+    reason: >-
+      Identity metadata is a `| Field | Value |` TABLE (`| **ID** |`, `| **Severity** |`, `| **Status** |`,
+      lines 5-11), not a leading-bold `**Key**:` line. Different structural kind — out of scope for
+      required_fields (candidate for a future `required_table_fields` kind; see frictions).
+
+  - template: templates/oversight/knowledge/best-practices/_TEMPLATE.md
+    reason: >-
+      Same as above — `## Metadata` is a `| Field | Value |` table (`| **BP-ID** |`, `| **Status** |`,
+      `| **Confidence** |`). Table form, not leading-bold. Status/Confidence value-sets already governed
+      by the registry `status_values` / `confidence_values` conventions.
+
+  - template: templates/oversight/verification/checklists/code-review.md
+    reason: >-
+      `## Review Information` uses LIST-prefixed `- **Files/PR**: / - **Review Date**: / - **Reviewer**:`
+      (7-11) describing a specific per-use review on a singleton checklist — instance data, not durable
+      record identity. `**Verdict**` (105) is a summary field, not identity. Excluded.
+  - template: templates/oversight/verification/checklists/production-ready.md
+    reason: Same shape as code-review (`## Release Information` list fields; `**Overall Status**` summary). Excluded.
+  - template: templates/oversight/verification/checklists/story-complete.md
+    reason: Same shape (`## Story Information` list fields; `**Overall Status**` summary). Excluded.
+
+  - template: templates/oversight/tracking/blockers-log.md
+    reason: >-
+      Register. Bold fields Raised/Blocking/Severity/Status (30-33) are PER-ENTRY (inside an example
+      entry that is deleted when empty). A legitimately-empty blockers-log has none → a presence check
+      would false-fail. Header `**Last Updated**` (14) is freshness, not identity. Excluded.
+  - template: templates/oversight/tracking/scope-change-log.md
+    reason: Register; per-entry Requested/Requested By/Status (21-23) deletable when empty; header freshness only. Excluded.
+  - template: templates/oversight/tracking/technical-debt.md
+    reason: Register; per-entry Category/Priority/Incurred/Status (37-40) deletable when empty; header freshness only. Excluded.
+  - template: templates/oversight/knowledge/assumption-registry.md
+    reason: Register; per-entry Made/Status/Criticality (24-26) deletable when empty; `last_updated_present` already a convention. Excluded.
+  - template: templates/oversight/learning/failure-pattern-library.md
+    reason: Register; per-entry Category/Frequency/Last Seen (22-24) deletable when empty; `last_updated_present` already a convention. Excluded.
+  - template: templates/oversight/research/best-practices-log.md
+    reason: Register; per-entry Researched/Question/Confidence (21-23) deletable when empty; `last_updated_present` already a convention. Excluded.
+
+  - template: templates/oversight/knowledge/confidence-map.md
+    reason: Only header `**Purpose**`/`**Last Updated**` (freshness/descriptive); body is tables. No identity block. Excluded.
+  - template: templates/oversight/session-index/INDEX.md
+    reason: Only header `**Purpose**`/`**Updated**` (freshness) + `**Details**` link label. No identity block. Excluded.
+  - template: templates/oversight/agent-constraints/README.md
+    reason: Doc/README; bold lines are Version/Status/Purpose header + example snippets, not a produced record's identity. Excluded.
+
+# ============================================================================
+# DELIVERABLE 2 — verdicts on the 8 `glob_unverified: true` families.
+# Corpus scanned: dev-ai-memory/oversight (PRIMARY, richest) + document_pipeline, lsp_app (dev-rag-stack)
+#   + ai-memory-testV2. Evidence = real deployed instance paths. A pin verdict is about whether the
+#   GLOB PATTERN matches reality; naming-inconsistency notes are separate data-hygiene observations.
+# ============================================================================
+glob_verdicts:
+
+  - family: WEEK
+    template: templates/oversight/session-index/WEEK_TEMPLATE.md
+    frozen_glob: oversight/session-index/*/week-*.md
+    verdict: CONFIRM
+    recommend: CLEAR glob_unverified
+    evidence:
+      - /mnt/e/projects/dev-ai-memory/oversight/session-index/2026-03/week-1.md
+      - /mnt/e/projects/dev-ai-memory/oversight/session-index/2026-03/week-2.md
+    notes: >-
+      2 real instances in primary; other projects keep session-index/ sparse (0). Pattern matches;
+      the shipped WEEK_TEMPLATE.md (session-index/WEEK_TEMPLATE.md, no subdir, uppercase) does NOT
+      false-match the glob. Safe to clear.
+
+  - family: QUARTER_ARCHIVE
+    template: templates/oversight/session-index/archive/QUARTER_ARCHIVE_TEMPLATE.md
+    frozen_glob: oversight/session-index/archive/*-Q*.md
+    verdict: CONFIRM
+    recommend: CLEAR glob_unverified
+    evidence:
+      - /mnt/e/projects/dev-ai-memory/oversight/session-index/archive/2026-Q3.md
+    notes: >-
+      1 real instance in primary. The co-located `INDEX-ARCHIVE-2026-07-06_005416.md` correctly does
+      NOT match `*-Q*.md`, and QUARTER_ARCHIVE_TEMPLATE.md has no `-Q` so no template false-match.
+      testV2 archive has `SWI-SNAPSHOT-2026-06-17.md` (correctly non-matching). Safe to clear.
+
+  - family: SESSION_SNAPSHOT
+    template: templates/oversight/session-logs/SESSION_SNAPSHOT_TEMPLATE.md
+    frozen_glob: oversight/session-logs/SESSION_SNAPSHOT_*.md
+    verdict: CONFIRM (pattern) + DEFECT (template false-match)
+    recommend: ADD glob_exclude [SESSION_SNAPSHOT_TEMPLATE.md], THEN CLEAR glob_unverified
+    evidence:
+      - /mnt/e/projects/dev-ai-memory/oversight/session-logs/SESSION_SNAPSHOT_2026-01-30_1849.md
+      - /mnt/e/projects/dev-ai-memory/oversight/session-logs/SESSION_SNAPSHOT_2026-02-01_2145.md
+      - "(+ ~8 more SESSION_SNAPSHOT_2026-*.md in primary)"
+    notes: >-
+      ~10 real dated instances in primary. IMPORTANT: the glob `SESSION_SNAPSHOT_*.md` ALSO matches the
+      shipped `SESSION_SNAPSHOT_TEMPLATE.md`, which is deployed into EVERY project's session-logs/
+      (confirmed present in document_pipeline, lsp_app, testV2 — those were the ONLY "matches" there,
+      i.e. template-only, no real snapshots). Unlike the other families this glob uses the same `_`
+      separator as the template name, so the template is caught. Add
+      `glob_exclude: [SESSION_SNAPSHOT_TEMPLATE.md]` before clearing (mirrors existing glob_exclude
+      usage on the CONSTRAINT/_global/_project entries).
+
+  - family: FIX_SPEC
+    template: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+    frozen_glob: oversight/specs/FIX-*.md
+    verdict: CONFIRM
+    recommend: CLEAR glob_unverified
+    evidence:
+      - /mnt/e/projects/ai-memory-testV2/oversight/specs/FIX-SC4-CLASSIFY-SPAN.md
+      - /mnt/e/projects/ai-memory-testV2/oversight/specs/FIX-SC7-FLUSH-WORKER-PUSHGATEWAY.md
+      - /mnt/e/projects/dev-rag-stack/document_pipeline/oversight/specs/FIX-BUG-036-g1-full-gate-verdict.md
+    notes: >-
+      3 real `FIX-*.md` instances across 2 projects. Template `FIX_SPEC_TEMPLATE.md` uses `_` so no
+      false-match. DATA-HYGIENE NOTE (not a glob defect): the primary project's one fix-spec is named
+      `BUG-245-FIX-SPEC.md` (BUG- prefix, -FIX-SPEC suffix) and is NOT captured by `FIX-*.md`. The
+      canonical FIX-* pattern is evidenced, so clear; but the naming divergence across projects is worth
+      flagging to the standard owner.
+
+  - family: AUDIT
+    template: templates/oversight/audits/AUDIT_TEMPLATE.md
+    frozen_glob: oversight/audits/AUDIT-*.md
+    verdict: CONFIRM
+    recommend: CLEAR glob_unverified
+    evidence:
+      - /mnt/e/projects/dev-rag-stack/document_pipeline/oversight/audits/AUDIT-001-master-checklist-meta-audit-docintel-lens.md
+      - /mnt/e/projects/dev-rag-stack/document_pipeline/oversight/audits/AUDIT-002-overview.md
+      - /mnt/e/projects/dev-rag-stack/document_pipeline/oversight/audits/AUDIT-003-phase-1-sample-doc-validation.md
+      - "(5 total AUDIT-*.md in document_pipeline)"
+    notes: >-
+      5 real `AUDIT-*.md` instances in document_pipeline. Template uses `_` so no false-match.
+      DATA-HYGIENE NOTE: the PRIMARY project's audits/ uses divergent freeform names
+      (`LOGGING_AUDIT_REPORT_2026-01-18.md`, `V2_COMPLIANCE_AUDIT_2026-01-17.md`) that do NOT match
+      `AUDIT-*.md` — the oracle will not treat those as AUDIT-family records. Pattern is verified
+      (clear), but flag the primary's naming inconsistency to the owner.
+
+  - family: ROOT_CAUSE
+    template: templates/oversight/bugs/ROOT_CAUSE_TEMPLATE.md
+    frozen_glob: oversight/bugs/ROOT_CAUSE-*.md
+    verdict: ZERO INSTANCES (pattern has no adoption anywhere)
+    recommend: KEEP glob_unverified
+    evidence: []
+    proposed_glob: oversight/bugs/*root-cause*.md   # optional — see caveat
+    notes: >-
+      `ROOT_CAUSE-*.md` matched 0 files in ALL four corpus projects. Real root-cause analyses are
+      authored INSIDE the BUG-* namespace: primary has `BUG-004-root-cause-analysis.md`,
+      `BUG-143-trace-buffer-owned-by-root.md`, `BUG-281-docker-mount-creates-root-owned-host-dir.md`.
+      A proposed `*root-cause*.md` glob would OVERLAP the BUG family glob (`oversight/bugs/BUG-*.md`),
+      creating double-classification. Because the template's own `ROOT_CAUSE-` naming has zero adoption
+      and a corrected glob raises a namespace-overlap design question (is RCA a distinct family or a BUG
+      sub-form?), KEEP the flag and escalate the design decision rather than auto-proposing.
+
+  - family: SPEC
+    template: templates/oversight/specs/SPEC_TEMPLATE.md
+    frozen_glob: oversight/specs/SPEC-*.md
+    verdict: THIN/AMBIGUOUS (pattern matches a tiny minority; precision risk)
+    recommend: KEEP glob_unverified
+    evidence:
+      - /mnt/e/projects/dev-ai-memory/oversight/specs/SPEC-CORRECTIONS-V207.md
+      - /mnt/e/projects/ai-memory-testV2/oversight/specs/SPEC-CORRECTIONS-V207.md   # test-install copy of the same file
+    notes: >-
+      `SPEC-*.md` matches ~1 distinct real file (`SPEC-CORRECTIONS-V207.md`, appearing in primary and its
+      testV2 install-copy). Meanwhile the specs/ directory is DOMINATED (~40 files in primary) by freeform
+      names — `Chunking-Strategy-V2.md`, `LANGFUSE-INTEGRATION-SPEC.md`, `Core-Architecture-Principle-V2.md`,
+      `DISPATCH-*`, `SOT-*` — none matching `SPEC-*`. Two problems: (1) near-zero adoption of the SPEC-NNN
+      convention; (2) the one match (`SPEC-CORRECTIONS-*`) may not even be a SPEC_TEMPLATE-shaped record, so
+      clearing could make the oracle assert template sections against a non-conformant file. KEEP the flag
+      and escalate a parity-SCOPE question: does the SPEC family mean "files named SPEC-*" or "all specs"?
+      The specs/ dir is effectively an unmanaged freeform folder today.
+
+  - family: VALIDATION
+    template: templates/oversight/validation/VALIDATION_TEMPLATE.md
+    frozen_glob: oversight/validation/VAL-*.md
+    verdict: ZERO INSTANCES (pattern has no adoption anywhere)
+    recommend: KEEP glob_unverified
+    evidence: []
+    notes: >-
+      `VAL-*.md` matched 0 files in ALL four corpus projects. The primary validation/ dir uses freeform
+      names: `bug-003-verification-2026-01-21.md`, `PUBLIC_RELEASE_VERIFICATION_2026-01-27.md`,
+      `hook-validation-report-2026-01-20.md`, `skills-validation-report-2026-01-20.md`,
+      `magic-moment-verification-2026-01-21.md`. Other projects' validation/ dirs are empty. The VAL-*
+      identity convention has zero real adoption; real records are freeform `*validation*` / `*verification*`.
+      KEEP the flag and escalate the naming/parity-scope mismatch (a corrected glob like
+      `*validation*|*verification*` would be very loose and is a design call, not a mechanical fix).
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+summary:
+  required_fields_templates_pinned: 13
+  templates_carrying_bold_metadata_but_excluded: 14   # with reasons above
+  glob_verdicts:
+    confirm_clear: [WEEK, QUARTER_ARCHIVE, FIX_SPEC, AUDIT]
+    confirm_with_defect_fix_then_clear: [SESSION_SNAPSHOT]   # needs glob_exclude of the template
+    keep_flag: [ROOT_CAUSE, SPEC, VALIDATION]
