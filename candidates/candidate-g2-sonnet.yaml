@@ -1,0 +1,632 @@
+# candidate-g2-sonnet.yaml
+# PLAN-035 P2 Phase A — Group 2 blind-derivation candidate (derive-g2-sonnet)
+# Scope: 23 G2 templates under templates/oversight/ — required_skeleton (C1) + conventions (C6).
+# Schema: PLAN-035 §3a (oversight-templates.yaml) + BP-189 (subset semantic, required_skeleton ⊆ actual).
+# Derived from templates/oversight/ in worktree ai-memory-p2-g2-sonnet ONLY — never from any user's tree.
+# Independently derived; no peer candidate file was read (blind-derivation protocol).
+#
+# ADJUDICATED OMISSION (team-lead ruling, this session): the brief originally listed a 24th item,
+# `.audit/logs/sanitization-log.jsonl`. Verified NOT git-tracked at `main` (zero commits ever,
+# gitignored by `.gitignore:16` `logs/`) — untracked maintainer-local runtime debris, not a shipped
+# template. Team-lead independently confirmed and ruled: OMIT entirely (registry declares only what
+# ships, derived strictly from git-tracked templates/oversight/). Dropped from this candidate — not
+# present as an entry, not even as a NEEDS-ADJUDICATION placeholder. G2 set is 23 templates.
+#
+# GLOBAL NORMALIZATION RULES (apply to every required_sections entry below unless noted):
+#   1. Numbered heading prefixes ("## 1. Goal") are stripped to the topic text ("Goal") before
+#      comparison — section numbering is presentational, not semantic; a legitimately renumbered
+#      or reordered doc must not fail C1 on that basis alone.
+#   2. Headings explicitly suffixed "(if applicable)" / "(if new code was added)" /
+#      "(if agents were dispatched)" in the TEMPLATE's own text are treated as CONDITIONAL, not
+#      required — the template itself declares them optional-by-condition.
+#   3. "[Repeat structure]" / "[Repeat structure as above]" duplicate patterns (Alternative 2,
+#      Option 3, Finding 2..5, Test Case 2, Component 2) are illustrative repetition of an already-
+#      required parent section — only the first instance's PARENT heading is required, not the
+#      numbered repeats.
+#   4. Bracketed year-range placeholders in headings (e.g. "Current Best Practice (2024-2026)") are
+#      normalized by dropping the year-range suffix — the year range goes stale on a fixed schedule
+#      and is not part of the section's identity.
+#   5. required_sections values are the literal heading text AFTER rules 1/4 normalization,
+#      set-containment (open-world), never order- or case-sensitive unless stated.
+#
+# KNOWN SCHEMA GAP (flagged, not resolved here): ~15 of these 24 templates carry their identity/
+# status metadata as bold "**Key**: value" lines under the H1 (not a `---` YAML frontmatter block,
+# not a markdown table with parseable rows in all cases) — e.g. FIX_SPEC/SPEC/AUDIT/VALIDATION/
+# DECISION/CONSTRAINT template headers. BP-189's three skeleton kinds (required_sections /
+# required_frontmatter_keys / required_json_keys) do not cover this "bold key:value block" shape.
+# These fields are NOT pinned below. See report to team-lead for detail — possible BP-189 §2.2
+# fourth kind (`required_bold_keys`) candidate for a future revision.
+
+- template: templates/oversight/plans/MASTER_PLAN_TEMPLATE.md
+  produces: family
+  glob: "plans/PLAN-MASTER-*.md"
+  class: detail-record
+  notes: >
+    Zero real instances exist in the corpus today (plan_id pattern PLAN-MASTER-<DOMAIN> per its own
+    frontmatter). Glob is inferred from the template's own plan_id pattern, not validated against a
+    live specimen — flagged in report.
+  required_skeleton:
+    required_frontmatter_keys:
+      - plan_id
+      - plan_role
+      - type
+      - status
+      - previous_plan
+      - previous_completed
+      - approved_by
+      - approved_date
+      - pattern_of_record
+      - canonical_order_source
+      - last_updated
+    required_sections:
+      - "Ordering rule (gate BUILD/VERIFY, not thought)"
+      - "Status semantics (derived, evidence-linked — never hand-set)"
+      - "SSoT discipline"
+      - "Master spine (one row per canonical step, in order)"
+      - "Row-maintenance rules"
+      - "Continuity Log"
+  conventions:
+    plan_role_literal: master
+    status_enum: [draft, active, done, superseded]
+    type_enum: [build, ops]
+  consumed_by:
+    - _ai-memory/pov/workflows/session/start/steps-c/step-02b-plan-bearings.md
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("plans:") only
+
+- template: templates/oversight/plans/PLAN_TEMPLATE.md
+  produces: family
+  glob: "plans/PLAN-*.md"
+  class: detail-record
+  notes: >
+    The general/standalone plan family — the ~725-record family class (team-lead's framing; the
+    PLAN_TEMPLATE field-addition that forced a 54-file hand-migration). GLOB OVERLAP FLAG: this glob
+    also matches any PLAN-MASTER-*.md or session-child PLAN-*.md instance by filename alone — a
+    session-role or master-role plan cannot be distinguished from a standalone plan by glob; only the
+    frontmatter `plan_role` field disambiguates, which is outside a filename-glob mechanism. Flagged
+    for team-lead adjudication (also affects SESSION_STEP_PLAN_TEMPLATE below).
+  required_skeleton:
+    required_frontmatter_keys:
+      - plan_id
+      - type
+      - status
+      - previous_plan
+      - previous_completed
+      - approved_by
+      - approved_date
+    required_sections:
+      - "Goal"
+      - "Done-Condition"
+      - "Work Items"
+      - "Out of Scope / Non-Goals"
+      - "Verification"
+      - "Open Questions"
+      - "Continuity Log"
+  conventions:
+    type_enum: [build, ops, maintenance, verification, research]
+    status_enum: [draft, approved, active, done, superseded, abandoned]
+    work_item_status_enum: [todo, doing, done, blocked]
+    single_doing_item: true   # "Exactly one item is doing at a time" — script can count Status column
+  consumed_by:
+    - _ai-memory/pov/workflows/session/start/steps-c/step-02b-plan-bearings.md
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("plans:") only
+
+- template: templates/oversight/plans/SESSION_STEP_PLAN_TEMPLATE.md
+  produces: family
+  glob: "plans/PLAN-*.md"
+  class: detail-record
+  notes: >
+    Same glob-overlap issue as PLAN_TEMPLATE (see above) — flagged, not resolved. Zero real instances
+    exist in the corpus (plan_role: session never appears in any live plan file; only in the two
+    templates' own literal frontmatter documentation). No consumed_by wiring found for this specific
+    template (only the generic "plans:" directory entry) — candidate ORPHAN, needs oracle confirmation.
+  required_skeleton:
+    required_frontmatter_keys:
+      - plan_id
+      - plan_role
+      - master_plan
+      - step_id
+      - session
+      - type
+      - status
+      - previous_plan
+      - previous_completed
+      - approved_by
+      - approved_date
+    required_sections:
+      - "Goal"
+      - "Done-Condition"
+      - "Work Items"
+      - "Out of Scope / Non-Goals"
+      - "Verification"
+      - "Close-back"   # normalized from "Close-back (MANDATORY — what this plan writes into the master row at close)"
+      - "Open Questions"
+      - "Continuity Log"
+  conventions:
+    plan_role_literal: session
+    type_enum: [build, verification]
+    status_enum: [draft, active, done]
+    work_item_status_enum: [todo, doing, done, blocked]
+    single_doing_item: true
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("plans:") only — no step-specific reference found
+
+- template: templates/oversight/specs/FIX_SPEC_TEMPLATE.md
+  produces: family
+  glob: "specs/*-FIX-SPEC.md"
+  class: detail-record
+  notes: >
+    Validated against the one real specimen, specs/BUG-245-FIX-SPEC.md (Approved, shipped): it
+    carries only 9 of the template's ~20 H2 sections. required_sections below is the intersection of
+    the template's own structure and what BUG-245 actually retained — the five sections present in
+    BOTH. The remaining ~15 template H2s (Rollback Plan, Risk Assessment, Performance/Security/
+    Monitoring/Communication/Timeline, etc.) are treated as optional elaboration, not required.
+  required_skeleton:
+    required_sections:
+      - "Problem Statement"
+      - "Proposed Solution"
+      - "Files to Modify"
+      - "Test Plan"
+      - "Implementation Checklist"
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("specs:") only
+
+- template: templates/oversight/specs/SPEC_TEMPLATE.md
+  produces: family
+  glob: "specs/*.md"
+  class: detail-record
+  notes: >
+    MAJOR DIVERGENCE FINDING (flag for team-lead/Will): sampled 6 real specs/ instances
+    (Chunking-Strategy-V2, GitHub-Integration-V1, LOGGING-REQUIREMENTS, EVAL-CONTROL-FIXTURE-SPEC,
+    plus 2 more) — ZERO followed SPEC_TEMPLATE.md's structure. All use free-form numbered sections
+    specific to their domain ("## 1. Architecture Overview" etc.), not Summary/Context/Requirements/
+    Design. This suggests SPEC_TEMPLATE.md functions as an unused/aspirational scaffold for the
+    ~37-file specs/ corpus, which behaves more like durable living-architecture docs than
+    template-stamped instances. required_sections below is derived from the template's own primary
+    backbone per my mandate (template-derived, not corpus-derived) — but C1 will likely flag nearly
+    the entire specs/ corpus as NON-CONFORMANT under this pin. Recommend confirming this is the
+    intended severity before shipping, or reconsidering whether SPEC_TEMPLATE.md should require only
+    a minimal identity pin given how loosely it's followed in practice.
+  required_skeleton:
+    required_sections:
+      - "Summary"
+      - "Context"
+      - "Requirements"
+      - "Design"
+      - "Implementation Plan"
+      - "Testing Strategy"
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("specs:") only
+
+- template: templates/oversight/standards/_global/_TEMPLATE.md
+  produces: family
+  glob: "standards/_global/*.md"
+  glob_excludes: ["standards/_global/_TEMPLATE.md"]
+  class: detail-record
+  notes: >
+    Zero real instances exist (standards/_global/ contains only this template — all example entries
+    in PROJECT_STANDARDS.yaml's `global:` section are commented out). The Metadata/Rules tables carry
+    row-level fields (Scope=GLOBAL, Hash) that required_sections (heading-only) cannot check — same
+    schema-gap noted at file top.
+  required_skeleton:
+    required_sections:
+      - "Metadata"
+      - "Applies To"
+      - "Rules"
+      - "Severity Legend"
+      - "Examples"
+      - "Related Standards"
+      - "Changelog"
+  conventions:
+    rule_severity_enum: [CRITICAL, HIGH, MEDIUM, LOW]
+  consumed_by:
+    - _ai-memory/pov/constraints/global/GC-15-template-usage.md
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("standards:") only
+
+- template: templates/oversight/standards/_project/_TEMPLATE.md
+  produces: family
+  glob: "standards/_project/*.md"
+  glob_excludes: ["standards/_project/_TEMPLATE.md"]
+  class: detail-record
+  notes: "Zero real instances exist (same as standards/_global/)."
+  required_skeleton:
+    required_sections:
+      - "Metadata"
+      - "Applies To"
+      - "Rules"
+      - "Severity Legend"
+      - "Project Context"
+      - "Examples"
+      - "Related Standards"
+      - "Decision Reference"
+      - "Changelog"
+  conventions:
+    rule_severity_enum: [CRITICAL, HIGH, MEDIUM, LOW]
+  consumed_by:
+    - _ai-memory/pov/constraints/global/GC-15-template-usage.md
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("standards:") only
+
+- template: templates/oversight/knowledge/assumption-registry.md
+  produces: singleton
+  target: "knowledge/assumption-registry.md"
+  class: detail-record
+  notes: >
+    CLASS UNCERTAIN — flagged for adjudication. Not present in PARZIVAL-OVERSIGHT-SOT §14's D2
+    contract table (no cap_lines/cap_kb/rotation_trigger declared anywhere found). Its Active/
+    Verified/Invalidated/Superseded row-state model resembles BP-191's "register" class (event-
+    triggered archival) more than a permanent "detail-record" — classed detail-record here only as
+    the closest fit among BP-191's five, pending a real ruling.
+  required_skeleton:
+    required_sections:
+      - "Assumption States"
+      - "Active Assumptions"
+      - "Assumptions by Category"
+      - "Verified Assumptions"
+      - "Invalidated Assumptions"
+      - "Assumption Review Schedule"
+      - "Questions to Ask"
+  conventions:
+    assumption_state_enum: [Active, Verified, Invalidated, Superseded]
+  consumed_by:
+    - _ai-memory/pov/scripts/session-index-maintain.py   # literal path reference, line 48
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("knowledge:") only
+
+- template: templates/oversight/knowledge/confidence-map.md
+  produces: singleton
+  target: "knowledge/confidence-map.md"
+  class: detail-record
+  notes: >
+    Same class-uncertainty flag as assumption-registry.md. "## Verification History" is pinned as
+    required on direct evidence: TD-847 documents this exact section as template-added and found
+    MISSING from the deployed workspace copy — this is a verified real defect the oracle must catch
+    (analogous to the plan's own C6/F10 acceptance-test precedent). ZERO consumed_by wiring found
+    anywhere in _ai-memory/ (searched workflows + scripts + schema) — candidate ORPHAN despite being
+    actively used/read by Parzival in practice; flagged, not resolved.
+  required_skeleton:
+    required_sections:
+      - "Confidence Levels"
+      - "System Knowledge"
+      - "Domain Knowledge"
+      - "Technology Stack"
+      - "Project-Specific Knowledge"
+      - "Knowledge Gaps"
+      - "Verification History"
+  conventions:
+    confidence_level_enum: [Verified, Informed, Inferred, Uncertain, Unknown]
+  consumed_by: []   # no reference found — see notes; candidate ORPHAN
+
+- template: templates/oversight/knowledge/best-practices/_TEMPLATE.md
+  produces: family
+  glob: "knowledge/best-practices/BP-*.md"
+  class: detail-record
+  notes: >
+    MAJOR DIVERGENCE FINDING (flag for team-lead/Will): sampled 6 real BP files at random plus BP-189/
+    BP-191 (read in full for this task) out of 182 total. Only ~2/8 sampled (BP-050) closely match
+    the template's fixed section set; the rest (BP-007, BP-045, BP-051, BP-075, BP-143, BP-189,
+    BP-191) use a different, more elaborate "§N Executive Summary" numbered-section convention with
+    additional Metadata fields (Domain, Applies To, Supersedes, Related) not in _TEMPLATE.md at all.
+    This looks like the template itself has gone stale relative to actual current BP-authoring
+    practice (a P3/Axis-B candidate — template content update — not a P2 modeling defect). Pinned
+    below per the template's own literal shipped content (my mandate is template-derived, not
+    corpus-derived); expect this to flag a large fraction of the 182-file BP catalog.
+  required_skeleton:
+    required_sections:
+      - "Metadata"
+      - "Summary"
+      - "Applicability Check"
+      - "Current Best Practice"   # normalized: template heading is "Current Best Practice (2024-2026)" — year-range dropped, rule 4
+      - "Sources"
+      - "Alternative Approaches"
+      - "Project-Specific Recommendation"
+      - "Staleness Tracking"
+  conventions:
+    status_enum: [CURRENT, NEEDS_REVIEW, SUPERSEDED, ARCHIVED]
+    confidence_enum: [Verified, Informed, Inferred]
+    staleness_review_window_months: 6
+  consumed_by:
+    - _ai-memory/skills/aim-best-practices-researcher/SKILL.md
+    - _ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py
+    - _ai-memory/skills/aim-best-practices-researcher/OUTPUT-FORMAT.md
+    - _ai-memory/skills/aim-best-practices-researcher/RESEARCH-METHODOLOGY.md
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("research:"/knowledge) only
+
+- template: templates/oversight/knowledge/best-practices/index.md
+  produces: singleton
+  target: "knowledge/best-practices/index.md"
+  class: detail-record
+  notes: >
+    Confirmed live and in real use — real index.md (2026-07) has the same generated-block markers
+    populated with real rows instead of the "No findings yet" placeholder. C6 convention below
+    catches hand-edits inside the generated block (the block is machine-owned by bp_index.py --write;
+    a hand-added row not matching a real BP-*.md file, or a missing END marker, would be a
+    CONVENTION_VIOLATION analogous to decision-log.md's newest_first check).
+  required_skeleton:
+    required_sections:
+      - "Quick Reference"
+      - "Status Legend"
+      - "Usage"
+      - "Finding Files"
+  conventions:
+    generated_block_start: "<!-- BEGIN bp-index"
+    generated_block_end: "<!-- END bp-index -->"
+    generated_block_owner: "bp_index.py --write"   # never hand-edit rows between markers
+  consumed_by:
+    - _ai-memory/skills/aim-best-practices-researcher/scripts/bp_index.py
+
+- template: templates/oversight/research/best-practices-log.md
+  produces: singleton
+  target: "research/best-practices-log.md"
+  class: detail-record
+  notes: >
+    Real live file at this exact path exists and is actively maintained (68 lines). It renamed the
+    template's "Research Entries" heading to "Recent Research Highlights" — noted as a minor
+    divergence but NOT reflected in the pin below (my mandate is template-derived; "Research Entries"
+    stays required as the template ships it). Flagged so team-lead can decide if this is a legitimate
+    template evolution that should instead update the template.
+  required_skeleton:
+    required_sections:
+      - "Research Index"
+      - "Research Entries"
+      - "Topics Needing Research"
+      - "Research Freshness"
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("research:") only
+
+- template: templates/oversight/audits/AUDIT_TEMPLATE.md
+  produces: family
+  glob: "audits/*.md"
+  glob_excludes: ["audits/AUDIT_TEMPLATE.md", "audits/INDEX.md"]
+  class: detail-record
+  notes: >
+    MAJOR DIVERGENCE FINDING: real instance audits/LOGGING_AUDIT_REPORT_2026-01-18.md uses a
+    completely different numbered-section scheme (## 1. Process Coverage .. ## 12. Appendix) with
+    zero heading overlap against the template. Same pattern as SPEC_TEMPLATE/DECISION_TEMPLATE — flag
+    consolidated in report. No consumed_by wiring found anywhere beyond the generic schema directory
+    entry — candidate near-ORPHAN.
+  required_skeleton:
+    required_sections:
+      - "Executive Summary"
+      - "Scope"
+      - "Methodology"
+      - "Findings"
+      - "Recommendations"
+      - "Risk Assessment"
+      - "Metadata"
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("audits:") only
+
+- template: templates/oversight/learning/failure-pattern-library.md
+  produces: singleton
+  target: "learning/failure-pattern-library.md"
+  class: detail-record
+  required_skeleton:
+    required_sections:
+      - "How to Use This Library"
+      - "Failure Patterns"
+      - "Patterns by Category"
+      - "Near Misses"
+      - "Pattern Statistics"
+  conventions:
+    frequency_enum: ["First Time", Occasional, Frequent]
+  consumed_by:
+    - _ai-memory/pov/workflows/session/blocker/steps-c/step-01-capture-blocker.md
+    - _ai-memory/pov/workflows/session/blocker/steps-c/step-03-log-blocker.md
+
+- template: templates/oversight/validation/VALIDATION_TEMPLATE.md
+  produces: family
+  glob: "validation/*.md"
+  glob_excludes: ["validation/VALIDATION_TEMPLATE.md", "validation/INDEX.md"]
+  class: detail-record
+  notes: >
+    Same divergence pattern as specs/audits/decisions: sampled validation/hook-validation-report-
+    2026-01-20.md uses a free-form Executive Summary/Key Findings/Statistics structure with no
+    overlap against the template. Pinned per template's own primary backbone regardless (see
+    consolidated divergence note in report to team-lead).
+  required_skeleton:
+    required_sections:
+      - "Summary"
+      - "Validation Scope"
+      - "Acceptance Criteria"
+      - "Test Cases"
+      - "Decision"
+      - "Metadata"
+  conventions:
+    decision_result_enum: ["Pass", "Fail", "Pass with Concerns", "In Progress"]
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("validation:") only
+
+- template: templates/oversight/verification/checklists/code-review.md
+  produces: singleton
+  target: "verification/checklists/code-review.md"
+  class: detail-record
+  notes: >
+    This is a project-tailorable RUBRIC (the checklist definition itself, not a per-review report) —
+    required_sections below pins the outer priority-tier shape only; the H3 subcategories (Security,
+    Data Safety, Correctness, Performance, Maintainability, Testing, Style) are the customizable
+    substance a project would reasonably add to or reorder, so they are NOT pinned as required.
+  required_skeleton:
+    required_sections:
+      - "Review Information"
+      - "Critical (Must Fix)"
+      - "High Priority (Strongly Recommend)"
+      - "Medium Priority (Consider)"
+      - "Low Priority (Optional)"
+      - "Summary"
+      - "Issues Found"
+      - "Positive Observations"
+      - "Recommendation"
+  consumed_by:
+    - _ai-memory/pov/workflows/session/verify/steps-c/step-02-load-checklist.md
+
+- template: templates/oversight/verification/checklists/production-ready.md
+  produces: singleton
+  target: "verification/checklists/production-ready.md"
+  class: detail-record
+  required_skeleton:
+    required_sections:
+      - "Release Information"
+      - "Code Quality"
+      - "Testing"
+      - "Security"
+      - "Documentation"
+      - "Infrastructure"
+      - "Deployment"
+      - "Business Readiness"
+      - "Risk Assessment"
+      - "Summary"
+      - "Blocking Issues"
+      - "Non-Blocking Issues"
+      - "Recommendation"
+  consumed_by:
+    - _ai-memory/pov/workflows/session/verify/steps-c/step-02-load-checklist.md
+
+- template: templates/oversight/verification/checklists/story-complete.md
+  produces: singleton
+  target: "verification/checklists/story-complete.md"
+  class: detail-record
+  notes: >
+    "Observability (if new code was added)", "Agent Memory (if agents were dispatched)", "Security
+    (if applicable)", "Performance (if applicable)" are excluded from required_sections per global
+    normalization rule 2 — the template's own text marks them conditional.
+  required_skeleton:
+    required_sections:
+      - "Story Information"
+      - "Acceptance Criteria"
+      - "Code Quality"
+      - "Testing"
+      - "Documentation"
+      - "Summary"
+      - "Recommendation"
+  consumed_by:
+    - _ai-memory/pov/workflows/session/verify/steps-c/step-02-load-checklist.md
+
+- template: templates/oversight/agent-constraints/CONSTRAINT_TEMPLATE.md
+  produces: family
+  glob: "agent-constraints/*.md"
+  glob_excludes:
+    - "agent-constraints/CONSTRAINT_TEMPLATE.md"
+    - "agent-constraints/README.md"
+    - "agent-constraints/EXAMPLE_*.md"
+  class: detail-record
+  notes: >
+    required_sections sourced directly from README.md's own explicitly-documented "Minimum
+    Structure" block (README.md lines ~135-163: "# {Constraint Title}" + Rule/Rationale/Examples/
+    Exceptions) rather than inferred from the full template — this is authoritative, not a guess.
+    Real oversight/agent-constraints/ contains zero non-template/non-example instances today (only
+    CONSTRAINT_TEMPLATE.md, README.md, EXAMPLE_parzival-quality-gates.md exist) — family with zero
+    current members.
+  required_skeleton:
+    required_sections:
+      - "Rule"
+      - "Rationale"
+      - "Examples"
+      - "Exceptions"
+  conventions:
+    priority_enum: [Critical, High, Medium, Low]
+    status_enum: [Active, Draft, Deprecated]
+    type_enum: [Rule, Guideline, Standard, Process]
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("agent-constraints:") only
+
+- template: templates/oversight/agent-constraints/EXAMPLE_parzival-quality-gates.md
+  produces: singleton
+  target: "agent-constraints/EXAMPLE_parzival-quality-gates.md"
+  class: detail-record
+  notes: >
+    Listed as its own shipped item in the 24-template scope (not swept into CONSTRAINT_TEMPLATE's
+    family glob, which explicitly excludes EXAMPLE_*.md). It IS a real constraint-file instance
+    (Rule/Rationale/Scope/Implementation all present, verified) — same required_skeleton as
+    CONSTRAINT_TEMPLATE's minimum since it follows that shape, pinned separately because it is
+    addressed as a distinct singleton path.
+  required_skeleton:
+    required_sections:
+      - "Rule"
+      - "Rationale"
+      - "Examples"
+      - "Exceptions"
+  consumed_by:
+    - _ai-memory/pov/agent-constraints/README.md   # cited by README.md itself as the worked example
+
+- template: templates/oversight/agent-constraints/README.md
+  produces: singleton
+  target: "agent-constraints/README.md"
+  class: detail-record
+  notes: >
+    Meta-documentation singleton, not a per-instance stamp. Pinned to its primary explanatory
+    sections; excluded the two narrative "Example: ..." walkthroughs and Troubleshooting/Integration/
+    Best-Practices/Loading-Constraints-in-Agents sections as supplementary, not structurally required.
+  required_skeleton:
+    required_sections:
+      - "Overview"
+      - "Why This Exists"
+      - "How It Works"
+      - "When to Use"
+      - "File Structure"
+      - "Naming Convention"
+      - "Constraint Priority Levels"
+      - "Constraint Types"
+      - "Maintenance"
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("agent-constraints:") only
+
+- template: templates/oversight/decisions/DECISION_TEMPLATE.md
+  produces: family
+  glob: "decisions/DEC-*.md"
+  class: detail-record
+  notes: >
+    Same divergence pattern as specs/audits/validation: the one real instance,
+    decisions/DEC-018-BMAD-MEMORY-HOOKS-IMPLEMENTATION-PLAN.md, has ZERO heading overlap with the
+    template (Executive Summary/Architecture Overview/Hook→Collection Mapping/... vs template's
+    Summary/Context/Decision/Options Considered/...). Pinned per template's own primary backbone.
+    NOTE: this repo's actual live decision-tracking mechanism is tracking/decision-log.md (a G1
+    append-only-log, out of this G2 scope) — DEC-XXX standalone files under decisions/ appear to be a
+    secondary/legacy path with only 1 real member. Worth confirming with team-lead whether decisions/
+    DEC-*.md is still an intended product surface or should be deprecated in the registry.
+  required_skeleton:
+    required_sections:
+      - "Summary"
+      - "Context"
+      - "Decision"
+      - "Options Considered"
+      - "Rationale"
+      - "Implications"
+      - "Implementation"
+      - "Validation"
+      - "Metadata"
+  conventions:
+    status_enum: [Proposed, Accepted, Rejected, Superseded, Deprecated]
+    confidence_enum: [Verified, Informed, Inferred, Uncertain, Unknown]
+  consumed_by:
+    - _ai-memory/pov/workflows/session/decision/steps-c/step-03-log-decision.md
+    - _ai-memory/pov/constraints/global/GC-15-template-usage.md
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("decisions:") only
+
+- template: templates/oversight/PROJECT_STANDARDS.yaml
+  produces: singleton
+  target: "PROJECT_STANDARDS.yaml"
+  class: detail-record
+  notes: >
+    NON-MARKDOWN MEMBER — flagged per task instructions. Pure YAML, no markdown headings, so
+    required_sections is inapplicable. Modeled as required_yaml_keys (top-level key presence,
+    JSON-pointer-style paths) — a natural extension of BP-189's required_json_keys kind to a YAML
+    (non-JSON) file, since the presence-only / open-world semantic is identical. This is not one of
+    BP-189's three named kinds; flagging as a modeling question for adjudication alongside the
+    required_bold_keys gap noted at file top.
+    VERIFIED TEMPLATE DEFECT (not a modeling choice — confirmed by parsing): the template has TWO
+    top-level YAML keys both named `project` (line 5: `project: "[PROJECT_NAME]"` scalar identity
+    field; line 21: `project:` — a second, distinct `project:` key for the project-specific-standards
+    list). Parsed with `yaml.safe_load`, the second occurrence silently clobbers the first — the
+    project-name identity field is destroyed; `project` resolves to `None`. Confirmed live:
+    `python3 -c "import yaml; print(yaml.safe_load(open('templates/oversight/PROJECT_STANDARDS.yaml')))"`
+    → `{'schema_version': '1.0', 'project': None, 'last_updated': '...', 'global': None,
+    'topic_index': None}`. `project` is EXCLUDED from required_yaml_keys below because the key itself
+    is broken in the shipped template — pinning it as required would assert a lie. This is a real,
+    reproducible bug in the shipped template, reported here per CLAUDE.md §6; recommend team-lead
+    file a TD (rename one of the two `project:` keys, e.g. `project_name` vs `project_standards`).
+  required_skeleton:
+    required_yaml_keys:
+      - "/schema_version"
+      - "/last_updated"
+      - "/global"
+      - "/topic_index"
+  consumed_by:
+    - _ai-memory/_memory/parzival-sidecar/oversight-schema.yaml   # directory-level ("root:") only
