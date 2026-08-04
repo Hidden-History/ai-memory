@@ -1,0 +1,286 @@
+# oversight-templates.yaml — PLAN-035 P2 Phase A, Group 1 (blind derivation: opus lane)
+#
+# Scope: the 17 Group-1 templates (convention / register / log / heartbeat / live-index
+# classes + the record-family templates rooted in G1 subtrees). Derived independently
+# from the version-locked templates in this worktree (templates/oversight/…).
+#
+# Fields per entry conform to PLAN-035 §3a:
+#   template          — path of the shipped template (relative to repo root)
+#   produces          — singleton (one instance/project) | family (glob of instances)
+#   target | glob     — deployed singleton path, OR the glob that matches family instances
+#   class             — BP-191 canonical class token (heartbeat|append-only-log|
+#                       live-index|register|detail-record)
+#   required_skeleton — C1: required_sections / required_frontmatter_keys the file MUST
+#                       contain (open-world subset per BP-189: required ⊆ actual; extras
+#                       and ALL values out of scope). Only load-bearing structure pinned.
+#   conventions       — C6: machine-checkable rules only (entry_pattern, order, cap_lines,
+#                       cap_kb). Omitted where the template declares no verifiable rule.
+#   consumed_by       — C4 wiring. Populated ONLY where verified from tracking_rotate.py
+#                       (FALLBACK_REGISTRY / FRESHNESS_OWNED). Full C4 wiring is OUT of the
+#                       G1 (C1/C6) task scope — unverified consumers left [] with a note.
+#
+# Cap provenance key (every cap_lines/cap_kb cites its source):
+#   [FR]  = class-contract FALLBACK_REGISTRY in
+#           _ai-memory/pov/skills/aim-tracking-rotate/scripts/tracking_rotate.py
+#   [FM]  = the template's own front-matter cap_lines/cap_kb
+# All eight [FR] caps were cross-checked against the values the brief supplied — all match.
+#
+# Normalization: placeholder headings (e.g. '## Current Year: [YYYY]') are pinned as their
+# stable prefix ('## Current Year') and matched prefix-normalized. See friction note in the
+# completion report — the oracle needs an explicit placeholder-normalization rule (§3a:107).
+
+- template: templates/oversight/project-status.md
+  produces: singleton
+  target: oversight/project-status.md
+  class: heartbeat                       # template front-matter
+  required_skeleton:
+    # No H2 sections: the body is a single ```yaml routing block under the H1.
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+    # NON-STANDARD extension (flagged): the load-bearing content is the fenced routing
+    # YAML in the body, which BP-189's three skeleton kinds (sections/frontmatter/json)
+    # cannot express. Proposed 4th kind so this keystone routing file is not left loose.
+    required_yaml_body_keys: [current_phase, active_task, phases_complete, key_files, live_record, open_issues]
+  conventions:
+    cap_lines: 60                        # [FR] + [FM] agree
+    cap_kb: 6                            # [FR] + [FM] agree
+  consumed_by:
+    - aim-tracking-rotate                # FALLBACK_REGISTRY rel-path key (cap --check)
+    - aim-tracking-freshness             # STATUS-divergence + tracking scan
+
+- template: templates/oversight/SESSION_WORK_INDEX.md
+  produces: singleton
+  target: oversight/SESSION_WORK_INDEX.md
+  class: live-index                      # template front-matter
+  required_skeleton:
+    # Exactly the four sections PM #407 hand-verified as the conformance set (§5 oracle-truth
+    # test). The live SESSION_WORK_INDEX.md missing these MUST be flagged NON-conformant;
+    # '## Last 5 Sessions' / '## Quick Links' left optional so the reported missing-set
+    # matches the hand-verified result precisely.
+    required_sections:
+      - "## Current Sprint"
+      - "## Active Task"
+      - "## Active Blockers"
+      - "## High Priority Risks"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    entry_pattern: '^\| '                # [FR] entry_pattern (table-row window)
+    cap_lines: 80                        # [FR] + [FM] agree
+    cap_kb: 12                           # [FR] + [FM] agree
+
+- template: templates/oversight/tracking/task-tracker.md
+  produces: singleton
+  target: oversight/tracking/task-tracker.md
+  class: register                        # template front-matter
+  required_skeleton:
+    required_sections:
+      - "## Current Sprint"
+      - "## Naming Convention"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    cap_lines: 60                        # [FR] + [FM] agree
+    cap_kb: 4.5                          # [FR] + [FM] agree
+
+- template: templates/oversight/tracking/blockers-log.md
+  produces: singleton
+  target: oversight/tracking/blockers-log.md
+  class: register                        # template front-matter
+  required_skeleton:
+    required_sections:
+      - "## Active Blockers"
+      - "## Blocker Details"
+      - "## Resolved Blockers"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    # Register: template declares no ordering; its entry boundary is mixed (Active/Resolved
+    # TABLES + '### BLK-' detail H3s) — the exact reason it is in MANUAL_ROTATION_FILES.
+    # No entry_pattern/order pinned (would be a guess). The cap is the verifiable rule.
+    cap_lines: 100                       # [FR] + [FM] agree
+    cap_kb: 15                           # [FR] + [FM] agree
+
+- template: templates/oversight/tracking/risk-register.md
+  produces: singleton
+  target: oversight/tracking/risk-register.md
+  class: register                        # template front-matter
+  required_skeleton:
+    required_sections:
+      - "## Active Risks"
+      - "## Resolved Risks"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    # Rows live under '### Critical/High/Medium/Low' severity H3s (not a linear log);
+    # no order/entry_pattern pinned. Cap is the verifiable rule.
+    cap_lines: 120                       # [FR] + [FM] agree
+    cap_kb: 12                           # [FR] + [FM] agree
+
+- template: templates/oversight/tracking/decision-log.md
+  produces: singleton
+  target: oversight/tracking/decision-log.md
+  class: append-only-log                 # template front-matter
+  required_skeleton:
+    # Only the load-bearing container is pinned. '## How to Use' / '## Entry Format' are
+    # instructional scaffolding a live log may trim (BP-189 §2.4 over-flag guard); '## Decisions'
+    # is where entries live and MUST exist → guarantees the known-conformant file PASSES C1,
+    # incl. after the C6 out-of-order test (moving an entry never removes the section).
+    required_sections:
+      - "## Decisions"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    entry_pattern: '^### DEC-[A-Z0-9-]+-D\d'   # front-matter "newest first" + brief-sanctioned pattern
+    order: newest_first                        # template front-matter: "add new entries at the top, newest first"
+    cap_lines: 150                       # [FR] + [FM] agree
+    cap_kb: 50                           # [FR] + [FM] agree
+  consumed_by:
+    - aim-tracking-rotate                # FALLBACK_REGISTRY rel-path key
+    - aim-tracking-freshness             # decision-log body-coverage scan
+
+- template: templates/oversight/tracking/technical-debt.md
+  produces: singleton
+  target: oversight/tracking/technical-debt.md
+  class: register                        # template front-matter
+  required_skeleton:
+    required_sections:
+      - "## Debt Summary"
+      - "## Active Technical Debt"
+      - "## Debt by Category"
+      - "## Resolved Debt"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    cap_lines: 150                       # [FR] + [FM] agree
+    cap_kb: 15                           # [FR] + [FM] agree
+
+- template: templates/oversight/tracking/dependencies.md
+  produces: singleton
+  target: oversight/tracking/dependencies.md
+  class: register                        # INFERRED from role (BP-191 register) — template ships NO class front-matter (C5 gap)
+  required_skeleton:
+    required_sections:
+      - "## External Dependencies"
+      - "## Package Dependencies"
+      - "## Internal Dependencies"
+    # No front-matter → no required_frontmatter_keys.
+  # No conventions: NOT in FALLBACK_REGISTRY and NO front-matter cap → no cap to assert;
+  # no declared order/entry convention. Omitted per brief. FRICTION: register-class file
+  # with no cap contract anywhere (candidate for a FALLBACK_REGISTRY/front-matter cap).
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
+
+- template: templates/oversight/tracking/scope-change-log.md
+  produces: singleton
+  target: oversight/tracking/scope-change-log.md
+  class: register                        # INFERRED from role (SC-### records, live=active) — template ships NO class front-matter (C5 gap)
+  required_skeleton:
+    required_sections:
+      - "## Active Scope Changes"
+      - "## Scope Change Details"
+      - "## Rejected Changes"
+    # '## Approved Changes (This Sprint)' left optional — the '(This Sprint)' qualifier is
+    # instance-variable and would need a normalization rule.
+  # No conventions: not in FALLBACK_REGISTRY, no front-matter cap → no verifiable rule.
+  # FRICTION: register-class file with no cap contract anywhere.
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
+
+- template: templates/oversight/session-index/INDEX.md
+  produces: singleton
+  target: oversight/session-index/INDEX.md
+  class: live-index                      # template front-matter
+  required_skeleton:
+    required_sections:
+      - "## Current Year"                # normalized prefix; template ships '## Current Year: [YYYY]'. §5 oracle-truth: absence ⇒ NON-conformant.
+      - "## Archive"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    entry_pattern: '^\| '                # [FR] entry_pattern (table-row window)
+    cap_lines: 120                       # [FR] + [FM] agree
+    cap_kb: 10                           # [FR] + [FM] agree
+
+- template: templates/oversight/session-index/WEEK_TEMPLATE.md
+  produces: family
+  glob: oversight/session-index/*/week-*.md   # inferred from INDEX.md pointer '[YYYY-MM]/week-N.md' — FLAG (see report)
+  class: detail-record                   # INFERRED: dated session artifact (BP-191 5b) — template ships NO class front-matter
+  required_skeleton:
+    required_sections:
+      - "## Sessions"
+  # No conventions: detail-record (per-file record; no cap, no linear order/entry rule).
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
+
+- template: templates/oversight/session-index/archive/QUARTER_ARCHIVE_TEMPLATE.md
+  produces: family
+  glob: oversight/session-index/archive/*-Q*.md   # inferred '{YYYY}-Q{N}.md'; excludes the TEMPLATE file — FLAG (see report)
+  class: detail-record                   # INFERRED: dated/archived session roster (BP-191 5b) — template ships NO class front-matter
+  required_skeleton:
+    required_sections:
+      - "## Summary by Month"
+      - "## Session List"
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
+
+- template: templates/oversight/bugs/BUG_TEMPLATE.md
+  produces: family
+  glob: oversight/bugs/BUG-*.md
+  class: detail-record                   # INFERRED: durable detail-record (BP-191 5a) — durable records ship NO class front-matter BY DESIGN
+  required_skeleton:
+    # Durable-core skeleton only; peripheral sections (Environment/Impact/Investigation/
+    # Prevention/Metadata/Timeline/Notes) left optional so older bug records aren't
+    # over-flagged (the 725-record family over-flag hazard, §3a).
+    required_sections:
+      - "## Summary"
+      - "## Description"
+      - "## Root Cause"
+      - "## Resolution"
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
+
+- template: templates/oversight/bugs/ROOT_CAUSE_TEMPLATE.md
+  produces: family
+  glob: oversight/bugs/ROOT_CAUSE-*.md   # NO filename convention shipped in template — inferred — FLAG (see report)
+  class: detail-record                   # INFERRED: durable detail-record (BP-191 5a) — ships NO class front-matter
+  required_skeleton:
+    required_sections:
+      - "## Executive Summary"
+      - "## Symptom Description"
+      - "## Investigation Process"
+      - "## Root Cause Identified"
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
+
+- template: templates/oversight/tech-debt/INDEX.md
+  produces: singleton
+  target: oversight/tech-debt/INDEX.md
+  class: register                        # template front-matter (BP-191 row 4 lists tech-debt/INDEX.md as register)
+  required_skeleton:
+    required_sections:
+      - "## Quick Stats"
+      - "## Open Technical Debt"
+      - "## Closed Technical Debt"
+    required_frontmatter_keys: [class, cap_lines, cap_kb]
+  conventions:
+    # NOT in FALLBACK_REGISTRY (it is FRESHNESS_OWNED); cap sourced from front-matter only.
+    cap_lines: 150                       # [FM] (front-matter)
+    cap_kb: 18                           # [FM] (front-matter)
+  consumed_by:
+    - aim-tracking-freshness             # FRESHNESS_OWNED — regenerated wholesale
+
+- template: templates/oversight/tech-debt/TECH_DEBT_TEMPLATE.md
+  produces: family
+  glob: oversight/tech-debt/TECH-DEBT-*.md    # template declares 'TECH-DEBT-NNN.md [-<slug>]' convention
+  class: detail-record                   # INFERRED: durable detail-record (BP-191 5a) — ships NO class front-matter BY DESIGN
+  required_skeleton:
+    # Record body fields are H3 under the '## TECH-DEBT-{number}' record header. The
+    # reference H3s ('### Tech-Debt ID Convention' / '### Status Workflow' / '### Severity
+    # Guide') are template scaffolding NOT copied into an instance → not pinned.
+    required_sections:
+      - "### Summary"
+      - "### Evidence"
+      - "### Impact"
+      - "### Suggested Fix"
+      - "### Disposition"
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
+
+- template: templates/oversight/session-logs/SESSION_SNAPSHOT_TEMPLATE.md
+  produces: family
+  glob: oversight/session-logs/SESSION_SNAPSHOT_*.md   # NO filename convention shipped in template — inferred — FLAG (see report)
+  class: detail-record                   # INFERRED: dated session artifact (BP-191 5b) — template ships NO class front-matter
+  required_skeleton:
+    # Durable backbone only; the template ships 17 H2s, most optional richness. Pinning all
+    # would over-flag every leaner snapshot.
+    required_sections:
+      - "## Session Overview"
+      - "## Work Completed"
+      - "## Context for Next Session"
+  consumed_by: []                        # C4 wiring unverified — out of G1 (C1/C6) scope
