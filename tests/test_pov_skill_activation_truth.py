@@ -83,9 +83,15 @@ def test_team_builder_teaches_slash_form(team_builder_text: str) -> None:
 def test_team_builder_does_not_name_a_nonexistent_skill(
     team_builder_text: str,
 ) -> None:
-    """`bmad-dev` does not exist; the real persona skill is `bmad-agent-dev`."""
-    assert "load bmad-dev" not in team_builder_text
-    assert "`bmad-dev`" not in team_builder_text
+    """`bmad-dev` does not exist; the real persona skill is `bmad-agent-dev`.
+
+    Whitespace is normalised first. The defect being pinned was line-wrapped as
+    "load\\n  bmad-dev", so a contiguous "load bmad-dev" match passes vacuously
+    against the very text it is meant to catch.
+    """
+    flat = " ".join(team_builder_text.split())
+    assert "load bmad-dev" not in flat
+    assert "load /bmad-dev" not in flat
 
 
 def test_team_builder_allows_grep_and_bash(team_builder_text: str) -> None:
