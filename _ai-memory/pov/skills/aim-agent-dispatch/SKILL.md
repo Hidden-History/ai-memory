@@ -174,6 +174,8 @@ MUST spawn fresh agent for every task -- never reuse across roles or stories.
 
 MUST use `/bmad-agent-tech-writer` for ALL documentation tasks (writing, updating, reviewing docs). MUST use `/bmad-code-review` for ALL review agents (never `/bmad-agent-dev`). MUST use `/bmad-help` whenever unsure which agent or workflow to use -- the tables above are NOT exhaustive.
 
+**Activation form — the leading `/` is required.** Activate BMAD personas as `/bmad-<name>`, not a bare name. **If a `/bmad-*` activation fails, the cause is CWD drift — the teammate was spawned from the wrong directory.** Correct response: shut it down and respawn from the sentinel-verified workspace root (Step 0). Do NOT conclude the skill is unavailable, do NOT substitute a general-purpose agent, and do NOT have the teammate file-read the persona — those are the substitute anti-patterns BOND forbids. (PM #415: a misdiagnosis of this failure as "skill unavailable from a subagent context" cost two sessions and produced a standing instruction telling reviewers not to attempt a tool that worked.)
+
 MUST route ALL best-practice / conventions / coding-standard research through `/aim-best-practices-researcher` -- never hand-run web searches for this. The skill saves the finding to a BP file and stores it to the project-scoped conventions collection, so hand-rolling the research loses it to future sessions.
 
 **Workflow commands by phase** (sent AFTER activation, when in planning mode):
@@ -182,8 +184,8 @@ MUST route ALL best-practice / conventions / coding-standard research through `/
 |-------|-------|-----------------|
 | Research | Analyst | `/bmad-market-research`, `/bmad-domain-research`, `/bmad-technical-research` |
 | Discovery | Analyst | `/bmad-product-brief` |
-| Discovery (or any phase) | PM | `/bmad-create-prd`, `/bmad-validate-prd`, `/bmad-edit-prd` |
-| Architecture | Architect | `/bmad-create-architecture` |
+| Discovery (or any phase) | PM | `/bmad-prd` (create / update / validate intent) |
+| Architecture | Architect | `/bmad-architecture` (create intent) |
 | Architecture | PM | `/bmad-create-epics-and-stories` |
 | Architecture | Architect | `/bmad-check-implementation-readiness` |
 | Architecture | UX Designer | `/bmad-ux` |
@@ -195,16 +197,19 @@ MUST route ALL best-practice / conventions / coding-standard research through `/
 
 Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 
-> **Maintenance check:** `scripts/check_bmad_commands.sh` verifies every `/bmad-*` command in the tables above resolves to an installed skill under `.claude/skills/` (fire-only-if-missing: silent when all resolve, non-zero listing any that don't; degrades gracefully when BMAD is not installed). Run it after editing these tables or updating the BMAD module.
+> **Maintenance check:** `scripts/check_bmad_commands.sh` verifies every `/bmad-*` command in the tables above resolves to an installed skill under `.claude/skills/` (fire-only-if-missing: silent when all resolve, non-zero listing any that don't; degrades gracefully when BMAD is not installed). Run it after editing these tables or updating the BMAD module. Pass `--check-deprecated` to ALSO fail on a command that resolves but is a deprecated back-compat shim — resolution alone cannot catch one (TD-971: `/bmad-create-prd` passed a green check for exactly this reason).
 
 #### B4. Verify Activation (MANDATORY — two-phase)
 
 **Sentinel (CLAUDE.md workspace-root):** before every spawn, as its own Bash step, assert workspace root:
 `test -d _ai-memory && test -d _bmad && test -d oversight`. FAIL → ABORT.
 
-**Spawn (two-phase, GC-20):** the spawn prompt loads the BMAD persona via the Skill tool (e.g.
-`Use the Skill tool to load bmad-agent-dev` — likewise `bmad-create-story`, `bmad-code-review`; a bare
-`/bmad-*` at spawn activates the lead, not the persona) + one line — "You're activated as a teammate
+**Spawn (two-phase, GC-20):** the spawn prompt loads the BMAD persona via the Skill tool, using the
+**slash form** — e.g. `Use the Skill tool to load /bmad-agent-dev` — likewise `/bmad-create-story`,
+`/bmad-code-review`. The leading `/` is required. **If a `/bmad-*` activation fails, the teammate was
+spawned from the WRONG DIRECTORY** — shut it down and respawn from the sentinel-verified workspace root
+(Step 0). Never conclude the skill is unavailable, never fall back to a bare name, never file-read the
+persona. + one line — "You're activated as a teammate
 under Parzival (team-lead). Once activated, SendMessage your activation reply (greeting + menu, and
 anything the agent asks) to team-lead, then wait for my instructions before doing any work." Never the
 task. `mode: auto`.

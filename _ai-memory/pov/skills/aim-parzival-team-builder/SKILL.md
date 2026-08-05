@@ -1,7 +1,7 @@
 ---
 name: aim-parzival-team-builder
 description: Design agent team structure for parallel work execution
-allowed-tools: Read
+allowed-tools: Read, Grep, Bash
 context: fork
 ---
 
@@ -49,7 +49,7 @@ The fast path should read like a form, not a conversation.
 ```yaml
 # Dispatch Plan v1
 provider: claude
-model: claude-sonnet-4-6
+model: sonnet
 agent: dev
 agent_id: dev-auth
 bmad_agent_type: dev
@@ -61,7 +61,7 @@ workspace_root: /mnt/e/projects/dev-ai-memory
 complexity: moderate
 reviewer_plan:
   mode: single
-  models: [claude-sonnet-4-6]
+  models: [sonnet]
 route: aim-agent-dispatch
 # Approve?
 ```
@@ -84,7 +84,7 @@ not collapse to prose.
 ```yaml
 # Dispatch Plan v1
 provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | mistral | openai | vertex-ai | siliconflow
-model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
+model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud". Anthropic models by TIER ALIAS: "opus", "sonnet", "haiku" -- never a pinned ID
 agent: <role-name>                   # dev | pm | architect | analyst | ux-designer | tech-writer | code-reviewer | <generic>
 agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "architect-design"
 bmad_agent_type: <type> | null       # null ONLY for genuine non-BMAD work (code-reviewer, verify). If a BMAD role fits, null is a FAIL — assign the persona.
@@ -274,7 +274,7 @@ Before executing, verify:
 - [ ] No file ownership conflicts
 - [ ] Each agent has clear DONE WHEN criteria
 - [ ] Each agent has a unique AI_MEMORY_AGENT_ID assigned
-- [ ] Team size is 3-5 (split if larger)
+- [ ] Team size is 3-5 (split if larger) — **exception: a dual-review pair (2) is sanctioned**
 - [ ] Conflict avoidance strategy selected and documented
 - [ ] Context blocks are complete (no placeholders or TBDs)
 - [ ] No two parallel workspace-writing Validate skills share a `doc_workspace` (each validator in a separate git worktree — #284)
@@ -308,9 +308,10 @@ The team design document (Steps 1-6) is the deliverable. It feeds into the agent
 placeholder families that are NOT Step-4 context-block content — the dispatch-time assembler fills them
 from each agent's BMAD role so no raw placeholder survives into a rendered prompt:
 - `{*_activation}` (`{teammate_N_activation}`, `{manager_N_activation}`, `{worker_N_activation}`) =
-  the Skill-tool-load activation string for that agent's BMAD role — e.g. `Use the Skill tool to load
-  bmad-dev (the BMAD dev persona).` A bare `/bmad-*` at spawn activates the lead, not the persona, so
-  the persona MUST be loaded via the Skill tool.
+  the Skill-tool-load activation string for that agent's BMAD role, using the **slash form** — e.g.
+  `Use the Skill tool to load /bmad-agent-dev (the BMAD dev persona).` The leading `/` is required.
+  **If activation fails, the teammate was spawned from the wrong directory** — respawn from the
+  sentinel-verified workspace root rather than treating the skill as unavailable.
 - `{*_subagent_type}` (`{teammate_N_subagent_type}` / `{teammate_subagent_type}`,
   `{manager_N_subagent_type}` / `{manager_subagent_type}`) = `general-purpose` — the BMAD persona
   activates via the in-prompt Skill-load, not a native `subagent_type`. (Workers spawn via tmux
