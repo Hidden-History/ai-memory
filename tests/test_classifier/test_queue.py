@@ -185,3 +185,31 @@ def test_resolve_queue_dir_uses_config(monkeypatch):
     result = _real_resolve_queue_dir()
 
     assert result == Path("/tmp/test-queue-config-path")
+
+
+@pytest.mark.timeout(10)
+def test_resolve_queue_dir_rejects_non_path_config(monkeypatch, tmp_path):
+    """A mocked config must not steer the queue into a repo-relative MagicMock/ tree.
+
+    MagicMock implements __fspath__, so Path(get_config().queue_dir) SUCCEEDS and
+    yields the relative path "MagicMock/<name>/<id>" rather than raising. The
+    pre-fix except-branch therefore never fired, and enqueue's
+    mkdir(parents=True) wrote that tree into the CWD -- the repo root. A fresh
+    object id per run meant it never collided and grew monotonically
+    (TD-798; duplicates TD-821 / TD-872 / TD-902).
+    """
+    from unittest.mock import MagicMock
+
+    import src.memory.config as config_module
+
+    fallback = tmp_path / "queue"
+    monkeypatch.setenv("AI_MEMORY_QUEUE_DIR", str(fallback))
+    monkeypatch.setattr(config_module, "get_config", lambda: MagicMock())
+
+    result = _real_resolve_queue_dir()
+
+    assert (
+        "MagicMock" not in result.parts
+    ), f"mocked config leaked into the queue path: {result}"
+    assert result.is_absolute(), f"queue dir must be absolute, got {result}"
+    assert result == fallback

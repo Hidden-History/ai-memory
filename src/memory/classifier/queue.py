@@ -15,7 +15,7 @@ import logging
 import os
 import time
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 
 logger = logging.getLogger("ai_memory.classifier.queue")
 
@@ -30,7 +30,15 @@ def _resolve_queue_dir() -> Path:
     try:
         from ..config import get_config
 
-        return Path(get_config().queue_dir)
+        raw = get_config().queue_dir
+        # Reject anything that is not genuinely a path. A test double such as
+        # MagicMock implements __fspath__, so Path() would SUCCEED and yield the
+        # relative path "MagicMock/<name>/<id>" -- which enqueue then mkdir()s
+        # into the CWD (the repo root). os.PathLike cannot be used to
+        # discriminate here: MagicMock satisfies it and a plain str does not.
+        if not isinstance(raw, (str, PurePath)):
+            raise TypeError(f"queue_dir is not a path: {type(raw).__name__}")
+        return Path(raw)
     except Exception as e:
         logger.debug("config_not_available_using_fallback", extra={"error": str(e)})
         return Path(

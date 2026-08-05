@@ -105,3 +105,9 @@ scripts/_migration_state.json
 # Backup/verification directories (user-local, not for repo)
 _ai-memory/_ai-memory.restructred/
 _ai-memory/pov.v1.bak/
+
+# Stray tree from a test that mocks get_config() and reaches the enqueue path.
+# _resolve_queue_dir() now rejects non-path config (TD-798), so nothing should
+# create this. Kept as a backstop so a future unhardened path cannot dirty a
+# diff -- this masks the symptom and is NOT a substitute for the guard.
+MagicMock/
