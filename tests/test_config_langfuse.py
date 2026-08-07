@@ -304,8 +304,11 @@ class TestLangfuseNonRegression:
         assert isinstance(config.parzival_enabled, bool)
         assert isinstance(config.decay_enabled, bool)
 
-    def test_helper_methods_still_work(self):
+    def test_helper_methods_still_work(self, monkeypatch):
         """Existing helper methods still return correct URLs."""
+        # `_env_file=None` blocks the .env file but not the process environment,
+        # so the ambient target still has to be cleared to assert the default.
+        monkeypatch.delenv("QDRANT_PORT", raising=False)
         config = MemoryConfig(_env_file=None)
         assert config.get_qdrant_url() == "http://localhost:26350"
         assert config.get_embedding_url() == "http://localhost:28080"

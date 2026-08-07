@@ -85,8 +85,23 @@ jobs:
           AI_MEMORY_EMBEDDING_PORT: 28080
           QDRANT_API_KEY: test-ci-key
         run: |
-          pytest tests/integration/test_installation.py -v --tb=short
-          pytest tests/integration/test_platform.py -v --tb=short
+          pytest tests/integration/test_installation.py -v --tb=short \
+            --junitxml=test-results-installation.xml
+          pytest tests/integration/test_platform.py -v --tb=short \
+            --junitxml=test-results-platform.xml
+
+      # Two invocations, two reports, two floors. A single combined floor would
+      # let one suite's count cover for the other running nothing.
+      - name: Executed-test floor - installation and platform suites
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-installation.xml \
+            --min-executed 1 \
+            --label "the installation suite"
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-platform.xml \
+            --min-executed 1 \
+            --label "the platform suite"
 
       - name: Show Docker logs on failure
         if: failure()
@@ -156,7 +171,15 @@ jobs:
           SKIP_DOCKER_CHECKS: "true"
         run: |
           # Only run platform tests, skip installation tests that require Docker
-          pytest tests/integration/test_platform.py -v --tb=short
+          pytest tests/integration/test_platform.py -v --tb=short \
+            --junitxml=test-results-platform-macos.xml
+
+      - name: Executed-test floor - platform suite
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-platform-macos.xml \
+            --min-executed 1 \
+            --label "the platform suite (macOS)"
 
       - name: Cleanup
         if: always()

@@ -31,6 +31,12 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 from memory.models import EmbeddingStatus, MemoryType
+from tests.datastore_guard import (
+    SENTINEL_PORT,
+    SENTINEL_URL,
+    assert_not_production,
+    install_safe_defaults,
+)
 
 # Add tests directory to sys.path so test_session_start.py can import
 # session_start_test_helpers from tests directory
@@ -72,6 +78,18 @@ def pytest_addoption(parser):
         default=False,
         help="Run end-to-end tests requiring Playwright browsers",
     )
+
+
+def pytest_configure(config):
+    """Point the session at the sentinel datastore and refuse a production one.
+
+    TD-881. Runs before collection, and -- unlike the design this replaces --
+    nothing later in the session can undo it: the fixtures that previously
+    rewrote the target to the live instance now call the same helper, so no
+    ordering between this hook and fixture setup can reopen the hole.
+    """
+    install_safe_defaults()
+    assert_not_production()
 
 
 # =============================================================================
@@ -582,8 +600,13 @@ def docker_compose_path() -> str:
 
 @pytest.fixture(scope="session")
 def qdrant_base_url() -> str:
-    """Return Qdrant base URL using configured or default port."""
-    port = os.environ.get("QDRANT_PORT", "26350")
+    """Return Qdrant base URL using the configured port, or the sentinel.
+
+    TD-881: this defaulted to the operator's live install, so an un-targeted run
+    connected to real data and created collections in it. It now fails fast
+    against a port nothing listens on instead.
+    """
+    port = os.environ.get("QDRANT_PORT", str(SENTINEL_PORT))
     return f"http://localhost:{port}"
 
 
@@ -776,9 +799,19 @@ def skip_if_service_unavailable(request):
     ):
         return  # No service requirements, continue test
 
-    # Get configured ports from environment
-    qdrant_port = int(os.environ.get("QDRANT_PORT", "26350"))
-    embedding_port = int(os.environ.get("EMBEDDING_SERVICE_PORT", "28080"))
+    # Get configured ports from environment.
+    #
+    # The fallbacks are the sentinel, never a live port. An availability probe
+    # that defaults to production connects to the operator's real services on
+    # any run that did not set these -- which is TD-881's headline pattern, and
+    # the probe is not exempt from it just because it sends no bytes.
+    #
+    # QDRANT_PORT was dormant here only because install_safe_defaults always
+    # populates that key. EMBEDDING_SERVICE_PORT was not dormant at all: nothing
+    # populates it, so a bare `pytest tests/` probed the live embedding service
+    # on every run.
+    qdrant_port = int(os.environ.get("QDRANT_PORT", str(SENTINEL_PORT)))
+    embedding_port = int(os.environ.get("EMBEDDING_SERVICE_PORT", str(SENTINEL_PORT)))
     api_port = int(os.environ.get("MONITORING_API_PORT", "28000"))
     streamlit_port = int(os.environ.get("STREAMLIT_PORT", "28501"))
 
@@ -812,8 +845,12 @@ def integration_test_env():
 
     Environment variables configured:
     - EMBEDDING_READ_TIMEOUT=60.0: CPU embedding service timeout (20-50s typical)
-    - QDRANT_URL: Qdrant service URL with correct port for integration tests
-    - QDRANT_PORT: Explicit port for integration tests (26350)
+    - QDRANT_URL / QDRANT_PORT: honoured if the caller set them, otherwise the
+      sentinel. TD-881: this fixture used to hard-set both to the operator's
+      live install. Being session-scoped and autouse, it did so for every
+      ``pytest tests/`` run, and because it ran after any pre-launch check it
+      silently reverted whatever target the caller had exported -- which is why
+      no env-var mitigation could work. It must never assign a target directly.
     - SIMILARITY_THRESHOLD=0.4: Lower threshold for generic test queries vs specific code
     - EMBEDDING_DIMENSION=768: DEC-010 Jina v2 Base Code dimensions (fixes store_async.py mismatch)
     """
@@ -831,8 +868,8 @@ def integration_test_env():
 
     # Set integration test environment
     os.environ["EMBEDDING_READ_TIMEOUT"] = "60.0"  # CPU mode: 40-50s observed
-    os.environ["QDRANT_URL"] = "http://localhost:26350"
-    os.environ["QDRANT_PORT"] = "26350"
+    install_safe_defaults()
+    assert_not_production()
     # Production threshold for Jina model (supports mixed NL + code queries)
     # 0.4 balances quality with coverage for SessionStart query patterns
     # See TECH-DEBT-002: Semantic query matching considerations
@@ -879,7 +916,7 @@ def wait_for_qdrant_healthy(timeout: int = 60) -> None:
     Note: Moved to conftest.py from test_persistence.py per Story 5.4 code review
     Issue 7 - sys.path anti-pattern fix.
     """
-    qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:26350")
+    qdrant_url = os.environ.get("QDRANT_URL", SENTINEL_URL)
     start = time.time()
     wait_intervals = [1, 2, 3, 5, 5, 5]  # Total ~21s before 1s intervals
     interval_index = 0
@@ -992,7 +1029,7 @@ def cleanup_edge_case_memories():
     """
     yield  # Test runs here
 
-    qdrant_url = os.environ.get("QDRANT_URL", "http://localhost:26350")
+    qdrant_url = os.environ.get("QDRANT_URL", SENTINEL_URL)
 
     # Wait for Qdrant to be healthy before cleanup (handles post-restart state)
     try:

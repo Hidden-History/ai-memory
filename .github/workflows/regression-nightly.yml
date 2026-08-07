@@ -3,20 +3,36 @@ name: Regression Tests (Nightly)
 # =============================================================================
 # NIGHTLY REGRESSION TESTS
 # =============================================================================
-# This workflow provides regression coverage that PR-triggered workflows cannot
-# achieve because GitHub secrets are not available to fork PRs. The PR workflow
-# (regression-tests.yml) uses a secret-gated `if:` condition that evaluates false
-# on every PR from a fork, causing those regression tests to silently skip.
+# This workflow EXISTS TO PROVIDE regression coverage that PR-triggered
+# workflows cannot: GitHub secrets are not available to fork PRs, so the PR
+# workflow (regression-tests.yml) carries a secret-gated `if:` that evaluates
+# false on every fork PR and skips those regression tests.
 #
-# This workflow runs unconditionally (no secret gating) because:
-#   1. It only triggers on schedule (nightly) and push-to-main events
-#   2. Both contexts are secrets-available (repo-owned workflows have secret access)
-#   3. Push-to-main means the PR was already merged, so failures indicate real issues
+# It provides no such coverage today, and the present tense would be a lie: the
+# credentials named below are not configured, so this workflow skips as well.
+# It will provide that coverage once they exist -- not before.
+#
+# This workflow used to run unconditionally, on the reasoning that schedule and
+# push-to-main are both secrets-available contexts. That reasoning was sound and
+# its premise was false: the credentials it names are not configured, so every
+# run executed zero tests and reported success -- a green asserting that a
+# regression suite had run when none ever had.
+#
+# It is now gated on the same condition as the PR sibling. Note what that does
+# and does not do: it creates NO coverage. It converts a lying green into an
+# honest skip. The suite does not run until the credentials exist, and the
+# executed-test floor below fails the job the moment they exist but the suite
+# still under-runs.
+#
+# The gate variables are declared at JOB level. The executed-test floor step
+# declares no env of its own, so a job-level declaration is the only thing its
+# condition can read; declared only on the steps, that one gate would evaluate
+# empty forever and skip permanently. See the note beside the env block.
 #
 # See TD-397 and BP-149 for context.
 #
 # PRs rely on: unit tests, integration tests, E2E tests
-# Regression tests run: post-merge (push-to-main) and nightly
+# Regression tests run: post-merge (push-to-main) and nightly, once credentials exist
 # =============================================================================
 
 on:
@@ -40,12 +56,28 @@ permissions:
 jobs:
   # ============================================================================
   # REGRESSION TESTS - Live Langfuse + Qdrant required
-  # No secret gating - runs unconditionally in secrets-available context
+  # Secret-gated: skips explicitly when those credentials are absent, rather
+  # than running against them and reporting success
   # ============================================================================
   regression-tests:
     name: Regression Tests (Nightly)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Job level, and that placement is load-bearing for one of the three gated
+    # steps: the executed-test floor declares no env of its own, so a job-level
+    # declaration is the only thing its condition can read. Put these only on
+    # the steps and that gate evaluates empty forever and skips permanently,
+    # even once credentials exist -- a gate that silently disables itself.
+    #
+    # (The other two gated steps carry their own copies and would resolve
+    # either way: a step's `if:` CAN read env set on that same step. That was
+    # measured on a scratch workflow, not assumed -- an earlier version of this
+    # comment asserted the opposite and was wrong.)
+    #
+    # Declaring once here also keeps this file identical to the PR sibling.
+    env:
+      LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
 
     steps:
       - uses: actions/checkout@v7
@@ -63,8 +95,17 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run regression test suite
+        # Gated exactly as the PR sibling is (BP-149). Without this the job ran
+        # unconditionally against credentials that do not exist, so every test
+        # skipped and the job reported success -- a green asserting a regression
+        # suite had run when none ever had.
+        #
+        # This creates no coverage. It converts a lying green into an honest
+        # skip; the suite still does not run until the credentials exist.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
-          pytest tests/test_regression.py -v --tb=short -m regression
+          pytest tests/test_regression.py -v --tb=short -m regression \
+            --junitxml=test-results-regression.xml
         env:
           LANGFUSE_ENABLED: "true"
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
@@ -73,7 +114,35 @@ jobs:
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
 
+      # BUG-536: this job ran `4 skipped ... in 2.06s` and reported success,
+      # every night, for an unknown span. The `langfuse` fixture calls
+      # auth_check() and converts any failure into pytest.skip, so an
+      # unreachable or unconfigured Langfuse turns the entire suite into skips
+      # while pytest still exits 0. There is no exit code that distinguishes
+      # that from a clean pass -- only the executed count does.
+      - name: Executed-test floor - regression suite
+        # Same condition as the step it guards: when the suite is skipped on
+        # purpose no report is written, and a floor evaluated there would fail
+        # on the intended behaviour instead of on the defect. The floor guards
+        # the case where the suite was supposed to run and did not.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
+        run: |
+          python3 tests/ci_executed_floor.py \
+            --junit test-results-regression.xml \
+            --min-executed 4 \
+            --label "the nightly regression suite"
+
       - name: Run evaluations dry-run (quality gate check)
+        # Same gate, for the same reason, and it is the same defect: this step
+        # reads the evaluation history out of Langfuse. Ungated against
+        # credentials that do not exist it found nothing to evaluate, exited 0,
+        # and reported success -- a step named "quality gate check" asserting a
+        # quality gate had been checked when no data was ever reachable.
+        #
+        # It survived the first pass of this fix because the two steps above it
+        # were the ones named in the defect. Same lie, same file, two steps
+        # along.
+        if: env.LANGFUSE_PUBLIC_KEY != '' && env.QDRANT_URL != ''
         run: |
           python scripts/run_evaluations.py \
             --config evaluator_config.yaml \

@@ -1,0 +1,178 @@
+name: Datastore Isolation
+
+# TD-881 / TD-876. Proves the test suite cannot reach the operator's production
+# Qdrant, embedding service, or Langfuse instance.
+#
+# The oracle is a tripwire accept-counter, never pytest's exit code: a failed
+# connection is wrapped into ResponseHandlingException and swallowed by this
+# repository's broad graceful-degradation handlers, so a run that touched
+# production repeatedly still exits 0.
+#
+# The self-test step is load-bearing. A counter reading zero because it is
+# broken looks exactly like a counter reading zero because nothing connected --
+# that is how an earlier guard design passed its own self-test while leaving the
+# production gRPC path open.
+
+on:
+  pull_request:
+    paths:
+      - "tests/**"
+      - "src/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - ".github/workflows/datastore-isolation.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: datastore-isolation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tripwire:
+    name: Tests cannot reach the production datastore
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      # Inside the namespace there is no external network at all -- that is the
+      # point -- so anything that downloads on first use has to be warmed
+      # beforehand. Pinning the cache to the workspace keeps it reachable
+      # whether the suite runs as the user or under sudo, whose HOME differs.
+      TIKTOKEN_CACHE_DIR: ${{ github.workspace }}/.tiktoken-cache
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Select a network-namespace wrapper
+        id: netns
+        run: |
+          # Unprivileged user namespaces are the preferred route because the
+          # suite then runs as the normal user. Some Ubuntu images ship
+          # kernel.apparmor_restrict_unprivileged_userns=1, which blocks that;
+          # the runner has passwordless sudo, so fall back rather than fail.
+          if unshare -rn true 2>/dev/null; then
+            echo "mode=unprivileged" >> "$GITHUB_OUTPUT"
+          elif sudo unshare -n true 2>/dev/null; then
+            echo "mode=sudo" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::No usable network namespace on this runner."
+            echo "Both 'unshare -rn' and 'sudo unshare -n' failed, so the suite"
+            echo "cannot be isolated and this gate cannot vouch for anything."
+            exit 1
+          fi
+          echo "apparmor_restrict_unprivileged_userns=$(
+            sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null \
+            || echo '<absent>')"
+
+          # Resolve the interpreter NOW, as the normal user, and use this
+          # absolute path everywhere below. `sudo python3` resolves through
+          # root's PATH and lands on the system interpreter, which never saw
+          # `pip install -e .[dev]` -- so grpcio and pytest are simply absent
+          # there. That is what made the first CI run report the gRPC leg as
+          # unavailable while still printing OK.
+          echo "python=$(command -v python3)" >> "$GITHUB_OUTPUT"
+          echo "using interpreter: $(command -v python3)"
+
+      - name: Warm caches that need the network
+        run: |
+          set -euo pipefail
+          mkdir -p "$TIKTOKEN_CACHE_DIR"
+          # tiktoken downloads its encoding on first use, and some tests import
+          # it at collection time. Inside the namespace that download fails DNS
+          # and aborts collection for the whole run, so it is fetched here while
+          # the network still exists.
+          #
+          # Both encodings the suite asks for. cl100k_base is imported during
+          # collection; p50k_base is requested by a truncation test, and warming
+          # only the first left that test failing on DNS instead of asserting
+          # anything. If a new encoding is introduced, add it here -- the symptom
+          # is a name-resolution error inside the namespace.
+          for enc in cl100k_base p50k_base; do
+            python3 -c "import sys, tiktoken; tiktoken.get_encoding(sys.argv[1])" "$enc"
+            echo "warmed $enc"
+          done
+          echo "cache entries: $(ls -1 "$TIKTOKEN_CACHE_DIR" | wc -l)"
+
+      - name: Prove the tripwire counter works
+        env:
+          # The gRPC leg is the one that retired the socket-layer design. In CI
+          # its absence is a failure, not a footnote.
+          TRIPWIRE_REQUIRE_GRPC: "1"
+        run: |
+          set -euo pipefail
+          PY='${{ steps.netns.outputs.python }}'
+          if [ "${{ steps.netns.outputs.mode }}" = "sudo" ]; then
+            sudo -E unshare -n sh -c 'ip link set lo up && exec "$@"' _ \
+              "$PY" tests/datastore_tripwire.py --self-test
+          else
+            unshare -rn sh -c 'ip link set lo up && exec "$@"' _ \
+              "$PY" tests/datastore_tripwire.py --self-test
+          fi
+
+      - name: Run the CI-scope suite behind the tripwire
+        run: |
+          set -uo pipefail
+          # Clear every variable that could aim the suite at a real service, so
+          # this measures the default an unsuspecting caller would get. The
+          # namespace does not clear environment variables -- both halves are
+          # needed.
+          # -p no:randomly: pytest-randomly reorders every run, and the accept
+          # count depends on which tests run and in what order. A ratchet needs
+          # a comparable number run to run, so ordering is fixed here. The
+          # general test workflow keeps randomisation; this job trades it for a
+          # measurement that means the same thing each time.
+          PY='${{ steps.netns.outputs.python }}'
+          # One line, deliberately. `sh -c` treats a newline as a command
+          # separator, so a wrapped command silently drops everything after the
+          # first line -- which cost a CI run where pytest ran without its
+          # flags and the leftovers came back as "sh: -q: not found".
+          # --junitxml: the ratchet needs to know how many tests actually ran,
+          # not just that the process exited. A run that selects a fraction of
+          # the suite exits 0 and connects to almost nothing, which reads as the
+          # best result ever recorded. The floor in the baseline is checked
+          # against this file.
+          RUN="$PY tests/datastore_tripwire.py --report tripwire-report.json -- $PY -m pytest tests/ -m 'not regression and not quarantine' -q -p no:cacheprovider -p no:randomly --tb=no --junitxml=pytest-report.xml"
+          if [ "${{ steps.netns.outputs.mode }}" = "sudo" ]; then
+            sudo -E env -u QDRANT_URL -u QDRANT_PORT -u QDRANT_GRPC_PORT \
+              -u EMBEDDING_PORT -u EMBEDDING_SERVICE_PORT -u LANGFUSE_BASE_URL \
+              unshare -n sh -c 'ip link set lo up && exec "$@"' _ sh -c "$RUN"
+          else
+            env -u QDRANT_URL -u QDRANT_PORT -u QDRANT_GRPC_PORT \
+              -u EMBEDDING_PORT -u EMBEDDING_SERVICE_PORT -u LANGFUSE_BASE_URL \
+              unshare -rn sh -c 'ip link set lo up && exec "$@"' _ sh -c "$RUN"
+          fi
+          # This step deliberately does not use `set -e`: pytest failing is not
+          # this job's verdict, the ratchet is. But a *missing* report is not a
+          # verdict either -- it means the wrapper never got far enough to write
+          # one, and the ratchet must not be handed a stale file from an earlier
+          # step or an empty one.
+          if [ ! -s tripwire-report.json ]; then
+            echo "::error::The tripwire wrote no report, so the run cannot be graded."
+            exit 1
+          fi
+
+      - name: Ratchet - connections to production must not increase
+        run: |
+          '${{ steps.netns.outputs.python }}' tests/datastore_tripwire.py \
+            --check tripwire-report.json \
+            --baseline tests/datastore_isolation_baseline.json \
+            --junit pytest-report.xml
+
+      - name: Upload the accept report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tripwire-report
+          path: tripwire-report.json
+          if-no-files-found: warn
