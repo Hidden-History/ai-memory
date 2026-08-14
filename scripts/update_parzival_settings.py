@@ -19,14 +19,27 @@ import sys
 import tempfile
 from pathlib import Path
 
-PARZIVAL_VARS = [
+# The enablement record (AD-32): value + cause + condition. These are synced in
+# BOTH directions of the flag. The not-enabled state is the only state in which a
+# cause exists, so removing them when the flag is false would strip the cause
+# exactly when a consumer needs it.
+PARZIVAL_STATE_VARS = [
     "PARZIVAL_ENABLED",
+    "PARZIVAL_ENABLED_CAUSE",
+    "PARZIVAL_ENABLED_CONDITION",
+]
+
+# Preference vars — only meaningful while Parzival is enabled, so they are still
+# removed from settings.json when it is not.
+PARZIVAL_PREFERENCE_VARS = [
     "PARZIVAL_USER_NAME",
     "PARZIVAL_LANGUAGE",
     "PARZIVAL_DOC_LANGUAGE",
     "PARZIVAL_OVERSIGHT_FOLDER",
     "PARZIVAL_HANDOFF_RETENTION",
 ]
+
+PARZIVAL_VARS = PARZIVAL_STATE_VARS + PARZIVAL_PREFERENCE_VARS
 
 
 def read_env_file(env_path):
@@ -84,8 +97,24 @@ def main():
                     print(f"  env.{var}: unchanged ({docker_env[var]!r})")
 
     else:
-        # Remove Parzival vars from env section
-        for var in PARZIVAL_VARS:
+        # Carry the enablement record across — host-side hooks read env from
+        # settings.json, not docker/.env (BUG-120). Deleting it here is what made
+        # a re-install transitioning enabled->failed leave a stale `true` in
+        # settings.json while docker/.env said `false`.
+        for var in PARZIVAL_STATE_VARS:
+            if var in docker_env:
+                old_val = env_section.get(var)
+                env_section[var] = docker_env[var]
+                if old_val != docker_env[var]:
+                    print(f"  env.{var}: {old_val!r} -> {docker_env[var]!r}")
+                else:
+                    print(f"  env.{var}: unchanged ({docker_env[var]!r})")
+            elif var in env_section:
+                del env_section[var]
+                print(f"  Removed stale env.{var} (not recorded in docker/.env)")
+
+        # Preference vars are meaningless while disabled — remove as before.
+        for var in PARZIVAL_PREFERENCE_VARS:
             if var in env_section:
                 del env_section[var]
                 print(f"  Removed env.{var}")

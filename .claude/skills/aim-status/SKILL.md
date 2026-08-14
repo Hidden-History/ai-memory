@@ -93,7 +93,7 @@ Key feature toggles from configuration:
 - **Auto-update**: `auto_update_enabled`
 - **Freshness**: `freshness_enabled`
 - **GitHub Sync**: `github_sync_enabled`
-- **Parzival**: `parzival_enabled`
+- **Parzival**: `parzival_enabled` — when disabled, the cause is shown alongside it (`disabled (cause: opt-out|failed|unknown)`), because the bare boolean cannot distinguish "declined" from "could not deploy" (AD-32)
 
 ## Notes
 

@@ -4733,6 +4733,25 @@ show_success_message() {
     echo "│     ✓ Parzival V2 session agent (Technical PM & QA)        │"
     echo "│       _ai-memory/ package deployed to project              │"
     echo "│       Activate with: /pov:parzival-start                   │"
+    else
+    # AD-32: this panel previously showed the same blank space whether the
+    # operator declined Parzival or the installer could not deploy it. Branch
+    # on the recorded cause so the two are distinguishable at a glance.
+    local parzival_cause
+    parzival_cause=$(read_parzival_cause)
+    case "$parzival_cause" in
+        failed)
+            echo "│     ✗ Parzival V2 not installed — deployment failed        │"
+            echo "│       Re-run the installer to deploy _ai-memory/           │"
+            ;;
+        opt-out)
+            echo "│     ○ Parzival V2 not enabled — declined at install        │"
+            echo "│       Enable with: PARZIVAL_ENABLED=true in docker/.env    │"
+            ;;
+        *)
+            echo "│     ○ Parzival V2 not enabled — cause not recorded         │"
+            ;;
+    esac
     fi
     echo "│                                                             │"
     echo "│   \033[93mHybrid search (v2.2.1):\033[0m                                  │"
@@ -5500,9 +5519,10 @@ setup_parzival() {
     # Guard: if _ai-memory/ package is not available (old source repo), skip V2 setup
     # (R1-Finding-7: backwards compatibility)
     if [[ ! -d "$INSTALL_DIR/_ai-memory" ]]; then
-        log_warning "Parzival V2 package not found in source repo — skipping Parzival setup"
+        log_error "Parzival V2 package not found in source repo — skipping Parzival setup (cause=failed)"
         log_info "To enable Parzival V2, update your source repo to v2.2.0+"
-        set_env_value "PARZIVAL_ENABLED" "false"
+        set_parzival_enablement "false" "failed"
+        sync_parzival_settings
         return 0
     fi
 
@@ -5513,7 +5533,8 @@ setup_parzival() {
         log_info "INSTALL_PARZIVAL=true — enabling Parzival V2 for this project"
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
         log_info "Non-interactive mode — skipping Parzival setup (set INSTALL_PARZIVAL=true to enable)"
-        set_env_value "PARZIVAL_ENABLED" "false"
+        set_parzival_enablement "false" "opt-out"
+        sync_parzival_settings
         return 0
     else
         echo ""
@@ -5527,7 +5548,22 @@ setup_parzival() {
         echo "  - Quality gatekeeping (verification checklists)"
         echo "  - Parallel agent team dispatch and review cycles"
         echo ""
-        read -p "Enable Parzival session agent? [y/N] " parzival_choice
+        # `read` returns non-zero on EOF. That case is NOT a declined prompt: the
+        # installer believed it was interactive, asked, and nobody was there to
+        # answer. AD-32 makes a cause a claim about operator intent, and a closed
+        # stdin supports no such claim -- recording `opt-out` would report an
+        # environment condition as a decision, which is the same conflation this
+        # record exists to remove. The cause is written EMPTY, which every reader
+        # resolves to `unknown` (NORMATIVE rule 3: empty is the canonical "no
+        # cause"; `unknown` is a read-side sentinel and is never written).
+        # This is distinct from NON_INTERACTIVE above, which IS a configured choice.
+        local parzival_choice=""
+        if ! read -r -p "Enable Parzival session agent? [y/N] " parzival_choice; then
+            log_warning "No response on stdin (EOF) — skipping Parzival setup; cause recorded as unrecorded, not as a choice"
+            set_parzival_enablement "false" ""
+            sync_parzival_settings
+            return 0
+        fi
 
         local parzival_choice_normalized
         parzival_choice_normalized=$(printf '%s' "$parzival_choice" | tr '[:upper:]' '[:lower:]')
@@ -5557,9 +5593,10 @@ setup_parzival() {
         # Deploy _ai-memory/ package (must be before shims)
         # Wrapped with error handler (R2-NF1: return 1 would crash under set -e)
         deploy_parzival_v2 || {
-            log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted"
+            log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted (cause=failed)"
             log_info "The installer will continue without Parzival"
-            set_env_value "PARZIVAL_ENABLED" "false"
+            set_parzival_enablement "false" "failed"
+            sync_parzival_settings
             return 0
         }
 
@@ -5617,14 +5654,7 @@ setup_parzival() {
         create_agent_id_index
 
         # Sync Parzival settings to project settings.json
-        if [[ -f "$PROJECT_SETTINGS" ]]; then
-            log_debug "Updating project settings with Parzival configuration..."
-            python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
-                "$PROJECT_SETTINGS" \
-                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "${INSTALL_LOG:-/dev/null}" || {
-                log_warning "Failed to update Parzival settings in settings.json"
-            }
-        fi
+        sync_parzival_settings
 
         # Optional: multi-provider model dispatch setup
         setup_model_dispatch
@@ -5632,7 +5662,8 @@ setup_parzival() {
         log_success "Parzival V2 enabled"
     else
         log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
-        set_env_value "PARZIVAL_ENABLED" "false"
+        set_parzival_enablement "false" "opt-out"
+        sync_parzival_settings
     fi
 }
 
@@ -6050,7 +6081,7 @@ check_oversight_templates() { _sync_oversight_templates check; }
 configure_parzival_env() {
     local env_file="$INSTALL_DIR/docker/.env"
 
-    set_env_value "PARZIVAL_ENABLED" "true"
+    set_parzival_enablement "true" ""
     append_env_if_missing "PARZIVAL_USER_NAME" "Developer"
     append_env_if_missing "PARZIVAL_LANGUAGE" "English"
     append_env_if_missing "PARZIVAL_DOC_LANGUAGE" "English"
@@ -6090,6 +6121,141 @@ set_env_value() {
     else
         echo "${key}=${value}" >> "$env_file"
     fi
+}
+
+# Write the Parzival enablement record: value + cause + condition (SPEC-015 / AD-32).
+# "I chose not to" (cause=opt-out) and "the installer could not" (cause=failed) are
+# distinct states, so every site that touches enablement writes all three keys.
+#
+# The record is written in a SINGLE ATOMIC PASS, not as three sequential
+# set_env_value calls. Sequential writes leave the file observable between them, so
+# the cell (PARZIVAL_ENABLED=true x non-empty cause) -- which AD-32 declares must not
+# be producible -- is reachable two ways: an interrupt mid-record, and a re-install
+# over a .env already carrying PARZIVAL_ENABLED=true, where writing the cause first
+# transits the forbidden cell with no interrupt required. Value-last ordering only
+# narrows that window; building the whole record and renaming over the target makes
+# the cell UNREPRESENTABLE instead of merely unlikely.
+#
+# Writing the cause ALWAYS (empty when enabling) is the second rule: a cause=failed
+# left by an earlier run must not survive a later successful one and report a deploy
+# failure on a working install. The single pass replaces in place, so it also
+# collapses any duplicate key line to one -- shell reads the first duplicate and
+# python-dotenv reads the last, so a duplicate is a reader-disagreement bug.
+#
+# set_env_value is deliberately NOT used and NOT modified: it is called far beyond
+# Parzival (see the story's "What must be preserved").
+#
+# ATOMICITY IS A FILESYSTEM PROPERTY. rename(2) is atomic on ext4 (the $HOME case).
+# It is NOT guaranteed on a 9p mount, which /mnt/e is, and an install target there
+# is supported. The temp file is created in the SAME directory so the rename is
+# never cross-device; beyond that, non-ext4 INSTALL_DIR carries an UNENFORCED mark.
+set_parzival_enablement() {
+    local value="$1"
+    local cause="$2"
+    local condition="${3:-complete}"
+    local env_file="${4:-$INSTALL_DIR/docker/.env}"
+    local tmp
+
+    # This function ALWAYS returns 0. Absence is a supported operating state
+    # (AD-26, AD-33:110) and every false-site returns 0, so a failed record write
+    # must not abort the install under `set -e` -- that would turn "Parzival is off"
+    # into "the installer died". It is reported at error level instead: emitting an
+    # error and changing the exit code are separable, and AC-1 requires the first
+    # without the second.
+    [[ -f "$env_file" ]] || touch "$env_file"
+    if ! tmp=$(mktemp "${env_file}.parzival.XXXXXX"); then
+        log_error "Could not create a temp file beside $env_file — Parzival enablement record NOT written (cause=$cause)"
+        return 0
+    fi
+
+    awk -v v="$value" -v c="$cause" -v cond="$condition" '
+        /^PARZIVAL_ENABLED=/ {
+            if (!sv) { print "PARZIVAL_ENABLED=" v; sv = 1 } ; next
+        }
+        /^PARZIVAL_ENABLED_CAUSE=/ {
+            if (!sc) { print "PARZIVAL_ENABLED_CAUSE=" c; sc = 1 } ; next
+        }
+        /^PARZIVAL_ENABLED_CONDITION=/ {
+            if (!sn) { print "PARZIVAL_ENABLED_CONDITION=" cond; sn = 1 } ; next
+        }
+        { print }
+        END {
+            if (!sc) print "PARZIVAL_ENABLED_CAUSE=" c
+            if (!sn) print "PARZIVAL_ENABLED_CONDITION=" cond
+            if (!sv) print "PARZIVAL_ENABLED=" v
+        }
+    ' "$env_file" > "$tmp" || {
+        rm -f "$tmp"
+        log_error "Could not build the Parzival enablement record — NOT written (cause=$cause)"
+        return 0
+    }
+
+    chmod --reference="$env_file" "$tmp" 2>/dev/null || true
+    sync "$tmp" 2>/dev/null || true
+    if ! mv -f "$tmp" "$env_file"; then
+        rm -f "$tmp"
+        # The target is untouched: it still holds the complete previous record
+        # rather than a half-applied one. That is the whole point of committing
+        # through a rename.
+        log_error "Could not commit the Parzival enablement record to $env_file — previous record left intact (cause=$cause)"
+    fi
+    return 0
+}
+
+# Push the Parzival vars from docker/.env into the project's settings.json.
+# Host-side hooks read env from settings.json, not docker/.env (BUG-120), so this
+# runs on the not-enabled paths too — that is the only state in which a cause
+# exists, and it is the state the hooks most need to be able to explain.
+sync_parzival_settings() {
+    [[ -f "$PROJECT_SETTINGS" ]] || return 0
+    log_debug "Updating project settings with Parzival configuration..."
+    python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
+        "$PROJECT_SETTINGS" \
+        "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "${INSTALL_LOG:-/dev/null}" || {
+        log_warning "Failed to update Parzival settings in settings.json"
+    }
+}
+
+# Read the recorded cause, failing closed to "unknown".
+# An absent cause key is the NORMAL state on every install predating this record
+# (both .env.example merge loops append only missing keys, so nothing back-fills
+# it). It must never be reported as "opt-out": that would tell an operator whose
+# install failed that they chose it.
+#
+# NORMALISATION IS NOT COSMETIC. memory.parzival_state.resolve_cause applies
+# .strip().lower(); python-dotenv additionally strips surrounding quotes and a CRLF
+# carriage return before the SDK ever sees the value, while `cut -d= -f2-` passes
+# all three straight through. Without the normalisation below, PARZIVAL_ENABLED_CAUSE
+# set to `Failed`, `"failed"`, a trailing space, or a CRLF .env resolves to `failed`
+# in the SDK and `unknown` here -- the installer and the SDK disagreeing about the
+# same file. Shell cannot import Python, so tests/test_parzival_cause_equivalence.py
+# asserts one input table resolves identically through both readers; change one copy
+# and that test fails.
+read_parzival_cause() {
+    local env_file="${1:-$INSTALL_DIR/docker/.env}"
+    local cause
+    cause=$(grep "^PARZIVAL_ENABLED_CAUSE=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    cause=$(normalize_parzival_cause "$cause")
+    case "$cause" in
+        opt-out|failed) printf '%s\n' "$cause" ;;
+        *) printf 'unknown\n' ;;
+    esac
+}
+
+# Reduce a raw docker/.env cause value to the form the SDK sees.
+# Kept as its own function so upgrade.sh's copy is a verbatim twin rather than a
+# paraphrase -- the drift this closes was two copies of "the same" rule that were
+# not the same.
+normalize_parzival_cause() {
+    local c="$1"
+    c="${c%$'\r'}"
+    c="${c#"${c%%[![:space:]]*}"}"
+    c="${c%"${c##*[![:space:]]}"}"
+    c="${c#[\"\']}"
+    c="${c%[\"\']}"
+    c="${c#"${c%%[![:space:]]*}"}"
+    c="${c%"${c##*[![:space:]]}"}"
+    printf '%s' "$c" | tr '[:upper:]' '[:lower:]'
 }
 
 create_agent_id_index() {

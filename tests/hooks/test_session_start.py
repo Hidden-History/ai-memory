@@ -16,6 +16,8 @@ from pydantic import SecretStr
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from mocks.qdrant_mock import MockQdrantClient
 
+from memory.config import MemoryConfig
+
 # Add hook scripts to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / ".claude/hooks/scripts"))
 
@@ -49,7 +51,7 @@ def mock_qdrant():
 @pytest.fixture
 def mock_config():
     """Provide mock MemoryConfig."""
-    config = MagicMock()
+    config = MagicMock(spec=MemoryConfig)
     config.qdrant_host = "localhost"
     config.qdrant_port = 26350
     config.project_name = "ai-memory-module"
@@ -256,7 +258,7 @@ class TestParzivalCompactAgentIdFilter:
 
     @staticmethod
     def _build_mock_config(parzival_enabled=True):
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = parzival_enabled
         mock_config.project_name = "test-project"
         mock_config.qdrant_host = "localhost"
@@ -397,7 +399,7 @@ class TestNonParzivalCompactSummaryLimit:
 
     @staticmethod
     def _build_mock_config():
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = False
         mock_config.project_name = "test-project"
         mock_config.qdrant_host = "localhost"

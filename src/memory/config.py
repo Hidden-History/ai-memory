@@ -923,6 +923,29 @@ class MemoryConfig(BaseSettings):
         description="Enable Parzival session agent. Set by installer when user opts in.",
     )
 
+    # AD-32: the negative of parzival_enabled has two causes and consumers must
+    # branch on the cause, not the bare value. The default means "no cause was
+    # recorded" — env_ignore_empty=True collapses the installer's empty-cause
+    # write to absent, and a pre-existing .env has no cause key at all. It must
+    # never default to opt-out: that would tell an operator whose install failed
+    # that they declined it.
+    parzival_enabled_cause: str = Field(
+        default="unknown",
+        description=(
+            "Why Parzival is not enabled: 'opt-out' (declined) or 'failed' "
+            "(the installer could not deploy it). 'unknown' when this install "
+            "recorded no cause."
+        ),
+    )
+
+    parzival_enabled_condition: str = Field(
+        default="complete",
+        description=(
+            "Whether the recorded enablement state is 'complete' or 'partial'. "
+            "An absent condition means complete."
+        ),
+    )
+
     parzival_user_name: str = Field(
         default="Developer",
         description="User's display name for Parzival greeting and handoffs.",

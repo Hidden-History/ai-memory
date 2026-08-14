@@ -99,10 +99,15 @@ def main() -> int:
         return 0
 
     if not config.parzival_enabled:
+        # AD-32: branch on the CAUSE, never the bare value. This consumer's stdout is
+        # injected into a session as context rather than read at a terminal, so it
+        # renders the markdown form of the shared mapping. The previous text told the
+        # operator to set PARZIVAL_ENABLED=true unconditionally -- advice that cannot
+        # work when the cause is `failed`, because the package is absent.
+        from memory.parzival_state import disabled_message, resolve_cause
+
         print("## Cross-Session Memory (Parzival Bootstrap)\n")
-        print(
-            "Parzival is not enabled. Set `PARZIVAL_ENABLED=true` in .env to activate."
-        )
+        print(disabled_message(resolve_cause(config), markdown=True))
         return 0
 
     try:

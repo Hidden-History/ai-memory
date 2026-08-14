@@ -268,7 +268,14 @@ Parzival provides cross-session memory for project oversight — session handoff
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PARZIVAL_ENABLED` | Enable Parzival integration | `false` |
+| `PARZIVAL_ENABLED_CAUSE` | Why it is not enabled: `opt-out` or `failed`. Written by the installer; empty when enabled | *(empty — empty and absent both read as `unknown`)* |
+| `PARZIVAL_ENABLED_CONDITION` | Whether the recorded state is `complete` or `partial` | `complete` |
 | `PARZIVAL_USER_NAME` | Your name for handoffs | *(required if enabled)* |
+
+`PARZIVAL_ENABLED` alone cannot tell you whether Parzival is off because you
+declined it or because the installer could not deploy it. The cause records which,
+so tools can give advice that actually applies — setting the flag to `true` fixes
+an `opt-out`, but does nothing when the cause is `failed` and the package is absent.
 
 See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for usage.
 
@@ -404,7 +411,7 @@ NON_INTERACTIVE=true \
 
 **Enabling Parzival in non-interactive installs** *(v2.3.3+, PR #124)*
 
-By default, `NON_INTERACTIVE=true` skips Parzival setup and sets `PARZIVAL_ENABLED=false`. Set `INSTALL_PARZIVAL=true` alongside `NON_INTERACTIVE=true` to opt into the full Parzival V2 setup path:
+By default, `NON_INTERACTIVE=true` skips Parzival setup and sets `PARZIVAL_ENABLED=false` with `PARZIVAL_ENABLED_CAUSE=opt-out` (the environment declined it, so the install did not fail). Set `INSTALL_PARZIVAL=true` alongside `NON_INTERACTIVE=true` to opt into the full Parzival V2 setup path:
 
 ```bash
 NON_INTERACTIVE=true INSTALL_PARZIVAL=true \

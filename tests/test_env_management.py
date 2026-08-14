@@ -42,6 +42,11 @@ def clean_env(monkeypatch):
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
         "PARZIVAL_ENABLED",
+        # AD-32 siblings: without these the record's cause and condition leak
+        # from the developer's own shell into every test in this module — an
+        # operator shell exports all three.
+        "PARZIVAL_ENABLED_CAUSE",
+        "PARZIVAL_ENABLED_CONDITION",
         "PARZIVAL_USER_NAME",
         "DECAY_ENABLED",
         "INJECTION_ENABLED",

@@ -177,6 +177,38 @@ if grep -q "^PARZIVAL_ENABLED=true" "$INSTALL_DIR/docker/.env" 2>/dev/null; then
     else
         echo -e "${YELLOW}  ! Handoff ingestion had warnings (see above)${NC}"
     fi
+else
+    # AD-32: skipping is correct for both causes, but the operator needs to know
+    # WHY their handoffs were not ingested. "I declined" and "the installer could
+    # not deploy it" produced the same silence before the record carried a cause.
+    # An unrecognised or absent cause reports neither — it is not evidence of a
+    # choice.
+    # Normalisation is a verbatim twin of install.sh's normalize_parzival_cause and
+    # of memory.parzival_state.resolve_cause. `cut -d= -f2-` passes a CRLF carriage
+    # return, surrounding quotes and case straight through, none of which the SDK
+    # ever sees -- so without this, `Failed` or `"failed"` reports one thing here and
+    # another in Python about the same file. Asserted by
+    # tests/test_parzival_cause_equivalence.py.
+    PARZIVAL_CAUSE=$(grep "^PARZIVAL_ENABLED_CAUSE=" "$INSTALL_DIR/docker/.env" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    PARZIVAL_CAUSE="${PARZIVAL_CAUSE%$'\r'}"
+    PARZIVAL_CAUSE="${PARZIVAL_CAUSE#"${PARZIVAL_CAUSE%%[![:space:]]*}"}"
+    PARZIVAL_CAUSE="${PARZIVAL_CAUSE%"${PARZIVAL_CAUSE##*[![:space:]]}"}"
+    PARZIVAL_CAUSE="${PARZIVAL_CAUSE#[\"\']}"
+    PARZIVAL_CAUSE="${PARZIVAL_CAUSE%[\"\']}"
+    PARZIVAL_CAUSE="${PARZIVAL_CAUSE#"${PARZIVAL_CAUSE%%[![:space:]]*}"}"
+    PARZIVAL_CAUSE="${PARZIVAL_CAUSE%"${PARZIVAL_CAUSE##*[![:space:]]}"}"
+    PARZIVAL_CAUSE=$(printf '%s' "$PARZIVAL_CAUSE" | tr '[:upper:]' '[:lower:]')
+    case "$PARZIVAL_CAUSE" in
+        failed)
+            echo -e "${YELLOW}  ! Step 3.6 skipped: Parzival could not be installed — re-run the installer${NC}"
+            ;;
+        opt-out)
+            echo -e "${GREEN}  - Step 3.6 skipped: Parzival not enabled (declined at install)${NC}"
+            ;;
+        *)
+            echo -e "${GREEN}  - Step 3.6 skipped: Parzival not enabled (cause not recorded)${NC}"
+            ;;
+    esac
 fi
 
 echo ""

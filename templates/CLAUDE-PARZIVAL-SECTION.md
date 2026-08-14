@@ -1,8 +1,16 @@
 # Parzival — Technical PM & Quality Gatekeeper
 
 > **Note**: This section is added automatically by the ai-memory installer when you
-> enable Parzival. To enable, run `./scripts/install.sh` and choose the Parzival option,
-> or set `PARZIVAL_ENABLED=true` in `docker/.env` and re-run setup.
+> enable Parzival.
+>
+> **If Parzival is not enabled, check `PARZIVAL_ENABLED_CAUSE` in `docker/.env` before
+> doing anything else** — it records *why*, and the two causes need different fixes:
+>
+> | `PARZIVAL_ENABLED_CAUSE` | What happened | What to do |
+> |---|---|---|
+> | `opt-out` | It was declined at install | Set `PARZIVAL_ENABLED=true` in `docker/.env` and re-run setup |
+> | `failed` | The installer could not deploy it | **Setting the flag will not help** — the `_ai-memory/` package is absent. Re-run `./scripts/install.sh` to deploy it |
+> | empty / absent | This install predates the cause record | Re-run `./scripts/install.sh`; it will record the cause |
 
 ---
 
@@ -13,6 +21,8 @@ Parzival reads these environment variables from `docker/.env` (set by the instal
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PARZIVAL_ENABLED` | `false` | Enable Parzival session agent |
+| `PARZIVAL_ENABLED_CAUSE` | *(set by installer)* | Why it is not enabled: `opt-out` (declined) or `failed` (could not deploy). Empty when enabled |
+| `PARZIVAL_ENABLED_CONDITION` | `complete` | Whether the recorded state is `complete` or `partial` |
 | `PARZIVAL_USER_NAME` | `Developer` | Your display name for greetings and handoffs |
 | `PARZIVAL_LANGUAGE` | `English` | Communication language |
 | `PARZIVAL_DOC_LANGUAGE` | `English` | Language for generated documents |

@@ -340,11 +340,16 @@ def main() -> int:
         # Check if parzival is enabled
         try:
             from memory.config import get_config
+            from memory.parzival_state import disabled_message, resolve_cause
 
             config = get_config()
             if not config.parzival_enabled:
+                # AD-32: branch on the cause. The old text advised enabling the
+                # flag unconditionally, which cannot work when the cause is
+                # `failed` — the package is not there to enable.
                 print(
-                    "Error: Agent memory types require Parzival to be enabled (parzival_enabled=true)",
+                    "Error: Agent memory types require Parzival. "
+                    + disabled_message(resolve_cause(config)),
                     file=sys.stderr,
                 )
                 return 1

@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from memory.config import MemoryConfig
+
 # Load manual_save_memory as a module from the hooks script path
 _script_path = (
     Path(__file__).resolve().parents[2]
@@ -106,7 +108,7 @@ class TestMainAgentPath:
             "memory_id": "test-id-1234",
             "embedding_status": "complete",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (
@@ -136,7 +138,7 @@ class TestMainAgentPath:
             "memory_id": "test-id-5678",
             "embedding_status": "complete",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (
@@ -167,7 +169,7 @@ class TestMainAgentPath:
     def test_parzival_disabled_returns_error(self, monkeypatch):
         """Agent types require parzival_enabled=true."""
         monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = False
 
         with (
@@ -204,7 +206,7 @@ class TestMainAgentPath:
             "status": "error",
             "memory_id": "test-id",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (
@@ -229,7 +231,7 @@ class TestMainAgentPath:
             "memory_id": "test-id",
             "embedding_status": "complete",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (

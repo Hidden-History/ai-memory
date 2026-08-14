@@ -53,6 +53,13 @@ def _load_bootstrap_module():
 def _inject_fake_memory(monkeypatch, resolve_spy: MagicMock) -> None:
     fake_config = MagicMock()
     fake_config.parzival_enabled = True
+    # AD-32: bootstrap.py branches on the CAUSE when not enabled, so the double has
+    # to carry a real cause value. Left unassigned, MagicMock auto-creates the
+    # attribute and resolve_cause raises rather than silently resolving `unknown` --
+    # which is the point: a mock that never assigned the field was taking the wrong
+    # branch and passing anyway (the A-6 failure mode).
+    fake_config.parzival_enabled_cause = "opt-out"
+    fake_config.parzival_enabled_condition = "complete"
     fake_config.bootstrap_token_budget = 1000
     fake_config.handoff_ceiling_tokens = 500
 
