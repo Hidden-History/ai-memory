@@ -101,15 +101,31 @@ def upgrade_sh_normalizer() -> str:
     upgrade.sh changes what this test executes. If the block is renamed or removed
     the extraction fails loudly rather than silently testing nothing.
     """
-    text = _UPGRADE_SH.read_text(encoding="utf-8")
-    body = re.findall(r"^\s*PARZIVAL_CAUSE=(?!\$\(grep).*$", text, re.M)
-    assert len(body) >= 6, (
+    lines = _UPGRADE_SH.read_text(encoding="utf-8").splitlines()
+    hits = [
+        (i, ln)
+        for i, ln in enumerate(lines)
+        if re.match(r"^\s*PARZIVAL_CAUSE=", ln) and "$(grep" not in ln
+    ]
+    assert len(hits) >= 6, (
         "Could not extract upgrade.sh's PARZIVAL_CAUSE normalisation "
-        f"(found {len(body)} lines). If upgrade.sh moved that block, update this "
+        f"(found {len(hits)} lines). If upgrade.sh moved that block, update this "
         "extraction -- do NOT re-type the normalisation here, that would make this "
         "test a fifth implementation agreeing with itself."
     )
-    inner = "\n".join(line.strip() for line in body)
+    # The extraction assumes ONE contiguous block. If a PARZIVAL_CAUSE= assignment
+    # ever appears elsewhere in upgrade.sh, a plain findall would splice unrelated
+    # lines into the middle of the normaliser and this test would quietly start
+    # exercising something that exists nowhere in the shipped script. Fail loudly
+    # instead: a test that silently changes what it tests is worse than no test.
+    idx = [i for i, _ in hits]
+    assert idx == list(range(idx[0], idx[0] + len(idx))), (
+        "upgrade.sh's PARZIVAL_CAUSE lines are no longer contiguous "
+        f"(found at {[i + 1 for i in idx]}). The extraction below would splice "
+        "unrelated lines into the normaliser. Narrow the extraction to the Step 3.6 "
+        "block before trusting this test again."
+    )
+    inner = "\n".join(ln.strip() for _, ln in hits)
     return (
         "upgrade_normalize() {\n"
         '    PARZIVAL_CAUSE="$1"\n'
