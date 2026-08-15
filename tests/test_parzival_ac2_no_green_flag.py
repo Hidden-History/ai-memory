@@ -240,3 +240,9 @@ class TestExactlyOneTrueWriteReachesTheFlag:
         ), f"a failed deploy set the enabled flag true:\n{body}"
         assert re.search(r"^PARZIVAL_ENABLED=false\s*$", body, re.M), body
         assert re.search(r"^PARZIVAL_ENABLED_CAUSE=failed\s*$", body, re.M), body
+        # TR-6: "every one of tests 1-5 asserts all three keys". Tests 1-4 go through
+        # _assert_record(), which checks the condition; this one asserted value and
+        # cause only, so AC-1 could not fail on its third field at the site AC-2 owns.
+        assert re.search(
+            r"^PARZIVAL_ENABLED_CONDITION=complete\s*$", body, re.M
+        ), f"TR-6: the condition key is part of the record at every site:\n{body}"

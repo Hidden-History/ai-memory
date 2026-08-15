@@ -1,4 +1,4 @@
-"""The fail-closed cause rule has four implementations. This asserts they agree.
+"""The fail-closed cause rule has FOUR readers. This asserts they agree.
 
 AD-32 requires consumers to branch on the *cause*. The rule that turns a raw
 ``docker/.env`` value into a cause is implemented four times, because shell cannot
@@ -8,6 +8,12 @@ import Python:
    ``resolve_cause`` / ``resolve_cause_from_env``)
 2. ``scripts/install.sh::normalize_parzival_cause`` (via ``read_parzival_cause``)
 3. ``scripts/upgrade.sh``'s Step 3.6 branch
+4. ``scripts/update_parzival_settings.py::read_env_file`` — the transport-2 writer.
+   It strips surrounding quotes but **does not lowercase**, so ``Failed`` reaches
+   ``settings.json`` as ``Failed``; downstream normalisation saves it today. It was
+   omitted from the list while the count said "four", in a module whose entire value
+   proposition is "no copy escapes the table" — so the count was load-bearing and
+   wrong. Covered by ``TestReaderFourIsInTheTable`` below.
 
 They had already drifted inside a single commit: the Python copy applied
 ``.strip().lower()`` and neither shell copy did, while ``cut -d= -f2-`` passes
@@ -28,6 +34,7 @@ real lines from the real file. Nothing here re-types the normalisation, because 
 re-typed copy would be a fifth implementation and would agree with itself forever.
 """
 
+import os
 import re
 import shutil
 import subprocess
@@ -126,14 +133,26 @@ def upgrade_sh_normalizer() -> str:
         "block before trusting this test again."
     )
     inner = "\n".join(ln.strip() for _, ln in hits)
+    # NO `case` ARM IS EMITTED HERE. An earlier version appended a hand-written
+    # `case "$PARZIVAL_CAUSE" in opt-out|failed) ... *) unknown`, which re-typed the
+    # half of the rule that actually decides `unknown` -- so if upgrade.sh's real
+    # `case` gained an arm, lost `opt-out`, or reordered such that `*)` shadowed a
+    # token, this module still passed. That is precisely the "fifth implementation
+    # agreeing with itself" the docstring forbids, inside the module that forbids it.
+    #
+    # Extraction cannot supply the real arms either: upgrade.sh's `case` emits
+    # COLOURED OPERATOR MESSAGES, not cause tokens, so it is not a runnable
+    # normaliser. So this fixture is scoped to what it genuinely extracts -- the
+    # string mangling -- and the whitelist is applied by the ONE canonical
+    # definition (memory.parzival_state.normalize_cause) in the assertions below.
+    # upgrade.sh's real `case` arms are covered by
+    # tests/test_parzival_cause_fixture_pairs.py::TestUpgradeShHandoffGatePair,
+    # which extracts them via `text.index("    esac", start)` and asserts on messages.
     return (
         "upgrade_normalize() {\n"
         '    PARZIVAL_CAUSE="$1"\n'
         f"{inner}\n"
-        '    case "$PARZIVAL_CAUSE" in\n'
-        '        opt-out|failed) printf "%s\\n" "$PARZIVAL_CAUSE" ;;\n'
-        '        *) printf "unknown\\n" ;;\n'
-        "    esac\n"
+        '    printf "%s\\n" "$PARZIVAL_CAUSE"\n'
         "}\n"
     )
 
@@ -191,9 +210,15 @@ def test_upgrade_sh_inline_normalizer(raw, expected, upgrade_sh_normalizer, tmp_
     )
     res = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
     assert res.returncode == 0, res.stdout + res.stderr
+    # The fixture extracts upgrade.sh's MANGLING only (its real `case` emits coloured
+    # operator messages, not tokens, so it cannot be run as a normaliser). The
+    # whitelist step is therefore applied here by the single canonical definition
+    # rather than re-typed into the fixture. Mangling-stage agreement between the two
+    # shell twins is asserted directly in the cross-check below.
+    mangled = res.stdout.strip()
     assert (
-        res.stdout.strip() == expected
-    ), f"upgrade.sh resolved {raw!r} to {res.stdout.strip()!r}, expected {expected!r}"
+        normalize_cause(mangled) == expected
+    ), f"upgrade.sh mangled {raw!r} to {mangled!r}, which resolves to {normalize_cause(mangled)!r}, expected {expected!r}"
 
 
 def test_all_three_implementations_agree_on_every_row(
@@ -204,6 +229,12 @@ def test_all_three_implementations_agree_on_every_row(
     The parametrized tests above pin each implementation against the expected
     column. This one pins them against *each other*, so a table row updated to
     match a drifted implementation still fails.
+
+    "Three" is accurate for what THIS function compares: the SDK, install.sh's
+    read_parzival_cause, and upgrade.sh's inline block. The fourth reader --
+    update_parzival_settings.py::read_env_file -- is not a normaliser and is covered
+    by TestReaderFourIsInTheTable below, because it diverges by design (it strips
+    quotes but does not lowercase) and would fail an identity comparison.
     """
     disagreements = []
     for raw, _expected in CAUSE_TABLE:
@@ -231,9 +262,38 @@ def test_all_three_implementations_agree_on_every_row(
             capture_output=True,
             text=True,
         ).stdout.strip()
-        if not (py == inst == upg):
+        # upg is the MANGLING stage only (see the fixture); apply the whitelist via
+        # the one canonical definition to compare like with like.
+        if not (py == inst == normalize_cause(upg)):
             disagreements.append(
-                f"  {raw!r}: python={py!r} install.sh={inst!r} upgrade.sh={upg!r}"
+                f"  {raw!r}: python={py!r} install.sh={inst!r} "
+                f"upgrade.sh={normalize_cause(upg)!r} (mangled {upg!r})"
+            )
+
+        # The two SHELL twins must mangle byte-identically, before any whitelist.
+        # This is the comparison the removed re-typed `case` was hiding: it made the
+        # upgrade.sh path look whitelisted-and-correct while its mangling could drift
+        # away from install.sh's without any test noticing.
+        # `raw` goes through the ENVIRONMENT, never interpolated into the script
+        # text. Interpolating it would let a row like `"failed"` (quotes included,
+        # and the table has such rows) be re-quoted by bash before the normaliser
+        # ever saw it -- the harness would then compare a value neither
+        # implementation was given, and agree.
+        inst_mangled = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'set -uo pipefail\nsource "{install_sh_no_main}"\n'
+                'normalize_parzival_cause "$RAW_CAUSE"\n',
+            ],
+            capture_output=True,
+            text=True,
+            env={**os.environ, "RAW_CAUSE": raw},
+        ).stdout
+        if inst_mangled != upg:
+            disagreements.append(
+                f"  {raw!r}: MANGLING drift — install.sh={inst_mangled!r} "
+                f"upgrade.sh={upg!r}"
             )
     assert (
         not disagreements
@@ -356,3 +416,119 @@ class TestReaderThreeSeesEmptyAsPresentAndEmpty:
             "PARZIVAL_ENABLED_CAUSE",
             "PARZIVAL_ENABLED_CONDITION",
         }, module.PARZIVAL_STATE_VARS
+
+
+class TestReaderFourIsInTheTable:
+    """Reader 4 — ``update_parzival_settings.py::read_env_file`` (transport 2).
+
+    It strips surrounding quotes but does NOT lowercase, so it is not equivalent to
+    the other three at its own stage. That is tolerable only because everything
+    downstream normalises; this pins both halves of that claim so a future change
+    cannot quietly remove the second one.
+    """
+
+    @staticmethod
+    def _read_env_file():
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "equiv_updater", _SCRIPTS / "update_parzival_settings.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.read_env_file
+
+    @pytest.mark.parametrize("raw,expected", CAUSE_TABLE, ids=_IDS)
+    def test_reader_four_agrees_after_downstream_normalisation(
+        self, raw, expected, tmp_path
+    ):
+        env_file = _write_env(tmp_path, raw)
+        got = self._read_env_file()(env_file).get("PARZIVAL_ENABLED_CAUSE", "")
+        assert normalize_cause(got) == expected, (
+            f"reader 4 produced {got!r} for {raw!r}, which normalises to "
+            f"{normalize_cause(got)!r}, not {expected!r}"
+        )
+
+    def test_reader_four_does_not_lowercase_and_that_is_the_known_divergence(
+        self, tmp_path
+    ):
+        """The divergence stated as a measurement, not left as a footnote."""
+        env_file = _write_env(tmp_path, "Failed")
+        got = self._read_env_file()(env_file)["PARZIVAL_ENABLED_CAUSE"]
+        assert got == "Failed", (
+            "if reader 4 starts lowercasing, this module's fourth entry is stale — "
+            f"got {got!r}"
+        )
+        assert normalize_cause(got) == "failed"
+
+
+class TestFormsThePostCutTableCannotExpress:
+    """CAUSE_TABLE feeds `normalize_cause(raw)` on the POST-`cut` string.
+
+    So the python-dotenv stage — where two real divergences actually live — is never
+    in the loop, and no row can express them. Both are asserted here directly, on the
+    whole line rather than on the value:
+
+    * ``export PARZIVAL_ENABLED_CAUSE=failed`` — python-dotenv resolves it to
+      ``failed``; the shell readers return ``unknown`` (no ``^KEY=`` match), and
+      ``read_env_file`` produces a key literally named
+      ``"export PARZIVAL_ENABLED_CAUSE"``, i.e. the cause reads as ABSENT and the
+      disabled branch deletes it from settings.json.
+    * ``PARZIVAL_ENABLED_CAUSE=failed # note`` — python-dotenv strips the comment;
+      ``cut -d= -f2-`` passes it straight through, so the shell readers see
+      ``failed # note`` and fail closed to ``unknown``.
+
+    These are recorded rather than repaired: the readers are pre-existing and the
+    forms are hand-edits. What is NOT acceptable is a table that silently implies
+    coverage it does not have.
+    """
+
+    @staticmethod
+    def _write_line(tmp_path: Path, line: str) -> Path:
+        env_dir = tmp_path / "docker"
+        env_dir.mkdir(parents=True, exist_ok=True)
+        env_file = env_dir / ".env"
+        env_file.write_text(f"PARZIVAL_ENABLED=false\n{line}\n", encoding="utf-8")
+        return env_file
+
+    def _shell(self, env_file: Path, install_sh_no_main: Path) -> str:
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                f'set -uo pipefail\nsource "{install_sh_no_main}"\n'
+                f'read_parzival_cause "{env_file}"\n',
+            ],
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def test_export_prefixed_line_diverges_between_dotenv_and_shell(
+        self, tmp_path, install_sh_no_main
+    ):
+        from dotenv import dotenv_values
+
+        env_file = self._write_line(tmp_path, "export PARZIVAL_ENABLED_CAUSE=failed")
+        assert (
+            normalize_cause(dotenv_values(env_file).get("PARZIVAL_ENABLED_CAUSE"))
+            == "failed"
+        )
+        assert self._shell(env_file, install_sh_no_main) == "unknown"
+
+        keys = TestReaderFourIsInTheTable._read_env_file()(env_file)
+        assert "PARZIVAL_ENABLED_CAUSE" not in keys, (
+            "reader 4 must see the export form as a DIFFERENT key (i.e. the cause "
+            f"absent) — that is the divergence being pinned: {keys}"
+        )
+
+    def test_inline_comment_diverges_between_dotenv_and_shell(
+        self, tmp_path, install_sh_no_main
+    ):
+        from dotenv import dotenv_values
+
+        env_file = self._write_line(tmp_path, "PARZIVAL_ENABLED_CAUSE=failed # note")
+        assert (
+            normalize_cause(dotenv_values(env_file).get("PARZIVAL_ENABLED_CAUSE"))
+            == "failed"
+        )
+        assert self._shell(env_file, install_sh_no_main) == "unknown"

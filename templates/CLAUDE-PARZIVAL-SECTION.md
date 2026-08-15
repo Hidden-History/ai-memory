@@ -10,7 +10,7 @@
 > |---|---|---|
 > | `opt-out` | It was declined at install | Set `PARZIVAL_ENABLED=true` in `docker/.env` and re-run setup |
 > | `failed` | The installer could not deploy it | **Setting the flag will not help** — the `_ai-memory/` package is absent. Re-run `./scripts/install.sh` to deploy it |
-> | empty / absent | This install predates the cause record | Re-run `./scripts/install.sh`; it will record the cause |
+> | empty / absent | No cause was recorded — the install predates this record, or it never reached the point of writing one. It is **not** evidence of a choice | Re-run `./scripts/install.sh`; it will record the cause |
 
 ---
 
@@ -21,7 +21,7 @@ Parzival reads these environment variables from `docker/.env` (set by the instal
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PARZIVAL_ENABLED` | `false` | Enable Parzival session agent |
-| `PARZIVAL_ENABLED_CAUSE` | *(set by installer)* | Why it is not enabled: `opt-out` (declined) or `failed` (could not deploy). Empty when enabled |
+| `PARZIVAL_ENABLED_CAUSE` | *(empty — empty and absent both read as `unknown`)* | Why it is not enabled: `opt-out` (declined) or `failed` (could not deploy). Empty when enabled. `unknown` is a read-side sentinel and is never written |
 | `PARZIVAL_ENABLED_CONDITION` | `complete` | Whether the recorded state is `complete` or `partial` |
 | `PARZIVAL_USER_NAME` | `Developer` | Your display name for greetings and handoffs |
 | `PARZIVAL_LANGUAGE` | `English` | Communication language |

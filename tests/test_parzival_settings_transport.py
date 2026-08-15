@@ -62,7 +62,13 @@ class TestDisabledStateCarriesTheCause:
         assert res.returncode == 0, res.stdout + res.stderr
 
         env = _env_section(settings)
-        assert env.get("PARZIVAL_ENABLED") == "false"
+        # PARZIVAL_ENABLED is deliberately ABSENT on the disabled path, not "false".
+        # settings.json's env section reaches the hook process and pydantic-settings
+        # ranks process env ABOVE env_file, so a persisted "false" would outrank
+        # docker/.env — the file the panel tells the operator to edit. Absent reads
+        # false in both consumers (langfuse_stop_hook's os.environ.get default, and
+        # MemoryConfig falling through to docker/.env).
+        assert "PARZIVAL_ENABLED" not in env, env
         assert env.get("PARZIVAL_ENABLED_CAUSE") == "failed", env
         assert env.get("PARZIVAL_ENABLED_CONDITION") == "complete", env
 
@@ -90,9 +96,75 @@ class TestDisabledStateCarriesTheCause:
         assert _run_updater(settings, env_file).returncode == 0
 
         env = _env_section(settings)
-        assert env.get("PARZIVAL_ENABLED") == "false", "stale true must not survive"
+        # Absence, not "false": the stale true must not survive, and the replacement
+        # must not itself become a process-env override of docker/.env.
+        assert "PARZIVAL_ENABLED" not in env, "stale true must not survive"
         assert env.get("PARZIVAL_ENABLED_CAUSE") == "failed"
         assert "PARZIVAL_USER_NAME" not in env, "preference vars still cleared"
+
+
+class TestSettingsJsonMustNotOutrankDockerEnv:
+    """Why PARZIVAL_ENABLED is deleted rather than written on the disabled path.
+
+    This is the mechanism, asserted rather than asserted-about: pydantic-settings
+    ranks process env ABOVE ``env_file``. ``settings.json``'s ``env`` section is
+    delivered to the hook process, so persisting ``"false"`` there pins the disabled
+    state above ``docker/.env`` — and the installer panel's own remediation advice
+    ("set PARZIVAL_ENABLED=true in docker/.env") becomes inert.
+    """
+
+    def test_process_env_false_outranks_a_true_docker_env(self, tmp_path, monkeypatch):
+        sys.path.insert(0, str(_REPO / "src"))
+        from memory.config import MemoryConfig
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+
+        monkeypatch.delenv("PARZIVAL_ENABLED", raising=False)
+        assert MemoryConfig(_env_file=str(env_file)).parzival_enabled is True
+
+        # The trap: what a persisted settings.json "false" would do to that install.
+        monkeypatch.setenv("PARZIVAL_ENABLED", "false")
+        assert MemoryConfig(_env_file=str(env_file)).parzival_enabled is False, (
+            "process env must outrank env_file — this is the reason the disabled "
+            "path deletes the key instead of writing false"
+        )
+
+    def test_absent_key_falls_through_to_docker_env(self, tmp_path, monkeypatch):
+        sys.path.insert(0, str(_REPO / "src"))
+        from memory.config import MemoryConfig
+
+        env_file = tmp_path / ".env"
+        env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+        monkeypatch.delenv("PARZIVAL_ENABLED", raising=False)
+        assert MemoryConfig(_env_file=str(env_file)).parzival_enabled is True
+
+
+class TestEnabledPathClearsStaleState:
+    """The enabled branch had no stale-key removal; the disabled branch did.
+
+    A settings.json holding ``CAUSE=failed`` from a prior run, plus a docker/.env
+    that reaches enabled WITHOUT a cause line (an operator who *deletes* rather than
+    empties it, per the session guide), left ``PARZIVAL_ENABLED=true`` x
+    ``cause=failed`` on transport 2 — the exact cell the single-pass writer makes
+    unrepresentable in docker/.env.
+    """
+
+    def test_stale_cause_is_removed_when_docker_env_omits_it(self, settings_and_env):
+        settings, env_file = settings_and_env
+        settings.write_text(
+            json.dumps({"env": {"PARZIVAL_ENABLED_CAUSE": "failed"}}, indent=2),
+            encoding="utf-8",
+        )
+        env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+        assert _run_updater(settings, env_file).returncode == 0
+
+        env = _env_section(settings)
+        assert env.get("PARZIVAL_ENABLED") == "true"
+        assert "PARZIVAL_ENABLED_CAUSE" not in env, (
+            "the forbidden (enabled x non-empty cause) cell must not survive on "
+            f"transport 2 either: {env}"
+        )
 
 
 class TestEnabledStateStillSyncs:
@@ -161,5 +233,5 @@ setup_parzival
         assert res.returncode == 0, res.stdout + res.stderr
 
         env = json.loads(settings.read_text(encoding="utf-8")).get("env", {})
-        assert env.get("PARZIVAL_ENABLED") == "false", env
+        assert "PARZIVAL_ENABLED" not in env, env
         assert env.get("PARZIVAL_ENABLED_CAUSE") == "opt-out", env

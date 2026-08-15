@@ -4746,10 +4746,33 @@ show_success_message() {
             ;;
         opt-out)
             echo "│     ○ Parzival V2 not enabled — declined at install        │"
-            echo "│       Enable with: PARZIVAL_ENABLED=true in docker/.env    │"
+            # The re-run clause is NOT optional padding. Every other surface
+            # carries it (parzival_state._MESSAGES, both aim-save SKILL copies,
+            # CLAUDE-PARZIVAL-SECTION.md); omitting it here told the operator to
+            # set the flag true while PARZIVAL_ENABLED_CAUSE=opt-out remained,
+            # i.e. to hand-build the (enabled x non-empty cause) cell that
+            # docs/PARZIVAL-SESSION-GUIDE.md warns against — by documented
+            # procedure. Re-running is what clears the cause (configure_parzival_env
+            # writes value+empty-cause in one pass).
+            echo "│       Set PARZIVAL_ENABLED=true in docker/.env, then       │"
+            echo "│       re-run the installer to enable it                    │"
             ;;
         *)
-            echo "│     ○ Parzival V2 not enabled — cause not recorded         │"
+            # DECLINE TO ASSERT WHAT THIS BRANCH CANNOT KNOW. Reaching here means
+            # the case-sensitive `grep -q "^PARZIVAL_ENABLED=true"` above did not
+            # match -- which is NOT the same as "no cause was recorded".
+            # PARZIVAL_ENABLED=True or ="true" are both accepted by python-dotenv
+            # and by update_parzival_settings.py's .lower(), so the SDK considers
+            # that install ENABLED while this panel previously announced "cause not
+            # recorded". Before this story those sites printed nothing; the change
+            # converted silence into a confident falsehood. Reporting only
+            # not-enabled is the honest claim available here.
+            # NOTE: this is deliberately the WEAKER fix. Normalising the VALUE at
+            # this site the way the cause already is normalised is what the
+            # deferred case-sensitive-matcher item buys, and it is the only fix
+            # that makes this site correct rather than merely silent.
+            echo "│     ○ Parzival V2 not enabled                              │"
+            echo "│       Re-run the installer to record why                   │"
             ;;
     esac
     fi
@@ -5548,19 +5571,40 @@ setup_parzival() {
         echo "  - Quality gatekeeping (verification checklists)"
         echo "  - Parallel agent team dispatch and review cycles"
         echo ""
-        # `read` returns non-zero on EOF. That case is NOT a declined prompt: the
-        # installer believed it was interactive, asked, and nobody was there to
-        # answer. AD-32 makes a cause a claim about operator intent, and a closed
-        # stdin supports no such claim -- recording `opt-out` would report an
-        # environment condition as a decision, which is the same conflation this
-        # record exists to remove. The cause is written EMPTY, which every reader
-        # resolves to `unknown` (NORMATIVE rule 3: empty is the canonical "no
-        # cause"; `unknown` is a read-side sentinel and is never written).
+        # `read` returns non-zero on EOF EVEN WHEN IT HAS ALREADY POPULATED THE
+        # VARIABLE. `printf 'y' | ./install.sh`, a heredoc with no trailing
+        # newline, and an expect driver all deliver a real answer with no final
+        # newline -- so testing the return code alone DISCARDS the operator's `y`
+        # and records a decline. The answer is what was typed, not what the exit
+        # status implies: treat a populated variable as an answer regardless.
+        #
+        # A genuine EOF (nothing typed) WRITES NOTHING TO THE RECORD.
+        # Three reasons, in increasing severity:
+        #   1. A cause is a claim about operator intent (AD-32) and a closed stdin
+        #      supports no such claim -- so `opt-out` is out.
+        #   2. Writing an empty cause DESTROYS INFORMATION: a `cause=failed` from an
+        #      earlier run is overwritten, turning a correctly recorded deployment
+        #      failure into `unknown`. Nothing reads the prior cause first.
+        #   3. `setup_parzival` performs ZERO reads of the existing PARZIVAL_ENABLED
+        #      before prompting, so writing `false` here DISABLES A DEPLOYED, WORKING
+        #      PARZIVAL because nobody answered a prompt -- flatly against
+        #      DEC-PM441-D1 ("Parzival enabled all the time; the installer should
+        #      override an opt-out"), and against AD-71 (ratified DEC-PM441-D4),
+        #      under which a failed deployment is the sole permitted terminal
+        #      not-enabled state. AD-71 is NOT quoted here on purpose: the
+        #      decision-log rendering of it was found truncated at PM #442, and the
+        #      authoritative text is the spine's own. Reason 3 does not lean on it --
+        #      DEC-PM441-D1 alone forbids the installer turning Parzival off.
+        # Writing nothing leaves whatever the record already held: on a fresh install
+        # that is `copy_files`' false/empty/complete from .env.example -- byte-for-byte
+        # what this branch used to write -- and on a re-install it is the true record.
+        # The write bought nothing where it was correct and destroyed where it was not.
         # This is distinct from NON_INTERACTIVE above, which IS a configured choice.
         local parzival_choice=""
-        if ! read -r -p "Enable Parzival session agent? [y/N] " parzival_choice; then
-            log_warning "No response on stdin (EOF) — skipping Parzival setup; cause recorded as unrecorded, not as a choice"
-            set_parzival_enablement "false" ""
+        local parzival_read_rc=0
+        read -r -p "Enable Parzival session agent? [y/N] " parzival_choice || parzival_read_rc=$?
+        if (( parzival_read_rc != 0 )) && [[ -z "$parzival_choice" ]]; then
+            log_warning "No response on stdin (EOF) — skipping Parzival setup; the enablement record is left unchanged"
             sync_parzival_settings
             return 0
         fi
@@ -6162,20 +6206,35 @@ set_parzival_enablement() {
     # into "the installer died". It is reported at error level instead: emitting an
     # error and changing the exit code are separable, and AC-1 requires the first
     # without the second.
-    [[ -f "$env_file" ]] || touch "$env_file"
+    # Every other failure path in this function is guarded; this one was not, and
+    # `set -euo pipefail` is global (install.sh:25) with setup_parzival called bare.
+    # An unwritable docker/ turned "Parzival is off" into "the installer died" --
+    # the exact outcome the contract three lines above forbids.
+    if [[ ! -f "$env_file" ]] && ! touch "$env_file" 2>/dev/null; then
+        log_error "Could not create $env_file — Parzival enablement record NOT written (cause=$cause)"
+        return 0
+    fi
     if ! tmp=$(mktemp "${env_file}.parzival.XXXXXX"); then
         log_error "Could not create a temp file beside $env_file — Parzival enablement record NOT written (cause=$cause)"
         return 0
     fi
 
+    # The key patterns tolerate leading blanks and an `export ` prefix, and re-emit
+    # the CANONICAL bare form. python-dotenv accepts `export PARZIVAL_ENABLED=true`;
+    # an anchored /^PARZIVAL_ENABLED=/ does not match it, so the END block appended a
+    # SECOND definition -- and the duplicate-collapsing property this function
+    # documents held only for exactly-anchored lines. Measured: an `export`-prefixed
+    # .env came out carrying `export PARZIVAL_ENABLED=true` AND `PARZIVAL_ENABLED=false`,
+    # i.e. the two readers disagreeing inside one file, which is the forbidden cell
+    # reachable by transport rather than by interrupt.
     awk -v v="$value" -v c="$cause" -v cond="$condition" '
-        /^PARZIVAL_ENABLED=/ {
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED=/ {
             if (!sv) { print "PARZIVAL_ENABLED=" v; sv = 1 } ; next
         }
-        /^PARZIVAL_ENABLED_CAUSE=/ {
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED_CAUSE=/ {
             if (!sc) { print "PARZIVAL_ENABLED_CAUSE=" c; sc = 1 } ; next
         }
-        /^PARZIVAL_ENABLED_CONDITION=/ {
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED_CONDITION=/ {
             if (!sn) { print "PARZIVAL_ENABLED_CONDITION=" cond; sn = 1 } ; next
         }
         { print }
@@ -6190,8 +6249,23 @@ set_parzival_enablement() {
         return 0
     }
 
-    chmod --reference="$env_file" "$tmp" 2>/dev/null || true
-    sync "$tmp" 2>/dev/null || true
+    # MODE AND OWNERSHIP TRANSFER, not just filesystem atomicity. `chmod --reference`
+    # and `sync FILE` are GNU-only and install.sh explicitly supports Darwin, where
+    # the old `2>/dev/null || true` swallowed the failure and the rename silently
+    # committed a mktemp file at 0600 in place of docker/.env's 0644 -- a likelier
+    # everyday breakage than a torn write. Read the mode portably (GNU `stat -c`,
+    # BSD `stat -f`) and re-apply it by value.
+    local _pe_mode=""
+    _pe_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)
+    [[ -n "$_pe_mode" ]] && chmod "$_pe_mode" "$tmp" 2>/dev/null || true
+    # Under sudo the temp file is root-owned and the rename would re-home docker/.env.
+    # Best-effort only: --reference is GNU, so fall back to the numeric owner:group.
+    local _pe_own=""
+    _pe_own=$(stat -c '%u:%g' "$env_file" 2>/dev/null || stat -f '%u:%g' "$env_file" 2>/dev/null || true)
+    [[ -n "$_pe_own" ]] && chown "$_pe_own" "$tmp" 2>/dev/null || true
+    # `sync FILE` is GNU; BSD sync takes no operand. Neither fsyncs the DIRECTORY, so
+    # this buys visibility ordering, not durability across a host crash (see below).
+    sync "$tmp" 2>/dev/null || sync 2>/dev/null || true
     if ! mv -f "$tmp" "$env_file"; then
         rm -f "$tmp"
         # The target is untouched: it still holds the complete previous record

@@ -270,3 +270,90 @@ class TestDisabledMessageNormalisesItsArgument:
 
     def test_an_unrecognised_value_still_renders_unknown(self):
         assert disabled_message("bogus") == disabled_message("unknown")
+
+
+class TestSpecBindingHasABoundaryAndTyposAreCaught:
+    """TR-8's `spec=MemoryConfig` mitigation is narrower than it reads.
+
+    ``MagicMock``'s ``spec=`` enforces the allowed-name set on **reads**
+    (``__getattr__``), **not on writes** (``__setattr__``). That asymmetry is what
+    refutes the claim that a spec-bound mock cannot have pydantic field names
+    assigned -- and it is exactly what leaves this hole open:
+
+        config.parzival_enabled_casue = "failed"   # typo, succeeds SILENTLY  # INTENTIONAL-TYPO
+
+    The real attribute is never set. The test then either raises ``AttributeError``
+    on the correctly-spelled read -- a confusing failure that points at the
+    production code rather than at the typo -- or asserts against a name **nothing
+    in production reads**, and passes while testing nothing.
+
+    TR-8 catches the hazard it was written for (an auto-created attribute on an
+    unassigned name) and does NOT catch this one. The boundary is asserted here
+    rather than left as prose, and the field names the cause-branching tests assign
+    are pinned against ``MemoryConfig.model_fields`` so a typo fails at the seam.
+    """
+
+    def test_spec_enforces_reads_but_not_writes(self):
+        from unittest.mock import MagicMock
+
+        from memory.config import MemoryConfig
+
+        mock = MagicMock(spec=MemoryConfig)
+
+        # Reads of an unassigned pydantic field name DO raise -- pydantic v2 fields
+        # are not class attributes, so dir() does not expose them.
+        with pytest.raises(AttributeError):
+            _ = mock.parzival_enabled_cause
+
+        # ...but a WRITE of an arbitrary name succeeds, typo and all. This is the
+        # boundary: spec= is not a spell-checker for assignments.
+        mock.parzival_enabled_casue = "failed"  # INTENTIONAL-TYPO
+        assert mock.parzival_enabled_casue == "failed"
+
+    def test_every_record_field_assigned_by_a_test_is_a_real_config_field(self):
+        """Static guard: a typo'd record-field assignment anywhere in tests/ fails.
+
+        Scans for assignments to ``.parzival_enabled*`` and requires each name to
+        exist on MemoryConfig. This is the check that converts a silent typo into a
+        loud failure without depending on any individual test noticing.
+        """
+        import re
+        from pathlib import Path
+
+        from memory.config import MemoryConfig
+
+        tests_root = Path(__file__).resolve().parent.parent
+        pattern = re.compile(r"\.(parzival_enabled\w*)\s*=(?!=)")
+        offenders = []
+        for path in sorted(tests_root.rglob("test_*.py")):
+            for lineno, line in enumerate(
+                path.read_text(encoding="utf-8").splitlines(), start=1
+            ):
+                if "INTENTIONAL-TYPO" in line:
+                    # The two demonstrations in this very module, marked visibly
+                    # rather than pattern-excluded, so the exemption is auditable
+                    # and cannot silently widen.
+                    continue
+                for name in pattern.findall(line):
+                    if name not in MemoryConfig.model_fields:
+                        offenders.append(
+                            f"{path.relative_to(tests_root)}:{lineno}: {name}"
+                        )
+        assert not offenders, (
+            "these tests assign a record field name that does not exist on "
+            "MemoryConfig — spec= does not enforce names on writes, so the "
+            "assignment succeeded silently and the test asserts nothing:\n"
+            + "\n".join(offenders)
+        )
+
+    def test_the_static_guard_can_actually_fail(self, tmp_path):
+        """SO-15 positive control: a detector never observed failing is not a gate."""
+        import re
+
+        from memory.config import MemoryConfig
+
+        pattern = re.compile(r"\.(parzival_enabled\w*)\s*=(?!=)")
+        seeded = 'config.parzival_enabled_casue = "failed"'  # INTENTIONAL-TYPO
+        found = pattern.findall(seeded)
+        assert found == ["parzival_enabled_casue"], found
+        assert found[0] not in MemoryConfig.model_fields

@@ -206,7 +206,17 @@ else
             echo -e "${GREEN}  - Step 3.6 skipped: Parzival not enabled (declined at install)${NC}"
             ;;
         *)
-            echo -e "${GREEN}  - Step 3.6 skipped: Parzival not enabled (cause not recorded)${NC}"
+            # DECLINE TO ASSERT WHAT THIS BRANCH CANNOT KNOW. Reaching the else at
+            # all means the case-sensitive `grep -q "^PARZIVAL_ENABLED=true"` above
+            # did not match, which is NOT the same as "no cause was recorded":
+            # PARZIVAL_ENABLED=True or ="true" are accepted by python-dotenv and by
+            # update_parzival_settings.py's .lower(), so this arm previously
+            # announced "cause not recorded" — and skipped ingestion — on an install
+            # the SDK considers ENABLED. Before this story the branch printed
+            # nothing; adding it converted silence into a confident falsehood.
+            # The matcher itself is pre-existing and stays deferred; what is fixed
+            # here is the new assertion built on top of it.
+            echo -e "${GREEN}  - Step 3.6 skipped: Parzival not enabled${NC}"
             ;;
     esac
 fi

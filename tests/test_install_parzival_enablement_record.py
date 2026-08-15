@@ -37,6 +37,7 @@ is regenerated from the real file on every run and its fixture asserts the remov
 line, so it cannot silently drift from the shipped installer.
 """
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -89,6 +90,21 @@ deploy_oversight_templates() { :; }
 sync_parzival_config_yaml() { :; }
 create_agent_id_index() { :; }
 setup_model_dispatch() { :; }
+"""
+
+
+# configure_parzival_env carries a SECOND interactive prompt ("Your name for
+# Parzival greetings"), an unguarded `read` that aborts the whole installer under
+# `set -e` when stdin is exhausted. That is pre-existing and out of this story's
+# scope, but it makes the interactive ENABLE path undrivable in a test that must
+# supply an answer with no trailing newline. This wrapper re-binds the REAL function
+# under a different name and calls it with NON_INTERACTIVE forced true for the
+# duration -- bash's dynamic scoping means the inner body sees the local. Nothing is
+# re-typed: the real configure_parzival_env body, including the true-write, runs.
+_SKIP_NAME_PROMPT = """
+_cfg_src=$(declare -f configure_parzival_env)
+eval "_real_configure_parzival_env${_cfg_src#configure_parzival_env}"
+configure_parzival_env() { local NON_INTERACTIVE=true; _real_configure_parzival_env "$@"; }
 """
 
 
@@ -434,3 +450,203 @@ class TestForbiddenCellIsUnobservable:
             "PARZIVAL_ENABLED_CONDITION",
         ):
             assert order.count(key) == 1, f"{key} duplicated: {order}"
+
+
+class TestAnAnswerIsNeverDiscarded:
+    """`read` returns non-zero on EOF EVEN WHEN IT POPULATED THE VARIABLE.
+
+    ``printf 'y' | ./install.sh``, a heredoc with no trailing newline and an expect
+    driver all deliver a real answer with no final newline. Testing the return code
+    alone therefore threw the operator's ``y`` away and recorded a decline — a
+    regression introduced when the EOF guard was added, and the only finding in its
+    review round that *loses an operator's answer* rather than misreporting state.
+    The suite had no such case, which is why it shipped.
+    """
+
+    def test_y_without_a_trailing_newline_still_enables(self, install_sh_no_main, dirs):
+        install_dir, project_dir = dirs
+        res = _run_setup_parzival(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            package_present=True,
+            non_interactive="false",
+            stdin="y",  # NO trailing newline — this is the whole point
+            extra_bash=_SKIP_NAME_PROMPT,
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_record(_env_values(install_dir), "true", "", "complete")
+
+    def test_y_with_a_trailing_newline_still_enables(self, install_sh_no_main, dirs):
+        """Positive control: the normal path must not have been broken by the fix."""
+        install_dir, project_dir = dirs
+        res = _run_setup_parzival(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            package_present=True,
+            non_interactive="false",
+            stdin="y\n",
+            extra_bash=_SKIP_NAME_PROMPT,
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_record(_env_values(install_dir), "true", "", "complete")
+
+
+class TestGenuineEofLeavesTheRecordAlone:
+    """A closed stdin writes NOTHING to the record.
+
+    Three reasons, in increasing severity: a cause is a claim about operator intent
+    and a closed stdin supports none; writing an empty cause DESTROYS a `cause=failed`
+    recorded by an earlier run; and because `setup_parzival` never reads the existing
+    PARZIVAL_ENABLED before prompting, writing `false` here DISABLES A DEPLOYED,
+    WORKING PARZIVAL because nobody answered a prompt.
+
+    Writing nothing must NOT mean saying nothing: `DEC-PM441-D3` attaches a
+    visibility condition to the OFFERS ruling — the product never lets a disabled
+    state be silent. The announcement is asserted separately below so "quiet" cannot
+    pass for "correct".
+    """
+
+    def test_the_eof_path_still_announces(self, install_sh_no_main, dirs):
+        install_dir, project_dir = dirs
+        res = _run_setup_parzival(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            package_present=True,
+            non_interactive="false",
+            stdin="",
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        combined = res.stdout + res.stderr
+        assert "EOF" in combined, combined
+        assert "left unchanged" in combined, (
+            "the EOF path must say that it wrote nothing — a silent skip is exactly "
+            f"what DEC-PM441-D3's visibility condition forbids:\n{combined}"
+        )
+
+    def test_eof_does_not_disable_a_working_install(self, install_sh_no_main, dirs):
+        install_dir, project_dir = dirs
+        env_file = install_dir / "docker" / ".env"
+        env_file.write_text(
+            "PARZIVAL_ENABLED=true\n"
+            "PARZIVAL_ENABLED_CAUSE=\n"
+            "PARZIVAL_ENABLED_CONDITION=complete\n",
+            encoding="utf-8",
+        )
+        res = _run_setup_parzival(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            package_present=True,
+            non_interactive="false",
+            stdin="",  # closed stdin, nothing typed
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_record(_env_values(install_dir), "true", "", "complete")
+
+    def test_eof_does_not_overwrite_a_recorded_failure(self, install_sh_no_main, dirs):
+        install_dir, project_dir = dirs
+        env_file = install_dir / "docker" / ".env"
+        env_file.write_text(
+            "PARZIVAL_ENABLED=false\n"
+            "PARZIVAL_ENABLED_CAUSE=failed\n"
+            "PARZIVAL_ENABLED_CONDITION=complete\n",
+            encoding="utf-8",
+        )
+        res = _run_setup_parzival(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            package_present=True,
+            non_interactive="false",
+            stdin="",
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_record(_env_values(install_dir), "false", "failed", "complete")
+
+
+class TestTheWriterMatchesEveryFormPythonDotenvAccepts:
+    """`export KEY=` and indented keys were not matched, so a DUPLICATE was appended.
+
+    python-dotenv accepts `export PARZIVAL_ENABLED=true`; an anchored
+    /^PARZIVAL_ENABLED=/ does not match it, so the END block appended a second
+    definition. The result was one file carrying `export PARZIVAL_ENABLED=true` AND
+    `PARZIVAL_ENABLED=false` — the two readers disagreeing inside one file, which is
+    the forbidden cell reached by transport rather than by interrupt. The function's
+    documented duplicate-collapsing property held only for exactly-anchored lines.
+    """
+
+    @pytest.mark.parametrize(
+        "seed_line",
+        [
+            "export PARZIVAL_ENABLED=true",
+            "  PARZIVAL_ENABLED=true",
+            "\tPARZIVAL_ENABLED=true",
+            "export PARZIVAL_ENABLED_CAUSE=failed",
+        ],
+        ids=["export", "indent-spaces", "indent-tab", "export-cause"],
+    )
+    def test_no_duplicate_definition_survives(
+        self, install_sh_no_main, dirs, seed_line
+    ):
+        install_dir, project_dir = dirs
+        env_file = install_dir / "docker" / ".env"
+        env_file.write_text(f"{seed_line}\nOTHER=1\n", encoding="utf-8")
+
+        res = _run_setup_parzival(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            package_present=False,  # package absent -> false / failed / complete
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+
+        body = env_file.read_text(encoding="utf-8")
+        for key in (
+            "PARZIVAL_ENABLED",
+            "PARZIVAL_ENABLED_CAUSE",
+            "PARZIVAL_ENABLED_CONDITION",
+        ):
+            hits = re.findall(rf"^[ \t]*(?:export[ \t]+)?{key}=", body, re.M)
+            assert len(hits) == 1, (
+                f"{key} has {len(hits)} definitions after the write; a duplicate "
+                f"makes shell and python-dotenv disagree inside one file:\n{body}"
+            )
+        _assert_record(_env_values(install_dir), "false", "failed", "complete")
+        assert "OTHER=1" in body, "unrelated keys must survive the rewrite"
+
+
+class TestAnUnwritableRecordDoesNotKillTheInstaller:
+    """`[[ -f ... ]] || touch` was the one unguarded failure path in the writer.
+
+    `set -euo pipefail` is global and `setup_parzival` is called bare, so an
+    unwritable docker/ turned "Parzival is off" into "the installer died" — the exact
+    outcome the function's own contract forbids three lines above it.
+    """
+
+    def test_an_unwritable_docker_dir_still_returns_zero(
+        self, install_sh_no_main, dirs
+    ):
+        install_dir, project_dir = dirs
+        docker_dir = install_dir / "docker"
+        original_mode = docker_dir.stat().st_mode
+        docker_dir.chmod(0o500)  # r-x: cannot create docker/.env
+        try:
+            res = _run_setup_parzival(
+                install_sh_no_main,
+                install_dir,
+                project_dir,
+                package_present=False,
+            )
+        finally:
+            docker_dir.chmod(original_mode)
+
+        assert res.returncode == 0, (
+            "an unwritable docker/ must not abort the install:\n"
+            + res.stdout
+            + res.stderr
+        )
+        combined = res.stdout + res.stderr
+        assert "cause=failed" in combined, combined

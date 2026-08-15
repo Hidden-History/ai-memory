@@ -114,12 +114,32 @@ def test_main_resolves_scope_and_runs(monkeypatch, capsys, tmp_path):
     assert "No cross-session memories found" in out
 
 
-@pytest.mark.parametrize("enabled", [False])
-def test_main_respects_parzival_disabled(monkeypatch, capsys, tmp_path, enabled):
+@pytest.mark.parametrize(
+    "cause,expected,forbidden",
+    [
+        ("opt-out", "declined at install", "could not be installed"),
+        ("failed", "could not be installed", "declined at install"),
+        # Empty normalises to the `unknown` read-side sentinel (NORMATIVE rule 3/4).
+        ("", "did not record why", "declined at install"),
+    ],
+)
+def test_main_respects_parzival_disabled(
+    monkeypatch, capsys, tmp_path, cause, expected, forbidden
+):
+    """TR-7 fixture pair for bootstrap.py — with a PINNED per-cause observable.
+
+    The previous assertion was ``"Parzival is not enabled" in out``, a substring
+    present in ALL THREE _MESSAGES renderings. It was therefore green for any cause
+    and could not distinguish branching-on-cause from printing a constant — exactly
+    the unpinned-observable failure TR-7 exists to forbid. Each case now asserts the
+    substring unique to its own rendering AND the absence of another cause's.
+    """
     monkeypatch.chdir(tmp_path)
     resolve_spy = MagicMock(return_value="resolved-project")
     _inject_fake_memory(monkeypatch, resolve_spy)
-    sys.modules["memory.config"].MemoryConfig.return_value.parzival_enabled = enabled
+    cfg = sys.modules["memory.config"].MemoryConfig.return_value
+    cfg.parzival_enabled = False
+    cfg.parzival_enabled_cause = cause
 
     module = _load_bootstrap_module()
     rc = module.main()
@@ -127,6 +147,8 @@ def test_main_respects_parzival_disabled(monkeypatch, capsys, tmp_path, enabled)
     assert rc == 0
     out = capsys.readouterr().out
     assert "Parzival is not enabled" in out
+    assert expected in out, out
+    assert forbidden not in out, out
 
 
 def test_insights_not_truncated_at_200_chars(monkeypatch, capsys, tmp_path):

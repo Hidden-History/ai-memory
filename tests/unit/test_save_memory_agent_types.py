@@ -167,10 +167,24 @@ class TestMainAgentPath:
         assert result == 1
 
     def test_parzival_disabled_returns_error(self, monkeypatch):
-        """Agent types require parzival_enabled=true."""
+        """Agent types require parzival_enabled=true.
+
+        ``parzival_enabled_cause`` MUST be assigned. A ``MagicMock(spec=MemoryConfig)``
+        that never assigns it raises ``AttributeError`` on read — deliberately, so the
+        cause branches cannot silently take the wrong path (``resolve_cause``'s
+        fail-loud contract). This test previously assigned only ``parzival_enabled``
+        and passed anyway, because ``manual_save_memory`` imported ``parzival_state``
+        inside the same blanket ``except Exception`` as the config load: the
+        AttributeError was swallowed, the run printed *"Could not load config"*, and
+        the assertion ``result == 1`` was satisfied by the WRONG branch. Separating
+        the import from the config load exposed it. Fixed by assigning the field, not
+        by loosening the guard — the A-6 / TR-8 failure mode, caught in the suite.
+        """
         monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
         mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = False
+        mock_config.parzival_enabled_cause = "opt-out"
+        mock_config.parzival_enabled_condition = "complete"
 
         with (
             patch.object(
