@@ -50,6 +50,23 @@ _SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 _INSTALL_SH = _SCRIPTS_DIR / "install.sh"
 
 
+def _bsd_stat_reads_a_mode() -> bool:
+    """True where ``stat -f '%Lp'`` really is the BSD format flag (macOS).
+
+    Asked of the platform rather than inferred from ``sys.platform``, because what
+    the installer's fallback depends on is this exact invocation's behaviour. On GNU
+    ``-f`` is ``--file-system``, so this returns False and the warning arm is
+    reachable; on BSD it yields the octal mode, the chmod succeeds and the arm is not.
+    """
+    try:
+        res = subprocess.run(
+            ["stat", "-f", "%Lp", str(_INSTALL_SH)], capture_output=True, text=True
+        )
+    except OSError:  # no stat on PATH at all
+        return False
+    return re.fullmatch(r"[0-7]{1,4}", res.stdout.strip()) is not None
+
+
 @pytest.fixture
 def install_sh_no_main(tmp_path) -> Path:
     """Copy install.sh minus final 'main "$@"' line into tmp_path for safe sourcing."""
@@ -631,8 +648,11 @@ class TestAnUnwritableRecordDoesNotKillTheInstaller:
     @pytest.mark.skipif(
         hasattr(os, "geteuid") and os.geteuid() == 0,
         reason="chmod(0o500) does not constrain root — as root the directory stays "
-        "writable, docker/.env is created, the guard under test never fires, and "
-        "the test would pass while asserting nothing",
+        "writable, docker/.env is created and the guard under test never fires, so "
+        "the assertion below finds no guard message and the test FAILS on a healthy "
+        "installer. The skip exists to avoid that false red, not a vacuous green: "
+        "the earlier `cause=failed` assertion was the vacuous one, and this hunk "
+        "replaced it",
     )
     def test_an_unwritable_docker_dir_still_returns_zero(
         self, install_sh_no_main, dirs
@@ -662,9 +682,17 @@ class TestAnUnwritableRecordDoesNotKillTheInstaller:
         # in source repo — skipping Parzival setup (cause=failed)" BEFORE it calls
         # set_parzival_enablement "false" "failed". So `"cause=failed" in combined`
         # is satisfied by the earlier message whether or not the touch guard under
-        # test ever fires — it asserted the fixture, not the fix. "record NOT
-        # written" is emitted only by the guard itself.
-        assert "record NOT written" in combined, combined
+        # test ever fires — it asserted the fixture, not the fix.
+        #
+        # AND "record NOT written" IS NOT THAT TEXT EITHER. Two guards inside
+        # set_parzival_enablement emit it — the `touch` guard and the `mktemp`
+        # guard — so it confirms that *a* guard fired, not *which*, while this
+        # test's whole subject is the touch guard. (The third, the awk guard,
+        # writes "record — NOT written" and does not match.) The touch guard is
+        # the only one whose message puts the env-file path directly after
+        # "Could not create"; the mktemp guard says "a temp file beside" first.
+        env_file = install_dir / "docker" / ".env"
+        assert f"Could not create {env_file} —" in combined, combined
 
 
 class TestTheRecordCommitPreservesTheFilesMode:
@@ -675,6 +703,16 @@ class TestTheRecordCommitPreservesTheFilesMode:
     rename silently republishes 0600 in place of the file's real mode, which is a
     likelier everyday breakage than the torn write the rename exists to prevent.
     Nothing in the suite asserted it.
+
+    OWNERSHIP IS DELIBERATELY NOT ASSERTED, and this is a stated residual rather
+    than an oversight. Proving the chown round-trips requires a second uid/gid to
+    chown *to*, which an unprivileged test process does not have; asserting that the
+    owner is unchanged would pass identically whether or not the chown ran at all,
+    which is a test that cannot fail. Owner preservation therefore remains verified
+    by code-reading only. Closing it needs a privileged harness, which is more
+    machinery than the line it would guard. Stated here, in the docstring, so it is
+    visible to ``--collect-only`` and to anything else that reads docstrings — a
+    trailing ``#`` comment records the same honesty where no tool will surface it.
     """
 
     def _write_record(self, install_sh_no_main: Path, install_dir: Path):
@@ -716,10 +754,75 @@ class TestTheRecordCommitPreservesTheFilesMode:
             f"published its own permissions over docker/.env: {oct(actual)} != 0o640"
         )
 
-    # OWNERSHIP IS DELIBERATELY NOT ASSERTED, and this is a stated residual rather
-    # than an oversight. Proving the chown round-trips requires a second uid/gid to
-    # chown *to*, which an unprivileged test process does not have; asserting that
-    # the owner is unchanged would pass identically whether or not the chown ran at
-    # all, which is a test that cannot fail. Owner preservation therefore remains
-    # verified by code-reading only. Closing it needs a privileged harness, which is
-    # more machinery than the line it would guard.
+
+class TestAnUnreadableModeIsAnnouncedRatherThanSwallowed:
+    """The mode transfer must be LOUD when it cannot happen — item 12's whole point.
+
+    Without this the branch was dead to the suite, and a branch dead to the suite is
+    where the round-4 defect lived: the guard read ``[[ -n "$_pe_mode" ]]``, which on
+    GNU is **true on garbage**. ``stat -f`` is ``--file-system`` on GNU, not a format
+    flag, so when the primary ``stat -c`` fails the fallback prints a multi-line
+    filesystem block to stdout, the command substitution captures it, the emptiness
+    test passes, ``chmod`` is handed that block and fails into ``2>/dev/null || true``,
+    and the rename publishes mktemp's 0600 over docker/.env — silently, which is
+    exactly the breakage the branch exists to announce. Measured on GNU coreutils 9.4:
+    332 bytes captured, 0644 in, 0600 out, nothing logged.
+
+    So this test drives the real function with **only the primary ``stat`` stubbed
+    out**; the fallback runs the real system ``stat``, and the value under test is
+    what this platform genuinely produces on that path rather than an imitation of it.
+    """
+
+    def _write_record_with_a_failing_primary_stat(
+        self, install_sh_no_main: Path, install_dir: Path
+    ):
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                "set -uo pipefail\n"
+                f'export INSTALL_DIR="{install_dir}"\n'
+                f'source "{install_sh_no_main}"\n'
+                f'INSTALL_DIR="{install_dir}"\n'
+                # Shadows the builtin lookup for the sourced function only.
+                'stat() { if [[ "$1" == "-c" ]]; then return 1; fi; '
+                'command stat "$@"; }\n'
+                'set_parzival_enablement "true" ""\n',
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    @pytest.mark.skipif(
+        _bsd_stat_reads_a_mode(),
+        reason="on a platform where `stat -f '%Lp'` really is the BSD format flag "
+        "the fallback SUCCEEDS and returns a usable mode, so the chmod runs and the "
+        "warning arm is correctly not reached — the branch under test is only "
+        "reachable where that fallback cannot produce a mode",
+    )
+    def test_an_unreadable_mode_warns_and_still_writes_the_record(
+        self, install_sh_no_main, dirs
+    ):
+        install_dir, _ = dirs
+        env_file = install_dir / "docker" / ".env"
+        env_file.write_text("PARZIVAL_ENABLED=false\n", encoding="utf-8")
+        env_file.chmod(0o640)
+
+        res = self._write_record_with_a_failing_primary_stat(
+            install_sh_no_main, install_dir
+        )
+        combined = res.stdout + res.stderr
+
+        # The contract item 12 states for this arm, all three halves of it: the
+        # operator is told, the record is still written, and the install proceeds.
+        assert "Could not read" in combined and "mode" in combined, (
+            "the mode could not be read and nothing said so — reproducing the "
+            f"breakage without a word is the failure mode:\n{combined}"
+        )
+        assert res.returncode == 0, (
+            "a warning is not a failure; the install must still proceed:\n" + combined
+        )
+        assert "PARZIVAL_ENABLED=true" in env_file.read_text(encoding="utf-8"), (
+            "the record must still be committed — the warning reports a degraded "
+            f"permission transfer, not an abandoned write:\n{combined}"
+        )

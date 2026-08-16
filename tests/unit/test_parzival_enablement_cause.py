@@ -36,7 +36,15 @@ _RECORD_FIELD_ASSIGNMENT = re.compile(r"\.(parzival_enabled\w*)\s*=(?!=)")
 #: anywhere under tests/ could switch the guard off for its own line just by naming
 #: the marker in a comment, which is an opt-out from a gate, granted by the code the
 #: gate exists to police.
-_TYPO_EXEMPT_FILENAME = "test_parzival_enablement_cause.py"
+#:
+#: KEYED ON FILE IDENTITY, NOT ON A BASENAME. ``path.name == "…cause.py"`` compares
+#: the bare basename over an ``rglob`` walk, so ANY file anywhere under the scanned
+#: root sharing this module's basename inherited the whole exemption. That is not
+#: hypothetical here: duplicated test basenames are routine in this tree (measured —
+#: ``test_config.py``, ``test_storage.py``, ``test_session_start.py``, … ), and a
+#: same-named sibling under ``tests/integration/`` is an established pattern rather
+#: than an invented one. Resolved-path identity is exempt-this-file-and-only-this-file.
+_TYPO_EXEMPT_FILE = Path(__file__).resolve()
 
 
 def _scan_for_bad_record_fields(root: Path, valid_fields) -> list[str]:
@@ -54,7 +62,7 @@ def _scan_for_bad_record_fields(root: Path, valid_fields) -> list[str]:
         # and therefore the gate -- offline.
         text = path.read_text(encoding="utf-8", errors="replace")
         for lineno, line in enumerate(text.splitlines(), start=1):
-            if "INTENTIONAL-TYPO" in line and path.name == _TYPO_EXEMPT_FILENAME:
+            if "INTENTIONAL-TYPO" in line and path.resolve() == _TYPO_EXEMPT_FILE:
                 continue
             for name in _RECORD_FIELD_ASSIGNMENT.findall(line):
                 if name not in valid_fields:
@@ -404,6 +412,32 @@ class TestSpecBindingHasABoundaryAndTyposAreCaught:
         assert offenders, (
             "a test outside this module switched the guard off for its own line "
             "just by naming INTENTIONAL-TYPO — the exemption is self-service"
+        )
+
+    def test_a_same_basename_impostor_does_not_inherit_the_exemption(self, tmp_path):
+        """The exemption must key on file IDENTITY, not on a bare basename.
+
+        The sibling above seeds a DIFFERENTLY named file, so it never travels this
+        route: it passes just as well when the exemption is keyed on ``path.name``.
+        This one seeds a file with this module's EXACT basename in another
+        directory — which is what ``path.name == "…cause.py"`` over an ``rglob``
+        walk would have exempted wholesale. Duplicate test basenames across
+        directories are routine in this tree, so the impostor is an established
+        pattern rather than an invented one.
+        """
+        impostor_dir = tmp_path / "integration"
+        impostor_dir.mkdir()
+        impostor = impostor_dir / _TYPO_EXEMPT_FILE.name
+        impostor.write_text(
+            'config.parzival_enabled_casue = "failed"  # INTENTIONAL-TYPO\n',
+            encoding="utf-8",
+        )
+        offenders = _scan_for_bad_record_fields(tmp_path, MemoryConfig.model_fields)
+        assert offenders == [
+            f"integration/{_TYPO_EXEMPT_FILE.name}:1: parzival_enabled_casue"
+        ], (
+            "a file that merely shares this module's basename inherited its "
+            f"INTENTIONAL-TYPO exemption and switched the gate off: {offenders}"
         )
 
     def test_a_non_utf8_file_does_not_abort_the_scan(self, tmp_path):

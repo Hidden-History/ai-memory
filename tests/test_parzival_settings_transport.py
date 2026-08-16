@@ -21,6 +21,34 @@ _REPO = Path(__file__).resolve().parent.parent
 _SCRIPTS_DIR = _REPO / "scripts"
 _INSTALL_SH = _SCRIPTS_DIR / "install.sh"
 _UPDATER = _SCRIPTS_DIR / "update_parzival_settings.py"
+_LANGFUSE_STOP_HOOK = _REPO / ".claude" / "hooks" / "scripts" / "langfuse_stop_hook.py"
+
+
+def _reader_one_condition() -> str:
+    """Return Reader 1's real condition, lifted verbatim from the hook source.
+
+    The point is coupling: the returned string is the production expression, so a
+    renamed key, a changed default or a deleted read turns its caller red instead
+    of leaving a hand-typed copy passing on its own. The uniqueness assertion is
+    the load-bearing half — if a second read appears, "the reader" is no longer a
+    single expression and silently picking the first would resume guessing.
+    """
+    src = _LANGFUSE_STOP_HOOK.read_text(encoding="utf-8")
+    reads = [
+        line.strip()
+        for line in src.splitlines()
+        if "os.environ.get(" in line and "PARZIVAL_ENABLED" in line
+    ]
+    assert len(reads) == 1, (
+        f"expected exactly one PARZIVAL_ENABLED read in {_LANGFUSE_STOP_HOOK.name}, "
+        f"found {len(reads)}: {reads}"
+    )
+    line = reads[0]
+    assert line.startswith("if ") and line.endswith(":"), (
+        f"the reader is no longer a bare `if <expr>:` and this extraction can no "
+        f"longer be trusted: {line!r}"
+    )
+    return line[len("if ") : -1]
 
 
 def _load_updater():
@@ -161,10 +189,18 @@ class TestSettingsJsonMustNotOutrankDockerEnv:
         # ...now the deletion the disabled path performs.
         monkeypatch.delenv("PARZIVAL_ENABLED", raising=False)
 
-        # Reader 1 — langfuse_stop_hook.py reads the bare environment with a default.
-        assert os.environ.get("PARZIVAL_ENABLED", "false") == "false", (
-            "an absent key must read false in the hook reader, not raise or default "
-            "true"
+        # Reader 1 — langfuse_stop_hook.py, exercised by EXTRACTING ITS ACTUAL
+        # CONDITION from the file rather than by re-typing it here. Re-typing
+        # `os.environ.get("PARZIVAL_ENABLED", "false") == "false"` asserts that
+        # dict.get returns its own default argument: it holds unconditionally once
+        # the key is deleted, names no production symbol, and stays green if the hook
+        # renames the key or flips its default to "true". That is a second
+        # implementation agreeing with itself, which is the same non-gate this
+        # commit's sibling work removed from the static record-field guard.
+        expr = _reader_one_condition()
+        assert eval(expr, {"os": os}) is False, (
+            "with the key absent the hook's own condition must be False, so the "
+            f"stop hook does not claim agent_id=parzival: {expr!r}"
         )
 
         # Reader 2 — MemoryConfig falls back to the env_file, so docker/.env wins.
@@ -199,6 +235,51 @@ class TestEnabledPathClearsStaleState:
         assert "PARZIVAL_ENABLED_CAUSE" not in env, (
             "the forbidden (enabled x non-empty cause) cell must not survive on "
             f"transport 2 either: {env}"
+        )
+
+    def test_a_preference_absent_from_docker_env_is_kept_not_deleted(
+        self, settings_and_env
+    ):
+        """The stale-state removal must be scoped to the STATE vars.
+
+        Both halves run against one settings.json in one pass because the risk is
+        precisely that they are not separable: the removal loop walks
+        ``PARZIVAL_VARS`` (state + preference), so an unscoped `elif var in
+        env_section` deletes an operator's ``PARZIVAL_USER_NAME`` for the same
+        reason it deletes a stale cause — absence from docker/.env. Asserting only
+        the survival would pass against a version that never removed anything;
+        asserting only the removal is the sibling above. The pair is what pins the
+        scoping, and reverting the guard to `elif var in env_section:` turns the
+        first assertion red.
+
+        A preference absent from docker/.env is not stale, it is unset there.
+        """
+        settings, env_file = settings_and_env
+        settings.write_text(
+            json.dumps(
+                {
+                    "env": {
+                        "PARZIVAL_USER_NAME": "will",
+                        "PARZIVAL_ENABLED_CAUSE": "failed",
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        # Enabled, and carrying NEITHER key — the operator who deletes rather than
+        # empties, which is what makes both keys "absent from docker/.env".
+        env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+        assert _run_updater(settings, env_file).returncode == 0
+
+        env = _env_section(settings)
+        assert env.get("PARZIVAL_USER_NAME") == "will", (
+            "a preference var absent from docker/.env must survive the enabled "
+            f"path — the removal is scoped to the state vars: {env}"
+        )
+        assert "PARZIVAL_ENABLED_CAUSE" not in env, (
+            "...while the stale state var in the same run is still removed, which "
+            f"is what makes the scoping a scope and not a disabled removal: {env}"
         )
 
 

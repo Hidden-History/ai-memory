@@ -262,11 +262,24 @@ class TestUpgradeShHandoffGatePair:
             "PARZIVAL_ENABLED=false\n", encoding="utf-8"
         )
         out = self._branch(install_dir)
-        # EXACT LINE, not a substring. This arm prints "...Parzival not enabled" and
-        # the opt-out arm prints "...Parzival not enabled (declined at install)" —
-        # the former is a strict PREFIX of the latter, so NO substring can tell them
-        # apart, and `assert "not enabled" in out` passes on either. Full-line
-        # equality is the only positive check that discriminates here.
+        # EXACT LINE, not a bare substring. This arm prints "...Parzival not enabled"
+        # and the opt-out arm prints "...Parzival not enabled (declined at install)":
+        # the former is a strict PREFIX of the latter, so `assert "not enabled" in
+        # out` passes on EITHER arm and tests nothing. Full-line equality is chosen
+        # because it discriminates without depending on what follows the prefix.
+        #
+        # It is not the only form that could: a newline-anchored "not enabled\n"
+        # also discriminates (the colour vars are blanked above, so the fallback
+        # line really does end there), and the `"declined" not in out` negative
+        # below discriminates too. Stated precisely because the earlier wording here
+        # claimed no substring could, which is the "comment asserts an absolute the
+        # next line refutes" class this work exists to retire.
+        #
+        # THE TRADE IS DELIBERATE AND IS RECORDED SO IT IS NOT UNDONE BY ACCIDENT:
+        # full-line equality PINS upgrade.sh's operator wording. Rewording that line
+        # — even repunctuating it — turns this test red ON PURPOSE, and the correct
+        # response is to update this literal, never to loosen it back to a bare
+        # substring, which would silently stop discriminating the two arms.
         rendered = [ln.strip() for ln in out.splitlines() if ln.strip()]
         assert "- Step 3.6 skipped: Parzival not enabled" in rendered, (
             "the fallback arm did not render its own line — the negatives below "

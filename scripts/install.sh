@@ -4765,8 +4765,10 @@ show_success_message() {
             # and by update_parzival_settings.py's .lower(), so the SDK considers
             # that install ENABLED while this panel previously announced "cause not
             # recorded". Before this story those sites printed nothing; the change
-            # converted silence into a confident falsehood. Reporting only
-            # not-enabled is the honest claim available here.
+            # converted silence into a confident falsehood. So this arm reports the
+            # one thing it does know -- not-enabled -- and then points at the record
+            # rather than characterising it. Neither line claims WHY, which is what
+            # makes both true on all three of absent, empty and present-but-unmatched.
             # NOTE: this is deliberately the WEAKER fix. Normalising the VALUE at
             # this site the way the cause already is normalised is what the
             # deferred case-sensitive-matcher item buys, and it is the only fix
@@ -6264,13 +6266,25 @@ set_parzival_enablement() {
     # very next command. Applying the mode last is what makes the transfer survive.
     # Under sudo the temp file is root-owned and the rename would re-home docker/.env.
     # Best-effort only: --reference is GNU, so fall back to the numeric owner:group.
+    # VALIDATE THE CAPTURE, DO NOT MERELY TEST IT FOR EMPTINESS. On GNU coreutils `-f`
+    # is --file-system, NOT a format flag, so the BSD fallback consumes '%Lp' and the
+    # file as OPERANDS: the '%Lp' operand fails, the file operand still prints a
+    # multi-line FILESYSTEM BLOCK to stdout, and the command substitution captures it.
+    # Measured on GNU coreutils 9.4: 332 bytes of "Block size: ... Inodes: ..." text.
+    # So on the exact path this block exists for -- the primary `stat` failing -- an
+    # emptiness test is TRUE on garbage, the warning below never fires, chmod is handed
+    # a filesystem dump and fails into `|| true`, and the rename publishes mktemp's 0600
+    # over docker/.env. Measured end to end: 0644 in, 0600 out, not one word logged.
+    # Matching the SHAPE of a mode is what distinguishes "read it" from "read something".
+    # `{1,4}` not `{3,4}`: GNU %a strips leading zeros, so mode 0044 prints `44` and 0004
+    # prints `4` -- a 3-digit floor would reject a legitimate mode and skip its own chmod.
     local _pe_own=""
     _pe_own=$(stat -c '%u:%g' "$env_file" 2>/dev/null || stat -f '%u:%g' "$env_file" 2>/dev/null || true)
-    [[ -n "$_pe_own" ]] && chown "$_pe_own" "$tmp" 2>/dev/null || true
+    [[ "$_pe_own" =~ ^[0-9]+:[0-9]+$ ]] && chown "$_pe_own" "$tmp" 2>/dev/null || true
 
     local _pe_mode=""
     _pe_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)
-    if [[ -n "$_pe_mode" ]]; then
+    if [[ "$_pe_mode" =~ ^[0-7]{1,4}$ ]]; then
         chmod "$_pe_mode" "$tmp" 2>/dev/null || true
     else
         # NEVER SILENT. With no readable mode the rename commits mktemp's 0600 over
