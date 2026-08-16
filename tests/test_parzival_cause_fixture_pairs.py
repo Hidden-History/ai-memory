@@ -188,9 +188,24 @@ class TestInstallSummaryPanelPair:
             "PARZIVAL_ENABLED=True\nPARZIVAL_ENABLED_CAUSE=\n", encoding="utf-8"
         )
         out = self._panel(install_sh_no_main, install_dir)
+        # POSITIVE ASSERTION FIRST. Every check below is a negative, and a negative
+        # is satisfied by an arm that rendered NOTHING -- a `_panel` helper returning
+        # "" passes all of them. Pin that this specific arm ran before asserting what
+        # it did not say. The cause-record pointer is unique to this arm, so it
+        # discriminates against the opt-out and failed arms as well.
+        assert "Check PARZIVAL_ENABLED_CAUSE in docker/.env" in out, (
+            "the fallback arm did not render — the negative assertions below would "
+            f"pass vacuously:\n{out}"
+        )
+        assert "declined" not in out, f"an unmatched flag is not a choice:\n{out}"
         assert "cause not recorded" not in out, (
             "this install has an empty-but-present cause and reads as enabled to "
             f"the SDK; the panel must not assert otherwise:\n{out}"
+        )
+        assert "record why" not in out, (
+            "'re-run the installer to record why' asserts that no cause is on file "
+            "— the same unsupported claim as the retired 'cause not recorded', in "
+            f"gentler words:\n{out}"
         )
 
 
@@ -247,7 +262,16 @@ class TestUpgradeShHandoffGatePair:
             "PARZIVAL_ENABLED=false\n", encoding="utf-8"
         )
         out = self._branch(install_dir)
-        assert "not enabled" in out, out
+        # EXACT LINE, not a substring. This arm prints "...Parzival not enabled" and
+        # the opt-out arm prints "...Parzival not enabled (declined at install)" —
+        # the former is a strict PREFIX of the latter, so NO substring can tell them
+        # apart, and `assert "not enabled" in out` passes on either. Full-line
+        # equality is the only positive check that discriminates here.
+        rendered = [ln.strip() for ln in out.splitlines() if ln.strip()]
+        assert "- Step 3.6 skipped: Parzival not enabled" in rendered, (
+            "the fallback arm did not render its own line — the negatives below "
+            f"would pass vacuously:\n{out}"
+        )
         assert "declined" not in out, f"an absent cause must not claim a choice:\n{out}"
         assert "could not be installed" not in out, out
         assert "cause not recorded" not in out, out

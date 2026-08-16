@@ -37,8 +37,10 @@ is regenerated from the real file on every run and its fixture asserts the remov
 line, so it cannot silently drift from the shipped installer.
 """
 
+import os
 import re
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -626,6 +628,12 @@ class TestAnUnwritableRecordDoesNotKillTheInstaller:
     outcome the function's own contract forbids three lines above it.
     """
 
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="chmod(0o500) does not constrain root — as root the directory stays "
+        "writable, docker/.env is created, the guard under test never fires, and "
+        "the test would pass while asserting nothing",
+    )
     def test_an_unwritable_docker_dir_still_returns_zero(
         self, install_sh_no_main, dirs
     ):
@@ -649,4 +657,69 @@ class TestAnUnwritableRecordDoesNotKillTheInstaller:
             + res.stderr
         )
         combined = res.stdout + res.stderr
-        assert "cause=failed" in combined, combined
+        # THE GUARD'S OWN TEXT, not "cause=failed". This fixture runs with
+        # package_present=False, and that path logs "Parzival V2 package not found
+        # in source repo — skipping Parzival setup (cause=failed)" BEFORE it calls
+        # set_parzival_enablement "false" "failed". So `"cause=failed" in combined`
+        # is satisfied by the earlier message whether or not the touch guard under
+        # test ever fires — it asserted the fixture, not the fix. "record NOT
+        # written" is emitted only by the guard itself.
+        assert "record NOT written" in combined, combined
+
+
+class TestTheRecordCommitPreservesTheFilesMode:
+    """The mktemp+rename commit must not publish the temp file's own permissions.
+
+    ``set_parzival_enablement`` builds the new record in a ``mktemp`` file — 0600 by
+    default — and renames it over ``docker/.env``. Without the mode transfer that
+    rename silently republishes 0600 in place of the file's real mode, which is a
+    likelier everyday breakage than the torn write the rename exists to prevent.
+    Nothing in the suite asserted it.
+    """
+
+    def _write_record(self, install_sh_no_main: Path, install_dir: Path):
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                "set -uo pipefail\n"
+                f'export INSTALL_DIR="{install_dir}"\n'
+                f'source "{install_sh_no_main}"\n'
+                f'INSTALL_DIR="{install_dir}"\n'
+                'set_parzival_enablement "true" ""\n',
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_the_env_files_mode_survives_the_record_write(
+        self, install_sh_no_main, dirs
+    ):
+        install_dir, _ = dirs
+        env_file = install_dir / "docker" / ".env"
+        env_file.write_text("PARZIVAL_ENABLED=false\n", encoding="utf-8")
+        env_file.chmod(0o640)
+
+        res = self._write_record(install_sh_no_main, install_dir)
+        assert res.returncode == 0, res.stdout + res.stderr
+
+        # Positive control on the fixture itself: if the write did not happen, the
+        # mode assertion below would hold trivially on an untouched file.
+        assert "PARZIVAL_ENABLED=true" in env_file.read_text(encoding="utf-8"), (
+            "the record was not rewritten, so the mode assertion would be vacuous:\n"
+            + res.stdout
+            + res.stderr
+        )
+        actual = stat.S_IMODE(env_file.stat().st_mode)
+        assert actual == 0o640, (
+            "the record was committed through a mktemp file and the rename "
+            f"published its own permissions over docker/.env: {oct(actual)} != 0o640"
+        )
+
+    # OWNERSHIP IS DELIBERATELY NOT ASSERTED, and this is a stated residual rather
+    # than an oversight. Proving the chown round-trips requires a second uid/gid to
+    # chown *to*, which an unprivileged test process does not have; asserting that
+    # the owner is unchanged would pass identically whether or not the chown ran at
+    # all, which is a test that cannot fail. Owner preservation therefore remains
+    # verified by code-reading only. Closing it needs a privileged harness, which is
+    # more machinery than the line it would guard.

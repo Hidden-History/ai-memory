@@ -4771,8 +4771,12 @@ show_success_message() {
             # this site the way the cause already is normalised is what the
             # deferred case-sensitive-matcher item buys, and it is the only fix
             # that makes this site correct rather than merely silent.
+            # "Re-run ... to record why" was itself an assertion that no cause is on
+            # file -- the same unsupported claim as the retired "cause not recorded",
+            # in gentler words. Point at the authoritative record instead: that is
+            # true whether the cause is absent, empty, or present-but-unmatched.
             echo "│     ○ Parzival V2 not enabled                              │"
-            echo "│       Re-run the installer to record why                   │"
+            echo "│       Check PARZIVAL_ENABLED_CAUSE in docker/.env          │"
             ;;
     esac
     fi
@@ -6255,17 +6259,34 @@ set_parzival_enablement() {
     # committed a mktemp file at 0600 in place of docker/.env's 0644 -- a likelier
     # everyday breakage than a torn write. Read the mode portably (GNU `stat -c`,
     # BSD `stat -f`) and re-apply it by value.
-    local _pe_mode=""
-    _pe_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)
-    [[ -n "$_pe_mode" ]] && chmod "$_pe_mode" "$tmp" 2>/dev/null || true
+    # OWNERSHIP IS APPLIED FIRST, MODE SECOND. A POSIX chown clears setuid/setgid on
+    # the target, so a chmod that ran before it could have its bits dropped by the
+    # very next command. Applying the mode last is what makes the transfer survive.
     # Under sudo the temp file is root-owned and the rename would re-home docker/.env.
     # Best-effort only: --reference is GNU, so fall back to the numeric owner:group.
     local _pe_own=""
     _pe_own=$(stat -c '%u:%g' "$env_file" 2>/dev/null || stat -f '%u:%g' "$env_file" 2>/dev/null || true)
     [[ -n "$_pe_own" ]] && chown "$_pe_own" "$tmp" 2>/dev/null || true
+
+    local _pe_mode=""
+    _pe_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)
+    if [[ -n "$_pe_mode" ]]; then
+        chmod "$_pe_mode" "$tmp" 2>/dev/null || true
+    else
+        # NEVER SILENT. With no readable mode the rename commits mktemp's 0600 over
+        # docker/.env's own mode -- which is precisely the breakage this block was
+        # written to stop. Reproducing it without a word is the failure mode, not the
+        # missing chmod; the record is still written and the install still proceeds.
+        log_warning "Could not read $env_file mode — the enablement record keeps the temporary file's default permissions"
+    fi
+
     # `sync FILE` is GNU; BSD sync takes no operand. Neither fsyncs the DIRECTORY, so
     # this buys visibility ordering, not durability across a host crash (see below).
-    sync "$tmp" 2>/dev/null || sync 2>/dev/null || true
+    # NO operand-less fallback: bare `sync` flushes EVERY mounted filesystem, a
+    # multi-second stall on a host running live Qdrant/Postgres volumes, in order to
+    # commit three lines to a dotfile. Where `sync FILE` is unsupported the atomic
+    # rename below still holds, and that is the property this function relies on.
+    sync "$tmp" 2>/dev/null || true
     if ! mv -f "$tmp" "$env_file"; then
         rm -f "$tmp"
         # The target is untouched: it still holds the complete previous record

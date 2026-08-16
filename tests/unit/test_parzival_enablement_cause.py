@@ -14,6 +14,9 @@ naive implementation gets wrong:
     present-and-empty, and the shell greps see the raw line either way.
 """
 
+import re
+from pathlib import Path
+
 import pytest
 
 from memory.config import MemoryConfig
@@ -24,6 +27,40 @@ from memory.parzival_state import (
     disabled_message,
     resolve_cause,
 )
+
+#: Assignments to a record field: ``.parzival_enabled<something> =`` but not ``==``.
+_RECORD_FIELD_ASSIGNMENT = re.compile(r"\.(parzival_enabled\w*)\s*=(?!=)")
+
+#: The ONLY file whose ``INTENTIONAL-TYPO`` markers are honoured. Scoping the
+#: exemption to this module is what stops it being self-service: previously any test
+#: anywhere under tests/ could switch the guard off for its own line just by naming
+#: the marker in a comment, which is an opt-out from a gate, granted by the code the
+#: gate exists to police.
+_TYPO_EXEMPT_FILENAME = "test_parzival_enablement_cause.py"
+
+
+def _scan_for_bad_record_fields(root: Path, valid_fields) -> list[str]:
+    """Return ``path:lineno: name`` for each record-field assignment not on the config.
+
+    Shared by the real detector and by its SO-15 positive control, so the control
+    drives the SAME file iteration, encoding handling, exemption logic and matching
+    that the gate uses. A control that re-implements what it controls is two
+    implementations agreeing with each other, which is not a gate.
+    """
+    offenders = []
+    for path in sorted(root.rglob("test_*.py")):
+        # errors="replace" so a single non-UTF-8 file under tests/ degrades to
+        # mojibake on its own lines instead of raising and taking the whole scan --
+        # and therefore the gate -- offline.
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if "INTENTIONAL-TYPO" in line and path.name == _TYPO_EXEMPT_FILENAME:
+                continue
+            for name in _RECORD_FIELD_ASSIGNMENT.findall(line):
+                if name not in valid_fields:
+                    offenders.append(f"{path.relative_to(root)}:{lineno}: {name}")
+    return offenders
+
 
 #: The record's three keys. A real operator shell exports these (the installer
 #: writes them into settings.json, which Claude Code loads into the environment),
@@ -317,28 +354,8 @@ class TestSpecBindingHasABoundaryAndTyposAreCaught:
         exist on MemoryConfig. This is the check that converts a silent typo into a
         loud failure without depending on any individual test noticing.
         """
-        import re
-        from pathlib import Path
-
-        from memory.config import MemoryConfig
-
         tests_root = Path(__file__).resolve().parent.parent
-        pattern = re.compile(r"\.(parzival_enabled\w*)\s*=(?!=)")
-        offenders = []
-        for path in sorted(tests_root.rglob("test_*.py")):
-            for lineno, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), start=1
-            ):
-                if "INTENTIONAL-TYPO" in line:
-                    # The two demonstrations in this very module, marked visibly
-                    # rather than pattern-excluded, so the exemption is auditable
-                    # and cannot silently widen.
-                    continue
-                for name in pattern.findall(line):
-                    if name not in MemoryConfig.model_fields:
-                        offenders.append(
-                            f"{path.relative_to(tests_root)}:{lineno}: {name}"
-                        )
+        offenders = _scan_for_bad_record_fields(tests_root, MemoryConfig.model_fields)
         assert not offenders, (
             "these tests assign a record field name that does not exist on "
             "MemoryConfig — spec= does not enforce names on writes, so the "
@@ -347,13 +364,62 @@ class TestSpecBindingHasABoundaryAndTyposAreCaught:
         )
 
     def test_the_static_guard_can_actually_fail(self, tmp_path):
-        """SO-15 positive control: a detector never observed failing is not a gate."""
-        import re
+        """SO-15 positive control: a detector never observed failing is not a gate.
 
-        from memory.config import MemoryConfig
+        Drives the REAL scanner over a seeded tree. The previous version re-compiled
+        its own copy of the pattern and matched it against a string literal, so it
+        proved only that a regex it had just typed worked. If the real scanner's file
+        iteration, encoding handling or exemption logic broke, this control still
+        passed — a second implementation agreeing with itself.
+        """
+        (tmp_path / "test_seeded_offender.py").write_text(
+            'config.parzival_enabled_casue = "failed"\n',  # INTENTIONAL-TYPO
+            encoding="utf-8",
+        )
+        offenders = _scan_for_bad_record_fields(tmp_path, MemoryConfig.model_fields)
+        assert offenders == ["test_seeded_offender.py:1: parzival_enabled_casue"], (
+            "the real scanner did not flag a seeded bad field name — the gate "
+            f"cannot be observed failing, so it is not a gate: {offenders}"
+        )
 
-        pattern = re.compile(r"\.(parzival_enabled\w*)\s*=(?!=)")
-        seeded = 'config.parzival_enabled_casue = "failed"'  # INTENTIONAL-TYPO
-        found = pattern.findall(seeded)
-        assert found == ["parzival_enabled_casue"], found
-        assert found[0] not in MemoryConfig.model_fields
+    def test_the_static_guard_passes_a_real_field(self, tmp_path):
+        """Negative half of the control: it flags the bad name, not every name."""
+        (tmp_path / "test_seeded_valid.py").write_text(
+            'config.parzival_enabled_cause = "failed"\n', encoding="utf-8"
+        )
+        assert _scan_for_bad_record_fields(tmp_path, MemoryConfig.model_fields) == []
+
+    def test_the_typo_exemption_is_not_self_service(self, tmp_path):
+        """A file other than this module cannot exempt itself by naming the marker.
+
+        The exemption existed for the two deliberate demonstrations in this module.
+        Keyed on the line alone it was an opt-out from the gate available to every
+        file the gate polices — including the typo'd test it would need to catch.
+        """
+        (tmp_path / "test_self_exempting.py").write_text(
+            'config.parzival_enabled_casue = "failed"  # INTENTIONAL-TYPO\n',
+            encoding="utf-8",
+        )
+        offenders = _scan_for_bad_record_fields(tmp_path, MemoryConfig.model_fields)
+        assert offenders, (
+            "a test outside this module switched the guard off for its own line "
+            "just by naming INTENTIONAL-TYPO — the exemption is self-service"
+        )
+
+    def test_a_non_utf8_file_does_not_abort_the_scan(self, tmp_path):
+        """One undecodable file must not take the whole gate offline.
+
+        ``read_text(encoding="utf-8")`` without ``errors=`` raises on the first
+        non-UTF-8 file under tests/ and aborts the scan — so a single stray byte
+        anywhere disables the detector for every file after it in sort order.
+        """
+        (tmp_path / "test_aaa_undecodable.py").write_bytes(b'x = "\xff\xfe"\n')
+        (tmp_path / "test_zzz_offender.py").write_text(
+            'config.parzival_enabled_casue = "failed"\n',  # INTENTIONAL-TYPO
+            encoding="utf-8",
+        )
+        offenders = _scan_for_bad_record_fields(tmp_path, MemoryConfig.model_fields)
+        assert any("parzival_enabled_casue" in o for o in offenders), (
+            "the scan did not survive an undecodable file and never reached the "
+            f"offender that sorts after it: {offenders}"
+        )

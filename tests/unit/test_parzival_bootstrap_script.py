@@ -151,6 +151,45 @@ def test_main_respects_parzival_disabled(
     assert forbidden not in out, out
 
 
+def test_an_unimportable_parzival_state_degrades_instead_of_tracebacking(
+    monkeypatch, capsys, tmp_path
+):
+    """The ``except ImportError`` fallback on the disabled path had no coverage.
+
+    This stdout is INJECTED INTO A SESSION AS CONTEXT, so the failure this branch
+    prevents is a Python traceback becoming an agent's context. The branch is
+    reachable on an installed ``src`` at a mixed vintage — one predating
+    ``parzival_state`` — which is modelled here by making the import fail.
+    ``sys.modules[name] = None`` is the supported way to force that: the import
+    system raises ``ImportError`` rather than reaching the real module.
+
+    Until this test the branch was dead to the suite: nothing rendered it, so the
+    hand-written message could drift from the disabled-state message family it
+    belongs to without anything noticing.
+    """
+    monkeypatch.chdir(tmp_path)
+    resolve_spy = MagicMock(return_value="resolved-project")
+    _inject_fake_memory(monkeypatch, resolve_spy)
+    cfg = sys.modules["memory.config"].MemoryConfig.return_value
+    cfg.parzival_enabled = False
+    cfg.parzival_enabled_cause = "opt-out"
+
+    monkeypatch.setitem(sys.modules, "memory.parzival_state", None)
+
+    module = _load_bootstrap_module()
+    rc = module.main()
+
+    assert rc == 0, "an old installed src must not turn bootstrap into a failure"
+    out = capsys.readouterr().out
+    assert "Traceback" not in out, f"a traceback reached session context:\n{out}"
+    assert "Parzival is not enabled" in out, out
+    assert "cannot report why" in out, out
+    assert "re-run the installer" in out, out
+    # The cause is genuinely unavailable here, so the fallback must NOT invent one.
+    assert "declined at install" not in out, out
+    assert "could not be installed" not in out, out
+
+
 def test_insights_not_truncated_at_200_chars(monkeypatch, capsys, tmp_path):
     """TD-682: insight content longer than 200 chars must not be truncated.
 

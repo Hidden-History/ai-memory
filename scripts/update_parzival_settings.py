@@ -108,7 +108,7 @@ def main():
                     print(f"  env.{var}: {old_val!r} -> {docker_env[var]!r}")
                 else:
                     print(f"  env.{var}: unchanged ({docker_env[var]!r})")
-            elif var in env_section:
+            elif var in PARZIVAL_STATE_VARS and var in env_section:
                 # Without this, a settings.json holding CAUSE=failed from a prior
                 # run plus a docker/.env that reaches enabled WITHOUT a cause line
                 # (an operator who *deletes* rather than empties it, per the session
@@ -116,6 +116,15 @@ def main():
                 # -- the exact cell the single-pass writer makes unrepresentable in
                 # docker/.env. The disabled branch already had this removal; the
                 # enabled branch did not.
+                #
+                # SCOPED TO THE STATE VARS, deliberately. The loop runs over
+                # PARZIVAL_VARS (state + preference), so an unscoped removal also
+                # deleted PARZIVAL_USER_NAME/_LANGUAGE/_DOC_LANGUAGE/
+                # _OVERSIGHT_FOLDER/_HANDOFF_RETENTION from settings.json whenever
+                # they were absent from docker/.env -- silently discarding operator
+                # preferences this branch never intended to touch. Only the stale
+                # CAUSE/CONDITION cell above is a correctness problem; a preference
+                # absent from docker/.env is not stale, it is simply unset there.
                 del env_section[var]
                 print(f"  Removed stale env.{var} (not recorded in docker/.env)")
 

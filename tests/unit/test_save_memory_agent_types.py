@@ -5,6 +5,7 @@ actual code paths rather than testing mocks.
 """
 
 import importlib.util
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -196,6 +197,47 @@ class TestMainAgentPath:
             result = self.mod.main()
 
         assert result == 1
+
+    def test_an_unimportable_parzival_state_still_reports_a_reason(
+        self, monkeypatch, capsys
+    ):
+        """The ``except ImportError`` fallback on the disabled path had no coverage.
+
+        Models a mixed-vintage installed ``src`` — ``config.py`` carrying the field,
+        ``memory.parzival_state`` absent — by forcing the import to fail.
+        ``sys.modules[name] = None`` is the supported way to do that: the import
+        system raises ``ImportError`` instead of reaching the real module.
+
+        Until this test the branch was dead to the suite. Its message is a
+        hand-written member of the disabled-state message family that cannot be
+        sourced from ``_MESSAGES`` — that table lives inside the very module this
+        branch exists to cope with the absence of — so an assertion here is the only
+        thing that can hold it in place.
+        """
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
+        mock_config = MagicMock(spec=MemoryConfig)
+        mock_config.parzival_enabled = False
+        mock_config.parzival_enabled_cause = "opt-out"
+        mock_config.parzival_enabled_condition = "complete"
+
+        monkeypatch.setitem(sys.modules, "memory.parzival_state", None)
+
+        with (
+            patch.object(
+                self.mod.sys, "argv", ["script", "--type", "agent_memory", "text"]
+            ),
+            patch("memory.config.get_config", return_value=mock_config),
+            patch.object(self.mod, "resolve_project_id", return_value="test-project"),
+        ):
+            result = self.mod.main()
+
+        assert result == 1
+        err = capsys.readouterr().err
+        assert "Traceback" not in err, err
+        assert "cannot report why" in err, err
+        assert "re-run the installer" in err, err
+        # The cause is genuinely unavailable, so the fallback must not invent one.
+        assert "declined at install" not in err, err
 
     def test_no_type_uses_default_path(self, monkeypatch):
         """No --type flag uses the existing store_manual_summary path."""

@@ -9,6 +9,7 @@ when the flag is false strips the cause precisely when a consumer needs it.
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -131,13 +132,47 @@ class TestSettingsJsonMustNotOutrankDockerEnv:
         )
 
     def test_absent_key_falls_through_to_docker_env(self, tmp_path, monkeypatch):
+        """Absence must be constructed by REMOVAL, which is what the fix performs.
+
+        This test stands behind the claim "absence is safe in both readers", so it
+        has to exercise the state the disabled path actually creates: a key that was
+        present in ``settings.json``'s ``env`` section and is then deleted. Asserting
+        a never-set key re-runs the opening of the sibling above and proves nothing
+        about the deletion — it cannot distinguish "the key was removed" from "the
+        key was never written".
+
+        ``monkeypatch.setenv``/``delenv`` is the faithful model of that transport:
+        ``settings.json``'s ``env`` section reaches these readers as process
+        environment, which is precisely why a persisted "false" there outranks
+        ``docker/.env``.
+        """
         sys.path.insert(0, str(_REPO / "src"))
         from memory.config import MemoryConfig
 
         env_file = tmp_path / ".env"
         env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+
+        # PRESENT, and disagreeing with docker/.env — the exact state settings.json
+        # held before the disabled path was changed to delete rather than write
+        # "false". Establishing it first is what makes the removal below meaningful.
+        monkeypatch.setenv("PARZIVAL_ENABLED", "false")
+        assert MemoryConfig(_env_file=str(env_file)).parzival_enabled is False
+
+        # ...now the deletion the disabled path performs.
         monkeypatch.delenv("PARZIVAL_ENABLED", raising=False)
-        assert MemoryConfig(_env_file=str(env_file)).parzival_enabled is True
+
+        # Reader 1 — langfuse_stop_hook.py reads the bare environment with a default.
+        assert os.environ.get("PARZIVAL_ENABLED", "false") == "false", (
+            "an absent key must read false in the hook reader, not raise or default "
+            "true"
+        )
+
+        # Reader 2 — MemoryConfig falls back to the env_file, so docker/.env wins.
+        assert MemoryConfig(_env_file=str(env_file)).parzival_enabled is True, (
+            "with the key removed the SDK must fall through to docker/.env — this "
+            "is what makes the panel's 'set PARZIVAL_ENABLED=true in docker/.env' "
+            "remediation advice actually take effect"
+        )
 
 
 class TestEnabledPathClearsStaleState:
