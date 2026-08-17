@@ -127,27 +127,54 @@ CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
 INSTALLER_VERSION="2.8.4"
 
 # Logging functions
+#
+# A LOG WRITE MUST NEVER BE ABLE TO KILL THE INSTALL. `set -euo pipefail` is set
+# near the top of this file, and main() redirects stdout into `tee` at its
+# `exec > >(tee -a "$INSTALL_LOG") 2>&1` line -- anchored by quoted line rather
+# than by number, since this edit shifts every number below it. So these
+# five functions run with their stdout owned by another process. A bare
+# `echo -e` that fails to write returns nonzero, errexit sees a failed simple
+# command, and the installer dies mid-run -- losing whatever the next line was
+# about to commit. That is a logger deciding the exit status of the program.
+#
+# `|| true` is what fixes it, and the naive shape does NOT. Measured, all five:
+#
+#   echo -e "$1"              -> rc=1  the record is NOT committed
+#   echo -e "$1"; return 0    -> rc=1  the record is NOT committed
+#   echo -e "$1" || true      -> rc=0  the record IS committed
+#
+# The middle line is the trap: errexit fires AT the echo, so `return 0` on the
+# next line is never reached. It passes every existing test and ships nothing.
+#
+# SCOPE OF THIS GUARD, STATED BECAUSE IT IS NOT TOTAL. `|| true` suppresses
+# errexit, so it covers a write that FAILS AND RETURNS -- a closed descriptor
+# (EBADF), ENOSPC, EIO. It does NOT cover SIGPIPE: if the reader on the other end
+# of the pipe is gone, the kernel kills this shell outright (measured: signal 13,
+# record NOT committed, identically with and without `|| true`). A signal is not
+# an exit status, so no `||` clause runs after it. Covering that needs a `trap ''
+# PIPE`, which changes signal disposition for this entire script and is
+# deliberately NOT done here.
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1" || true
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1" || true
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1" || true
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" || true
 }
 
 # Debug logging (only shown when LOG_LEVEL=debug)
 LOG_LEVEL="${LOG_LEVEL:-info}"
 log_debug() {
     if [[ "$LOG_LEVEL" == "debug" ]]; then
-        echo -e "${BLUE}[DEBUG]${NC} $1"
+        echo -e "${BLUE}[DEBUG]${NC} $1" || true
     fi
 }
 

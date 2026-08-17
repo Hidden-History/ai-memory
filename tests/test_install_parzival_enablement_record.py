@@ -84,6 +84,32 @@ def _bsd_stat_reads_a_mode() -> bool:
     return re.fullmatch(r"[0-7]{1,4}", res.stdout.strip()) is not None
 
 
+def _bsd_stat_reads_an_owner() -> bool:
+    """True where ``stat -f '%u:%g'`` really is the BSD format flag (macOS).
+
+    A SEPARATE probe from the mode one above, and deliberately so: it asks the
+    owner cell's own question. The owner test was gated on
+    ``_bsd_stat_reads_a_mode()`` while its ``reason=`` asserted that the OWNER
+    fallback succeeds -- but a ``%Lp`` probe establishes only that the MODE
+    fallback succeeds. A closed descriptor and a dead reader are different
+    experiments, and so are these.
+
+    The two co-vary on every platform in use today (on BSD both ``-f`` forms are
+    format strings, on GNU ``-f`` is ``--file-system`` and neither is), which is
+    precisely what makes the substitution invisible: the gate returns the right
+    answer for the wrong reason, and would keep doing so until some platform
+    supported one format and not the other. Mirrors install.sh's owner regex
+    ``^[0-9]+:[0-9]+$`` the way the mode probe mirrors ``^[0-7]{1,4}$``.
+    """
+    try:
+        res = subprocess.run(
+            ["stat", "-f", "%u:%g", str(_INSTALL_SH)], capture_output=True, text=True
+        )
+    except OSError:  # no stat on PATH at all
+        return False
+    return re.fullmatch(r"[0-9]+:[0-9]+", res.stdout.strip()) is not None
+
+
 @pytest.fixture
 def install_sh_no_main(tmp_path) -> Path:
     """Copy install.sh minus final 'main "$@"' line into tmp_path for safe sourcing."""
@@ -890,6 +916,25 @@ class TestEveryPermissionTransferCellAnnouncesItsOwnFailure:
     phrases PRESENT, from the same ``_permission_warning_phrases`` dict, so the
     phrases are demonstrably matchable and their absence here is a real
     observation rather than a typo that can never match anything.
+
+    THAT BACKING IS PER-CELL AND PER-PLATFORM, which the sentence above used to
+    hide. The negative control asserts four absences; each is only as meaningful
+    as the test that proves its phrase can appear:
+
+    * ``owner-apply`` / ``mode-apply`` -- backed unconditionally. Both firing
+      tests stub a syscall, which every platform can do, so neither is gated.
+    * ``owner-read`` -- backed by ``test_an_unreadable_owner_is_announced``,
+      which SKIPS where ``stat -f '%u:%g'`` is a real format flag.
+    * ``mode-read`` -- backed by ``test_an_unreadable_mode_warns_and_still_
+      writes_the_record`` in the class above, which SKIPS where ``stat -f
+      '%Lp'`` is a real format flag.
+
+    So on GNU (where the suite runs, and where both ``-f`` probes fail) all four
+    absences are backed by an executing test. On BSD the two read-arms are not,
+    and their absence assertions hold trivially there. That is a real limit of
+    this control on that platform, recorded rather than papered over -- the arms
+    skip because the installer's fallback genuinely succeeds there, so the
+    warning correctly never fires and there is no defect hiding behind them.
     """
 
     def _write_record(self, install_sh_no_main: Path, install_dir: Path, prelude=""):
@@ -930,9 +975,11 @@ class TestEveryPermissionTransferCellAnnouncesItsOwnFailure:
         )
 
     @pytest.mark.skipif(
-        _bsd_stat_reads_a_mode(),
-        reason="where `stat -f` is the real BSD format flag the fallback SUCCEEDS "
-        "and returns a usable owner, so the read arm is correctly not reached",
+        _bsd_stat_reads_an_owner(),
+        reason="on a platform where `stat -f '%u:%g'` really is the BSD format "
+        "flag the OWNER fallback SUCCEEDS and returns a usable owner:group, so "
+        "the chown runs and the read arm is correctly not reached — the branch "
+        "under test is only reachable where that fallback cannot produce an owner",
     )
     def test_an_unreadable_owner_is_announced(self, install_sh_no_main, dirs):
         install_dir, _ = dirs
@@ -996,6 +1043,20 @@ class TestEveryPermissionTransferCellAnnouncesItsOwnFailure:
             f"cells are not distinguishable:\n{combined}"
         )
         self._assert_record_still_written(env_file, res, combined)
+        # The message claims the record "keeps the temporary file's default
+        # permissions". Asserted by nobody until now on THIS arm, though its
+        # sibling in the class above has carried the equivalent check since the
+        # 0600 assertion was added: the message was the only evidence that the
+        # transfer degraded, and an unchecked message is a claim, not a result.
+        # chmod is stubbed to fail, so the seeded 0640 is never applied and the
+        # rename commits mktemp's 0600 -- the same end state the unreadable-mode
+        # arm produces, reached through the apply cell instead of the read cell.
+        degraded = stat.S_IMODE(env_file.stat().st_mode)
+        assert degraded == 0o600, (
+            "the warning fired but the mode it describes did not actually degrade "
+            f"to mktemp's 0600: {oct(degraded)} — the message would be reporting "
+            "something that did not happen"
+        )
 
     def test_a_healthy_install_says_none_of_the_four(self, install_sh_no_main, dirs):
         """NEGATIVE CONTROL — the direction a warning test cannot check itself.
@@ -1028,3 +1089,91 @@ class TestEveryPermissionTransferCellAnnouncesItsOwnFailure:
                 f"{combined}"
             )
         assert res.returncode == 0, combined
+
+
+class TestALogWriteCannotKillTheInstall:
+    """A broken stdout must not stop the record from being committed.
+
+    ``set -euo pipefail`` is global in install.sh and ``main`` redirects stdout
+    into ``tee`` via ``exec > >(tee -a "$INSTALL_LOG") 2>&1``. Both are anchored
+    here by quoted line rather than by line number: the change under test shifted
+    those numbers by 24, and the first draft of this docstring cited two that were
+    already stale.
+
+    So all five ``log_*`` functions run with their stdout owned by another
+    process, and each was a bare ``echo -e``. A bare ``echo`` that cannot write
+    returns nonzero, errexit sees a failed simple command, and the installer dies
+    -- so the LOGGER decides whether the record gets written. That is the
+    inversion under test: logging is meant to describe the install, not to be
+    able to end it.
+
+    This drives the real ``set_parzival_enablement`` behind a real ``log_*`` call
+    with stdout genuinely closed, rather than stubbing the logger -- a stubbed
+    logger cannot fail, which is the only interesting property here.
+
+    WHAT THIS PINS, AND WHAT IT DOES NOT. The guard is ``|| true``, an errexit
+    suppressor, so it covers a write that fails AND RETURNS: a closed descriptor
+    (EBADF, exercised here), ENOSPC, EIO. It does NOT cover SIGPIPE -- a dead
+    reader on the other end of the pipe has the kernel kill the shell outright
+    (measured: signal 13, record not committed, identically with and without the
+    guard), and no ``||`` clause runs after a signal. There is deliberately no
+    test asserting the SIGPIPE outcome: it is an open gap, and a test asserting
+    the current behaviour would enshrine it as intended. Closing it needs
+    ``trap '' PIPE`` at script scope, which is a signal-disposition change for
+    the whole installer and not this change's to make.
+    """
+
+    def test_a_closed_stdout_really_does_fail_a_write(self):
+        """Non-vacuity control — without this the test below proves nothing.
+
+        If ``echo`` to a closed descriptor returned 0 on this platform, then no
+        write ever fails, errexit never fires, and the guarded test would pass
+        just as happily against the unguarded ``echo -e``. Establish that the
+        hazard is real here before asserting it is handled.
+        """
+        res = subprocess.run(
+            ["bash", "-c", 'exec 1>&-; echo hi; echo "rc=$?" >&2'],
+            capture_output=True,
+            text=True,
+        )
+        assert "rc=1" in res.stderr, (
+            "a write to a closed stdout did not fail on this platform, so the "
+            f"guard below is guarding nothing that can happen here:\n{res.stderr}"
+        )
+
+    def test_the_record_is_committed_even_when_logging_cannot_write(
+        self, install_sh_no_main, dirs
+    ):
+        install_dir, _ = dirs
+        env_file = install_dir / "docker" / ".env"
+        env_file.write_text("PARZIVAL_ENABLED=false\n", encoding="utf-8")
+
+        res = subprocess.run(
+            [
+                "bash",
+                "-c",
+                # -e deliberately included: it is the real global setting, and
+                # the whole defect only exists under errexit.
+                "set -euo pipefail\n"
+                f'export INSTALL_DIR="{install_dir}"\n'
+                f'source "{install_sh_no_main}"\n'
+                f'INSTALL_DIR="{install_dir}"\n'
+                # stdout is gone from here on, exactly as it is when the process
+                # on the other end of install.sh's `tee` redirect has died.
+                "exec 1>&-\n"
+                'log_info "the installer logs before it commits the record"\n'
+                f'set_parzival_enablement "true" "" "complete" "{env_file}"\n',
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+        assert res.returncode == 0, (
+            "a failed log write ended the run — the record was never reached. "
+            "errexit fires AT the echo, so a `return 0` on the following line "
+            f"does not help; the echo itself must not report failure:\n{res.stderr}"
+        )
+        assert "PARZIVAL_ENABLED=true" in env_file.read_text(encoding="utf-8"), (
+            "the enablement record was not committed because a LOG LINE could "
+            f"not be written:\n{res.stderr}"
+        )
