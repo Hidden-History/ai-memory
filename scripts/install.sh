@@ -6278,14 +6278,35 @@ set_parzival_enablement() {
     # Matching the SHAPE of a mode is what distinguishes "read it" from "read something".
     # `{1,4}` not `{3,4}`: GNU %a strips leading zeros, so mode 0044 prints `44` and 0004
     # prints `4` -- a 3-digit floor would reject a legitimate mode and skip its own chmod.
+    # ALL FOUR CELLS ANNOUNCE THEIR OWN FAILURE: read the owner, apply the owner,
+    # read the mode, apply the mode. Three of them used to end in `|| true`, which
+    # discards the diagnostic and the exit status together. Two separate causes:
+    # (a) A SYSCALL CAN FAIL ON A VALID VALUE. Each apply-cell runs only after its
+    #     regex accepted the capture, so the regex is not what protects it -- chown
+    #     and chmod can still be refused with the value well-formed (read-only
+    #     mount, uid unmapped inside a userns, an immutable attribute). Symmetric:
+    #     it applies to both cells, so fixing one leaves the other silent.
+    # (b) The owner cell had NO BRANCH -- `[[ regex ]] && chown ... || true` made a
+    #     rejected capture and a failed chown the same silent outcome. Pre-existing.
+    # `2>/dev/null` stays on both syscalls deliberately: the warning is the operator
+    # channel, and raw stderr from a best-effort probe is not. log_warning is an
+    # `echo -e`, so it returns 0 and this function still ALWAYS returns 0.
     local _pe_own=""
     _pe_own=$(stat -c '%u:%g' "$env_file" 2>/dev/null || stat -f '%u:%g' "$env_file" 2>/dev/null || true)
-    [[ "$_pe_own" =~ ^[0-9]+:[0-9]+$ ]] && chown "$_pe_own" "$tmp" 2>/dev/null || true
+    if [[ "$_pe_own" =~ ^[0-9]+:[0-9]+$ ]]; then
+        if ! chown "$_pe_own" "$tmp" 2>/dev/null; then
+            log_warning "Could not apply $env_file ownership — the enablement record keeps the temporary file's owner"
+        fi
+    else
+        log_warning "Could not read $env_file ownership — the enablement record keeps the temporary file's owner"
+    fi
 
     local _pe_mode=""
     _pe_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)
     if [[ "$_pe_mode" =~ ^[0-7]{1,4}$ ]]; then
-        chmod "$_pe_mode" "$tmp" 2>/dev/null || true
+        if ! chmod "$_pe_mode" "$tmp" 2>/dev/null; then
+            log_warning "Could not apply $env_file mode — the enablement record keeps the temporary file's default permissions"
+        fi
     else
         # NEVER SILENT. With no readable mode the rename commits mktemp's 0600 over
         # docker/.env's own mode -- which is precisely the breakage this block was

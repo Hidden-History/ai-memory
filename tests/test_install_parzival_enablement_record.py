@@ -50,6 +50,23 @@ _SCRIPTS_DIR = Path(__file__).parent.parent / "scripts"
 _INSTALL_SH = _SCRIPTS_DIR / "install.sh"
 
 
+def _permission_warning_phrases(env_file) -> dict:
+    """The distinctive phrase each of the four permission-transfer cells logs.
+
+    FULL phrases, deliberately not loose substrings. Three of these four strings
+    share the token ``mode`` or the token ``Could not read``, so a test matching
+    those two independently cannot tell one cell from another -- which is exactly
+    what happened to the mode-read assertion the moment the other three cells
+    gained messages of their own. Keyed by cell so a failure names the cell.
+    """
+    return {
+        "owner-read": f"Could not read {env_file} ownership —",
+        "owner-apply": f"Could not apply {env_file} ownership —",
+        "mode-read": f"Could not read {env_file} mode —",
+        "mode-apply": f"Could not apply {env_file} mode —",
+    }
+
+
 def _bsd_stat_reads_a_mode() -> bool:
     """True where ``stat -f '%Lp'`` really is the BSD format flag (macOS).
 
@@ -815,7 +832,12 @@ class TestAnUnreadableModeIsAnnouncedRatherThanSwallowed:
 
         # The contract item 12 states for this arm, all three halves of it: the
         # operator is told, the record is still written, and the install proceeds.
-        assert "Could not read" in combined and "mode" in combined, (
+        # Matched as ONE full phrase. This previously tested "Could not read" and
+        # "mode" as two independent substrings, which stopped identifying this cell
+        # once the other three permission cells gained messages: the owner-read
+        # warning also fires on this path and also begins "Could not read", so the
+        # loose form passes on a run where the mode-read arm never spoke at all.
+        assert _permission_warning_phrases(env_file)["mode-read"] in combined, (
             "the mode could not be read and nothing said so — reproducing the "
             f"breakage without a word is the failure mode:\n{combined}"
         )
@@ -826,3 +848,183 @@ class TestAnUnreadableModeIsAnnouncedRatherThanSwallowed:
             "the record must still be committed — the warning reports a degraded "
             f"permission transfer, not an abandoned write:\n{combined}"
         )
+        # The OTHER half of this commit's central claim, asserted by nobody until
+        # now: the test seeded 0640 and never re-read the mode, so "0644 in, 0600
+        # out" -- the breakage the warning exists to announce -- went unverified.
+        # The warning does not repair the transfer; it reports it, and what it
+        # reports must actually be true or the message is the only evidence and it
+        # is unchecked. mktemp creates at 0600, so that is what the rename commits.
+        degraded = stat.S_IMODE(env_file.stat().st_mode)
+        assert degraded == 0o600, (
+            "the warning fired but the mode it describes did not actually degrade "
+            f"to mktemp's 0600: {oct(degraded)} — the message would be reporting "
+            "something that did not happen"
+        )
+
+
+class TestEveryPermissionTransferCellAnnouncesItsOwnFailure:
+    """All FOUR permission-transfer cells warn, not just the one that already did.
+
+    The transfer has four cells -- read the owner, apply the owner, read the mode,
+    apply the mode -- and only mode-read spoke. The other three ended in
+    ``2>/dev/null || true``, which discards the diagnostic and the exit status
+    together, so the rename committed mktemp's 0600/owner over docker/.env with
+    nothing logged. Two independent root causes produced that, and fixing either
+    alone leaves the other standing:
+
+    (a) A syscall can fail on a value that is perfectly VALID. Both apply-cells
+        reach their syscall only after the regex has accepted the captured value,
+        so the regex cannot be what protects them -- ``chown``/``chmod`` can still
+        be refused by the kernel (read-only mount, unmapped uid under userns, an
+        immutable attribute) with the value entirely well-formed. These two tests
+        stub the syscall rather than corrupt the value, because corrupting the
+        value would exercise the regex, not the cell.
+
+    (b) The owner cell had no branch AT ALL -- it was ``[[ regex ]] && chown ... ||
+        true``, one line, in which a rejected capture and a failed chown are the
+        same silent outcome. That omission PREDATES this round entirely; it is not
+        a regression introduced alongside the mode cell's guard.
+
+    The negative control below is the test that makes the other three mean
+    something. Its own non-vacuity is established by them: they assert these exact
+    phrases PRESENT, from the same ``_permission_warning_phrases`` dict, so the
+    phrases are demonstrably matchable and their absence here is a real
+    observation rather than a typo that can never match anything.
+    """
+
+    def _write_record(self, install_sh_no_main: Path, install_dir: Path, prelude=""):
+        """Drive the real function, optionally shadowing a collaborator first.
+
+        The prelude is injected AFTER the source, so a function defined there
+        overrides the real command lookup for the sourced body only.
+        """
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                "set -uo pipefail\n"
+                f'export INSTALL_DIR="{install_dir}"\n'
+                f'source "{install_sh_no_main}"\n'
+                f'INSTALL_DIR="{install_dir}"\n'
+                f"{prelude}"
+                'set_parzival_enablement "true" ""\n',
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    def _seed(self, install_dir: Path) -> Path:
+        env_file = install_dir / "docker" / ".env"
+        env_file.write_text("PARZIVAL_ENABLED=false\n", encoding="utf-8")
+        env_file.chmod(0o640)
+        return env_file
+
+    def _assert_record_still_written(self, env_file: Path, res, combined: str):
+        """Every cell is best-effort: it degrades the transfer, never the write."""
+        assert res.returncode == 0, (
+            "a warning is not a failure; the install must still proceed:\n" + combined
+        )
+        assert "PARZIVAL_ENABLED=true" in env_file.read_text(encoding="utf-8"), (
+            "the record must still be committed — the warning reports a degraded "
+            f"permission transfer, not an abandoned write:\n{combined}"
+        )
+
+    @pytest.mark.skipif(
+        _bsd_stat_reads_a_mode(),
+        reason="where `stat -f` is the real BSD format flag the fallback SUCCEEDS "
+        "and returns a usable owner, so the read arm is correctly not reached",
+    )
+    def test_an_unreadable_owner_is_announced(self, install_sh_no_main, dirs):
+        install_dir, _ = dirs
+        env_file = self._seed(install_dir)
+
+        # Only the PRIMARY stat is stubbed; the fallback runs the real system stat,
+        # so the captured value is what this platform genuinely produces on that
+        # path rather than an imitation of it.
+        res = self._write_record(
+            install_sh_no_main,
+            install_dir,
+            'stat() { if [[ "$1" == "-c" ]]; then return 1; fi; command stat "$@"; }\n',
+        )
+        combined = res.stdout + res.stderr
+        phrases = _permission_warning_phrases(env_file)
+
+        assert phrases["owner-read"] in combined, (
+            "the owner could not be read and nothing said so — the rename then "
+            f"commits the temp file's owner in silence:\n{combined}"
+        )
+        self._assert_record_still_written(env_file, res, combined)
+
+    def test_an_unappliable_owner_is_announced(self, install_sh_no_main, dirs):
+        install_dir, _ = dirs
+        env_file = self._seed(install_dir)
+
+        # The value is VALID and the regex accepts it: this drives root cause (a),
+        # the syscall refusing a well-formed value. Asserting the read-cell stayed
+        # quiet is what proves the apply-cell -- not the read-cell -- spoke.
+        res = self._write_record(
+            install_sh_no_main, install_dir, "chown() { return 1; }\n"
+        )
+        combined = res.stdout + res.stderr
+        phrases = _permission_warning_phrases(env_file)
+
+        assert phrases["owner-apply"] in combined, (
+            "chown failed on a valid owner and nothing said so:\n" + combined
+        )
+        assert phrases["owner-read"] not in combined, (
+            "the owner READ succeeded here; a read-failure warning means the two "
+            f"cells are not distinguishable:\n{combined}"
+        )
+        self._assert_record_still_written(env_file, res, combined)
+
+    def test_an_unappliable_mode_is_announced(self, install_sh_no_main, dirs):
+        install_dir, _ = dirs
+        env_file = self._seed(install_dir)
+
+        res = self._write_record(
+            install_sh_no_main, install_dir, "chmod() { return 1; }\n"
+        )
+        combined = res.stdout + res.stderr
+        phrases = _permission_warning_phrases(env_file)
+
+        assert phrases["mode-apply"] in combined, (
+            "chmod failed on a valid mode and nothing said so — this is the cell "
+            f"whose silence published 0600 over docker/.env:\n{combined}"
+        )
+        assert phrases["mode-read"] not in combined, (
+            "the mode READ succeeded here; a read-failure warning means the two "
+            f"cells are not distinguishable:\n{combined}"
+        )
+        self._assert_record_still_written(env_file, res, combined)
+
+    def test_a_healthy_install_says_none_of_the_four(self, install_sh_no_main, dirs):
+        """NEGATIVE CONTROL — the direction a warning test cannot check itself.
+
+        The three tests above prove each cell CAN warn. None of them can tell a
+        correct guard from one inverted to warn unconditionally: that mutant emits
+        every message on every run and passes all three. Only asserting silence on
+        a healthy install separates them, which is why this is not decoration.
+
+        It is also the arm that must not regress into noise. These warnings fire on
+        the ordinary success path of every install if the condition is written
+        backwards, and an installer that cries permission failure on a healthy run
+        trains operators to ignore the one run where it is real.
+        """
+        install_dir, _ = dirs
+        env_file = self._seed(install_dir)
+
+        res = self._write_record(install_sh_no_main, install_dir)
+        combined = res.stdout + res.stderr
+
+        # Positive control on the fixture: without this, a run that never reached
+        # the transfer at all would satisfy every absence assertion below.
+        assert "PARZIVAL_ENABLED=true" in env_file.read_text(encoding="utf-8"), (
+            "the record was not written, so the silence below is vacuous:\n" + combined
+        )
+        for cell, phrase in _permission_warning_phrases(env_file).items():
+            assert phrase not in combined, (
+                f"the {cell} cell warned on a HEALTHY install — the guard is "
+                f"inverted, and a warning that always fires is not a warning:\n"
+                f"{combined}"
+            )
+        assert res.returncode == 0, combined
