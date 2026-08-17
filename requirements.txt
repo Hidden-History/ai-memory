@@ -2,23 +2,23 @@
 # Python 3.10+
 
 # Vector Database
-qdrant-client==1.18.0
+qdrant-client==1.19.0
 
 # HTTP Client
 httpx==0.28.1
 
 # Environment Configuration
 pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 
 # Logging
 structlog>=24.0.0,<27.0.0
 
 # Monitoring (optional but included in core)
-prometheus-client==0.25.0
+prometheus-client==0.26.0
 
 # Anthropic SDK for conversation capture (TECH-DEBT-035)
-anthropic==0.111.0
+anthropic==0.121.0
 
 # Retry logic with exponential backoff (DEC-029, TECH-DEBT-041)
 tenacity==9.1.4
@@ -63,7 +63,7 @@ croniter>=2.0.0,<7.0.0
 # OpenAI SDK for the evaluator LLM-as-judge provider (BUG-316).
 # Used by evaluator/provider.py for the ollama (default), openrouter, openai,
 # and custom OpenAI-compatible provider paths; baked into the evaluator-scheduler image.
-openai==2.38.0
+openai==2.53.0
 
 # LLM Observability — Langfuse tracing (SPEC-020, PLAN-008)
 langfuse>=4.7.0,<4.11.0
