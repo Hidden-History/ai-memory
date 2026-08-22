@@ -1243,12 +1243,26 @@ class TestARecordFailureIsCountedAndGated:
     them something to inspect once they do (an in-memory count dies with the
     process).
 
-    HOW THE FAILURE IS DRIVEN HERE, and why it is not the ``chmod 0o500`` trick
-    used by ``TestAnUnwritableRecordDoesNotKillTheInstaller``: these cases pass a
-    4th-argument ``env_file`` inside a directory that does not exist, so the
-    ``touch`` in the first branch fails on the missing parent. That fails
-    identically for root, so no ``skipif`` is needed and no case here can go
-    vacuously green on a CI runner that happens to run as uid 0.
+    HOW THE FAILURE IS DRIVEN HERE, and why it is mostly not the ``chmod 0o500``
+    trick used by ``TestAnUnwritableRecordDoesNotKillTheInstaller``: most cases
+    pass a 4th-argument ``env_file`` inside a directory that does not exist, so
+    the ``touch`` in the first branch fails on the missing parent. ENOENT is not
+    overridable by ``CAP_DAC_OVERRIDE``, so those fail identically for root and
+    need no ``skipif``.
+
+    THAT IS NOT A UNIVERSAL, AND THIS PARAGRAPH ONCE CLAIMED IT WAS. The earlier
+    wording read "no case here can go vacuously green on a CI runner that happens
+    to run as uid 0" -- true of every missing-parent case, and FALSE of
+    ``test_an_unwritable_ledger_does_not_abort_the_install``, the one case in this
+    class that drives failure with ``chmod``. Under uid 0 that case's append
+    SUCCEEDS, the ``|| true`` under test never fires, and both its assertions hold
+    anyway -- including with the guard deleted. A false universal in the docstring
+    a reviewer reads before deciding whether to look is worse than no docstring,
+    because it retires the question. The ``chmod`` case now carries the same
+    ``skipif`` as the precedent at its sibling class, and
+    ``test_a_ledger_in_a_missing_directory_does_not_abort_the_install`` holds the
+    same guard by a trigger no uid can walk through, so the guard stays held on a
+    rootful runner where the ``skipif`` fires.
 
     HONEST BOUND, asserted nowhere and stated here so it is not over-read: the
     durable append recovers the PERMISSION case, not the ``ENOSPC`` case. Where
@@ -1294,6 +1308,115 @@ class TestARecordFailureIsCountedAndGated:
             "a write-failure branch was taken and nothing counted it. That is "
             "the whole defect: the failure is named only by a channel that can "
             f"be dead.\n{res.stderr}"
+        )
+
+    # THE OTHER THREE COUNTED BRANCHES. The case above drives branch 1 (`touch` on
+    # a missing parent) and, until these three landed, it was the ONLY branch with
+    # a count assertion anywhere. The pre-existing tests over branches 2-4 assert
+    # MESSAGE TEXT, and `parzival_record_failure` re-emits its detail verbatim
+    # through `log_error "$detail"` -- so those tests pass whether the site calls
+    # the new counting function or the old bare `log_error`. Measured: reverting
+    # branch 4 to a bare `log_error` left the whole module green. Branch 4 is the
+    # one that fires on a real commit refusal -- read-only remount, EDQUOT,
+    # cross-device rename -- i.e. the case where the record is lost while the
+    # install completes, which is the entire event this story exists to catch.
+    #
+    # EACH BRANCH IS DRIVEN BY OVERRIDING THE COMMAND IT TESTS, not by permissions.
+    # `mktemp`, `awk` and `mv` are external commands, so a shell function of the
+    # same name defined after `source` shadows them -- the idiom `_STUBS` and
+    # `_SKIP_NAME_PROMPT` already use in this module. It is deterministic and it is
+    # root-proof: a stub returns 1 for uid 0 exactly as it does for uid 1000, so
+    # none of these three can go vacuously green the way the `chmod` case can.
+    # `env_file` must EXIST for each, or branch 1 fires first and the assertion
+    # would pass while testing the wrong branch.
+
+    def test_a_failed_temp_file_is_counted(self, install_sh_no_main, dirs, tmp_path):
+        """Branch 2 -- `mktemp` beside the env file fails."""
+        install_dir, _ = dirs
+        env_file = tmp_path / "present.env"
+        env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "mktemp() { return 1; }\n"
+            f'set_parzival_enablement "false" "failed" "complete" "{env_file}"\n'
+            'echo "RC=$? COUNT=$PARZIVAL_RECORD_FAILURES" >&2\n',
+        )
+
+        assert "RC=0" in res.stderr, (
+            "the fail-open contract regressed on the mktemp branch:\n" + res.stderr
+        )
+        assert "COUNT=1" in res.stderr, (
+            "the mktemp branch announced itself only through log_error, which a "
+            f"dead stdout drops -- nothing counted it:\n{res.stderr}"
+        )
+        assert "Could not create a temp file beside" in res.stdout + res.stderr, (
+            "a different branch was taken than the one under test, so the count "
+            f"above proves nothing about branch 2:\n{res.stdout}{res.stderr}"
+        )
+
+    def test_a_failed_record_build_is_counted(self, install_sh_no_main, dirs, tmp_path):
+        """Branch 3 -- the `awk` that builds the new record fails."""
+        install_dir, _ = dirs
+        env_file = tmp_path / "present.env"
+        env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "awk() { return 1; }\n"
+            f'set_parzival_enablement "false" "failed" "complete" "{env_file}"\n'
+            'echo "RC=$? COUNT=$PARZIVAL_RECORD_FAILURES" >&2\n',
+        )
+
+        assert "RC=0" in res.stderr, (
+            "the fail-open contract regressed on the awk branch:\n" + res.stderr
+        )
+        assert "COUNT=1" in res.stderr, (
+            "the record-build branch announced itself only through log_error, "
+            f"which a dead stdout drops -- nothing counted it:\n{res.stderr}"
+        )
+        assert "Could not build the Parzival enablement record" in (
+            res.stdout + res.stderr
+        ), (
+            "a different branch was taken than the one under test, so the count "
+            f"above proves nothing about branch 3:\n{res.stdout}{res.stderr}"
+        )
+
+    def test_a_failed_commit_is_counted(self, install_sh_no_main, dirs, tmp_path):
+        """Branch 4 -- the `mv` that commits the record over the env file fails.
+
+        THE MOST OPERATIONALLY SERIOUS OF THE FOUR, and the one measured
+        revertible-green. A commit refusal is a read-only remount, an EDQUOT, or
+        a cross-device rename: the install completes, the previous record is left
+        intact by design, and without a count the run exits 0 saying nothing.
+        """
+        install_dir, _ = dirs
+        env_file = tmp_path / "present.env"
+        env_file.write_text("PARZIVAL_ENABLED=true\n", encoding="utf-8")
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "mv() { return 1; }\n"
+            f'set_parzival_enablement "false" "failed" "complete" "{env_file}"\n'
+            'echo "RC=$? COUNT=$PARZIVAL_RECORD_FAILURES" >&2\n',
+        )
+
+        assert "RC=0" in res.stderr, (
+            "the fail-open contract regressed on the commit branch:\n" + res.stderr
+        )
+        assert "COUNT=1" in res.stderr, (
+            "a real commit refusal -- read-only remount, EDQUOT, cross-device "
+            "rename -- went uncounted, so the install exits 0 with the record "
+            f"lost:\n{res.stderr}"
+        )
+        assert "Could not commit the Parzival enablement record" in (
+            res.stdout + res.stderr
+        ), (
+            "a different branch was taken than the one under test, so the count "
+            f"above proves nothing about branch 4:\n{res.stdout}{res.stderr}"
         )
 
     def test_the_counter_survives_a_log_channel_that_cannot_write(
@@ -1373,6 +1496,37 @@ class TestARecordFailureIsCountedAndGated:
         ), f"the gate fired with no recorded failure:\n{res.stdout}{res.stderr}"
         assert "REACHED" in res.stderr
 
+    def test_a_real_write_failure_reaches_the_gate_in_one_shell(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The two halves joined -- nothing else in this module joins them.
+
+        Every counter case above stops at the count; every gate case starts from
+        a hand-set ``PARZIVAL_RECORD_FAILURES``. Between them sits an untested
+        assumption: that the variable a REAL failure increments is the same
+        variable the REAL gate reads, in the same shell, with nothing in between
+        resetting or shadowing it. Here a genuine write failure is driven and the
+        genuine gate then observes it, end to end, in one process.
+        """
+        install_dir, _ = dirs
+        missing = tmp_path / "absent" / ".env"
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            f'set_parzival_enablement "false" "failed" "complete" "{missing}"\n'
+            "parzival_record_status\n"
+            'echo "THE GATE DID NOT FIRE" >&2\n',
+        )
+        combined = res.stdout + res.stderr
+
+        assert res.returncode == 3, (
+            "a real write failure did not reach the gate as exit 3 -- the count "
+            "and the gate are joined by nothing but an assumption:\n" + combined
+        )
+        assert "THE GATE DID NOT FIRE" not in res.stderr, combined
+        assert "could not record why Parzival is disabled" in combined, combined
+
     def test_the_durable_record_carries_a_per_entry_timestamp(
         self, install_sh_no_main, dirs, tmp_path
     ):
@@ -1414,6 +1568,17 @@ class TestARecordFailureIsCountedAndGated:
             assert "Parzival enablement record NOT written" in detail, line
         assert "cause=failed" in lines[0] and "cause=opt-out" in lines[1]
 
+    @pytest.mark.skipif(
+        hasattr(os, "geteuid") and os.geteuid() == 0,
+        reason="chmod(0o500) does not constrain root — as root the ledger append "
+        "SUCCEEDS, the `|| true` under test never fires, and both assertions below "
+        "hold anyway, including with the guard deleted. Note the direction, because "
+        "it is the opposite of the sibling precedent this decorator is copied from: "
+        "that one goes falsely RED under root (noisy, safe), this one goes falsely "
+        "GREEN (silent, and the worse of the two). The guard stays held under uid 0 "
+        "by test_a_ledger_in_a_missing_directory_does_not_abort_the_install, which "
+        "no uid can walk through",
+    )
     def test_an_unwritable_ledger_does_not_abort_the_install(
         self, install_sh_no_main, tmp_path
     ):
@@ -1452,6 +1617,53 @@ class TestARecordFailureIsCountedAndGated:
         assert "COUNT=1" in res.stderr, (
             "the count was lost when the durable append failed; the counter is "
             f"the channel that must survive it:\n{res.stderr}"
+        )
+
+    def test_a_ledger_in_a_missing_directory_does_not_abort_the_install(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The same guard, held by a trigger no uid can walk through.
+
+        The permission case above is skipped under uid 0, so on a rootful runner
+        it holds nothing at all -- and it is the ``|| true`` on the durable append
+        that it holds, the one guard whose removal re-creates this story's
+        founding defect INSIDE the remedy for it. ENOENT is not overridable by
+        ``CAP_DAC_OVERRIDE``: an append whose parent directory does not exist
+        fails to open for root exactly as it does for anyone else. So this case
+        runs everywhere the suite runs, and it is what keeps that guard held where
+        the case above cannot.
+
+        Deliberately NOT a replacement for the permission case. The mechanism is
+        scoped to the permission failure and the ``chmod`` case is the one that
+        reproduces it faithfully; this one buys uid-independence, not realism.
+        Both, or the guard is held either unfaithfully or not at all.
+        """
+        install_dir = tmp_path / "no_such_install_dir"  # deliberately never created
+        missing = tmp_path / "absent" / ".env"
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            f'set_parzival_enablement "false" "failed" "complete" "{missing}"\n'
+            'echo "COUNT=$PARZIVAL_RECORD_FAILURES" >&2\n',
+        )
+
+        assert res.returncode == 0, (
+            "a ledger in a missing directory aborted the install — the append "
+            "must be guarded, or the remedy is the defect:\n"
+            f"{res.stdout}{res.stderr}"
+        )
+        assert "COUNT=1" in res.stderr, (
+            "the count was lost when the durable append failed; the counter is "
+            f"the channel that must survive it:\n{res.stderr}"
+        )
+        # NON-VACUITY CONTROL. If anything ever creates INSTALL_DIR on the way
+        # through, the append SUCCEEDS and the two assertions above hold without
+        # the guard being exercised at all — this case would then be the very
+        # thing it was written to replace.
+        assert not install_dir.exists(), (
+            "INSTALL_DIR was created during the run, so the ledger append did "
+            "not fail and this case proves nothing"
         )
 
     def test_a_completed_install_is_not_reported_as_interrupted(
@@ -1514,4 +1726,110 @@ class TestARecordFailureIsCountedAndGated:
         assert "Installation interrupted" in combined, (
             "the trap no longer reports a genuine abort, so the assertion above "
             f"proves nothing:\n{combined}"
+        )
+
+
+class TestTheGateIsWiredIntoMain:
+    """The gate's ENTIRE production reachability, and no test executed it.
+
+    ``main`` ends with exactly two statements — ``INSTALL_COMPLETED=true`` and
+    ``parzival_record_status``. They are the only thing connecting the counter to
+    the product: without them ``PARZIVAL_RECORD_FAILURES`` is an in-memory
+    variable nothing reads, and the exit status that ``DEC-PM445-D5`` calls "what
+    sends an operator or a CI job to look" is never produced.
+
+    Nothing held them. The ``install_sh_no_main`` fixture strips ``main "$@"``, so
+    ``main`` never runs in any test in this repo; all eight gate cases in the
+    class above call ``parzival_record_status`` DIRECTLY and hand-set the flag.
+    Measured before this class existed: deleting both lines from ``main`` left the
+    module at 40 passed, 0 failed. The gate was deletable from the product with a
+    green suite attesting it was there — round 7's silent success restored, one
+    level up, wearing a passing test suite.
+
+    WHY TEXT-LEVEL, stated so it is not read as laziness. Executing ``main``
+    requires venv creation, pip install, Docker startup and health verification;
+    the module docstring records why that is not available here. So this asserts
+    the STRUCTURE of the shipped file instead, in the idiom this repo already
+    uses — ``tests/integration/test_installation.py`` reads ``install.sh`` and
+    asserts substrings over it, and ``install_sh_no_main`` itself asserts that the
+    last line is ``main "$@"``.
+
+    WHAT IT DOES AND DOES NOT PROVE, stated because a coverage claim that
+    overstates itself is how this story got here three rounds running. It does NOT
+    prove the two lines execute, and it is not a substitute for driving ``main``.
+    What it does prove is that they are still THERE, still in ``main``, still in
+    this order, and still last — which is precisely the mutation that shipped
+    green, and it fails on every variant of it: both lines deleted, either line
+    deleted alone, or the pair moved above ``show_success_message``.
+    """
+
+    @staticmethod
+    def _main_body_statements() -> list[str]:
+        """Non-blank, non-comment statement lines of ``main``'s body, in order.
+
+        Bounded by ``main() {`` and the next line that is exactly ``}`` at column
+        0. Verified at authoring time to be the real terminator: between the two
+        there is exactly one such line. Both bounds are asserted rather than
+        assumed, so a restructuring of ``install.sh`` fails loudly here instead of
+        silently reducing this class to a tautology over an empty list.
+        """
+        lines = _INSTALL_SH.read_text(encoding="utf-8").splitlines()
+
+        starts = [i for i, ln in enumerate(lines) if ln.startswith("main() {")]
+        assert len(starts) == 1, (
+            f"expected exactly one `main() {{` at column 0 in install.sh, found "
+            f"{len(starts)}. If the installer was restructured, update this class "
+            "rather than deleting it — it is the only thing holding the gate's "
+            "wiring into the product."
+        )
+        start = starts[0]
+
+        ends = [i for i in range(start + 1, len(lines)) if lines[i] == "}"]
+        assert ends, "could not find the closing `}` of main() in install.sh"
+        end = ends[0]
+
+        body = [
+            s
+            for s in (ln.strip() for ln in lines[start + 1 : end])
+            if s and not s.startswith("#")
+        ]
+        assert body, "main()'s body parsed as empty — this class would prove nothing"
+        return body
+
+    def test_the_gate_is_the_last_statement_of_main(self):
+        """Delete ``parzival_record_status``, or move it earlier, and this fails.
+
+        Position is load-bearing, not stylistic: the gate exits 3, so anything
+        after it in ``main`` would be unreachable on the failure path, and
+        anything before it that aborts under ``set -e`` skips the gate entirely.
+        """
+        body = self._main_body_statements()
+
+        assert body[-1] == "parzival_record_status", (
+            "`parzival_record_status` is no longer the last statement of main(). "
+            "It is the gate's only call site and the counter's only reader; "
+            "without it a recorded write failure exits 0 in silence, which is the "
+            f"whole defect this story exists to close. Last statement found: "
+            f"{body[-1]!r}"
+        )
+
+    def test_the_completion_flag_immediately_precedes_the_gate(self):
+        """The other half of the wiring, and it fails independently.
+
+        ``INSTALL_COMPLETED=true`` must be the statement immediately before the
+        gate. Dropping it alone is the subtler mutation and the suite was blind to
+        it too: the run then exits 3 correctly, but the EXIT trap fires on the
+        non-zero status and prints "Installation interrupted" plus an ``rm -rf``
+        offer over a COMPLETE installation — the second lie, replacing a silent
+        success with a loud untruth. Setting it any earlier is equally wrong: it
+        would suppress the trap for genuine aborts in between.
+        """
+        body = self._main_body_statements()
+
+        assert body[-2:] == ["INSTALL_COMPLETED=true", "parzival_record_status"], (
+            "main() no longer ends with `INSTALL_COMPLETED=true` immediately "
+            "followed by `parzival_record_status`. Those two lines are the gate's "
+            "entire production reachability; every other test in this module "
+            "reaches the gate by calling it directly and hand-setting the flag, "
+            f"so nothing else would notice. Last two statements found: {body[-2:]!r}"
         )

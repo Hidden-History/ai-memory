@@ -9,6 +9,11 @@
 # Exit codes:
 #   0 = Success
 #   1 = Failure (prerequisite check, configuration error, or service failure)
+#   3 = The install COMPLETED, but could not record WHY Parzival is disabled.
+#       Deliberately distinct from 1: the work was done and the services are up;
+#       only the record of the enablement decision was lost. Details are appended
+#       to $INSTALL_DIR/parzival-record-failures.log (absent if that path was
+#       unwritable too). See parzival_record_status().
 #
 # 2026 Best Practices Applied:
 #   - set -euo pipefail for strict error handling
@@ -214,13 +219,26 @@ PARZIVAL_RECORD_FAILURES=0
 #   - NOT $INSTALL_DIR/docker/.env. Unwritable by hypothesis: it IS the failing write.
 #   - NOT $INSTALL_DIR/logs/. main() creates it with `mkdir -p ... || true`, so its
 #     existence is conditional and it may simply not be there when this runs.
-# $INSTALL_DIR itself survives both. It is created by an UNGUARDED `mkdir -p
-# "$INSTALL_DIR"/{docker,...}`, so a failure to create it aborts the install and
-# this function is never reached with the directory missing. It sits one level
-# ABOVE docker/, so the mode or ownership problem that makes docker/.env unwritable
-# does not reach it. And unlike /tmp it is durable across a reboot and is where an
+# $INSTALL_DIR itself is the target, on two grounds: it sits one level ABOVE
+# docker/, so the mode or ownership problem that makes docker/.env unwritable does
+# not reach it; and unlike /tmp it is durable across a reboot and is where an
 # operator already looks. The path is derived at call time from INSTALL_DIR rather
 # than pinned into a global, so a test that sets INSTALL_DIR redirects the ledger.
+#
+# A THIRD GROUND WAS CLAIMED HERE AND IT WAS FALSE -- recorded rather than quietly
+# deleted, because the same reasoning would be re-derived otherwise. It read:
+# "$INSTALL_DIR is created by an UNGUARDED `mkdir -p "$INSTALL_DIR"/{docker,...}`,
+# so a failure to create it aborts the install and this function is never reached
+# with the directory missing." That mkdir (create_directories) has exactly ONE call
+# site, and it is inside main's `if [[ "$INSTALL_MODE" == "full" ]]` block. In
+# ADD-PROJECT MODE -- the default -- it never runs, and $INSTALL_DIR is produced
+# only by main's first action, the GUARDED `mkdir -p "$INSTALL_DIR/logs"
+# 2>/dev/null || true`, which creates logs/ in the very same call. So on the default
+# path $INSTALL_DIR and $INSTALL_DIR/logs are created together and fail together,
+# and the "logs/ is conditional, $INSTALL_DIR is not" discriminator DOES NOT
+# DISCRIMINATE. No behavioural consequence: the append is guarded and a missing
+# directory degrades to "no ledger", which the HONEST BOUND above already covers.
+# The choice of target stands on the two grounds stated at the top of this block.
 parzival_record_failure() {
     local detail="$1"
 
@@ -1667,14 +1685,31 @@ main() {
     # completed, rather than aborting mid-install.
     #
     # ORDERING NOTE, and it is load-bearing. show_success_message still carries 66
-    # unguarded `echo` lines, and TODAY those are the only thing producing any
-    # failure signal at all, because a run with a dead stdout dies there under
-    # errexit before ever reaching this line. Guarding them BEFORE this gate existed
-    # would have removed that accidental signal and made the silent success
-    # universal. The sweep is tracked as TD-1082 and lands with-or-after this gate,
-    # never before. This is also why the durable ledger is not optional: a counter
-    # that can only speak through a gate the run never reaches is a counter that
-    # says nothing.
+    # unguarded `echo` lines. Guarding them BEFORE this gate existed would have
+    # removed the accidental failure signal they currently provide and made the
+    # silent success universal. The sweep is tracked as TD-1082 and lands
+    # with-or-after this gate, never before. This is also why the durable ledger is
+    # not optional: a counter that can only speak through a gate the run never
+    # reaches is a counter that says nothing.
+    #
+    # WHERE A DEAD-STDOUT RUN ACTUALLY DIES -- corrected, because this paragraph
+    # named the wrong place and anyone sequencing TD-1082 off it was working from a
+    # false model. It said such a run "dies there [show_success_message] under
+    # errexit before ever reaching this line." It does not: main emits 11
+    # line-initial unguarded `echo`s immediately after `exec > >(tee ...)` (the
+    # banner), and step() fires two more unguarded echoes on every phase -- all of
+    # them long before setup_parzival, let alone before this line. A run whose
+    # stdout is dead dies at the BANNER. (A genuinely dead tee reader delivers
+    # SIGPIPE, which kills the shell outright rather than exiting 0.) So
+    # show_success_message is not the load-bearing signal for the dead-stdout case,
+    # and the dead-stdout case is not what this gate recovers.
+    #
+    # THE CASE THIS GATE DOES RECOVER, stated so the remedy is not read as
+    # unmotivated: the PERMISSION case -- docker/.env unwritable with a perfectly
+    # healthy stdout. Before this gate that printed an error and exited 0:
+    # human-visible, machine-invisible, and invisible to both CI jobs, which assert
+    # returncode == 0. After it, the same run exits 3. That case is reachable,
+    # common, and is the one the counter and ledger were built for.
     INSTALL_COMPLETED=true
     parzival_record_status
 }
