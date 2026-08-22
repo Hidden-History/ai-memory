@@ -1121,6 +1121,23 @@ class TestALogWriteCannotKillTheInstall:
     the current behaviour would enshrine it as intended. Closing it needs
     ``trap '' PIPE`` at script scope, which is a signal-disposition change for
     the whole installer and not this change's to make.
+
+    🔴 WHAT THIS TEST ACTUALLY DRIVES, SAID PLAINLY BECAUSE IT IS NOT THE
+    PRODUCTION TRIGGER. The mechanism here is ``exec 1>&-`` -- EBADF, a descriptor
+    closed by the test itself. **No site in install.sh can produce that
+    condition**; nothing in the installer closes its own stdout. The real
+    production breakage is install.sh's ``tee`` dying, and that arrives as one of
+    two different events: a write that fails and RETURNS (ENOSPC on the log
+    filesystem, EIO), which is what the guard covers and what EBADF stands in for
+    here; or SIGPIPE on a closed read end, which the guard does NOT cover and no
+    case below asserts.
+
+    So this is a PROXY for the covered class, chosen because it is the only
+    member of that class a test can raise deterministically without filling a
+    disk. It is honest about the guard's mechanism -- errexit suppression on a
+    non-zero return -- and it is silent about the trigger frequency. Read it as
+    "the guard suppresses a returning write failure", never as "the tee case is
+    covered".
     """
 
     def test_a_closed_stdout_really_does_fail_a_write(self):
@@ -1141,13 +1158,37 @@ class TestALogWriteCannotKillTheInstall:
             f"guard below is guarding nothing that can happen here:\n{res.stderr}"
         )
 
+    # ONE CASE PER GUARDED FUNCTION -- five functions, five parametrised cases,
+    # and that count is the point of this parametrisation rather than an
+    # accident of style. The previous revision of this class drove `log_info`
+    # and nothing else: `log_info` appeared once in this module and the other
+    # four `log_*` names zero times, so FOUR of the five `|| true` guards could
+    # be deleted outright with the whole suite still green. A guard no test can
+    # remove is a guard no test is holding.
+    #
+    # `log_debug` carries `LOG_LEVEL=debug` because its `echo` is wrapped in an
+    # `[[ "$LOG_LEVEL" == "debug" ]]` branch. At the default level the echo never
+    # executes, so the case would pass identically against the unguarded body --
+    # green, and proving nothing. The level is exported BEFORE `source` because
+    # install.sh binds `LOG_LEVEL="${LOG_LEVEL:-info}"` at source time.
+    @pytest.mark.parametrize(
+        "log_fn,log_level",
+        [
+            ("log_info", None),
+            ("log_success", None),
+            ("log_warning", None),
+            ("log_error", None),
+            ("log_debug", "debug"),
+        ],
+    )
     def test_the_record_is_committed_even_when_logging_cannot_write(
-        self, install_sh_no_main, dirs
+        self, install_sh_no_main, dirs, log_fn, log_level
     ):
         install_dir, _ = dirs
         env_file = install_dir / "docker" / ".env"
         env_file.write_text("PARZIVAL_ENABLED=false\n", encoding="utf-8")
 
+        level = f'export LOG_LEVEL="{log_level}"\n' if log_level else ""
         res = subprocess.run(
             [
                 "bash",
@@ -1156,12 +1197,13 @@ class TestALogWriteCannotKillTheInstall:
                 # the whole defect only exists under errexit.
                 "set -euo pipefail\n"
                 f'export INSTALL_DIR="{install_dir}"\n'
+                f"{level}"
                 f'source "{install_sh_no_main}"\n'
                 f'INSTALL_DIR="{install_dir}"\n'
                 # stdout is gone from here on, exactly as it is when the process
                 # on the other end of install.sh's `tee` redirect has died.
                 "exec 1>&-\n"
-                'log_info "the installer logs before it commits the record"\n'
+                f'{log_fn} "the installer logs before it commits the record"\n'
                 f'set_parzival_enablement "true" "" "complete" "{env_file}"\n',
             ],
             capture_output=True,
@@ -1169,11 +1211,307 @@ class TestALogWriteCannotKillTheInstall:
         )
 
         assert res.returncode == 0, (
-            "a failed log write ended the run — the record was never reached. "
-            "errexit fires AT the echo, so a `return 0` on the following line "
-            f"does not help; the echo itself must not report failure:\n{res.stderr}"
+            f"a failed {log_fn} write ended the run — the record was never "
+            "reached. errexit fires AT the echo, so a `return 0` on the "
+            "following line does not help; the echo itself must not report "
+            f"failure:\n{res.stderr}"
         )
         assert "PARZIVAL_ENABLED=true" in env_file.read_text(encoding="utf-8"), (
-            "the enablement record was not committed because a LOG LINE could "
-            f"not be written:\n{res.stderr}"
+            f"the enablement record was not committed because a {log_fn} line "
+            f"could not be written:\n{res.stderr}"
+        )
+
+
+class TestARecordFailureIsCountedAndGated:
+    """A record write that fails must not be able to exit 0 in silence.
+
+    ``set_parzival_enablement`` ALWAYS returns 0 -- deliberately, and that
+    fail-open contract is unchanged. Its four write-failure branches therefore
+    announced themselves through ``log_error`` and through nothing else. Once the
+    five ``log_*`` functions became ``|| true``-guarded (the class above), that
+    single channel became DROPPABLE: ``main`` runs with
+    ``exec > >(tee -a "$INSTALL_LOG") 2>&1`` so stderr is not a fallback, and a
+    dead reader lets all four branches reach ``return 0`` with the message
+    undelivered. The installer then exited 0 having printed nothing --
+    indistinguishable from a healthy install. Round 6 turned a silent degradation
+    into a loud abort; round 7's guard turned that loud abort into a SILENT
+    SUCCESS.
+
+    Two channels answer it, and neither replaces the other: an installer-wide
+    counter drives ``exit 3`` at the end of ``main`` (the exit status is what
+    sends an operator or a CI job to look at all), and a durable append gives
+    them something to inspect once they do (an in-memory count dies with the
+    process).
+
+    HOW THE FAILURE IS DRIVEN HERE, and why it is not the ``chmod 0o500`` trick
+    used by ``TestAnUnwritableRecordDoesNotKillTheInstaller``: these cases pass a
+    4th-argument ``env_file`` inside a directory that does not exist, so the
+    ``touch`` in the first branch fails on the missing parent. That fails
+    identically for root, so no ``skipif`` is needed and no case here can go
+    vacuously green on a CI runner that happens to run as uid 0.
+
+    HONEST BOUND, asserted nowhere and stated here so it is not over-read: the
+    durable append recovers the PERMISSION case, not the ``ENOSPC`` case. Where
+    the trigger is a full disk the append fails too and only the exit status
+    survives.
+    """
+
+    @staticmethod
+    def _run(install_sh_no_main, install_dir, script: str, log_level=None):
+        level = f'export LOG_LEVEL="{log_level}"\n' if log_level else ""
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                "set -euo pipefail\n"
+                f'export INSTALL_DIR="{install_dir}"\n'
+                f"{level}"
+                f'source "{install_sh_no_main}"\n'
+                f'INSTALL_DIR="{install_dir}"\n' + script,
+            ],
+            capture_output=True,
+            text=True,
+        )
+
+    def test_a_failed_record_write_increments_the_counter(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, _ = dirs
+        missing = tmp_path / "absent" / ".env"
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            f'set_parzival_enablement "false" "failed" "complete" "{missing}"\n'
+            'echo "RC=$? COUNT=$PARZIVAL_RECORD_FAILURES" >&2\n',
+        )
+
+        assert "RC=0" in res.stderr, (
+            "the fail-open contract regressed — set_parzival_enablement must "
+            f"still ALWAYS return 0:\n{res.stderr}"
+        )
+        assert "COUNT=1" in res.stderr, (
+            "a write-failure branch was taken and nothing counted it. That is "
+            "the whole defect: the failure is named only by a channel that can "
+            f"be dead.\n{res.stderr}"
+        )
+
+    def test_the_counter_survives_a_log_channel_that_cannot_write(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The load-bearing case — counting AFTER log_error would fail this.
+
+        The increment is placed before both the ``log_error`` and the durable
+        append precisely because both are failable. With stdout closed the
+        ``log_error`` message is dropped on the floor by its own ``|| true``, and
+        an installer whose only record of the failure was that message has no
+        record at all. A counter incremented after it inherits the same defect.
+        """
+        install_dir, _ = dirs
+        missing = tmp_path / "absent" / ".env"
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "exec 1>&-\n"
+            f'set_parzival_enablement "false" "failed" "complete" "{missing}"\n'
+            'echo "COUNT=$PARZIVAL_RECORD_FAILURES" >&2\n',
+        )
+
+        assert (
+            res.returncode == 0
+        ), f"a dead stdout ended the run before the count was taken:\n{res.stderr}"
+        assert "COUNT=1" in res.stderr, (
+            "the failure went uncounted because the LOG could not be written — "
+            "the count must be taken whether or not either channel succeeds:\n"
+            f"{res.stderr}"
+        )
+
+    def test_the_gate_exits_three_when_a_failure_was_recorded(
+        self, install_sh_no_main, dirs
+    ):
+        """3, not 1 — and not 0.
+
+        ``exit 3`` was chosen after censusing this file's exit codes (0, 1 and a
+        single 2; no 3). It is deliberately distinct from 1: "the install did its
+        work but could not record why Parzival is off" is not the same event as
+        "the install failed", and an operator triaging them together learns
+        nothing from either.
+        """
+        install_dir, _ = dirs
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "PARZIVAL_RECORD_FAILURES=2\n"
+            "parzival_record_status\n"
+            'echo "THE GATE DID NOT FIRE" >&2\n',
+        )
+
+        assert res.returncode == 3, (
+            "a recorded write failure did not reach the operator as a non-zero "
+            f"exit status:\n{res.stdout}{res.stderr}"
+        )
+        assert "THE GATE DID NOT FIRE" not in res.stderr
+
+    def test_the_gate_is_silent_on_a_clean_install(self, install_sh_no_main, dirs):
+        """The other half — a gate that always fires is not a gate.
+
+        Without this case the assertion above is satisfied by an unconditional
+        ``exit 3``, which would fail every install on the planet.
+        """
+        install_dir, _ = dirs
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "parzival_record_status\n" 'echo "REACHED" >&2\n',
+        )
+
+        assert (
+            res.returncode == 0
+        ), f"the gate fired with no recorded failure:\n{res.stdout}{res.stderr}"
+        assert "REACHED" in res.stderr
+
+    def test_the_durable_record_carries_a_per_entry_timestamp(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """Run identity on every line, and history across runs.
+
+        Without a stamp the ledger reproduces this story's own B-10 one level up:
+        run 1 fails, run 2 succeeds, and the operator inspects a file that still
+        names a failure. Truncate-on-start would answer that too, and is the
+        wrong answer -- it discards the history across repeated failures, which
+        is exactly what diagnosing an INTERMITTENT write failure needs. Both
+        appends below must survive, each carrying its own stamp.
+        """
+        install_dir, _ = dirs
+        missing = tmp_path / "absent" / ".env"
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            f'set_parzival_enablement "false" "failed" "complete" "{missing}"\n'
+            f'set_parzival_enablement "false" "opt-out" "complete" "{missing}"\n',
+        )
+        assert res.returncode == 0, res.stderr
+
+        ledger = install_dir / "parzival-record-failures.log"
+        assert ledger.exists(), (
+            "no durable record was written, so an operator sent here by exit 3 "
+            f"finds nothing:\n{res.stdout}{res.stderr}"
+        )
+        lines = ledger.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2, (
+            "the ledger did not APPEND — a truncating writer loses the history "
+            f"an intermittent failure is diagnosed from:\n{lines}"
+        )
+        for line in lines:
+            stamp, _, detail = line.partition("\t")
+            assert re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp
+            ), f"ledger line carries no run identity: {line!r}"
+            assert "Parzival enablement record NOT written" in detail, line
+        assert "cause=failed" in lines[0] and "cause=opt-out" in lines[1]
+
+    def test_an_unwritable_ledger_does_not_abort_the_install(
+        self, install_sh_no_main, tmp_path
+    ):
+        """🔴 The remedy must not re-create the defect it exists to fix.
+
+        An unguarded ``>>`` that fails under ``set -euo pipefail`` aborts the
+        install. That is H1 verbatim, relocated into the remedy for H1 -- and it
+        would ship LOOKING like a fix, which is the worst kind, because the
+        review that follows sees a guard and stops looking. So the append carries
+        ``|| true`` and this case is what holds it there.
+
+        The ledger directory is made unwritable rather than absent, because an
+        absent one is the ``mkdir`` case and a read-only one is the permission
+        case this whole mechanism is scoped to.
+        """
+        install_dir = tmp_path / "readonly_install"
+        (install_dir / "docker").mkdir(parents=True)
+        missing = tmp_path / "absent" / ".env"
+        original_mode = install_dir.stat().st_mode
+        install_dir.chmod(0o500)  # r-x: the ledger cannot be created here
+        try:
+            res = self._run(
+                install_sh_no_main,
+                install_dir,
+                f'set_parzival_enablement "false" "failed" "complete" "{missing}"\n'
+                'echo "COUNT=$PARZIVAL_RECORD_FAILURES" >&2\n',
+            )
+        finally:
+            install_dir.chmod(original_mode)
+
+        assert res.returncode == 0, (
+            "an unwritable LEDGER aborted the install — the append must be "
+            "guarded, or the remedy is the defect:\n"
+            f"{res.stdout}{res.stderr}"
+        )
+        assert "COUNT=1" in res.stderr, (
+            "the count was lost when the durable append failed; the counter is "
+            f"the channel that must survive it:\n{res.stderr}"
+        )
+
+    def test_a_completed_install_is_not_reported_as_interrupted(
+        self, install_sh_no_main, dirs
+    ):
+        """``exit 3`` must not make the EXIT trap tell a second lie.
+
+        ``cleanup`` fires on any non-zero exit once ``INSTALL_STARTED=true`` and
+        prints "Installation interrupted" plus "Partial installation exists". Over
+        a COMPLETE install that is simply false -- it would replace the silent
+        success with a loud untruth, which is not an improvement. ``INSTALL_COMPLETED``
+        is set immediately before the gate for exactly this reason.
+        """
+        install_dir, _ = dirs
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "INSTALL_STARTED=true\n"
+            "PARZIVAL_RECORD_FAILURES=1\n"
+            "INSTALL_COMPLETED=true\n"
+            "parzival_record_status\n",
+        )
+        combined = res.stdout + res.stderr
+
+        assert res.returncode == 3, combined
+        assert "Installation interrupted" not in combined, (
+            "the EXIT trap called a COMPLETE install interrupted:\n" + combined
+        )
+        assert "Partial installation exists" not in combined, (
+            "the EXIT trap offered `rm -rf` on a COMPLETE installation:\n" + combined
+        )
+        assert "could not record why Parzival is disabled" in combined, (
+            "the gate exited 3 without telling the operator what happened:\n" + combined
+        )
+        assert "parzival-record-failures.log" in combined, (
+            "the gate did not name the file it sent the operator to read — a "
+            "file nobody is told to read is not a signal:\n" + combined
+        )
+
+    def test_the_interrupted_message_still_fires_on_a_real_abort(
+        self, install_sh_no_main, dirs
+    ):
+        """Non-vacuity control for the case above.
+
+        ``INSTALL_COMPLETED`` narrows the trap's condition, and a narrowing can
+        always be overdone. Without this case, deleting the trap body entirely
+        would pass. Same script, ``INSTALL_COMPLETED`` left false.
+        """
+        install_dir, _ = dirs
+
+        res = self._run(
+            install_sh_no_main,
+            install_dir,
+            "INSTALL_STARTED=true\n" "exit 1\n",
+        )
+        combined = res.stdout + res.stderr
+
+        assert res.returncode == 1
+        assert "Installation interrupted" in combined, (
+            "the trap no longer reports a genuine abort, so the assertion above "
+            f"proves nothing:\n{combined}"
         )

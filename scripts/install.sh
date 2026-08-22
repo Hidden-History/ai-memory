@@ -77,9 +77,15 @@ fi
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 INSTALL_STARTED=false
+# INSTALL_STARTED alone cannot tell "died partway" from "finished, then reported a
+# recorded failure through the exit-3 gate at the end of main". Without this second
+# global, that gate would fire the EXIT trap below and print "Installation
+# interrupted / Partial installation exists" over a COMPLETE install -- replacing
+# one lie with another, which is the failure class this round exists to remove.
+INSTALL_COMPLETED=false
 cleanup() {
     local exit_code=$?
-    if [[ "$INSTALL_STARTED" = true && $exit_code -ne 0 ]]; then
+    if [[ "$INSTALL_STARTED" = true && "$INSTALL_COMPLETED" != true && $exit_code -ne 0 ]]; then
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
 
@@ -176,6 +182,102 @@ log_debug() {
     if [[ "$LOG_LEVEL" == "debug" ]]; then
         echo -e "${BLUE}[DEBUG]${NC} $1" || true
     fi
+}
+
+# --- Parzival enablement-record failure accounting (Story 1.1 round 8) --------
+#
+# WHY A COUNTER EXISTS AT ALL. set_parzival_enablement ALWAYS returns 0 -- absence
+# is a supported operating state and a failed record write must not abort the
+# install. That fail-open contract is preserved here untouched; what changes is
+# only whether the failure is COUNTED. Its four write-failure branches announce
+# themselves through log_error and through nothing else. Once the log_* functions
+# became `|| true`-guarded, that single channel became droppable: main() runs with
+# `exec > >(tee -a "$INSTALL_LOG") 2>&1`, so stderr is NOT a fallback, and a dead
+# tee lets all four branches reach `return 0` with the message undelivered. The
+# installer then exits 0 having printed nothing -- indistinguishable from a healthy
+# run. The failure was named only by a channel that can be dead, and counted by
+# nothing at all: every other *_count in this file is a local for an unrelated job.
+#
+# TWO CHANNELS, DELIBERATELY, AND NEITHER REPLACES THE OTHER:
+#   - the counter drives the EXIT STATUS, which is what sends an operator or a CI
+#     job to look in the first place;
+#   - the durable append is what they FIND once they look. An in-memory count dies
+#     with the process and leaves nothing to inspect; a file nobody is told to read
+#     is not a signal.
+#
+# HONEST BOUND, stated so it is not over-read: this recovers the PERMISSION case,
+# not the ENOSPC case. Where the trigger is a full disk the append fails too, and
+# only the exit status survives.
+PARZIVAL_RECORD_FAILURES=0
+
+# WRITE TARGET, justified rather than assumed -- two candidates are ruled out:
+#   - NOT $INSTALL_DIR/docker/.env. Unwritable by hypothesis: it IS the failing write.
+#   - NOT $INSTALL_DIR/logs/. main() creates it with `mkdir -p ... || true`, so its
+#     existence is conditional and it may simply not be there when this runs.
+# $INSTALL_DIR itself survives both. It is created by an UNGUARDED `mkdir -p
+# "$INSTALL_DIR"/{docker,...}`, so a failure to create it aborts the install and
+# this function is never reached with the directory missing. It sits one level
+# ABOVE docker/, so the mode or ownership problem that makes docker/.env unwritable
+# does not reach it. And unlike /tmp it is durable across a reboot and is where an
+# operator already looks. The path is derived at call time from INSTALL_DIR rather
+# than pinned into a global, so a test that sets INSTALL_DIR redirects the ledger.
+parzival_record_failure() {
+    local detail="$1"
+
+    # COUNT FIRST, before BOTH channels. Both are established as failable: the
+    # log_error below is a `|| true`-guarded echo that silently drops its message
+    # when stdout is gone, and the append is guarded for the same reason. A count
+    # taken after either one is a count a broken channel can suppress.
+    #
+    # ASSIGNMENT FORM, NOT `(( PARZIVAL_RECORD_FAILURES++ ))`. The post-increment
+    # operator evaluates to the OLD value, so under `set -e` the very FIRST
+    # increment returns 1 and kills the install -- this remedy re-creating the
+    # defect it exists to fix. Measured: `set -euo pipefail; x=0; (( x++ ))` exits
+    # 1 and the following line never runs; the assignment form exits 0.
+    PARZIVAL_RECORD_FAILURES=$((PARZIVAL_RECORD_FAILURES + 1))
+
+    log_error "$detail"
+
+    # GUARDED -- the `|| true` is NOT optional. An unguarded `>>` that fails under
+    # `set -euo pipefail` aborts the install, which is precisely the defect being
+    # fixed, relocated into its own remedy. It would ship LOOKING like a fix, and
+    # the review that follows sees a guard and stops looking. Measured: an
+    # unguarded append to an unwritable path exits 1 and the next line never runs.
+    #
+    # PER-ENTRY TIMESTAMP, not truncate-on-start. Truncating loses the history
+    # across repeated failures, which is exactly what an operator diagnosing an
+    # INTERMITTENT write failure needs. And without run identity the ledger
+    # reproduces this story's own B-10 one level up: run 1 fails, run 2 succeeds,
+    # and the operator reads a file that still names a failure.
+    #
+    # `2>/dev/null` PRECEDES the `>>` deliberately: redirections apply left to
+    # right, so with the usual ordering bash reports the failed redirection on the
+    # ORIGINAL stderr and the suppression never takes effect. Measured both ways.
+    printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$detail" \
+        2>/dev/null >> "$INSTALL_DIR/parzival-record-failures.log" || true
+
+    return 0
+}
+
+# The gate. Named rather than inlined at its call site so a test can reach it
+# while sourcing the real script.
+#
+# exit 3 is a NEW code, verified free before it was chosen: the exit census in this
+# file is 0 x7, 1 x57, 2 x1, and no 3. Distinct from 1 on purpose -- "the install
+# did its work but could not record why Parzival is off" is not the same event as
+# "the install failed", and an operator triaging them together learns nothing.
+#
+# CONTRACT CHANGE, stated here as well as in the commit body:
+# tests/integration/test_installation.py asserts returncode == 0 and two CI jobs run
+# install.sh bare, so a genuine record failure now fails CI. That is the intent --
+# a silent success is the thing this round exists to remove.
+parzival_record_status() {
+    if [[ "$PARZIVAL_RECORD_FAILURES" -ne 0 ]]; then
+        log_error "Parzival enablement record: $PARZIVAL_RECORD_FAILURES write failure(s) — the install COMPLETED but could not record why Parzival is disabled"
+        log_error "Details: $INSTALL_DIR/parzival-record-failures.log (absent if that path was unwritable too)"
+        exit 3
+    fi
+    return 0
 }
 
 # Step counter for major installation phases
@@ -1555,6 +1657,26 @@ main() {
     fi
 
     show_success_message
+
+    # THE GATE IS THE LAST THING main DOES. INSTALL_COMPLETED is set immediately
+    # before it so that a non-zero exit from here cannot make the EXIT trap report
+    # a COMPLETE install as "interrupted".
+    #
+    # Local precedent for gate-after-work is a few dozen lines above: the
+    # verify_env_split.py check logs at error level and exits AFTER its work has
+    # completed, rather than aborting mid-install.
+    #
+    # ORDERING NOTE, and it is load-bearing. show_success_message still carries 66
+    # unguarded `echo` lines, and TODAY those are the only thing producing any
+    # failure signal at all, because a run with a dead stdout dies there under
+    # errexit before ever reaching this line. Guarding them BEFORE this gate existed
+    # would have removed that accidental signal and made the silent success
+    # universal. The sweep is tracked as TD-1082 and lands with-or-after this gate,
+    # never before. This is also why the durable ledger is not optional: a counter
+    # that can only speak through a gate the run never reaches is a counter that
+    # says nothing.
+    INSTALL_COMPLETED=true
+    parzival_record_status
 }
 
 # Idempotency check - detect existing installation (NFR-I5)
@@ -6239,16 +6361,28 @@ set_parzival_enablement() {
     # into "the installer died". It is reported at error level instead: emitting an
     # error and changing the exit code are separable, and AC-1 requires the first
     # without the second.
+    # THAT IS STILL TRUE, AND IT IS NOT THE WHOLE STORY. Each of the four
+    # write-failure branches now routes through parzival_record_failure, which
+    # COUNTS the failure before it tries to log it. `return 0` is deliberately
+    # untouched at all four -- the fail-open contract above is preserved verbatim --
+    # but the count survives a dead log channel, and main's parzival_record_status
+    # gate turns it into `exit 3` at the very end. Reporting the failure and
+    # aborting the install stay separable; what stops being separable is failing
+    # and saying nothing at all.
+    # SOURCING PRECISION: AD-24/AD-26 are cited here BY ANALOGY. They live in a
+    # different spine and their Binds: scope them to the resolver/dispatch path,
+    # not to this installer write path; it is this comment block that makes them
+    # local precedent. A literal binds-match claim would be false.
     # Every other failure path in this function is guarded; this one was not, and
     # `set -euo pipefail` is global (install.sh:25) with setup_parzival called bare.
     # An unwritable docker/ turned "Parzival is off" into "the installer died" --
     # the exact outcome the contract three lines above forbids.
     if [[ ! -f "$env_file" ]] && ! touch "$env_file" 2>/dev/null; then
-        log_error "Could not create $env_file — Parzival enablement record NOT written (cause=$cause)"
+        parzival_record_failure "Could not create $env_file — Parzival enablement record NOT written (cause=$cause)"
         return 0
     fi
     if ! tmp=$(mktemp "${env_file}.parzival.XXXXXX"); then
-        log_error "Could not create a temp file beside $env_file — Parzival enablement record NOT written (cause=$cause)"
+        parzival_record_failure "Could not create a temp file beside $env_file — Parzival enablement record NOT written (cause=$cause)"
         return 0
     fi
 
@@ -6278,7 +6412,7 @@ set_parzival_enablement() {
         }
     ' "$env_file" > "$tmp" || {
         rm -f "$tmp"
-        log_error "Could not build the Parzival enablement record — NOT written (cause=$cause)"
+        parzival_record_failure "Could not build the Parzival enablement record — NOT written (cause=$cause)"
         return 0
     }
 
@@ -6354,7 +6488,7 @@ set_parzival_enablement() {
         # The target is untouched: it still holds the complete previous record
         # rather than a half-applied one. That is the whole point of committing
         # through a rename.
-        log_error "Could not commit the Parzival enablement record to $env_file — previous record left intact (cause=$cause)"
+        parzival_record_failure "Could not commit the Parzival enablement record to $env_file — previous record left intact (cause=$cause)"
     fi
     return 0
 }
