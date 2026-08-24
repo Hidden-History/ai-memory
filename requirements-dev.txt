@@ -14,27 +14,27 @@ requests==2.34.2
 psutil==7.2.2
 
 # E2E Testing
-pytest-playwright==0.8.0
-playwright==1.60.0
+pytest-playwright==0.9.0
+playwright==1.62.0
 
 # Code Quality
 black==26.5.1
-ruff==0.15.20
+ruff==0.16.3
 isort>=5.13.0,<9.0.0
-mypy==2.1.0
+mypy==2.3.1
 
 # Prometheus metrics (Story 6.1)
-prometheus-client==0.25.0
+prometheus-client==0.26.0
 
 # Structured logging (Story 6.5)
-python-json-logger==4.1.0
+python-json-logger==4.2.0
 
 # YAML processing with format preservation (Pre-Epic 7 - ACT-002)
 ruamel.yaml==0.19.1
 
 # Configuration management (Story 7.4)
 pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic-settings==2.15.0
 
 # YAML parsing (required by tests/unit/test_sops_encryption.py)
 PyYAML==6.0.3
