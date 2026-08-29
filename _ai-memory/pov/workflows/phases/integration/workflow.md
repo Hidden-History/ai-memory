@@ -45,3 +45,10 @@ These apply across ALL steps in this workflow:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:phase-integration
+depends_on: bmad
+degraded_behaviour: Runs integration without the BMAD dev and architect personas and reports each as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

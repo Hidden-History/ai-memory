@@ -22,7 +22,7 @@ allowed-tools: Read
 
 ## Step 0: Pre-Spawn Sentinel Gate (MANDATORY -- re-run before EVERY spawn)
 
-Before routing any dispatch, assert the current directory is the workspace root by confirming co-presence of `_ai-memory/`, `_bmad/`, and `oversight/` (CLAUDE.md workspace-root sentinel). Concretely: `test -d _ai-memory && test -d _bmad && test -d oversight`.
+Before routing any dispatch, assert the current directory is the workspace root by confirming co-presence of `_ai-memory/`, `_bmad/`, and `oversight/` (CLAUDE.md workspace-root sentinel). Concretely: `test -d _ai-memory && test -d oversight` for drift, then `test -d _bmad` separately for BMAD presence. A missing `_bmad/` alone is **not** drift: it is BMAD's own directory, and its absence means BMAD is not installed here. Report `bmad` as unavailable and continue with non-BMAD dispatch; abort only when `_ai-memory/` or `oversight/` is missing.
 
 - PASS -> proceed to Step 1.
 - FAIL -> **ABORT the spawn.** Report: "CWD drift -- not at workspace root; return to root before spawning." Do NOT route to /aim-model-dispatch or /aim-agent-lifecycle.
@@ -200,7 +200,7 @@ Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 #### B4. Verify Activation (MANDATORY — two-phase)
 
 **Sentinel (CLAUDE.md workspace-root):** before every spawn, as its own Bash step, assert workspace root:
-`test -d _ai-memory && test -d _bmad && test -d oversight`. FAIL → ABORT.
+`test -d _ai-memory && test -d oversight` for drift, then `test -d _bmad` separately for BMAD presence. Missing `_ai-memory/` or `oversight/` → ABORT. Missing `_bmad/` alone → report `bmad` as unavailable and continue with non-BMAD dispatch.
 
 **Spawn (two-phase, GC-20):** the spawn prompt loads the BMAD persona via the Skill tool (e.g.
 `Use the Skill tool to load bmad-agent-dev` — likewise `bmad-create-story`, `bmad-code-review`; a bare
@@ -258,3 +258,10 @@ Agent selection and instruction complete. Downstream skill handles spawn and act
 > **Convention**: All POV skill templates use the `.template.md` extension to distinguish them from step files and other markdown documents.
 
 The full instruction template is at: `templates/agent-instruction.template.md`
+
+<!-- ai-memory:degraded-declaration
+capability: cap:agent-dispatch
+depends_on: bmad
+degraded_behaviour: Routes generic (non-BMAD) dispatches only, and reports BMAD persona routing as unavailable instead of emitting a /bmad-* activation command that cannot resolve.
+degraded_test: tests/test_check_bmad_commands.py::test_bmad_not_installed_degrades
+ai-memory:end-degraded-declaration -->

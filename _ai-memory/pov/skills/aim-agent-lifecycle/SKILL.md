@@ -31,7 +31,7 @@ Max 3 correction loops -- escalate to user if unresolved.
 
 ## Step 1: Spawn Agent
 
-**Pre-spawn sentinel gate (MANDATORY -- re-run before EVERY spawn):** assert the current directory is the workspace root by confirming co-presence of `_ai-memory/`, `_bmad/`, and `oversight/` (CLAUDE.md workspace-root sentinel) -- `test -d _ai-memory && test -d _bmad && test -d oversight`. On FAIL, **ABORT the spawn** ("CWD drift -- not at workspace root; return to root before spawning") and do NOT invoke /aim-model-dispatch. CWD drifts across Bash calls, so re-run before each spawn, not once per session.
+**Pre-spawn sentinel gate (MANDATORY -- re-run before EVERY spawn):** assert the current directory is the workspace root by confirming co-presence of `_ai-memory/`, `_bmad/`, and `oversight/` (CLAUDE.md workspace-root sentinel) -- `test -d _ai-memory && test -d oversight` for drift, then `test -d _bmad` separately for BMAD presence. On a missing `_ai-memory/` or `oversight/`, **ABORT the spawn** ("CWD drift -- not at workspace root; return to root before spawning") and do NOT invoke /aim-model-dispatch. A missing `_bmad/` alone is BMAD's absence, not drift: report `bmad` as unavailable, skip BMAD persona activation, and continue with generic dispatch. CWD drifts across Bash calls, so re-run before each spawn, not once per session.
 
 **Agent Teams prerequisite gate (MANDATORY before the first parallel-team spawn):** run the shared **fire-only-if-missing** preflight -- `bash _ai-memory/pov/skills/aim-model-dispatch/scripts/lib/preflight_agent_teams.sh`. Silent + exit 0 -> prerequisites satisfied, proceed. Any stderr + exit 1 -> `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` is missing or `teammateMode` is a non-team mode; **ABORT the spawn**, relay the script's exact remediation to the user, and re-run once fixed. Same guard runs in the `/aim-model-dispatch` claude-native workflow, so both dispatch paths enforce the identical prerequisites.
 
@@ -84,3 +84,10 @@ MUST shutdown and spawn fresh for: new tasks, role changes, fix dispatches, re-r
 Never reuse an agent across tasks or roles.
 
 Verify no pending work remains. Confirm no orphaned tmux panes.
+
+<!-- ai-memory:degraded-declaration
+capability: cap:agent-lifecycle
+depends_on: bmad
+degraded_behaviour: Spawns and monitors generic agents normally, and reports BMAD two-phase persona activation as unavailable instead of sending an activation command into a pane that cannot resolve it.
+degraded_test: tests/test_cwd_sentinel.py::test_bmad_absent_is_reported_not_treated_as_cwd_drift
+ai-memory:end-degraded-declaration -->

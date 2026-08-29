@@ -44,3 +44,10 @@ These apply across ALL steps in this workflow:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:phase-release
+depends_on: bmad
+degraded_behaviour: Runs release without the BMAD dev and tech-writer personas and reports each as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

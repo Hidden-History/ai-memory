@@ -62,3 +62,10 @@ allowed-tools: Read
 
 All sub-workflows, references, scripts, wrappers, and evals are in:
 `{skills_path}/aim-model-dispatch/`
+
+<!-- ai-memory:degraded-declaration
+capability: cap:model-dispatch
+depends_on: bmad
+degraded_behaviour: Selects models and dispatches on the generic paths, and reports the bmad-dispatch path as unavailable instead of launching a pane that cannot activate a persona.
+degraded_test: tests/test_cwd_sentinel.py::test_bmad_absent_is_reported_not_treated_as_cwd_drift
+ai-memory:end-degraded-declaration -->

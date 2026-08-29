@@ -38,3 +38,10 @@ This protocol triggers whenever:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:cycle-research-protocol
+depends_on: bmad
+degraded_behaviour: Runs the research steps without a BMAD analyst persona and reports that persona as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

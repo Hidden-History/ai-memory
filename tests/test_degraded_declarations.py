@@ -1,0 +1,623 @@
+"""Contract and unit tests for per-capability degraded declarations (Story 1.4).
+
+Covers FR-5's testable consequences as they land on the three transports this
+product ships. Most BMAD-dependent capabilities are prose — workflow and skill
+markdown that instructs an action requiring a BMAD-shipped artifact — so their
+absent-mode test is a structural contract test over the markdown, which is what
+the ``process`` marker exists for.
+
+Synthetic identifiers only in fixtures: a fixture using live skill, module or
+agent names is an unbound roster wearing a test hat and goes stale just as
+fast (AD-20b). The contract tests below read the real tree, but they *derive*
+the set they check rather than carrying a list of it.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+
+import pytest
+
+from memory.degraded import (
+    DECLARATION_BEGIN,
+    DECLARATION_END,
+    DEPENDENCY_BEGIN,
+    DEPENDENCY_DECLARATION_SITE,
+    DEPENDENCY_END,
+    ENFORCEMENT_STATES,
+    POV_TREE,
+    Declaration,
+    DeclarationError,
+    DiscoveryResult,
+    declaration_sites,
+    discover,
+    parse_blocks,
+    remedy_for,
+)
+
+PRODUCT_ROOT = Path(__file__).resolve().parent.parent
+
+# A reference to a BMAD-shipped artifact that must exist for the instruction to
+# be followable. Mirrors Story 1.4's Task 1 derivation.
+#
+# Excluded, stated alongside the set it produces: the bare word "BMAD", which
+# appears as methodology prose on every workflow file ("This file is a BMAD
+# module summary") and names no artifact; and AI-Memory's own identifiers that
+# merely contain the string (bmad-dispatch, bmad-hooks, _bmad-output).
+_ARTIFACT_REFERENCE = re.compile(
+    r"/bmad-[a-z0-9-]+"
+    r"|bmad-agent-[a-z-]+"
+    r"|skills/bmad-[a-z0-9-]+"
+    r"|test -d _bmad"
+    r"|_bmad/_config/"
+    r"|\$\{skills_dir\}/bmad-\*"
+    r"|load bmad-[a-z0-9-]+"
+)
+_NOT_A_BMAD_ARTIFACT = re.compile(r"bmad-dispatch|bmad-hooks|bmad_hooks|bmad-output")
+
+
+def _references_bmad_artifact(container: Path) -> bool:
+    """True if any file under *container* names a BMAD-shipped artifact."""
+    for base, _dirs, names in os.walk(container):
+        for name in names:
+            path = Path(base) / name
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for match in _ARTIFACT_REFERENCE.finditer(text):
+                if not _NOT_A_BMAD_ARTIFACT.search(match.group(0)):
+                    return True
+    return False
+
+
+@pytest.fixture(scope="module")
+def real_discovery() -> DiscoveryResult:
+    return discover(PRODUCT_ROOT)
+
+
+# ---------------------------------------------------------------------------
+# Contract tests over the shipped tree
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.process
+def test_discovery_runs_against_the_shipped_tree(
+    real_discovery: DiscoveryResult,
+) -> None:
+    """Discovery must run, and must find the declarations that exist."""
+    assert real_discovery.ran is True
+    assert real_discovery.reason is None
+    assert real_discovery.sites_scanned > 0
+    assert real_discovery.declarations
+
+
+@pytest.mark.process
+def test_every_bmad_dependent_capability_declares_its_degradation(
+    real_discovery: DiscoveryResult,
+) -> None:
+    """Derived, not listed: every container naming a BMAD artifact declares.
+
+    The expected set is derived from the tree by the same matcher Task 1 used,
+    so a capability that gains a BMAD dependency later is caught without
+    anyone editing a roster.
+    """
+    sites = declaration_sites(PRODUCT_ROOT)
+    assert sites is not None
+
+    declared_sites = {d.source for d in real_discovery.declarations}
+    undeclared = [
+        str(site.relative_to(PRODUCT_ROOT))
+        for site in sites
+        if _references_bmad_artifact(site.parent)
+        and str(site.relative_to(PRODUCT_ROOT)) not in declared_sites
+    ]
+    assert undeclared == [], (
+        "capability containers reference a BMAD-shipped artifact but carry no "
+        f"degraded declaration: {undeclared}"
+    )
+
+
+@pytest.mark.process
+def test_every_declaration_names_its_dependency_and_remedy(
+    real_discovery: DiscoveryResult,
+) -> None:
+    """AC-1: each declaration names the missing dependency and its remedy."""
+    unremedied = []
+    for declaration in real_discovery.declarations:
+        assert declaration.depends_on
+        assert declaration.degraded_behaviour
+        remedy = remedy_for(real_discovery, declaration)
+        if remedy is None or not remedy.upstream_source:
+            unremedied.append((declaration.capability, declaration.depends_on))
+    assert unremedied == [], (
+        "declarations name a dependency that no dependency declaration provides: "
+        f"{unremedied}"
+    )
+
+
+@pytest.mark.process
+def test_declaration_fields_are_valid(real_discovery: DiscoveryResult) -> None:
+    """The marking is four-state or a test reference — never a bare boolean."""
+    for declaration in real_discovery.declarations:
+        marking = declaration.degraded_test
+        assert marking.lower() not in {"true", "false", "yes", "no", "0", "1"}, (
+            f"{declaration.capability}: degraded_test is a boolean, which is not a "
+            "valid marking"
+        )
+        assert marking in ENFORCEMENT_STATES or "::" in marking, (
+            f"{declaration.capability}: degraded_test {marking!r} is neither a test "
+            f"reference nor one of {ENFORCEMENT_STATES}"
+        )
+        assert declaration.capability.startswith("cap:"), (
+            f"{declaration.capability!r} is not namespaced: an identifier that reads as "
+            "prose collides with the text around it"
+        )
+        assert (
+            "/" not in declaration.capability
+        ), "an identifier that is a path breaks when the file moves"
+
+
+@pytest.mark.process
+def test_declaration_test_references_resolve(real_discovery: DiscoveryResult) -> None:
+    """A named test must exist. An untested detector is a hope with a checkmark."""
+    for declaration in real_discovery.declarations:
+        if "::" not in declaration.degraded_test:
+            continue
+        module, _, name = declaration.degraded_test.partition("::")
+        path = PRODUCT_ROOT / module
+        assert path.is_file(), f"{declaration.capability}: {module} does not exist"
+        assert f"def {name}(" in path.read_text(
+            encoding="utf-8"
+        ), f"{declaration.capability}: {name} not found in {module}"
+
+
+@pytest.mark.process
+def test_no_shipped_artifact_lists_the_capabilities(
+    real_discovery: DiscoveryResult,
+) -> None:
+    """AC-5: the set is discoverable, and nowhere written down as a list.
+
+    Bounded to the pov tree inside this product root — never a glob from the
+    workspace root, where sibling worktrees carry duplicate trees (AD-19).
+    """
+    identifiers = {d.capability for d in real_discovery.declarations}
+    assert len(identifiers) > 1
+
+    for base, _dirs, names in os.walk(PRODUCT_ROOT / POV_TREE):
+        for name in names:
+            path = Path(base) / name
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            present = {
+                i
+                for i in identifiers
+                if re.search(rf"(?<![\w-]){re.escape(i)}(?![\w-])", text)
+            }
+            assert len(present) <= 1, (
+                f"{path.relative_to(PRODUCT_ROOT)} names {sorted(present)} — a shipped "
+                "artifact carrying a roster of capabilities defeats derivation at its root"
+            )
+
+
+@pytest.mark.process
+def test_dependency_site_declares_no_version_scope() -> None:
+    """The version scope is read from the pin declaration, never restated."""
+    text = (PRODUCT_ROOT / DEPENDENCY_DECLARATION_SITE).read_text(encoding="utf-8")
+    for block in parse_blocks(
+        text, DEPENDENCY_BEGIN, DEPENDENCY_END, DEPENDENCY_DECLARATION_SITE
+    ):
+        assert "version_scope" not in block
+        for key, value in block.items():
+            assert not re.search(r"\bv?\d+\.\d+(\.\d+)?\b", value), (
+                f"{key} carries a version-shaped string {value!r}: a pinned value must "
+                "carry its pin, and this file is not the pin declaration"
+            )
+
+
+@pytest.mark.process
+def test_absent_status_field_is_not_reinstated(real_discovery: DiscoveryResult) -> None:
+    """absent_status was removed deliberately; a constant cannot discriminate."""
+    sites = declaration_sites(PRODUCT_ROOT)
+    assert sites is not None
+    for site in sites:
+        text = site.read_text(encoding="utf-8")
+        for block in parse_blocks(text, DECLARATION_BEGIN, DECLARATION_END, str(site)):
+            assert "absent_status" not in block
+
+
+# ---------------------------------------------------------------------------
+# Unit tests — synthetic trees only
+# ---------------------------------------------------------------------------
+
+
+def _synthetic_tree(root: Path, blocks: dict[str, str]) -> None:
+    """Build a minimal pov tree carrying *blocks* keyed by synthetic skill name."""
+    skills = root / POV_TREE / "skills"
+    skills.mkdir(parents=True)
+    for skill_name, block in blocks.items():
+        directory = skills / skill_name
+        directory.mkdir()
+        (directory / "SKILL.md").write_text(
+            f"# {skill_name}\n\n{block}\n", encoding="utf-8"
+        )
+
+
+def _block(capability: str, **overrides: str) -> str:
+    fields = {
+        "capability": capability,
+        "depends_on": "widget",
+        "degraded_behaviour": "reports the dependency as unavailable",
+        "degraded_test": "not-yet-enforced",
+    }
+    fields.update(overrides)
+    body = "\n".join(f"{k}: {v}" for k, v in fields.items())
+    return f"<!-- {DECLARATION_BEGIN}\n{body}\n{DECLARATION_END} -->"
+
+
+def _dependency_site(
+    root: Path, name: str = "widget", source: str = "https://example.invalid/widget"
+) -> None:
+    site = root / DEPENDENCY_DECLARATION_SITE
+    site.parent.mkdir(parents=True, exist_ok=True)
+    site.write_text(
+        f"<!-- {DEPENDENCY_BEGIN}\ndependency: {name}\nupstream_source: {source}\n{DEPENDENCY_END} -->\n",
+        encoding="utf-8",
+    )
+
+
+def test_fixture_pair_complete_declaration_passes(tmp_path: Path) -> None:
+    """Direction one of the pair: a compliant declaration must not be flagged."""
+    _synthetic_tree(tmp_path, {"synthetic-alpha": _block("cap:synthetic-alpha")})
+    _dependency_site(tmp_path)
+    result = discover(tmp_path)
+    assert result.ran is True
+    assert [d.capability for d in result.declarations] == ["cap:synthetic-alpha"]
+    assert remedy_for(result, result.declarations[0]) is not None
+
+
+def test_fixture_pair_incomplete_declaration_is_flagged(tmp_path: Path) -> None:
+    """Direction two: a declaration missing a required field must be flagged."""
+    incomplete = _block("cap:synthetic-beta").replace(
+        "degraded_behaviour: reports the dependency as unavailable\n", ""
+    )
+    _synthetic_tree(tmp_path, {"synthetic-beta": incomplete})
+    with pytest.raises(DeclarationError, match="degraded_behaviour"):
+        discover(tmp_path)
+
+
+def test_discovery_that_did_not_run_is_not_an_empty_result(tmp_path: Path) -> None:
+    """An empty resolution is a result, not a silence (AD-6)."""
+    result = discover(tmp_path)
+    assert result.ran is False
+    assert result.declarations == ()
+    assert result.reason is not None
+
+
+def test_discovery_that_found_nothing_reports_a_result(tmp_path: Path) -> None:
+    _synthetic_tree(tmp_path, {"synthetic-gamma": "# no declaration here"})
+    result = discover(tmp_path)
+    assert result.ran is True
+    assert result.declarations == ()
+    assert result.sites_scanned == 1
+    assert result.reason is None
+
+
+def test_duplicate_capability_identifier_is_refused(tmp_path: Path) -> None:
+    _synthetic_tree(
+        tmp_path,
+        {
+            "synthetic-delta": _block("cap:synthetic-shared"),
+            "synthetic-epsilon": _block("cap:synthetic-shared"),
+        },
+    )
+    with pytest.raises(DeclarationError, match="already declared"):
+        discover(tmp_path)
+
+
+def test_unterminated_block_is_refused(tmp_path: Path) -> None:
+    """A truncated declaration must not read as a valid short one."""
+    truncated = f"<!-- {DECLARATION_BEGIN}\ncapability: cap:synthetic-zeta\n"
+    _synthetic_tree(tmp_path, {"synthetic-zeta": truncated})
+    with pytest.raises(DeclarationError, match="not terminated"):
+        discover(tmp_path)
+
+
+def test_version_scope_in_a_dependency_declaration_is_refused(tmp_path: Path) -> None:
+    _synthetic_tree(tmp_path, {"synthetic-eta": _block("cap:synthetic-eta")})
+    site = tmp_path / DEPENDENCY_DECLARATION_SITE
+    site.parent.mkdir(parents=True, exist_ok=True)
+    site.write_text(
+        f"<!-- {DEPENDENCY_BEGIN}\ndependency: widget\nupstream_source: https://example.invalid/w\n"
+        f"version_scope: 1.2.3\n{DEPENDENCY_END} -->\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(DeclarationError, match="version_scope"):
+        discover(tmp_path)
+
+
+def test_remedy_join_falls_back_to_the_product_root(tmp_path: Path) -> None:
+    """Containment, not a mapping table: widget.part is served by widget."""
+    _synthetic_tree(
+        tmp_path,
+        {"synthetic-theta": _block("cap:synthetic-theta", depends_on="widget.part")},
+    )
+    _dependency_site(tmp_path)
+    result = discover(tmp_path)
+    remedy = remedy_for(result, result.declarations[0])
+    assert remedy is not None
+    assert remedy.dependency == "widget"
+
+
+def test_remedy_join_prefers_the_more_specific_entry(tmp_path: Path) -> None:
+    _synthetic_tree(
+        tmp_path,
+        {"synthetic-iota": _block("cap:synthetic-iota", depends_on="widget.part")},
+    )
+    site = tmp_path / DEPENDENCY_DECLARATION_SITE
+    site.parent.mkdir(parents=True, exist_ok=True)
+    site.write_text(
+        f"<!-- {DEPENDENCY_BEGIN}\ndependency: widget\nupstream_source: https://example.invalid/w\n{DEPENDENCY_END} -->\n"
+        f"<!-- {DEPENDENCY_BEGIN}\ndependency: widget.part\nupstream_source: https://example.invalid/wp\n{DEPENDENCY_END} -->\n",
+        encoding="utf-8",
+    )
+    result = discover(tmp_path)
+    remedy = remedy_for(result, result.declarations[0])
+    assert remedy is not None
+    assert remedy.dependency == "widget.part"
+
+
+def test_declaration_block_reads_the_same_from_a_shell_transport(
+    tmp_path: Path,
+) -> None:
+    """One mechanism, every transport: a hash-commented block parses identically."""
+    shell_form = "\n".join(
+        [
+            f"# {DECLARATION_BEGIN}",
+            "# capability: cap:synthetic-kappa",
+            "# depends_on: widget",
+            "# degraded_behaviour: reports the dependency as unavailable",
+            "# degraded_test: not-yet-enforced",
+            f"# {DECLARATION_END}",
+        ]
+    )
+    markdown_form = _block("cap:synthetic-kappa")
+    from_shell = parse_blocks(
+        shell_form, DECLARATION_BEGIN, DECLARATION_END, "synthetic.sh"
+    )
+    from_markdown = parse_blocks(
+        markdown_form, DECLARATION_BEGIN, DECLARATION_END, "synthetic.md"
+    )
+    assert from_shell == from_markdown
+
+
+def test_declaration_is_a_frozen_record() -> None:
+    declaration = Declaration("cap:a", "b", "c", "d", "e")
+    with pytest.raises(AttributeError):
+        declaration.capability = "z"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Round 2 — a declaration must not be able to disappear without a signal, and
+# discovery must not crash on a site it cannot decode.
+# ---------------------------------------------------------------------------
+
+
+def _declaration(capability: str) -> str:
+    return "\n".join(
+        (
+            f"<!-- {DECLARATION_BEGIN} -->",
+            f"<!-- capability: {capability} -->",
+            "<!-- depends_on: bmad -->",
+            "<!-- degraded_behaviour: synthetic degraded statement -->",
+            "<!-- degraded_test: not-yet-enforced -->",
+        )
+    )
+
+
+def test_a_missing_end_marker_does_not_swallow_the_previous_capability(
+    tmp_path: Path,
+) -> None:
+    """Two blocks, the first unterminated, must not silently become one.
+
+    The reader treated a second begin marker as an ordinary ``key: value``
+    line, so the second block's fields overwrote the first's and one
+    capability left the enumeration with nothing raised and nothing logged.
+    A capability that vanishes silently defeats AC-5 at its root.
+    """
+    text = "\n".join(
+        (
+            _declaration("cap:synthetic-lambda"),
+            _declaration("cap:synthetic-mu"),
+            f"<!-- {DECLARATION_END} -->",
+        )
+    )
+    with pytest.raises(DeclarationError) as excinfo:
+        parse_blocks(text, DECLARATION_BEGIN, DECLARATION_END, "synthetic-site")
+    assert "cap:synthetic-lambda" in str(excinfo.value) or "nested" in str(
+        excinfo.value
+    )
+
+
+def test_two_terminated_blocks_in_one_file_still_parse(tmp_path: Path) -> None:
+    """The other direction: the guard must not refuse a legitimate pair."""
+    text = "\n".join(
+        (
+            _declaration("cap:synthetic-lambda"),
+            f"<!-- {DECLARATION_END} -->",
+            _declaration("cap:synthetic-mu"),
+            f"<!-- {DECLARATION_END} -->",
+        )
+    )
+    blocks = parse_blocks(text, DECLARATION_BEGIN, DECLARATION_END, "synthetic-site")
+    assert [b["capability"] for b in blocks] == [
+        "cap:synthetic-lambda",
+        "cap:synthetic-mu",
+    ]
+
+
+def test_undecodable_site_does_not_crash_discovery(tmp_path: Path) -> None:
+    """Discovery reads bytes it did not write; it must degrade like the resolver.
+
+    The registry reader passes ``errors="replace"``; this reader did not, so
+    one undecodable byte anywhere under the pov tree took the whole
+    enumeration down with an unhandled UnicodeDecodeError (AC-1).
+    """
+    site = tmp_path / POV_TREE / "skills" / "synthetic-skill"
+    site.mkdir(parents=True)
+    (site / "SKILL.md").write_bytes(b"\xff\xfe not utf-8 \xff")
+    result = discover(tmp_path)
+    assert result.ran is True
+    assert result.declarations == ()
+
+
+def test_duplicate_dependency_identifier_is_refused(tmp_path: Path) -> None:
+    """A duplicate dependency is refused for the reason a duplicate capability is.
+
+    Two entries for one dependency make the remedy join order-dependent: the
+    first match wins and the second is unreachable, so an operator is handed
+    whichever remedy happened to be written first.
+    """
+    (tmp_path / POV_TREE).mkdir(parents=True)
+    (tmp_path / DEPENDENCY_DECLARATION_SITE).write_text(
+        "\n".join(
+            (
+                f"<!-- {DEPENDENCY_BEGIN} -->",
+                "<!-- dependency: synthetic-dep -->",
+                "<!-- upstream_source: the first source -->",
+                f"<!-- {DEPENDENCY_END} -->",
+                f"<!-- {DEPENDENCY_BEGIN} -->",
+                "<!-- dependency: synthetic-dep -->",
+                "<!-- upstream_source: a second, conflicting source -->",
+                f"<!-- {DEPENDENCY_END} -->",
+            )
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(DeclarationError) as excinfo:
+        discover(tmp_path)
+    assert "synthetic-dep" in str(excinfo.value)
+
+
+def test_distinct_dependencies_at_one_site_still_parse(tmp_path: Path) -> None:
+    """The other direction: two different dependencies are legitimate."""
+    (tmp_path / POV_TREE).mkdir(parents=True)
+    (tmp_path / DEPENDENCY_DECLARATION_SITE).write_text(
+        "\n".join(
+            (
+                f"<!-- {DEPENDENCY_BEGIN} -->",
+                "<!-- dependency: synthetic-dep-one -->",
+                "<!-- upstream_source: source one -->",
+                f"<!-- {DEPENDENCY_END} -->",
+                f"<!-- {DEPENDENCY_BEGIN} -->",
+                "<!-- dependency: synthetic-dep-two -->",
+                "<!-- upstream_source: source two -->",
+                f"<!-- {DEPENDENCY_END} -->",
+            )
+        ),
+        encoding="utf-8",
+    )
+    result = discover(tmp_path)
+    assert [d.dependency for d in result.dependencies] == [
+        "synthetic-dep-one",
+        "synthetic-dep-two",
+    ]
+
+
+@pytest.mark.process
+def test_a_declaration_may_not_cite_the_declaration_schema_as_its_behaviour(
+    real_discovery: DiscoveryResult,
+) -> None:
+    """A declaration cannot be its own behavioural coverage.
+
+    Round 1 pointed thirteen of sixteen declarations at a test in this module
+    — one that asserts each declaration *names* a dependency and a remedy. That
+    is a schema check over the declarations themselves: it passes whether or
+    not the capability degrades correctly, and it would pass for a capability
+    with no degraded path at all. Counting those as covered produced a "16
+    covered / 0 marked" figure that no behaviour stood behind.
+
+    A path with no behavioural test is not a failure — it is one of AD-20's
+    four states, recorded honestly. Citing a schema test instead is what turns
+    an unenforced path into a green checkmark.
+    """
+    this_module = Path(__file__).name
+    circular = [
+        (d.capability, d.degraded_test)
+        for d in real_discovery.declarations
+        if "::" in d.degraded_test
+        and d.degraded_test.split("::")[0].endswith(this_module)
+    ]
+    assert circular == [], (
+        "declarations cite this module's own schema tests as their degraded "
+        f"behaviour, which cannot discriminate: {circular}. Mark them with one "
+        "of AD-20's four enforcement states instead."
+    )
+
+
+@pytest.mark.process
+def test_bmad_dispatch_requires_bmad_before_it_creates_a_pane() -> None:
+    """The one dispatch path that needs BMAD must gate on it itself (AC-1).
+
+    Separating BMAD's absence from CWD drift made the sentinel return 0 when
+    only ``_bmad/`` is missing, which is right for the dispatch paths that
+    never needed BMAD. It is wrong for this one: it exists to activate a BMAD
+    agent, so on a BMAD-less machine the sentinel's success would carry it
+    through to creating a pane and sending an activation that cannot resolve —
+    a silent no-op wearing a successful dispatch's clothes.
+    """
+    step = (
+        PRODUCT_ROOT
+        / POV_TREE
+        / "skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        / "step-02-launch-and-activate.md"
+    )
+    text = step.read_text(encoding="utf-8")
+
+    gate = text.find("test -d _bmad")
+    pane = text.find("tmux split-window")
+    assert gate != -1, f"{step.name} creates a pane with no BMAD-presence gate"
+    assert pane != -1, f"{step.name} no longer creates a pane — re-derive this test"
+    assert gate < pane, (
+        "the BMAD gate must run before pane creation: a pane created first is "
+        "a resource spent on a dispatch that cannot complete"
+    )
+
+    gate_block = text[gate : gate + 600]
+    assert "unavailable" in gate_block, "the gate must name the missing dependency"
+    assert (
+        "DEPENDENCIES.md" in gate_block
+    ), "the gate must name what would provide it (AC-1)"
+
+
+@pytest.mark.process
+def test_no_shipped_artifact_mandates_the_superseded_three_marker_conjunction() -> None:
+    """A paragraph that contradicts its own command is worse than neither fixed.
+
+    Four sites had their prose updated to say a missing ``_bmad/`` alone is
+    BMAD's absence rather than CWD drift, while the command directly beside it
+    still read ``test -d _ai-memory && test -d _bmad && test -d oversight`` — a
+    conjunction that fails in exactly the case the prose says to continue
+    through. An operator following the command gets the behaviour the
+    paragraph tells them is wrong, and this is the command a dispatcher runs
+    before every spawn.
+    """
+    superseded = "test -d _ai-memory && test -d _bmad && test -d oversight"
+    offenders = []
+    for base, _dirs, names in os.walk(PRODUCT_ROOT / POV_TREE):
+        for name in names:
+            path = Path(base) / name
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if superseded in text:
+                offenders.append(str(path.relative_to(PRODUCT_ROOT)))
+    assert sorted(offenders) == [], (
+        "shipped artifacts mandate the superseded three-marker conjunction, "
+        f"which contradicts their own prose: {sorted(offenders)}"
+    )

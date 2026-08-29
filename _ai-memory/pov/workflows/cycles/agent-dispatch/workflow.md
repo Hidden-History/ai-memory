@@ -53,3 +53,10 @@ See [STEP-PREAMBLE.md]({workflows_path}/STEP-PREAMBLE.md) for Step Processing Ru
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:cycle-agent-dispatch
+depends_on: bmad
+degraded_behaviour: Runs the generic spawn and instruction steps, and reports the BMAD activation step as unavailable instead of instructing an activation that cannot resolve.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

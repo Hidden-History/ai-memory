@@ -241,3 +241,68 @@ def test_no_required_root_uses_cwd(
     assert r.returncode == 0
     assert "OK: workspace root" in r.stdout
     assert r.stderr == ""
+
+
+# ---------------------------------------------------------------------------
+# BMAD absence is a degraded state, not CWD drift (Story 1.4, AC-1)
+#
+# _bmad/ is shipped by BMAD, not by AI-Memory, so its absence is the normal
+# state of a workspace root on a machine without BMAD. Reporting that as
+# "CWD is not workspace root" names the wrong cause, offers no remedy, and
+# aborts dispatches that do not need BMAD at all.
+# ---------------------------------------------------------------------------
+
+
+def test_bmad_absent_is_reported_not_treated_as_cwd_drift(
+    sentinel: Path, tmp_path: Path, base_env: dict[str, str]
+) -> None:
+    """Strict: _bmad/ alone missing degrades — names the dependency, exits 0."""
+    _make_markers(tmp_path, ("_ai-memory", "oversight"))
+    r = _run(sentinel, "--required-root", str(tmp_path), cwd=tmp_path, env=base_env)
+    assert r.returncode == 0
+    assert "CWD is not workspace root" not in r.stdout
+    assert "bmad" in r.stdout
+    assert "unavailable" in r.stdout
+    assert r.stderr == ""
+
+
+def test_bmad_absent_degrades_in_loose_variant_too(
+    sentinel: Path, tmp_path: Path, base_env: dict[str, str]
+) -> None:
+    """Loose: same distinction, so the two variants cannot disagree on cause."""
+    _make_markers(tmp_path, ("_ai-memory", "oversight"))
+    r = _run(
+        sentinel,
+        "--required-root",
+        str(tmp_path),
+        "--variant",
+        "loose",
+        cwd=tmp_path,
+        env=base_env,
+    )
+    assert r.returncode == 0
+    assert "not workspace root" not in r.stdout
+    assert "bmad" in r.stdout
+    assert r.stderr == ""
+
+
+def test_missing_ai_memory_marker_still_fails_as_cwd_drift(
+    sentinel: Path, tmp_path: Path, base_env: dict[str, str]
+) -> None:
+    """The other direction of the pair: real drift must still be flagged."""
+    _make_markers(tmp_path, ("_bmad", "oversight"))
+    r = _run(sentinel, "--required-root", str(tmp_path), cwd=tmp_path, env=base_env)
+    assert r.returncode == 1
+    assert "FAIL: CWD is not workspace root" in r.stdout
+    assert r.stderr == ""
+
+
+def test_missing_oversight_marker_still_fails_as_cwd_drift(
+    sentinel: Path, tmp_path: Path, base_env: dict[str, str]
+) -> None:
+    """Real drift with BMAD present must not be softened by the new branch."""
+    _make_markers(tmp_path, ("_ai-memory", "_bmad"))
+    r = _run(sentinel, "--required-root", str(tmp_path), cwd=tmp_path, env=base_env)
+    assert r.returncode == 1
+    assert "FAIL: CWD is not workspace root" in r.stdout
+    assert r.stderr == ""

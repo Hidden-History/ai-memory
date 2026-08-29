@@ -361,11 +361,24 @@ class TestManualSaveMemoryPair:
         assert a != b, (a, b)
 
     def test_failed_does_not_advise_setting_the_flag(self, monkeypatch, capsys):
+        """H-2 (round 2): was pinned to the retired "PARZIVAL_ENABLED=true"
+        flag token, which no longer appears anywhere in `_MESSAGES` (H-3
+        removed it from opt-out's remedy too) — so that assertion could no
+        longer fail against the leak it was written to catch. Retargeted to
+        "install.sh", the string opt-out's remedy now uniquely carries.
+        """
         err = self._stderr("failed", monkeypatch, capsys)
         assert "could not be installed" in err, err
-        assert "Set PARZIVAL_ENABLED=true" not in err, err
+        assert "install.sh" not in err, err
 
-    def test_opt_out_does_advise_setting_the_flag(self, monkeypatch, capsys):
+    def test_opt_out_still_names_declined_at_install(self, monkeypatch, capsys):
+        """Renamed from ``..._does_advise_setting_the_flag``: this body only ever
+        asserted the CLAIM clause, never the remedy, and Story 1.3's AC-5 rewrote
+        the remedy — this assertion stays green through that edit, and the old
+        name asserted a framing the rewrite removed. AC-3b: the claim clause is a
+        COUNTED finding here, not fixed (see TestStateChangeNoticePair below and
+        the story's own § AC-5's measured test blast radius).
+        """
         err = self._stderr("opt-out", monkeypatch, capsys)
         assert "declined at install" in err, err
 
@@ -466,3 +479,71 @@ class TestUnknownCauseIsNeverReportedAsAChoice:
         err = TestManualSaveMemoryPair()._stderr("", monkeypatch, capsys)
         assert "did not record why" in err, err
         assert "declined" not in err, err
+
+
+class TestStateChangeNoticePair:
+    """AC-3a/AC-3b, AD-20 shape: a fixture pair for the notice Story 1.3 Task 2
+    composes in ``install.sh`` (``announce_parzival_state_change``).
+
+    Not a cause pair — this notice is cause-blind by construction (Task 5), so
+    there is no ``opt-out`` vs ``failed`` rendering to contrast. The pair AD-20
+    asks for here is the other axis AC-3a/AD-67 governs: a message asserting a
+    PRIOR CHOICE (forbidden, must be flagged) against a PRODUCT-LEVEL statement
+    about the observed transition (permitted, must not be flagged).
+    """
+
+    #: The mechanical test AD-67 states: does the message assert a distinction —
+    #: a decision the operator made — that the record cannot support? Scoped to
+    #: this fixture pair, not a repo-wide scan (Task 6 owns deriving that domain).
+    _FORBIDDEN_CLAIM_MARKERS = ("declined", "you chose", "your choice", "opted out")
+
+    @classmethod
+    def _asserts_prior_choice(cls, text: str) -> bool:
+        lowered = text.lower()
+        return any(marker in lowered for marker in cls._FORBIDDEN_CLAIM_MARKERS)
+
+    def test_a_message_claiming_a_prior_choice_is_flagged(self):
+        """The fixture the detector MUST flag — proves the check has teeth
+        (Anti-patterns 4: a check that never observes a violation is unverified).
+        """
+        violating = (
+            "Parzival is now enabled. It was declined at install; that "
+            "no longer applies."
+        )
+        assert self._asserts_prior_choice(violating), violating
+
+    def _notice(
+        self,
+        install_sh_no_main,
+        tmp_path,
+        before_value,
+        before_pkg,
+        after_value,
+        after_pkg,
+    ) -> str:
+        bash_cmd = f"""
+set -euo pipefail
+source "{install_sh_no_main}"
+announce_parzival_state_change "{before_value}" "{before_pkg}" "{after_value}" "{after_pkg}"
+"""
+        res = subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
+        assert res.returncode == 0, res.stdout + res.stderr
+        return res.stdout + res.stderr
+
+    def test_the_actual_notice_wording_is_not_flagged(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The product-level statements this story actually ships (AC-3a,
+        construction-scoped) must NOT trip the same check."""
+        installed = self._notice(
+            install_sh_no_main, tmp_path, "false", "false", "true", "true"
+        )
+        converted = self._notice(
+            install_sh_no_main, tmp_path, "false", "true", "true", "true"
+        )
+        disabled = self._notice(
+            install_sh_no_main, tmp_path, "true", "true", "false", "true"
+        )
+        for statement in (installed, converted, disabled):
+            assert "parzival_notice=" in statement, statement
+            assert not self._asserts_prior_choice(statement), statement

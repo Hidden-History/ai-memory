@@ -322,3 +322,10 @@ Parzival activates all agents himself — the user does not run agents.
 - All agents (BMAD and generic) → /aim-agent-dispatch
 
 Pass the full Dispatch Plan object verbatim — including exact model ID, full file list, `agent_id`, and `bmad_agent_type` (see `Dispatch Plan Schema`). Downstream skills re-emit the plan for round-trip verification. (`bmad_agent_type` identifies the intended BMAD agent type, e.g. dev; null for generic agents.)
+
+<!-- ai-memory:degraded-declaration
+capability: cap:team-builder
+depends_on: bmad
+degraded_behaviour: Designs teams with every bmad_agent_type null and reports BMAD role assignment as unavailable, instead of assigning a persona whose activation command cannot resolve.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

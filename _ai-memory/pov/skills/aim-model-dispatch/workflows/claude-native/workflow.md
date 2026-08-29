@@ -58,6 +58,10 @@ co-presence of all three sentinel directories: `_ai-memory/`, `_bmad/`, and
 `oversight/`. Checking only `_ai-memory/` produces a false positive when CWD
 has drifted into a source repo clone.
 
+`_bmad/` is shipped by BMAD, not by AI-Memory. When it alone is missing the
+sentinel reports a degraded state rather than drift: the workspace root is
+correct and dispatch that does not need BMAD proceeds.
+
 ```
 # Scope: dev workspace dispatches only. End-user installs (~/.ai-memory/) launch
 # via skill installer wrappers and do not require this sentinel.
@@ -66,7 +70,8 @@ Bash: pwd
 # MUST output the workspace root (e.g., /mnt/e/projects/dev-ai-memory)
 
 Bash: bash "${SKILL_DIR:=$(pwd)/_ai-memory/pov/skills/aim-model-dispatch}/scripts/lib/cwd_sentinel.sh" --variant loose
-# MUST output "OK: workspace root"
+# MUST output "OK: workspace root", or "DEGRADED: dependency 'bmad' is
+# unavailable" on a machine without BMAD -- which is not drift.
 # If "FAIL": stop, cd to workspace root, re-verify.
 # A single-marker check (e.g., ls _ai-memory/) is INSUFFICIENT -- a nested
 # source repo (ai-memory/) also contains _ai-memory/ and will pass.

@@ -219,6 +219,90 @@ setup_parzival
     )
 
 
+def _run_with_notice(
+    install_sh_copy: Path,
+    install_dir: Path,
+    project_dir: Path,
+    *,
+    deployed_before: bool,
+    source_package_present: bool = True,
+    non_interactive: str = "true",
+    install_parzival: str | None = None,
+    deploy_fails: bool = False,
+    deploy_creates_package: bool = True,
+    stdin: str = "",
+    extra_bash: str = "",
+) -> subprocess.CompletedProcess:
+    """Drive ``setup_parzival`` wrapped exactly the way ``main()`` wraps it: an
+    effective-state sample before, the call, a sample after, then
+    ``announce_parzival_state_change`` (AD-66/Task 1/Task 2).
+
+    Two DIFFERENT directories both happen to be named ``_ai-memory`` and must
+    not be conflated (measured the hard way while authoring this helper):
+    ``source_package_present`` seeds ``$INSTALL_DIR/_ai-memory`` — the shipped
+    package ``setup_parzival``'s own first guard checks before attempting
+    anything — while ``deployed_before`` seeds ``$PROJECT_PATH/_ai-memory/pov``,
+    the AD-70/AD-66 DEPLOYMENT this story's probe actually samples. Leaving the
+    source package present (the default) is what every scenario except "package
+    literally never shipped" needs to reach setup_parzival's real branches at
+    all.
+
+    ``$PROJECT_PATH/_ai-memory/pov`` (not the bare ``_ai-memory`` parent) is
+    what's seeded: ``deploy_ai_memory_skills`` -- called unconditionally, even
+    on the decline/fail paths -- creates ``_ai-memory/skills`` regardless of
+    Parzival's own state, so the bare parent is present on every install and
+    cannot discriminate "Parzival was deployed before" (H-1, round 2).
+    ``_ai-memory/pov`` is created only by ``deploy_parzival_v2``, matching
+    ``parzival_package_present``'s own predicate.
+
+    ``deploy_creates_package`` mimics the real ``deploy_parzival_v2``'s effect on
+    a successful run at ``$PROJECT_PATH/_ai-memory/pov`` — the stubbed version
+    otherwise has zero filesystem side-effects, so an "after" package-presence
+    sample could never observe a deployment.
+    """
+    if source_package_present:
+        (install_dir / "_ai-memory").mkdir(parents=True, exist_ok=True)
+    if deployed_before:
+        (project_dir / "_ai-memory" / "pov").mkdir(parents=True, exist_ok=True)
+
+    install_parzival_line = (
+        f'INSTALL_PARZIVAL="{install_parzival}"' if install_parzival is not None else ""
+    )
+    deploy_rc = 1 if deploy_fails else 0
+    deploy_side_effect = (
+        f'mkdir -p "{project_dir}/_ai-memory/pov";'
+        if (deploy_creates_package and not deploy_fails)
+        else ""
+    )
+
+    bash_cmd = f"""
+set -euo pipefail
+export INSTALL_DIR="{install_dir}"
+export PROJECT_PATH="{project_dir}"
+export NON_INTERACTIVE="{non_interactive}"
+source "{install_sh_copy}"
+INSTALL_DIR="{install_dir}"
+PROJECT_PATH="{project_dir}"
+NON_INTERACTIVE="{non_interactive}"
+{install_parzival_line}
+{_STUBS}
+deploy_parzival_v2() {{ {deploy_side_effect} return {deploy_rc}; }}
+{extra_bash}
+_before_value=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+_before_package=$(parzival_package_present "$PROJECT_PATH")
+setup_parzival
+_after_value=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+_after_package=$(parzival_package_present "$PROJECT_PATH")
+announce_parzival_state_change "$_before_value" "$_before_package" "$_after_value" "$_after_package"
+"""
+    return subprocess.run(
+        ["bash", "-c", bash_cmd],
+        capture_output=True,
+        text=True,
+        input=stdin,
+    )
+
+
 def _env_values(install_dir: Path) -> dict[str, str]:
     """Parse the resulting docker/.env into a key -> value dict."""
     env_file = install_dir / "docker" / ".env"
@@ -1833,3 +1917,235 @@ class TestTheGateIsWiredIntoMain:
             "reaches the gate by calling it directly and hand-setting the flag, "
             f"so nothing else would notice. Last two statements found: {body[-2:]!r}"
         )
+
+
+class TestUniversalStateChangeNotice:
+    """AD-66 / Story 1.3 Tasks 1-2: the state-change notice, driven the way
+    ``main()`` drives it -- sample, ``setup_parzival``, sample,
+    ``announce_parzival_state_change``. See ``_run_with_notice``.
+    """
+
+    @pytest.mark.parametrize("non_interactive", ["true", "false"])
+    def test_never_present_to_enabled_emits_installed(
+        self, install_sh_no_main, dirs, non_interactive
+    ):
+        install_dir, project_dir = dirs
+        res = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=False,
+            non_interactive=non_interactive,
+            install_parzival="true",
+            stdin="y\n",
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "parzival_notice=installed" in combined, combined
+
+    def test_not_enabled_to_enabled_emits_converted(self, install_sh_no_main, dirs):
+        """The package was already deployed; only the flag flips."""
+        install_dir, project_dir = dirs
+        res = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=True,
+            non_interactive="true",
+            install_parzival="true",
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "parzival_notice=converted" in combined, combined
+
+    def test_same_state_rewrite_emits_no_notice(self, install_sh_no_main, dirs):
+        """Task 1's own verify subtask: a same-state rewrite emits nothing.
+
+        Package undeployed, non-interactive skip -> still not-enabled, still
+        undeployed: "changed" is a diff, not a write.
+        """
+        install_dir, project_dir = dirs
+        res = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=False,
+            non_interactive="true",
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "parzival_notice=" not in combined, combined
+
+    def test_failed_cause_unchanged_state_emits_no_notice(
+        self, install_sh_no_main, dirs
+    ):
+        """AC-3a: a failed-cause install whose effective state is unchanged emits
+        no notice — Condition Table row 2 (deploy fails)."""
+        install_dir, project_dir = dirs
+        res = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=False,
+            non_interactive="true",
+            install_parzival="true",
+            deploy_fails=True,
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "parzival_notice=" not in combined, combined
+
+    def test_failed_cause_reattempt_success_emits_notice(
+        self, install_sh_no_main, dirs
+    ):
+        """AC-3a: a failed-cause install whose re-attempt succeeds DOES emit
+        AC-2's notice — the case AD-66 exists for."""
+        install_dir, project_dir = dirs
+        first = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=False,
+            non_interactive="true",
+            install_parzival="true",
+            deploy_fails=True,
+        )
+        assert "parzival_notice=" not in (first.stdout + first.stderr)
+        assert not (
+            project_dir / "_ai-memory"
+        ).is_dir(), "the failed deploy must not have deposited the package"
+
+        second = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=False,
+            non_interactive="true",
+            install_parzival="true",
+            deploy_fails=False,
+        )
+        combined = second.stdout + second.stderr
+        assert second.returncode == 0, combined
+        assert "parzival_notice=installed" in combined, combined
+
+    def test_interactive_decline_on_an_already_enabled_install_emits_disabled(
+        self, install_sh_no_main, dirs
+    ):
+        """AC-2's ``any`` quantifier is not one-directional — Condition Table
+        row 1 (declined at the prompt) can also flip an already-enabled,
+        already-deployed install to not-enabled, and that is a change too.
+        """
+        install_dir, project_dir = dirs
+        (install_dir / "docker" / ".env").write_text(
+            "PARZIVAL_ENABLED=true\nPARZIVAL_ENABLED_CAUSE=\nPARZIVAL_ENABLED_CONDITION=complete\n",
+            encoding="utf-8",
+        )
+        res = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=True,
+            non_interactive="false",
+            stdin="n\n",
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "parzival_notice=disabled" in combined, combined
+
+    def test_malformed_value_is_not_enabled_and_named_never_an_abort(
+        self, install_sh_no_main, dirs
+    ):
+        """Condition Table row 8 (AD-69): a value outside {true,false} after
+        normalisation resolves not-enabled and the run still completes — never a
+        crash, never silently read as enabled.
+        """
+        install_dir, project_dir = dirs
+        (install_dir / "docker" / ".env").write_text(
+            "PARZIVAL_ENABLED=yes\nPARZIVAL_ENABLED_CAUSE=\nPARZIVAL_ENABLED_CONDITION=complete\n",
+            encoding="utf-8",
+        )
+        res = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=True,
+            non_interactive="true",
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        # Non-interactive re-run without INSTALL_PARZIVAL=true writes opt-out —
+        # the malformed "yes" is overwritten to "false", never read as true, and
+        # the run does not abort on the malformed input.
+        assert "parzival_notice=" not in combined, combined
+
+
+class TestMainWiresTheSampleAndAnnounceSequence:
+    """H-4 (round 2): Task 1's positional requirements bind ``main()`` itself,
+    not just the functions it calls.
+
+    ``install_sh_no_main`` strips ``main "$@"`` before sourcing (this module's
+    own docstring: a real ``main()`` run is unreachable here, short of a full
+    product install). Every notice test above therefore drives the sequence by
+    calling ``parzival_read_enabled_value`` / ``parzival_package_present`` /
+    ``setup_parzival`` / ``announce_parzival_state_change`` directly, in an
+    order ``_run_with_notice`` itself writes out. That proves the FUNCTIONS
+    compose correctly; it proves nothing about whether ``main()`` still calls
+    them, in that order, at that position -- the notice tests above would stay
+    green even if ``main()``'s own wiring were deleted entirely.
+
+    This reads ``main()``'s own source and asserts the wiring positionally,
+    without executing it -- the same block-extraction-by-text-anchor technique
+    ``TestUpgradeShHandoffGatePair`` already uses on ``upgrade.sh`` elsewhere in
+    this suite, so a real edit to ``main()`` changes what this test reads.
+    """
+
+    def _main_body(self) -> str:
+        text = _INSTALL_SH.read_text(encoding="utf-8")
+        start = text.index("\nmain() {\n") + 1
+        end = text.index("\ncheck_existing_installation() {", start)
+        return text[start:end]
+
+    def test_the_sample_and_announce_sequence_is_wired_inside_main(self):
+        """Would fail if install.sh's wiring block were ever deleted --
+        install_sh_no_main-based tests cannot see that, by construction.
+        """
+        body = self._main_body()
+        markers = [
+            'parzival_read_enabled_value "$INSTALL_DIR/docker/.env")',  # before-value sample
+            'parzival_package_present "$PROJECT_PATH")',  # before-package sample
+            "setup_parzival",
+            'parzival_read_enabled_value "$INSTALL_DIR/docker/.env")',  # after-value sample
+            'parzival_package_present "$PROJECT_PATH")',  # after-package sample
+            "announce_parzival_state_change",
+            "show_success_message",
+        ]
+        pos = -1
+        for marker in markers:
+            found = body.index(marker, pos + 1)
+            assert found > pos, (
+                f"expected {marker!r} to appear after the previous marker inside "
+                f"main() -- Task 1's sample/setup_parzival/sample/announce "
+                f"sequence is out of order or missing:\n{body}"
+            )
+            pos = found
+
+
+class TestAnnouncerIsCauseBlind:
+    """Task 5: the announcer is a cause-blind SHELL surface, not a ninth member
+    of the Python enablement-cause consumer class in
+    ``test_parzival_consumers_branch_on_cause.py`` — it is driven from
+    ``install.sh`` here instead, and reads no cause value at all.
+    """
+
+    def test_emit_path_never_reads_the_cause(self, install_sh_no_main):
+        bash_cmd = f"""
+set -euo pipefail
+source "{install_sh_no_main}"
+declare -f parzival_read_enabled_value parzival_package_present announce_parzival_state_change
+"""
+        res = subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
+        assert res.returncode == 0, res.stdout + res.stderr
+        body = res.stdout
+        assert "PARZIVAL_ENABLED_CAUSE" not in body, body
+        assert "read_parzival_cause" not in body, body
+        assert "resolve_cause" not in body, body

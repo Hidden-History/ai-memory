@@ -179,17 +179,25 @@ class TestEmptyVersusAbsentDivergence:
 class TestOperatorFacingWording:
     """The cause -> semantics mapping, stated once and rendered per convention."""
 
-    def test_failed_never_advises_setting_the_flag(self):
-        """The package is absent; 'set PARZIVAL_ENABLED=true' cannot work."""
+    def test_failed_never_advises_a_plain_reinstall(self):
+        """The package is absent; re-running install.sh the way opt-out's
+        remedy does cannot work — that is not this arm's remedy.
+
+        H-2 (round 2): was pinned to the retired "PARZIVAL_ENABLED=true" flag
+        token, which no longer appears anywhere in `_MESSAGES` (H-3 removed
+        it from opt-out's remedy too) — so that assertion could no longer fail
+        against the leak it was written to catch. Retargeted to "install.sh",
+        the string opt-out's remedy now uniquely carries.
+        """
         msg = disabled_message(CAUSE_FAILED)
-        assert "PARZIVAL_ENABLED=true" not in msg, msg
+        assert "install.sh" not in msg, msg
 
     def test_failed_names_the_failure(self):
         assert "could not be installed" in disabled_message(CAUSE_FAILED).lower()
 
     def test_opt_out_tells_the_operator_how_to_enable(self):
         msg = disabled_message(CAUSE_OPT_OUT)
-        assert "PARZIVAL_ENABLED=true" in msg, msg
+        assert "install.sh" in msg, msg
 
     def test_unknown_makes_no_claim_about_which_cause(self):
         msg = disabled_message(CAUSE_UNKNOWN).lower()
@@ -211,6 +219,14 @@ class TestOperatorFacingWording:
             disabled_message(c) for c in (CAUSE_OPT_OUT, CAUSE_FAILED, CAUSE_UNKNOWN)
         }
         assert len(rendered) == 3, rendered
+
+    def test_opt_out_renderings_are_semantically_equivalent(self):
+        """TD-1048: the both-conventions guard only checks backtick presence and
+        cannot see a plain/markdown divergence — assert equivalence ourselves.
+        """
+        plain = disabled_message(CAUSE_OPT_OUT)
+        markdown = disabled_message(CAUSE_OPT_OUT, markdown=True).replace("`", "")
+        assert plain == markdown, (plain, markdown)
 
 
 class TestTheFieldDefaultItself:

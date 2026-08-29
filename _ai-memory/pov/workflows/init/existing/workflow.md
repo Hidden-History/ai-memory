@@ -51,3 +51,10 @@ These apply across ALL steps in this workflow:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:init-existing
+depends_on: bmad
+degraded_behaviour: Runs the existing-project init without the BMAD analyst persona and its project-documentation skills, reporting each as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

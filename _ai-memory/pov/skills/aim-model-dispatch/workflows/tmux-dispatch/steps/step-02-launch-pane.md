@@ -28,6 +28,11 @@ Run BEFORE any pane creation. The sentinel requires the co-presence of
 insufficient because a nested source repo (e.g., `ai-memory/`) also contains
 `_ai-memory/` and would pass.
 
+`_bmad/` is shipped by BMAD, not by AI-Memory. When it alone is missing the
+sentinel reports a degraded state and returns 0: the workspace root is correct
+and dispatch that does not need BMAD proceeds. Only a missing `_ai-memory/` or
+`oversight/` is CWD drift.
+
 ```bash
 # Scope: dev workspace dispatches only. End-user installs (~/.ai-memory/) launch
 # via skill installer wrappers and do not require this sentinel.
