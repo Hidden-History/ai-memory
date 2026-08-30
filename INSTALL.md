@@ -570,6 +570,23 @@ docker compose -f docker/docker-compose.yml up -d
 python scripts/health-check.py
 ```
 
+### BMAD Module Detection
+
+The installer checks whether the target project has the BMAD **BMM Module**, and reports
+one of three states. BMAD is **not a prerequisite** — the install exits zero in every
+case, and nothing about the result is written to disk, so installing BMAD later enables
+the dependent capabilities with no reinstall.
+
+| What you see | What it means |
+|---|---|
+| `BMAD absent` | The project has no BMAD installation at all (no `_bmad/` directory). |
+| `BMAD present / BMM absent` | BMAD is installed, but the BMM Module is not. BMM is the Module the dependent capabilities require — having other BMAD Modules does not substitute for it. |
+| *(nothing)* | BMM is present. Silence is the success case; the installer deliberately prints no confirmation line. |
+
+The middle state is the one worth reading carefully: a project can have most of BMAD and
+still be missing the one Module that matters, and the message names BMM specifically so
+that gap does not surface later as a failed dispatch.
+
 ## ⬆️ Upgrading
 
 ### Upgrading to V2.0

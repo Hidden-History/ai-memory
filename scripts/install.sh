@@ -1484,6 +1484,16 @@ main() {
     # FEATURE-001: Multi-IDE support — detect and configure Gemini/Cursor/Codex
     configure_multi_ide "$PROJECT_PATH" "$INSTALL_DIR" "$PROJECT_NAME" "${IDE_FLAG:-}" "${FORCE_IDE:-false}"
 
+    # Story 1.5 — report BMAD Module availability for this project (AD-33).
+    # Per-project, so it runs in add-project mode as well as full: an operator
+    # adding a second project to an existing shared install must get the same
+    # answer for that project. Consumed in a condition, never bare — under the
+    # global `set -euo pipefail` a bare call whose last command returns non-zero
+    # would abort the install mid-run, which AC-4 forbids. Both halves of the
+    # path already return 0 unconditionally; this is the second, independent
+    # guarantee, not the only one.
+    report_bmad_module_state "$PROJECT_PATH" || true
+
     # BUG-243: Register project for GitHub sync — parity between interactive and non-interactive
     if [[ "$INSTALL_MODE" == "add-project" && "$GITHUB_SYNC_ENABLED" == "true" && "${PROJECT_GITHUB_SKIP:-false}" == "true" ]]; then
         # H-2: Option 3 path — register project with github.enabled=false so stale YAML is updated
@@ -4236,6 +4246,116 @@ configure_multi_ide() {
 # =============================================================================
 # End FEATURE-001
 # =============================================================================
+
+# =============================================================================
+# Story 1.5 — BMAD Module-granularity detection (AD-33, FR-2, FR-3)
+# =============================================================================
+
+# Resolve BMAD availability for a project at MODULE granularity.
+#
+# THE SURFACE, chosen normatively because the choice selects the answer. Two
+# surfaces can be asked "is BMM installed?" and they disagree on the same machine
+# at the same moment:
+#   - .claude/skills/bmad-*  — no skill directory name carries a module segment,
+#     so this surface can answer "BMAD?" and can NEVER answer "BMM?". A detector
+#     built on it satisfies AC-1 and AC-3 and fails AC-2 silently.
+#   - _bmad/config.yaml      — the BMAD root config is NOT a module registry. It
+#     names a subset of the installed modules, so parsing it reports BMM missing
+#     on a machine that has BMM: AC-2 inverted, the operator told a Module is
+#     dark when it is lit.
+# The module TREE is the surface used here: _bmad/ is the BMAD root, and each
+# Module is a directory beneath it carrying its own config.yaml.
+#
+# THE DISCRIMINATOR is the Module's own config, not the bare directory — an empty
+# _bmad/bmm/ is not an installed Module, and the module config is also where BMAD
+# records the module version that Story 1.6 will need to read.
+#
+# DESIGN A of the two the story permits: the state is written to STDOUT and this
+# function ALWAYS returns 0. A three-valued answer cannot ride in a return status
+# without using a non-zero value, and under this script's global `set -euo
+# pipefail` a non-zero return from a bare call is an aborted install — which is
+# precisely what AC-4 forbids. The return status is therefore not the answer
+# channel, and every filesystem read below is a guarded `[[ ]]` test.
+#
+# FAIL OPEN — zero exit, condition reported. This does not contradict the
+# fail-CLOSED non-zero exits elsewhere in this script: they are different classes,
+# and reporting a condition is separable from changing the exit status.
+#
+# NOT CACHED, anywhere: installing BMAD afterwards must enable the capability with
+# no reinstall, so this writes no state file, no docker/.env key and nothing else
+# durable. The PARZIVAL_ENABLED* persistence pattern is the wrong analogy here.
+#
+# SOURCING PRECISION: AD-33 binds FR-2 and FR-3, which are this path's criteria,
+# so it is cited directly. AD-24 (the fail-OPEN vocabulary and the separation of
+# reporting from exit status) and AD-26 (absence is a supported operating state;
+# no durable cache) live in a different spine and are cited here BY ANALOGY — it
+# is this comment block that makes them local precedent. A literal binds-match
+# claim would be false, and AD-24's enumerated fail-OPEN list does not contain
+# this condition.
+#
+# Args:
+#   $1 - project path. Everything is resolved beneath it and nothing outside it,
+#        so the answer is portable across operators and layouts (N-8).
+# Outputs (stdout, exactly one): bmad-absent | bmm-absent | bmm-present
+detect_bmad_module_state() {
+    local project_path="$1"
+
+    if [[ ! -d "$project_path/_bmad" ]]; then
+        echo "bmad-absent"
+        return 0
+    fi
+
+    if [[ -f "$project_path/_bmad/bmm/config.yaml" ]]; then
+        echo "bmm-present"
+        return 0
+    fi
+
+    echo "bmm-absent"
+    return 0
+}
+
+# Report the Module-granularity state to the operator.
+#
+# Absence is a NAMED report, never a silence: a check that found nothing to
+# inspect must stay distinguishable from a check that passed. Presence is the
+# opposite — silence is the required behaviour, and a reassuring "detected" line
+# is a defect under the same rule that forbids the warning, so BMM present goes to
+# log_debug, which is gated behind LOG_LEVEL=debug and is absent from a normal run.
+#
+# The BMM-absent message names BMM as the required Module. "BMAD is incomplete"
+# would not: naming BMAD in general is the failure this reporting exists to remove.
+#
+# Deliberately carries NO upstream source and NO version string. The route out —
+# where to get it and which version scope applies — is Story 1.6's, and a version
+# string written into installer output would violate AD-1 and AD-2.
+#
+# Emits only through the existing guarded log helpers. No new unguarded `echo` is
+# added, and the existing unguarded ones are not swept: that sweep carries a
+# binding ordering constraint and a different owner.
+#
+# ALWAYS returns 0, for the same reason detect_bmad_module_state does.
+#
+# Args:
+#   $1 - project path, passed straight through to the detector.
+report_bmad_module_state() {
+    local project_path="$1"
+    local state
+    state=$(detect_bmad_module_state "$project_path")
+
+    case "$state" in
+        bmad-absent)
+            log_warning "BMAD absent — BMM is the required Module for BMAD-dependent capabilities. Install continues; absence is a supported operating state."
+            ;;
+        bmm-absent)
+            log_warning "BMAD present / BMM absent — BMM is the required Module for BMAD-dependent capabilities. Install continues; absence is a supported operating state."
+            ;;
+        bmm-present)
+            log_debug "BMM present"
+            ;;
+    esac
+
+    return 0
+}
 
 # Verify project hooks configuration
 verify_project_hooks() {
