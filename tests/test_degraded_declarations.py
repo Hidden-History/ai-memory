@@ -528,6 +528,46 @@ def test_distinct_dependencies_at_one_site_still_parse(tmp_path: Path) -> None:
     ]
 
 
+# Tests in this module that a declaration MAY cite as its degraded behaviour.
+# Each drives a capability's own shipped artifact rather than the declaration
+# records, so it discriminates between a capability that degrades correctly and
+# one that does not.
+#
+# Default-deny by construction. What this narrows was a whole-module exclusion,
+# which rejected every citation into this file — behavioural ones included. An
+# allowlist narrows it without widening the hole it was guarding: a schema test
+# added later is excluded because it was never admitted, not because someone
+# remembered to deny it.
+#
+# Membership is tested against the criterion above, not against intent. A
+# tree-wide test admitted here earlier — one asserting a superseded literal is
+# absent anywhere under the pov tree — was removed: it is scoped to no
+# capability's directory and returns the same verdict for every declaration, so
+# it cannot discriminate, and admitting it was a standing route from an honest
+# "not-yet-enforced" to a green citation carrying no capability-specific
+# evidence.
+_BEHAVIOURAL_TESTS_IN_THIS_MODULE = frozenset(
+    {
+        "test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence",
+        "test_bmad_dispatch_requires_bmad_before_it_creates_a_pane",
+    }
+)
+
+
+def _schema_self_citations(
+    declarations: tuple[Declaration, ...],
+) -> list[tuple[str, str]]:
+    """Declarations citing a test in this module that is not behavioural."""
+    this_module = Path(__file__).name
+    return [
+        (d.capability, d.degraded_test)
+        for d in declarations
+        if "::" in d.degraded_test
+        and d.degraded_test.split("::")[0].endswith(this_module)
+        and d.degraded_test.split("::", 1)[1] not in _BEHAVIOURAL_TESTS_IN_THIS_MODULE
+    ]
+
+
 @pytest.mark.process
 def test_a_declaration_may_not_cite_the_declaration_schema_as_its_behaviour(
     real_discovery: DiscoveryResult,
@@ -544,19 +584,54 @@ def test_a_declaration_may_not_cite_the_declaration_schema_as_its_behaviour(
     A path with no behavioural test is not a failure — it is one of AD-20's
     four states, recorded honestly. Citing a schema test instead is what turns
     an unenforced path into a green checkmark.
+
+    The exclusion was originally whole-module, which also refused the
+    behavioural tests that live here — a test may sit in this file and still
+    drive a capability's own artifact. It now names the tests it admits, and
+    the pair below drives both directions so the narrowing is observed to
+    refuse rather than assumed to.
     """
-    this_module = Path(__file__).name
-    circular = [
-        (d.capability, d.degraded_test)
-        for d in real_discovery.declarations
-        if "::" in d.degraded_test
-        and d.degraded_test.split("::")[0].endswith(this_module)
-    ]
+    circular = _schema_self_citations(real_discovery.declarations)
     assert circular == [], (
         "declarations cite this module's own schema tests as their degraded "
         f"behaviour, which cannot discriminate: {circular}. Mark them with one "
         "of AD-20's four enforcement states instead."
     )
+
+
+def test_schema_self_citation_is_still_refused_by_the_narrowed_guard(
+    tmp_path: Path,
+) -> None:
+    """Direction one: a genuine schema self-citation must still be caught."""
+    cited = (
+        f"tests/{Path(__file__).name}"
+        "::test_every_declaration_names_its_dependency_and_remedy"
+    )
+    _synthetic_tree(
+        tmp_path,
+        {"synthetic-circular": _block("cap:synthetic-circular", degraded_test=cited)},
+    )
+    _dependency_site(tmp_path)
+    result = discover(tmp_path)
+    assert _schema_self_citations(result.declarations) == [
+        ("cap:synthetic-circular", cited)
+    ]
+
+
+def test_behavioural_citation_into_this_module_is_admitted(tmp_path: Path) -> None:
+    """Direction two: the narrowing must actually admit a behavioural test."""
+    cited = (
+        f"tests/{Path(__file__).name}"
+        "::test_bmad_dispatch_requires_bmad_before_it_creates_a_pane"
+    )
+    _synthetic_tree(
+        tmp_path,
+        {"synthetic-live": _block("cap:synthetic-live", degraded_test=cited)},
+    )
+    _dependency_site(tmp_path)
+    result = discover(tmp_path)
+    assert [d.capability for d in result.declarations] == ["cap:synthetic-live"]
+    assert _schema_self_citations(result.declarations) == []
 
 
 @pytest.mark.process
@@ -569,6 +644,11 @@ def test_bmad_dispatch_requires_bmad_before_it_creates_a_pane() -> None:
     agent, so on a BMAD-less machine the sentinel's success would carry it
     through to creating a pane and sending an activation that cannot resolve —
     a silent no-op wearing a successful dispatch's clothes.
+
+    The declaration this test is cited by makes two claims — the generic paths
+    keep working, and the bmad-dispatch path is reported unavailable rather than
+    launching a pane — so both are asserted here. Asserting only the second
+    leaves the first covered by nothing while the citation reads as whole.
     """
     step = (
         PRODUCT_ROOT
@@ -592,6 +672,63 @@ def test_bmad_dispatch_requires_bmad_before_it_creates_a_pane() -> None:
     assert (
         "DEPENDENCIES.md" in gate_block
     ), "the gate must name what would provide it (AC-1)"
+    assert "exit 1" in gate_block, (
+        "the gate must terminate. Ordering alone does not hold the declared "
+        "behaviour: a gate that reports and falls through still reaches pane "
+        "creation, which is the 'instead of launching a pane' half of the claim"
+    )
+    assert "Non-BMAD dispatch" in gate_block, (
+        "the gate must state that the generic paths are unaffected — the first "
+        "clause of the declared behaviour, and the half an operator needs in "
+        "order to know what still works"
+    )
+
+
+@pytest.mark.process
+def test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence() -> None:
+    """Generic routing survives BMAD's absence; persona routing is refused (AC-1).
+
+    ``cap:agent-dispatch`` declares two things: that it routes generic
+    dispatches only, and that it reports BMAD persona routing as unavailable
+    instead of emitting a ``/bmad-*`` activation that cannot resolve. Both live
+    in this skill's own prose — the BMAD-presence check is separated from the
+    drift sentinel, and each gate site states both outcomes — so both are
+    asserted, at every gate site rather than at one chosen by position.
+
+    Position is what makes the second claim real: the tables emitting
+    ``/bmad-agent-*`` are read by an agent that has already passed the routing
+    gate. A gate read after them is a gate read too late to stop the activation
+    it exists to prevent.
+
+    Anchored to the gate's own line, not a byte window: the line is the unit the
+    instruction is written in, so the assertion does not couple to the distance
+    between one paragraph and the next.
+    """
+    skill = PRODUCT_ROOT / POV_TREE / "skills/aim-agent-dispatch/SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+
+    gates = [m.start() for m in re.finditer(re.escape("test -d _bmad"), text)]
+    persona = text.find("/bmad-agent-")
+    assert gates, f"{skill.name} routes BMAD dispatches with no BMAD-presence gate"
+    assert persona != -1, (
+        f"{skill.name} no longer emits a /bmad-agent-* activation command — "
+        "re-derive this test"
+    )
+    assert min(gates) < persona, (
+        "the BMAD-presence gate must be read before the first /bmad-agent-* "
+        "activation command: a command emitted first cannot resolve"
+    )
+
+    for gate in gates:
+        line = text[text.rfind("\n", 0, gate) + 1 : text.find("\n", gate)]
+        assert "unavailable" in line, (
+            "every BMAD-presence gate must report the dependency as "
+            f"unavailable: {line!r}"
+        )
+        assert "non-BMAD dispatch" in line, (
+            "every BMAD-presence gate must state that generic dispatch "
+            f"continues, or the absent path has no declared outcome: {line!r}"
+        )
 
 
 @pytest.mark.process

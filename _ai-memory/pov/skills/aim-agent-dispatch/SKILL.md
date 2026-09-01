@@ -263,5 +263,5 @@ The full instruction template is at: `templates/agent-instruction.template.md`
 capability: cap:agent-dispatch
 depends_on: bmad
 degraded_behaviour: Routes generic (non-BMAD) dispatches only, and reports BMAD persona routing as unavailable instead of emitting a /bmad-* activation command that cannot resolve.
-degraded_test: tests/test_check_bmad_commands.py::test_bmad_not_installed_degrades
+degraded_test: tests/test_degraded_declarations.py::test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence
 ai-memory:end-degraded-declaration -->

@@ -89,5 +89,5 @@ Verify no pending work remains. Confirm no orphaned tmux panes.
 capability: cap:agent-lifecycle
 depends_on: bmad
 degraded_behaviour: Spawns and monitors generic agents normally, and reports BMAD two-phase persona activation as unavailable instead of sending an activation command into a pane that cannot resolve it.
-degraded_test: tests/test_cwd_sentinel.py::test_bmad_absent_is_reported_not_treated_as_cwd_drift
+degraded_test: not-yet-enforced
 ai-memory:end-degraded-declaration -->

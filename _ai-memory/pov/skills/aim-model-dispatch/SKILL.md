@@ -67,5 +67,5 @@ All sub-workflows, references, scripts, wrappers, and evals are in:
 capability: cap:model-dispatch
 depends_on: bmad
 degraded_behaviour: Selects models and dispatches on the generic paths, and reports the bmad-dispatch path as unavailable instead of launching a pane that cannot activate a persona.
-degraded_test: tests/test_cwd_sentinel.py::test_bmad_absent_is_reported_not_treated_as_cwd_drift
+degraded_test: tests/test_degraded_declarations.py::test_bmad_dispatch_requires_bmad_before_it_creates_a_pane
 ai-memory:end-degraded-declaration -->
