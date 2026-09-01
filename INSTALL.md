@@ -572,20 +572,28 @@ python scripts/health-check.py
 
 ### BMAD Module Detection
 
-The installer checks whether the target project has the BMAD **BMM Module**, and reports
-one of three states. BMAD is **not a prerequisite** — the install exits zero in every
-case, and nothing about the result is written to disk, so installing BMAD later enables
+The installer checks whether the target project has the BMAD **BMM Module**. BMAD is
+**not a prerequisite**: this check never changes the installer's exit status, whatever it
+finds, and nothing about the result is written to disk — so installing BMAD later enables
 the dependent capabilities with no reinstall.
+
+Messages are printed on **stdout** at the level shown, like the rest of the installer's
+output. If you capture warnings by redirecting stderr, you will not see these lines.
 
 | What you see | What it means |
 |---|---|
-| `BMAD absent` | The project has no BMAD installation at all (no `_bmad/` directory). |
-| `BMAD present / BMM absent` | BMAD is installed, but the BMM Module is not. BMM is the Module the dependent capabilities require — having other BMAD Modules does not substitute for it. |
-| *(nothing)* | BMM is present. Silence is the success case; the installer deliberately prints no confirmation line. |
+| `[WARNING] BMAD absent — …` | The project has no BMAD installation at all: no `_bmad/` directory, or a `_bmad` that is not a directory. |
+| `[WARNING] BMAD present / BMM absent — …` | A BMAD installation is there, but the BMM Module is not usable from it. BMM is the Module the dependent capabilities require, and having other BMAD Modules does not substitute for it. This state also covers a BMM Module directory that exists but is empty, or whose `config.yaml` is empty — an unpopulated Module is not an installed one. |
+| `[WARNING] BMM undetermined — …` | The evidence exists but could not be read — most often a `_bmad` directory the installer lacks permission to enter. **This is not a report that BMM is absent**; it is a refusal to guess. Check the permissions on the project's `_bmad` directory. |
+| *(nothing)* | BMM is present. Silence is the success case: the installer deliberately prints no confirmation line. At `LOG_LEVEL=debug` a single `[DEBUG] BMM present` line is emitted instead. |
 
-The middle state is the one worth reading carefully: a project can have most of BMAD and
+The second state is the one worth reading carefully: a project can have most of BMAD and
 still be missing the one Module that matters, and the message names BMM specifically so
 that gap does not surface later as a failed dispatch.
+
+The third exists because "I could not look" and "it is not there" are different answers,
+and reporting the first as the second would tell an operator who *has* BMM that it is
+missing.
 
 ## ⬆️ Upgrading
 

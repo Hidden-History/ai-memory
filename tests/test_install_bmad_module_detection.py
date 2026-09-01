@@ -3,11 +3,24 @@
 The installer reports whether the BMAD **BMM Module** is available to the target
 project, at Module granularity, and never changes the install's exit status for it.
 
-Three states, and they are three — not "present/absent":
+Three states are required, and they are three — not "present/absent":
 
   * ``bmad-absent``  — no BMAD root under the project path                  (AC-1)
   * ``bmm-absent``   — BMAD root present, the BMM Module is not             (AC-2)
   * ``bmm-present``  — the BMM Module is installed                          (AC-3)
+
+A **fourth** state is reported for evidence that exists but cannot be read:
+
+  * ``bmad-indeterminate`` — the BMAD root is there and cannot be traversed, or no
+    project path was supplied. ``[[ -d ]]`` succeeds on a mode-000 directory while
+    every test beneath it fails with ``EACCES``, which ``[[ ]]`` cannot distinguish
+    from ``ENOENT`` — so falling through to ``bmm-absent`` would tell an operator
+    whose machine *has* BMM that BMM is absent. ``AD-33`` enumerates three states
+    and does not classify this one; under ``AD-24`` that is a spine defect to be
+    classified rather than an implementer's pick. It was escalated and ruled on:
+    **report it, never abort.** These tests assert the reported state directly —
+    the round-1 suite deliberately declined to, which is what let the silent
+    misclassification ship.
 
 Two surfaces are covered:
 
@@ -50,6 +63,8 @@ Synthetic identifiers throughout. The one live name used is the literal ``bmm``,
 which is the Module under test and is named by the requirement itself.
 """
 
+import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -68,6 +83,7 @@ EXEMPT_MODULE_INSTALLED = "_bmad/bmm/config.yaml"
 STATE_BMAD_ABSENT = "bmad-absent"
 STATE_BMM_ABSENT = "bmm-absent"
 STATE_BMM_PRESENT = "bmm-present"
+STATE_BMAD_INDETERMINATE = "bmad-indeterminate"
 
 
 @pytest.fixture
@@ -86,6 +102,16 @@ def install_sh_no_main(tmp_path) -> Path:
         _SCRIPTS_DIR / "_env_split_helpers.sh", tmp_path / "_env_split_helpers.sh"
     )
     return copy
+
+
+def _env(log_level: str = "info") -> dict:
+    """A pinned environment for every harness subprocess.
+
+    ``subprocess.run`` inherits ``os.environ`` by default, so a runner with
+    ``LOG_LEVEL=debug`` exported would flip both the documented behaviour and the
+    result of the AC-3 silence test. The level is pinned rather than inherited.
+    """
+    return {**os.environ, "LOG_LEVEL": log_level}
 
 
 def _project(tmp_path, name: str, *relative_dirs: str) -> Path:
@@ -113,17 +139,26 @@ def _detect(install_sh_copy: Path, project: Path) -> subprocess.CompletedProcess
     directly rather than inferred from the call site. The capture is a plain
     assignment, never `local`/`declare` — a declaration command's exit status is
     its own, which would swallow the very non-zero return AC-4 exists to catch.
+
+    `|| rc=$?` is load-bearing and was absent in round 1. Without it, `set -e`
+    aborts the shell *at the assignment* when the detector returns non-zero, so
+    `RC=` is either printed as `RC=0` or never printed at all — making an
+    `"RC=0" in stdout` assertion a tautology that cannot observe the failure it
+    names. With it, a non-zero return is captured and reported instead of being
+    fatal, so `RC=` carries real information.
     """
     bash_cmd = f"""
 set -euo pipefail
 source "{install_sh_copy}"
-state=$(detect_bmad_module_state "{project}")
-rc=$?
+rc=0
+state=$(detect_bmad_module_state "{project}") || rc=$?
 echo "STATE=$state"
 echo "RC=$rc"
 echo "REACHED_END=yes"
 """
-    return subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
+    return subprocess.run(
+        ["bash", "-c", bash_cmd], capture_output=True, text=True, env=_env()
+    )
 
 
 def _state_of(result: subprocess.CompletedProcess) -> str:
@@ -137,7 +172,7 @@ def _state_of(result: subprocess.CompletedProcess) -> str:
 
 
 def _report(
-    install_sh_copy: Path, project: Path, out_file: Path
+    install_sh_copy: Path, project: Path, out_file: Path, log_level: str = "info"
 ) -> subprocess.CompletedProcess:
     """Run the reporter with its whole output isolated into `out_file`.
 
@@ -151,16 +186,22 @@ source "{install_sh_copy}"
 report_bmad_module_state "{project}" > "{out_file}" 2>&1
 echo "REACHED_END=yes"
 """
-    return subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
+    return subprocess.run(
+        ["bash", "-c", bash_cmd], capture_output=True, text=True, env=_env(log_level)
+    )
 
 
 @pytest.fixture
 def unreadable_bmad_root(tmp_path):
     """A BMAD root that exists but cannot be traversed, restored on teardown.
 
-    Skipped when the running user can traverse it regardless of mode (root, or a
-    filesystem that does not enforce POSIX permissions) — otherwise the test
-    would assert nothing while appearing to pass.
+    FAILS — does not skip — when the running user can traverse it regardless of
+    mode (root, or a filesystem that does not enforce POSIX permissions).
+
+    A skip here is silently green, and this repository lives on a filesystem that
+    does not enforce POSIX modes: a run with TMPDIR pointed at it would skip both
+    unreadable-evidence tests and report success. That is the same class of defect
+    these tests exist to catch, so the unmeasurable case is loud.
     """
     project = _project(tmp_path, "unreadable_project")
     root = project / "_bmad"
@@ -173,9 +214,40 @@ def unreadable_bmad_root(tmp_path):
         still_readable = False
     if still_readable:
         root.chmod(0o755)
-        pytest.skip("filesystem or user does not enforce directory permissions")
+        pytest.fail(
+            "cannot construct unreadable evidence: this user or filesystem does not "
+            f"enforce directory permissions at {root}. Run as a non-root user with "
+            "TMPDIR on a POSIX-mode-enforcing filesystem (ext4), or these AC-4 "
+            "assertions measure nothing."
+        )
     yield project
     root.chmod(0o755)
+
+
+@pytest.fixture
+def unreadable_module_dir(tmp_path):
+    """A readable BMAD root whose BMM Module directory cannot be traversed.
+
+    One level deeper than `unreadable_bmad_root`: the root answers, the Module
+    does not. Reported for the same reason — a negative that means "could not
+    look" is not evidence of absence.
+    """
+    project = _project(tmp_path, "unreadable_module_project")
+    module = project / "_bmad" / "bmm"
+    module.mkdir(parents=True)
+    module.chmod(0o000)
+    try:
+        still_readable = (module / "config.yaml").is_file()
+    except PermissionError:
+        still_readable = False
+    if still_readable:
+        module.chmod(0o755)
+        pytest.fail(
+            "cannot construct an unreadable Module directory: this user or "
+            f"filesystem does not enforce directory permissions at {module}."
+        )
+    yield project
+    module.chmod(0o755)
 
 
 class TestDetectorResolvesThreeStates:
@@ -214,6 +286,57 @@ class TestDetectorResolvesThreeStates:
     ):
         """AC-2: the Module claim is made on the Module's own config, not a bare dir."""
         project = _project(tmp_path, "empty_module_project", "_bmad/bmm")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
+    def test_empty_module_config_is_not_an_installed_module(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A zero-byte config records no version, so it certifies no Module.
+
+        `[[ -f ]]` is true on a zero-byte file, so `-f` would certify a
+        half-written BMAD install as present and Story 1.6 would then read nothing
+        out of it. `-s` is the test that matches the discriminator's stated intent.
+        """
+        project = _project(tmp_path, "empty_config_project", "_bmad/bmm")
+        (project / "_bmad" / "bmm" / "config.yaml").write_text("", encoding="utf-8")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
+    def test_bmad_root_as_a_regular_file_is_not_a_bmad_root(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A `_bmad` that is a file is read, not misread: there is no BMAD root.
+
+        This is deliberately `bmad-absent` and not `bmad-indeterminate`. The
+        evidence was readable; it simply is not a BMAD installation. Indeterminate
+        is reserved for evidence that could not be READ, and widening it to cover
+        "read fine, not a BMAD root" would drain the distinction of meaning.
+        """
+        project = _project(tmp_path, "file_root_project")
+        (project / "_bmad").write_text("not a directory\n", encoding="utf-8")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_ABSENT
+
+    def test_dangling_module_symlink_does_not_certify_the_module(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A `_bmad/bmm` symlink to nowhere resolves no Module config.
+
+        Pinned as behaviour rather than left to chance: `-s` follows symlinks and
+        is false on a dangling one, so the Module is correctly not certified.
+        """
+        project = _project(tmp_path, "dangling_symlink_project", "_bmad")
+        (project / "_bmad" / "bmm").symlink_to(tmp_path / "no_such_target")
 
         result = _detect(install_sh_no_main, project)
 
@@ -279,8 +402,13 @@ class TestReportedMessages:
         output = out_file.read_text(encoding="utf-8")
 
         assert result.returncode == 0, result.stderr
-        assert "BMM" in output, output
-        assert "Module" in output, output
+        # "BMM" and "Module" both appear in the bmad-absent message too, so
+        # asserting only those would pass against a detector that collapsed AC-2
+        # into AC-1. Assert the two things AC-2 actually requires: that BMM is
+        # reported MISSING, and that it is named as the required Module.
+        assert "BMM absent" in output, output
+        assert "BMM is the required Module" in output, output
+        assert "BMAD absent" not in output, output
 
     def test_bmm_absent_message_is_distinguishable_from_bmad_absent(
         self, install_sh_no_main, tmp_path
@@ -314,6 +442,55 @@ class TestReportedMessages:
         assert result.returncode == 0, result.stderr
         assert output == "", f"expected silence when BMM is present, got: {output!r}"
 
+    def test_bmm_present_emits_a_debug_line_only_at_debug_level(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The bmm-present arm exists and is reachable — asserted, not assumed.
+
+        Without this, deleting the `bmm-present)` arm outright leaves the module
+        green: an unmatched `case` also emits nothing on a normal run, so silence
+        alone cannot tell a working arm from a missing one.
+        """
+        project = _project(tmp_path, "full_bmad_project")
+        _module_config(project)
+        out_file = tmp_path / "out-present-debug.txt"
+
+        result = _report(install_sh_no_main, project, out_file, log_level="debug")
+        output = out_file.read_text(encoding="utf-8")
+
+        assert result.returncode == 0, result.stderr
+        assert "BMM present" in output, output
+        assert "WARNING" not in output, output
+
+    def test_unrecognised_state_is_reported_rather_than_silent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A state no arm matches must not be indistinguishable from success.
+
+        The answer channel is stdout, a shared stream. Any future stray output
+        inside the detector lands in `$state`, matches no arm — and because
+        silence is this design's BMM-present signal, a detection failure would
+        read as a clean run. The detector is replaced after sourcing so the
+        default arm is exercised without weakening the real one.
+        """
+        out_file = tmp_path / "out-unrecognised.txt"
+        bash_cmd = f"""
+set -euo pipefail
+source "{install_sh_no_main}"
+detect_bmad_module_state() {{ echo "surprise-token"; return 0; }}
+report_bmad_module_state "{tmp_path}" > "{out_file}" 2>&1
+echo "REACHED_END=yes"
+"""
+        result = subprocess.run(
+            ["bash", "-c", bash_cmd], capture_output=True, text=True, env=_env()
+        )
+        output = out_file.read_text(encoding="utf-8")
+
+        assert result.returncode == 0, result.stderr
+        assert "REACHED_END=yes" in result.stdout, result.stdout
+        assert output.strip(), "unrecognised state produced silence"
+        assert "surprise-token" in output, output
+
     def test_absence_messages_carry_no_version_and_no_upstream_source(
         self, install_sh_no_main, tmp_path
     ):
@@ -330,6 +507,95 @@ class TestReportedMessages:
         assert "http" not in output.lower(), output
         assert "github" not in output.lower(), output
         assert not re.search(r"\bv?\d+\.\d+", output), output
+
+
+class TestIndeterminateEvidenceIsNotReportedAsAbsence:
+    """The fourth state — evidence that exists and cannot be read.
+
+    Round 1 shipped this case resolving silently to `bmm-absent`, and its suite
+    declined to assert which state came out, citing AD-24 as an open question.
+    The question was escalated and ruled on: report it, never abort. These tests
+    assert the state, which is the half that was missing.
+    """
+
+    def test_unreadable_bmad_root_resolves_indeterminate(
+        self, install_sh_no_main, unreadable_bmad_root
+    ):
+        """`[[ -d ]]` succeeds on a mode-000 directory; everything beneath fails."""
+        result = _detect(install_sh_no_main, unreadable_bmad_root)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_unreadable_module_directory_resolves_indeterminate(
+        self, install_sh_no_main, unreadable_module_dir
+    ):
+        """One level deeper: the root answers, the Module cannot be looked into."""
+        result = _detect(install_sh_no_main, unreadable_module_dir)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_missing_argument_resolves_indeterminate(
+        self, install_sh_no_main, tmp_path
+    ):
+        """No project path is not a licence to answer about some other project.
+
+        Defaulting a missing argument to `.` or `pwd` would produce a confident
+        answer about a directory the caller never named. Unknown is the honest
+        state, and it is also the `set -u` fix: `${1:-}` where a bare `$1` would
+        abort the shell before any test ran.
+        """
+        bash_cmd = f"""
+set -euo pipefail
+source "{install_sh_no_main}"
+rc=0
+state=$(detect_bmad_module_state) || rc=$?
+echo "STATE=$state"
+echo "RC=$rc"
+echo "REACHED_END=yes"
+"""
+        result = subprocess.run(
+            ["bash", "-c", bash_cmd], capture_output=True, text=True, env=_env()
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "REACHED_END=yes" in result.stdout, result.stdout
+        assert "RC=0" in result.stdout, result.stdout
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_reporter_does_not_assert_absence_for_unreadable_evidence(
+        self, install_sh_no_main, unreadable_bmad_root, tmp_path
+    ):
+        """The message must say "unknown", never "absent" — that is its whole job."""
+        out_file = tmp_path / "out-indeterminate.txt"
+
+        result = _report(install_sh_no_main, unreadable_bmad_root, out_file)
+        output = out_file.read_text(encoding="utf-8")
+
+        assert result.returncode == 0, result.stderr
+        assert output.strip(), "indeterminate evidence reported nothing"
+        assert "undetermined" in output.lower(), output
+        assert "BMM absent" not in output, output
+        assert "BMAD absent" not in output, output
+
+    def test_indeterminate_is_distinguishable_from_both_absent_states(
+        self, install_sh_no_main, unreadable_bmad_root, tmp_path
+    ):
+        """Three reports, three texts. Collapsing any two re-creates the defect."""
+        absent = _project(tmp_path, "absent_project")
+        partial = _project(tmp_path, "partial_project", "_bmad/sample-module-one")
+        outs = {}
+        for name, project in (
+            ("indeterminate", unreadable_bmad_root),
+            ("bmad_absent", absent),
+            ("bmm_absent", partial),
+        ):
+            out_file = tmp_path / f"out-{name}.txt"
+            _report(install_sh_no_main, project, out_file)
+            outs[name] = out_file.read_text(encoding="utf-8")
+
+        assert len(set(outs.values())) == 3, outs
 
 
 class TestNeverAbortsTheInstall:
@@ -364,10 +630,10 @@ class TestNeverAbortsTheInstall:
         """AC-4: an internal step returning non-zero must not escape under errexit.
 
         An unreadable BMAD root makes the Module test fail rather than answer.
-        What the detector *reports* in that case is an open spine question
-        (AD-24: an unclassified condition is a spine defect, not an
-        implementer's judgement call) and is deliberately not asserted here.
-        What is asserted is the whole of AC-4: the run survives it.
+        This asserts AC-4 only — the run survives. *Which* state is reported is
+        asserted separately, in TestIndeterminateEvidenceIsNotReportedAsAbsence;
+        round 1 declined to assert it anywhere, and that gap is what let a silent
+        misclassification ship behind a green suite.
         """
         result = _detect(install_sh_no_main, unreadable_bmad_root)
 
@@ -395,29 +661,85 @@ class TestNeverAbortsTheInstall:
         assert "RC=0" in result.stdout, result.stdout
         assert result.returncode == 0, result.stderr
 
+    def test_reporter_survives_being_called_with_no_argument(self, install_sh_no_main):
+        """AC-4: `set -u` makes a bare `$1` fatal, and `|| true` cannot rescue it.
+
+        Measured: a function whose body reads a bare `$1` with no argument
+        supplied aborts the shell with "unbound variable" even as the left operand
+        of `||`, and the following line never runs. The one abort class the
+        "every filesystem read is a guarded [[ ]] test" framing does not cover,
+        because it fires before the first test executes. Latent at today's sole
+        call site, which always passes $PROJECT_PATH — and Story 1.6 is the named
+        future caller.
+        """
+        bash_cmd = f"""
+set -euo pipefail
+source "{install_sh_no_main}"
+report_bmad_module_state || true
+echo "REACHED_END=yes"
+"""
+        result = subprocess.run(
+            ["bash", "-c", bash_cmd], capture_output=True, text=True, env=_env()
+        )
+
+        assert "REACHED_END=yes" in result.stdout, (
+            f"the reporter aborted the shell with no argument.\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+        assert result.returncode == 0, result.stderr
+        assert "unbound variable" not in result.stderr, result.stderr
+
     def test_call_site_in_main_is_not_a_bare_consumption(self):
         """AC-4 / Anti-pattern 7: a bare call under `set -e` aborts the install.
 
         Design A already returns 0 unconditionally, so this is the second of two
         independent guarantees rather than the only one.
         """
-        source = _INSTALL_SH.read_text(encoding="utf-8")
-        call_lines = [
-            line.strip()
-            for line in source.splitlines()
-            if "report_bmad_module_state" in line
-            and not line.strip().startswith("#")
-            and "report_bmad_module_state()" not in line
-        ]
+        lines = _INSTALL_SH.read_text(encoding="utf-8").splitlines()
 
-        assert (
-            call_lines
-        ), "no call site for report_bmad_module_state found in install.sh"
-        for line in call_lines:
-            assert line.startswith("if ") or "||" in line, (
-                f"bare call site under `set -euo pipefail`: {line!r}. "
+        # Bound main()'s body, so "in main()" is checked and not merely asserted
+        # by the test's own name. A file-wide grep stays green if the call is
+        # moved into a helper nothing invokes.
+        start = next(i for i, line in enumerate(lines) if line.startswith("main() {"))
+        end = next(i for i in range(start + 1, len(lines)) if lines[i] == "}")
+
+        def call_sites(block):
+            found = []
+            for line in block:
+                # Strip a trailing comment first: a comment containing "||" would
+                # otherwise satisfy the guard check on its own.
+                code = line.split("#", 1)[0].strip()
+                if (
+                    "report_bmad_module_state" in code
+                    and "report_bmad_module_state()" not in code
+                ):
+                    found.append(code)
+            return found
+
+        in_main = call_sites(lines[start:end])
+        whole_file = call_sites(lines)
+
+        assert in_main, "no call site for report_bmad_module_state inside main()"
+        assert in_main == whole_file, (
+            "a call site exists outside main(): "
+            f"{[c for c in whole_file if c not in in_main]!r}"
+        )
+
+        guarded_tail = re.compile(r"\|\|\s*(true|:)\s*$")
+        for code in in_main:
+            assert code.startswith("if ") or guarded_tail.search(code), (
+                f"bare call site under `set -euo pipefail`: {code!r}. "
                 "Consume it in a condition."
             )
+            # "|| " alone is not enough: these are the shapes that consume the
+            # call in a condition and then abort the install anyway, which is
+            # exactly what AC-4 forbids.
+            assert not re.search(
+                r"\|\|\s*(exit|return)\b", code
+            ), f"call site consumes the call and then aborts: {code!r}"
+            assert (
+                "|| {" not in code
+            ), f"call site guards into a compound that may abort: {code!r}"
 
     def test_install_sh_still_runs_under_errexit(self):
         """The premise AC-4 rests on — asserted, not assumed."""
@@ -484,8 +806,22 @@ class TestDetectionIsNotPersisted:
         self, install_sh_no_main, tmp_path
     ):
         """Nothing about the degraded state may be cached into a durable artifact."""
+
+        def fingerprint(root: Path):
+            """Names *and* contents — a rewrite in place changes no path name."""
+            out = {}
+            for path in sorted(root.rglob("*")):
+                key = str(path.relative_to(root))
+                out[key] = (
+                    hashlib.sha256(path.read_bytes()).hexdigest()
+                    if path.is_file()
+                    else "<dir>"
+                )
+            return out
+
         project = _project(tmp_path, "no_bmad_project", "docs")
-        before = sorted(p.relative_to(project) for p in project.rglob("*"))
+        (project / "docs" / "existing.txt").write_text("unchanged\n", encoding="utf-8")
+        before = fingerprint(project)
 
         result = _detect(install_sh_no_main, project)
         out_file = tmp_path / "out.txt"
@@ -495,5 +831,5 @@ class TestDetectionIsNotPersisted:
         assert _state_of(result) == STATE_BMAD_ABSENT
         assert out_file.read_text(encoding="utf-8").strip()
 
-        after = sorted(p.relative_to(project) for p in project.rglob("*"))
+        after = fingerprint(project)
         assert before == after
