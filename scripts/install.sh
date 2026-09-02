@@ -4363,21 +4363,24 @@ detect_bmad_module_state() {
         return 0
     fi
 
-    # The root is there. If it cannot be searched or listed, nothing beneath it is
-    # evidence of anything: a negative here means "could not look", not "not there".
-    if [[ ! -r "$bmad_root" || ! -x "$bmad_root" ]]; then
+    # The root is there. If it cannot be searched, nothing beneath it is evidence
+    # of anything: a negative here means "could not look", not "not there". Every
+    # read below is a named lookup, never a directory listing, so search (`-x`) is
+    # the only permission this needs — `-r` would fire on a searchable-but-not-
+    # listable directory whose named children are still fully resolvable.
+    if [[ ! -x "$bmad_root" ]]; then
         echo "bmad-indeterminate"
         return 0
     fi
 
-    if [[ -s "$bmad_root/bmm/config.yaml" ]]; then
+    if [[ -f "$bmad_root/bmm/config.yaml" && -s "$bmad_root/bmm/config.yaml" ]]; then
         echo "bmm-present"
         return 0
     fi
 
     # Same rule one level down, and it must be checked BEFORE concluding absence:
     # a present-but-unsearchable module directory cannot be read as an absent Module.
-    if [[ -d "$bmad_root/bmm" && ( ! -r "$bmad_root/bmm" || ! -x "$bmad_root/bmm" ) ]]; then
+    if [[ -d "$bmad_root/bmm" && ! -x "$bmad_root/bmm" ]]; then
         echo "bmad-indeterminate"
         return 0
     fi

@@ -250,6 +250,39 @@ def unreadable_module_dir(tmp_path):
     module.chmod(0o755)
 
 
+@pytest.fixture
+def search_only_bmad_root(tmp_path):
+    """A `_bmad` root that is searchable (`-x`) but not listable (`-r`), with the
+    BMM Module present underneath it — restored on teardown.
+
+    The detector never lists a directory; it only stats named children, which
+    POSIX resolves with search permission alone. A search-only root is therefore
+    fully resolvable, and reporting anything other than the real state on one is
+    a reachable `AC-3` violation, not an over-strict guard.
+
+    FAILS — does not skip — when the running user can list the directory
+    regardless of mode (root, or a filesystem that does not enforce POSIX
+    permissions), for the same reason `unreadable_bmad_root` does: a skip here
+    would silently stop measuring the property this fixture exists to prove.
+    """
+    project = _project(tmp_path, "search_only_project")
+    _module_config(project)
+    root = project / "_bmad"
+    root.chmod(0o111)
+    try:
+        still_listable = list(root.iterdir())
+    except PermissionError:
+        still_listable = None
+    if still_listable is not None:
+        root.chmod(0o755)
+        pytest.fail(
+            "cannot construct a search-only, non-listable directory: this user "
+            f"or filesystem does not enforce directory permissions at {root}."
+        )
+    yield project
+    root.chmod(0o755)
+
+
 class TestDetectorResolvesThreeStates:
     """AC-1, AC-2, AC-3 — three distinct states, not present/absent."""
 
@@ -309,6 +342,23 @@ class TestDetectorResolvesThreeStates:
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMM_ABSENT
 
+    def test_module_config_as_a_directory_is_not_an_installed_module(
+        self, install_sh_no_main, tmp_path
+    ):
+        """`-s` alone does not assert regular-file-ness — a directory has nonzero
+        apparent size, so a `config.yaml` that is itself a directory (a botched
+        merge, an aborted extraction, a `mkdir -p` typo) must not certify the
+        Module. Story 1.6 is the stated future reader of this path; a directory
+        certified `bmm-present` here becomes an `EISDIR` there.
+        """
+        project = _project(tmp_path, "dir_as_config_project", "_bmad/bmm")
+        (project / "_bmad" / "bmm" / "config.yaml").mkdir()
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
     def test_bmad_root_as_a_regular_file_is_not_a_bmad_root(
         self, install_sh_no_main, tmp_path
     ):
@@ -351,6 +401,22 @@ class TestDetectorResolvesThreeStates:
         _module_config(project)
 
         result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_PRESENT
+
+    def test_search_only_root_with_bmm_present_resolves_bmm_present(
+        self, install_sh_no_main, search_only_bmad_root
+    ):
+        """AC-3: search-only (no list) permission must not manufacture indeterminate.
+
+        A `_bmad` root at mode `0111` — searchable, not listable, the ordinary
+        hardening of a shared-install layout this function's own header endorses
+        — is fully resolvable via the named lookups the detector actually
+        performs. Reporting `bmad-indeterminate` here fires a warning on a
+        repository with BMM present, which `AC-3` forbids outright.
+        """
+        result = _detect(install_sh_no_main, search_only_bmad_root)
 
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMM_PRESENT
