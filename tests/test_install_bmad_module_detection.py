@@ -384,6 +384,49 @@ class TestDetectorResolvesThreeStates:
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_ABSENT
 
+    def test_root_symlink_to_a_regular_file_resolves_bmad_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A `_bmad` symlink that RESOLVES to a non-directory is absent, not unknown.
+
+        The guard that reports an unresolvable `_bmad` symlink as indeterminate
+        must not swallow a symlink that resolved perfectly well: here we looked,
+        and what is there is not a BMAD root. Reporting "unknown" would answer
+        indeterminate for this and absent for a bare regular file at the same
+        path — the identical operator situation getting opposite answers, which
+        is the defect that guard exists to remove, one node type over.
+        """
+        target = tmp_path / "not_a_directory"
+        target.write_text("x", encoding="utf-8")
+        project = _project(tmp_path, "symlink_to_file_project")
+        (project / "_bmad").symlink_to(target)
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_ABSENT
+
+    def test_root_symlink_to_a_non_regular_file_resolves_bmad_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """Resolution succeeding, not regular-file-ness, is what makes it absent.
+
+        `/dev/null` is a character device: it resolves, so we looked and it is
+        not a BMAD root. This is the case that separates the shipped guard from
+        a `-f`-based one — `-f` is false on a device, a FIFO and a socket, so a
+        guard written as `-L && ! -f` reports "unknown" for all three when the
+        target resolved perfectly well. `-e` asks the question the design's
+        standard actually asks. `/dev/null` is used rather than a constructed
+        FIFO or socket so the test needs no filesystem capability of its own.
+        """
+        project = _project(tmp_path, "symlink_to_device_project")
+        (project / "_bmad").symlink_to("/dev/null")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_ABSENT
+
     def test_bmad_root_without_module_resolves_bmm_absent(
         self, install_sh_no_main, tmp_path
     ):
@@ -716,6 +759,25 @@ class TestIndeterminateEvidenceIsNotReportedAsAbsence:
         an inconsistency in the design's own rule, not a severity gradient.
         """
         result = _detect(install_sh_no_main, symlinked_root_with_unresolvable_target)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_dangling_root_symlink_is_not_reported_as_bmad_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A `_bmad` symlink whose target is gone: `[[ ]]` cannot say WHY it is gone.
+
+        This case is bit-identical to the adjudicated permission case — both are
+        `-L` true, `-e` false — because `[[ ]]` exposes no errno and cannot tell
+        ENOENT from EACCES from ELOOP. One of the three is ruled indeterminate,
+        so all three take that answer. Pinned in this direction because nothing
+        pinned it in either direction before.
+        """
+        project = _project(tmp_path, "dangling_root_project")
+        (project / "_bmad").symlink_to(tmp_path / "no_such_target")
+
+        result = _detect(install_sh_no_main, project)
 
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_INDETERMINATE

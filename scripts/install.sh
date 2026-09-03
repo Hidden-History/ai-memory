@@ -4391,7 +4391,7 @@ detect_bmad_module_state() {
     # DEC-PM454-D6 requires indeterminate, which is one state worse than the case
     # that ruling was made on. TWO independent conditions produce that negative
     # and neither subsumes the other; both measured against this function:
-    #   _bmad is a symlink whose target cannot be resolved  -> -d FALSE, -L TRUE
+    #   _bmad is a symlink whose target cannot be RESOLVED  -> -d FALSE, -L TRUE
     #   _bmad is a real dir under an unsearchable project   -> -d FALSE, -L FALSE
     # `-L` is BLIND to the second, so a guard built on `-L` alone would close half
     # of this and read as complete. `-x "$project_path"` is what covers it: `-x`
@@ -4401,7 +4401,22 @@ detect_bmad_module_state() {
     # genuinely NOT THERE keeps answering bmad-absent — there we did look, and
     # there was nothing.
     if [[ ! -d "$bmad_root" ]]; then
-        if [[ -L "$bmad_root" || ( -d "$project_path" && ! -x "$project_path" ) ]]; then
+        # `! -e` is the load-bearing half of the first test, not decoration. A
+        # symlink that RESOLVES to a non-directory — a regular file, a FIFO, a
+        # socket, a device — is "we looked, and it is not a BMAD root": absent,
+        # the same answer a bare regular file at this path already gets. Firing
+        # on `-L` alone would answer indeterminate for the symlink and absent for
+        # the bare file in the identical operator situation, which is this
+        # finding's own defect one node type over. `-e` asks the right question
+        # ("did resolution succeed?"); `-f` would only ask "is it a regular
+        # file?" and would still misreport a FIFO, a socket and a device.
+        #   sym -> regular file / FIFO / socket / device : -e TRUE  -> absent
+        #   dangling / ELOOP / target's parent unsearchable: -e FALSE -> indeterminate
+        # Those last three are BIT-IDENTICAL to `[[ ]]` (-L TRUE, -e FALSE) — it
+        # exposes no errno, so ENOENT, ELOOP and EACCES cannot be told apart here.
+        # One of the three is the adjudicated permission case, so all three take
+        # its answer; splitting them would need machinery past `[[ ]]`.
+        if [[ ( -L "$bmad_root" && ! -e "$bmad_root" ) || ( -d "$project_path" && ! -x "$project_path" ) ]]; then
             echo "bmad-indeterminate"
             return 0
         fi
