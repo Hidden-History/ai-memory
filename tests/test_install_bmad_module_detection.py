@@ -231,10 +231,21 @@ def unreadable_module_dir(tmp_path):
     One level deeper than `unreadable_bmad_root`: the root answers, the Module
     does not. Reported for the same reason — a negative that means "could not
     look" is not evidence of absence.
+
+    The Module's config IS written before the mode change, and that is
+    load-bearing twice over. It makes the fail-loud guard below reachable: the
+    guard probes `config.yaml`, and a path that is never created is
+    `is_file() == False` for every user on every filesystem, so the guard could
+    not fire and the unmeasurable case was silently green. It also makes this the
+    one fixture where BMM is genuinely INSTALLED and its evidence unreadable —
+    the tree the declared AC-3 exception is about.
     """
     project = _project(tmp_path, "unreadable_module_project")
     module = project / "_bmad" / "bmm"
     module.mkdir(parents=True)
+    (module / "config.yaml").write_text(
+        "module_name: sample-module\n", encoding="utf-8"
+    )
     module.chmod(0o000)
     try:
         still_readable = (module / "config.yaml").is_file()
@@ -283,6 +294,69 @@ def search_only_bmad_root(tmp_path):
     root.chmod(0o755)
 
 
+@pytest.fixture
+def unsearchable_project_path(tmp_path):
+    """A project directory that cannot be searched, with BMM installed inside it.
+
+    `_bmad` is a REAL directory here, and that is the point: `-L` on it is false,
+    so a guard written against symlinks alone is blind to this tree. `-x` on the
+    project path is what stays observable — it needs only search permission on the
+    project path's own parent.
+
+    FAILS — does not skip — on a user or filesystem that does not enforce
+    directory permissions, for the same reason `unreadable_bmad_root` does.
+    """
+    project = _project(tmp_path, "unsearchable_project")
+    _module_config(project)
+    project.chmod(0o000)
+    try:
+        still_reachable = (project / "_bmad").is_dir()
+    except PermissionError:
+        still_reachable = False
+    if still_reachable:
+        project.chmod(0o755)
+        pytest.fail(
+            "cannot construct an unsearchable project path: this user or "
+            f"filesystem does not enforce directory permissions at {project}."
+        )
+    yield project
+    project.chmod(0o755)
+
+
+@pytest.fixture
+def symlinked_root_with_unresolvable_target(tmp_path):
+    """`_bmad` symlinked to a shared install whose parent cannot be searched.
+
+    The shared-install layout the detector's own header blesses — one BMAD tree
+    linked into several projects — with the shared tree under a restricted
+    parent. The link itself is fully visible (`-L` true); its target is not
+    (`-d` false). BMM is genuinely installed on the other end.
+
+    FAILS — does not skip — on a non-enforcing user or filesystem.
+    """
+    project = _project(tmp_path, "symlinked_root_project")
+    shared = tmp_path / "shared_install"
+    real_root = shared / "_bmad"
+    (real_root / "bmm").mkdir(parents=True)
+    (real_root / "bmm" / "config.yaml").write_text(
+        "module_name: sample-module\n", encoding="utf-8"
+    )
+    (project / "_bmad").symlink_to(real_root)
+    shared.chmod(0o000)
+    try:
+        still_reachable = (project / "_bmad").is_dir()
+    except PermissionError:
+        still_reachable = False
+    if still_reachable:
+        shared.chmod(0o755)
+        pytest.fail(
+            "cannot construct an unresolvable symlink target: this user or "
+            f"filesystem does not enforce directory permissions at {shared}."
+        )
+    yield project
+    shared.chmod(0o755)
+
+
 class TestDetectorResolvesThreeStates:
     """AC-1, AC-2, AC-3 — three distinct states, not present/absent."""
 
@@ -291,6 +365,21 @@ class TestDetectorResolvesThreeStates:
         project = _project(tmp_path, "no_bmad_project", "docs")
 
         result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_ABSENT
+
+    def test_nonexistent_project_path_still_resolves_bmad_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """AC-1: a path that is not there was LOOKED at, and nothing was found.
+
+        The guard that stops an unsearchable project path being reported absent
+        must not swallow this one with it: here the project path's own parent is
+        searchable, so the negative is ENOENT and `bmad-absent` is the honest
+        answer. This is the control on that fix, not a restatement of AC-1.
+        """
+        result = _detect(install_sh_no_main, tmp_path / "no_such_project")
 
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_ABSENT
@@ -602,6 +691,51 @@ class TestIndeterminateEvidenceIsNotReportedAsAbsence:
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_INDETERMINATE
 
+    def test_unsearchable_project_path_is_not_reported_as_bmad_absent(
+        self, install_sh_no_main, unsearchable_project_path
+    ):
+        """The instance a `-L` guard is blind to: `_bmad` is a real directory.
+
+        `[[ -d "$project_path/_bmad" ]]` resolves every component of the project
+        path too, and fails identically on EACCES and ENOENT. Reporting absent
+        here is a confident wrong answer about a machine that HAS BMM.
+        """
+        result = _detect(install_sh_no_main, unsearchable_project_path)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_symlinked_root_with_unresolvable_target_is_not_reported_as_bmad_absent(
+        self, install_sh_no_main, symlinked_root_with_unresolvable_target
+    ):
+        """The shared-install instance: the node is there and cannot be resolved.
+
+        `_bmad` mode 000 and this tree put the operator in the identical
+        situation — `cat _bmad/bmm/config.yaml` is Permission denied on both — so
+        answering `bmad-indeterminate` for one and `bmad-absent` for the other is
+        an inconsistency in the design's own rule, not a severity gradient.
+        """
+        result = _detect(install_sh_no_main, symlinked_root_with_unresolvable_target)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_self_referential_root_symlink_is_not_reported_as_bmad_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A `_bmad` symlink loop: ELOOP, which `[[ -d ]]` renders as "not there".
+
+        Needs no permission fixture, so it measures the same conflation on a
+        filesystem that does not enforce modes.
+        """
+        project = _project(tmp_path, "symlink_loop_project")
+        (project / "_bmad").symlink_to(project / "_bmad")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
     def test_missing_argument_resolves_indeterminate(
         self, install_sh_no_main, tmp_path
     ):
@@ -754,6 +888,45 @@ echo "REACHED_END=yes"
         )
         assert result.returncode == 0, result.stderr
         assert "unbound variable" not in result.stderr, result.stderr
+
+    def test_reporter_does_not_mask_a_failing_detector(
+        self, install_sh_no_main, tmp_path
+    ):
+        """AC-4: the reporter captures with a plain assignment, never `local`.
+
+        The story forbids `local`/`declare` on this capture by name, because a
+        declaration command reports ITS OWN exit status and the detector's
+        non-zero return vanishes into it. Nothing asserted that until now: every
+        other reporter test runs the real detector, which returns 0 on every path,
+        and the one test that substitutes a detector stubs it with `return 0`. So
+        rewriting the capture as `local state=$(...)` left the module green.
+
+        The harness is a BARE call, and that is the whole discriminator. Measured
+        against both forms of the line:
+
+            shipped `state=$(...)`      bare call -> shell exits 3, end not reached
+            mutated `local state=$(...)` bare call -> shell exits 0, end reached
+
+        Under `|| rc=$?` BOTH forms report 0 — errexit is suspended for a whole
+        function body invoked as the left operand of `||` — so a guarded harness
+        here would be a test that cannot fail.
+        """
+        bash_cmd = f"""
+set -euo pipefail
+source "{install_sh_no_main}"
+detect_bmad_module_state() {{ echo "bmm-absent"; return 3; }}
+report_bmad_module_state "{tmp_path}" > /dev/null 2>&1
+echo "REACHED_END=yes"
+"""
+        result = subprocess.run(
+            ["bash", "-c", bash_cmd], capture_output=True, text=True, env=_env()
+        )
+
+        assert result.returncode == 3, (
+            "a non-zero detector return was masked: the reporter's capture is not "
+            f"a plain assignment.\nrc={result.returncode}\nstdout:\n{result.stdout}"
+        )
+        assert "REACHED_END=yes" not in result.stdout, result.stdout
 
     def test_call_site_in_main_is_not_a_bare_consumption(self):
         """AC-4 / Anti-pattern 7: a bare call under `set -e` aborts the install.
