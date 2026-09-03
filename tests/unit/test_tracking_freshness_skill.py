@@ -18,6 +18,7 @@ They do NOT depend on the live oversight/ tree.
 from __future__ import annotations
 
 import importlib.util
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -401,6 +402,50 @@ class TestStatusClassification:
         text = "# TECH-DEBT-100: Some title\n\n- **Status**: In Progress\n"
         assert extract_raw_status(text) == "In Progress"
 
+    def test_extract_table_format_hard_wrapped_cell(self) -> None:
+        """A hard-wrapped table-format Status cell must still parse (TD-1083 D2).
+
+        Live instance: TECH-DEBT-934 wraps its Status value across three
+        physical lines with no leading `|` on the continuation lines. The
+        full cell text — all three lines, trimmed — must be recovered, not
+        merely a non-None/truncated prefix.
+        """
+        text = (
+            "| **ID** | TECH-DEBT-934 |\n"
+            "| **Severity** | Low |\n"
+            "| **Status** | **OPEN — rescoped, not discharged.** The original "
+            "zero-matches claim (PM #421/#423) is\n"
+            "  discharged; the PM #432 unbounded-search-timeout claim is live "
+            "and independently corroborated (see\n"
+            '  "Currency check" below). |\n'
+            "| **Surfaced** | PM #421 |\n"
+        )
+        result = extract_raw_status(text)
+        assert result == (
+            "**OPEN — rescoped, not discharged.** The original zero-matches "
+            "claim (PM #421/#423) is\n"
+            "  discharged; the PM #432 unbounded-search-timeout claim is live "
+            "and independently corroborated (see\n"
+            '  "Currency check" below).'
+        )
+
+    def test_extract_table_format_wrapped_cell_does_not_swallow_next_row(
+        self,
+    ) -> None:
+        """Wrap-tolerance must not swallow an adjacent row's pipe (false-positive guard).
+
+        A malformed Status cell missing its closing pipe, immediately
+        followed by a real table row, must not have the next row's content
+        folded into the Status value.
+        """
+        text = (
+            "| **Status** | wrapped text without closing pipe on this line\n"
+            "| **Severity** | HIGH |\n"
+        )
+        assert (
+            extract_raw_status(text) == "wrapped text without closing pipe on this line"
+        )
+
 
 # ---------------------------------------------------------------------------
 # TestCompanionExclusion
@@ -762,6 +807,37 @@ class TestSeverityNormalization:
         text = "| **Severity** | LOW |\n"
         assert extract_severity(text) == "LOW"
 
+    def test_table_row_hard_wrapped_cell_full_value(self) -> None:
+        """``_SEV_TABLE_RE`` must capture the FULL wrapped cell (TD-1083 D2 twin).
+
+        ``_SEV_TABLE_RE`` has the identical shape and blindness as
+        ``_STATUS_TABLE_RE`` four lines away. Assert the complete multi-line
+        raw capture directly — not just that ``extract_severity``'s
+        normalized token still comes out right, which would pass even if
+        only the first line were captured.
+        """
+        text = (
+            "| **Severity** | HIGH (escalated from LOW per PM #281 — see the\n"
+            "  discussion thread for full rationale) |\n"
+        )
+        m = _mod._SEV_TABLE_RE.search(text)
+        assert m is not None
+        assert m.group(1) == (
+            "HIGH (escalated from LOW per PM #281 — see the\n"
+            "  discussion thread for full rationale)"
+        )
+        assert extract_severity(text) == "HIGH"
+
+    def test_table_row_wrapped_cell_does_not_swallow_next_row(self) -> None:
+        """Wrap-tolerance in ``_SEV_TABLE_RE`` must not swallow an adjacent row."""
+        text = (
+            "| **Severity** | wrapped text without closing pipe on this line\n"
+            "| **Status** | OPEN |\n"
+        )
+        m = _mod._SEV_TABLE_RE.search(text)
+        assert m is not None
+        assert m.group(1) == "wrapped text without closing pipe on this line"
+
     def test_non_severity_value_returns_empty(self) -> None:
         """Non-severity strings (N/A, Closed, NOT A BUG) return empty string."""
         assert extract_severity("**Severity**: N/A (closed)\n") == ""
@@ -878,14 +954,16 @@ class TestStatusSummary:
 class TestRenderTdIndex:
     """Tests for render_td_index — analogous coverage to TestStatusVerbatim."""
 
-    def _make_td_record(self, status: str, is_closed: bool = False) -> Record:
+    def _make_td_record(
+        self, status: str, is_closed: bool = False, sev: str = "HIGH"
+    ) -> Record:
         return Record(
             filename="TECH-DEBT-001-test.md",
             numeric_id="001",
             kind="td",
             raw_status=status,
             is_closed=is_closed,
-            sev="HIGH",
+            sev=sev,
             title="Test TD",
         )
 
@@ -918,6 +996,45 @@ class TestRenderTdIndex:
         summary = _status_summary(long_status)
         assert summary in rendered
         assert len(summary) <= 64
+
+    def test_open_breakdown_includes_critical(self) -> None:
+        """A CRITICAL-severity open TD record must appear in the Open breakdown (TD-1083).
+
+        Regression for the dropped-bucket defect: the TD writer's severity
+        loop previously enumerated only HIGH/MEDIUM/LOW, so an open CRITICAL
+        record was tallied into ``n_open`` but never printed.
+        """
+        rendered = render_td_index(
+            [self._make_td_record("OPEN", sev="CRITICAL")], [], "2026-08-22"
+        )
+        assert "CRITICAL" in rendered
+
+    def test_open_breakdown_sums_to_open_count_with_critical_and_unknown_severity(
+        self,
+    ) -> None:
+        """The Open breakdown must sum to n_open even with CRITICAL and an unknown
+        severity token present (TD-1083 D1 — residual form, not a literal tuple).
+
+        A fix that merely adds ``"CRITICAL"`` to the enumerated tuple would pass
+        a CRITICAL-only check but still drop an unrecognized severity token
+        silently. This fixture carries both, so only a self-balancing residual
+        (``other = n_open - sum(known buckets)``) can pass it.
+        """
+        records = [
+            self._make_td_record("OPEN", sev="CRITICAL"),
+            self._make_td_record("OPEN", sev="HIGH"),
+            self._make_td_record("OPEN", sev="MEDIUM"),
+            self._make_td_record("OPEN", sev="LOW"),
+            self._make_td_record("OPEN", sev="SOMETHING-UNKNOWN"),
+        ]
+        rendered = render_td_index(records, [], "2026-08-22")
+
+        breakdown_line = next(
+            line for line in rendered.splitlines() if line.startswith("Open severity:")
+        )
+        counts = [int(n) for n in re.findall(r"(\d+)\s+\S", breakdown_line)]
+        assert sum(counts) == len(records)
+        assert "CRITICAL" in breakdown_line
 
     def test_companion_note_in_header(self) -> None:
         """render_td_index wires the companions param: excluded names appear in header."""
