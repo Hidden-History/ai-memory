@@ -93,7 +93,9 @@ _SEV_PRIORITY: dict[str, int] = {
 #   - **Status**: value — optional leading list marker (-, *, +) tolerated (#290)
 # Pattern: \*\*Status:?\*\*:?\s*(.+) matches both; the two :? slots cover each position.
 _STATUS_COLON_RE = re.compile(r"^(?:[-*+]\s+)?\*\*Status:?\*\*:?\s*(.+)$", re.MULTILINE)
-_STATUS_TABLE_RE = re.compile(r"^\|\s*\*\*Status\*\*\s*\|\s*(.+?)\s*\|", re.MULTILINE)
+_STATUS_TABLE_RE = re.compile(
+    r"^\|\s*\*\*Status\*\*\s*\|\s*((?:[^|\n]|\n(?!\s*\|))*?)\s*\|", re.MULTILINE
+)
 
 # Severity: same colon-outside / colon-inside dual pattern as Status, plus the
 # same optional leading list marker (#290).
@@ -102,7 +104,8 @@ _SEV_COLON_RE = re.compile(
     r"^(?:[-*+]\s+)?\*\*Severity:?\*\*:?\s*(.+)$", re.MULTILINE | re.IGNORECASE
 )
 _SEV_TABLE_RE = re.compile(
-    r"^\|\s*\*\*Severity\*\*\s*\|\s*(.+?)\s*\|", re.MULTILINE | re.IGNORECASE
+    r"^\|\s*\*\*Severity\*\*\s*\|\s*((?:[^|\n]|\n(?!\s*\|))*?)\s*\|",
+    re.MULTILINE | re.IGNORECASE,
 )
 
 # Severity alias map: non-standard tokens found in older bug files.
@@ -890,13 +893,17 @@ def render_td_index(
         sev_counts[r.sev.upper() or "UNSPECIFIED"] += 1
 
     sev_parts = []
-    for sev in ("HIGH", "MEDIUM", "LOW"):
+    for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
         count = sev_counts.get(sev, 0)
         if count:
-            sev_parts.append(f"{count} {sev}")
-    unspec = sev_counts.get("UNSPECIFIED", 0)
-    if unspec:
-        sev_parts.append(f"{unspec} unspecified")
+            sev_parts.append(
+                f"**{count} {sev}**" if sev == "CRITICAL" else f"{count} {sev}"
+            )
+    other = n_open - sum(
+        sev_counts.get(s, 0) for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+    )
+    if other:
+        sev_parts.append(f"{other} other/unspecified")
     sev_summary = ", ".join(sev_parts) if sev_parts else "none"
 
     companion_note = ""
