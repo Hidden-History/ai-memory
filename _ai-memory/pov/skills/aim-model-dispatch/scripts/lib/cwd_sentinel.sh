@@ -95,7 +95,7 @@ cwd_sentinel() {
     if [[ "$variant" == "strict" ]]; then
         # Matches Forms 1+2: stdout parity preserved (inline forms used plain echo).
         if [[ "$root_ok" != "true" ]]; then
-            echo "FAIL: CWD is not workspace root. Expected _ai-memory/, _bmad/, oversight/ all present."
+            echo "FAIL: CWD is not workspace root. Expected _ai-memory/ and oversight/ present (_bmad/ is BMAD's own and is not required here)."
             echo "CWD: $(pwd)"
             echo "Aborting dispatch. cd to workspace root and re-invoke."
             return 1
@@ -109,7 +109,7 @@ cwd_sentinel() {
     else
         # loose: matches Form 3; stdout parity preserved. Always returns 0.
         if [[ "$root_ok" != "true" ]]; then
-            echo "FAIL: not workspace root (missing one of _ai-memory/, _bmad/, oversight/)"
+            echo "FAIL: not workspace root (missing _ai-memory/ or oversight/; _bmad/ is not required here)"
         elif [[ "$bmad_present" != "true" ]]; then
             echo "DEGRADED: dependency 'bmad' is unavailable (no ${bmad_dir}); workspace root is correct."
             echo "Install BMAD to enable BMAD-dependent dispatch (upstream source: DEPENDENCIES.md)."

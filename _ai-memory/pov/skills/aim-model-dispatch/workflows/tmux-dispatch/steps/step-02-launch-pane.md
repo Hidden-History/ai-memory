@@ -148,7 +148,7 @@ ONLY when pane is created, Claude launched, 5-second init wait completed, and pa
 ## SYSTEM SUCCESS/FAILURE METRICS
 
 ### SUCCESS:
-- Workspace root sentinel passed (`_ai-memory/` + `_bmad/` + `oversight/` all present)
+- Workspace root sentinel passed (`_ai-memory/` + `oversight/` present; `_bmad/` present or reported unavailable)
 - Model validated against the catalog for the selected backend
 - Pane created with captured PANE_TARGET ID
 - Wrapper command executed with allowedTools flags

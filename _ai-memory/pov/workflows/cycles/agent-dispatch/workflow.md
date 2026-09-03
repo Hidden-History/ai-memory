@@ -58,5 +58,5 @@ Load and follow: {firstStep}
 capability: cap:cycle-agent-dispatch
 depends_on: bmad
 degraded_behaviour: Runs the generic spawn and instruction steps, and reports the BMAD activation step as unavailable instead of instructing an activation that cannot resolve.
-degraded_test: not-yet-enforced
+degraded_test: tests/test_degraded_declarations.py::test_cycle_agent_dispatch_gates_persona_activation_on_bmad_presence
 ai-memory:end-degraded-declaration -->

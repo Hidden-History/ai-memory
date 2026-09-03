@@ -571,6 +571,7 @@ _BEHAVIOURAL_TESTS_IN_THIS_MODULE = frozenset(
         "test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence",
         "test_agent_lifecycle_gates_persona_activation_on_bmad_presence",
         "test_bmad_dispatch_requires_bmad_before_it_creates_a_pane",
+        "test_cycle_agent_dispatch_gates_persona_activation_on_bmad_presence",
     }
 )
 
@@ -757,32 +758,266 @@ def test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence() -> None:
         )
 
 
-@pytest.mark.process
-def test_no_shipped_artifact_mandates_the_superseded_three_marker_conjunction() -> None:
-    """A paragraph that contradicts its own command is worse than neither fixed.
+# ---------------------------------------------------------------------------
+# The superseded three-marker conjunction (TD-1130)
+#
+# Shape: ENUMERATE BROADLY -> READ EVERY HIT -> FAIL ON ANYTHING NOT DECLARED.
+#
+# The guard this replaces matched one literal command string. That literal
+# occurs zero times in the pov tree -- the *command* form was fixed everywhere
+# -- so it was green throughout while the same *semantic* rule was restated in
+# prose at sites the matcher structurally could not reach. Four instruments
+# then produced four different counts of those sites (0, 2, 4, 3), which is the
+# actual finding: "how many sites" is not answerable by a pattern, and a longer
+# pattern yields a fifth number rather than a closed set.
+#
+# So collection here is deliberately un-clever, and the judgment happens after
+# it. The predicate is lexical, not semantic: every line naming the ``_bmad``
+# directory marker, with a token boundary that drops ``_bmad-output`` and
+# ``check_bmad_commands`` because those name other things. It reads no phrasing,
+# so it cannot miss a phrasing nobody thought of.
+#
+# Every collected line must then match a declared exemption below or the test
+# fails naming it. A new line about ``_bmad/`` therefore lands as an unexplained
+# hit that someone must disposition, rather than as a silent pass. That is the
+# point, and the friction is deliberate.
+#
+# Building it this way found six offenders where TD-1130's own enumeration
+# named four: cwd_sentinel.sh's two FAIL messages both promise a three-marker
+# expectation the code no longer tests. One of those two was also missed by an
+# over-broad *phrasing* predicate tried first here (it carries no MUST, no
+# conjunction word, no "all present"), which is this record's thesis landing
+# inside its own instrument.
+_MARKER_REFERENCE = re.compile(r"_bmad(?![A-Za-z0-9_-])")
 
-    Four sites had their prose updated to say a missing ``_bmad/`` alone is
-    BMAD's absence rather than CWD drift, while the command directly beside it
-    still read ``test -d _ai-memory && test -d _bmad && test -d oversight`` — a
-    conjunction that fails in exactly the case the prose says to continue
-    through. An operator following the command gets the behaviour the
-    paragraph tells them is wrong, and this is the command a dispatcher runs
-    before every spawn.
-    """
-    superseded = "test -d _ai-memory && test -d _bmad && test -d oversight"
-    offenders = []
+# Literals already known to be false under the corrected sentinel. An exemption
+# cannot rescue a line carrying one of these: a line may hold a corrected clause
+# and a stale claim at once, and matching the good half would exempt the bad.
+# This list is a declared set of known offenders, not a guess at the class
+# boundary -- collection above stays maximally broad and is what closes the
+# class.
+_SUPERSEDED_CLAIMS: tuple[str, ...] = (
+    "test -d _ai-memory && test -d _bmad && test -d oversight",
+    "3-marker sentinel",
+)
+
+# (path relative to PRODUCT_ROOT, distinctive fragment of the line, why it is fine)
+#
+# Default-deny: a line is exempt only by appearing here. Reasons are recorded so
+# a later reader can re-judge the disposition instead of inheriting it.
+_THREE_MARKER_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
+    # -- Co-presence stated as the sentinel's *definition*, with the BMAD test
+    #    separated in the same line or the one immediately following it.
+    (
+        f"{POV_TREE}/skills/aim-agent-dispatch/SKILL.md",
+        "co-presence of",
+        "defines the sentinel, then separates the BMAD test on the same line",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-agent-lifecycle/SKILL.md",
+        "co-presence of",
+        "defines the sentinel, then separates the BMAD test on the same line",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/claude-native/workflow.md",
+        "co-presence of all three sentinel directories",
+        "definition; reconciled in the next paragraph, which is exempted below",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        "/step-02-launch-and-activate.md",
+        "a single-marker check is",
+        "definition; reconciled in the next paragraph, which is exempted below",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/tmux-dispatch/steps"
+        "/step-02-launch-pane.md",
+        "a single-marker check is",
+        "definition; reconciled in the next paragraph, which is exempted below",
+    ),
+    # -- States the corrected semantics: BMAD's absence is not drift.
+    (
+        f"{POV_TREE}/skills/aim-agent-dispatch/SKILL.md",
+        "separately for BMAD presence",
+        "states the corrected two-marker drift test",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-agent-lifecycle/SKILL.md",
+        "separately for BMAD presence",
+        "states the corrected two-marker drift test",
+    ),
+    (
+        f"{POV_TREE}/workflows/cycles/agent-dispatch/steps-c/step-02-spawn-agent.md",
+        "separately for BMAD presence",
+        "states the corrected two-marker drift test",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "or present except _bmad/ (degraded)",
+        "documents the degraded exit code, which is the corrected behaviour",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "is shipped by BMAD, not by AI-Memory",
+        "states why absence is a normal state rather than drift",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/claude-native/workflow.md",
+        "is shipped by BMAD, not by AI-Memory",
+        "states why absence is a normal state rather than drift",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        "/step-02-launch-and-activate.md",
+        "is shipped by BMAD, not by AI-Memory",
+        "states why absence is a normal state rather than drift",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/tmux-dispatch/steps"
+        "/step-02-launch-pane.md",
+        "is shipped by BMAD, not by AI-Memory",
+        "states why absence is a normal state rather than drift",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        "/step-02-launch-and-activate.md",
+        "The sentinel returns 0 when",
+        "states the corrected return contract",
+    ),
+    # -- Corrected success criteria and gate messages: they name _bmad/ as
+    #    optional, which is what the sentinel now implements.
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "_bmad/ is BMAD's own and is not required",
+        "failure message names only the markers the gate actually tests",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "_bmad/ is not required here",
+        "failure message names only the markers the gate actually tests",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        "/step-02-launch-and-activate.md",
+        "present or reported unavailable",
+        "success criterion admits the degraded pass the sentinel now returns",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/tmux-dispatch/steps"
+        "/step-02-launch-pane.md",
+        "present or reported unavailable",
+        "success criterion admits the degraded pass the sentinel now returns",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-parzival-team-builder/SKILL.md",
+        "_bmad/ optional",
+        "template comment marks the marker optional rather than mandatory",
+    ),
+    # -- Mechanical: names the directory, asserts nothing about the sentinel.
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "Directory to test for workspace-root markers",
+        "usage text listing what the sentinel inspects, not what it aborts on",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "bmad_dir=",
+        "variable assignment",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        "/step-02-launch-and-activate.md",
+        "if ! test -d _bmad; then",
+        "the separated BMAD-presence gate itself",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        "/step-02-launch-and-activate.md",
+        "DEGRADED: dependency 'bmad' is unavailable",
+        "the degraded message the gate emits",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
+        "/step-02-launch-and-activate.md",
+        "Reads `_bmad/bmm/config.yaml`",
+        "names a BMAD config path, unrelated to the sentinel",
+    ),
+)
+
+
+def _undeclared_marker_references() -> list[tuple[str, int, str]]:
+    """Every pov-tree line naming ``_bmad/`` that no exemption declares."""
+    undeclared: list[tuple[str, int, str]] = []
     for base, _dirs, names in os.walk(PRODUCT_ROOT / POV_TREE):
-        for name in names:
+        for name in sorted(names):
             path = Path(base) / name
             try:
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
-            if superseded in text:
-                offenders.append(str(path.relative_to(PRODUCT_ROOT)))
-    assert sorted(offenders) == [], (
-        "shipped artifacts mandate the superseded three-marker conjunction, "
-        f"which contradicts their own prose: {sorted(offenders)}"
+            rel = str(path.relative_to(PRODUCT_ROOT))
+            for number, line in enumerate(text.splitlines(), 1):
+                if not _MARKER_REFERENCE.search(line):
+                    continue
+                if any(claim in line for claim in _SUPERSEDED_CLAIMS):
+                    undeclared.append((rel, number, line.strip()))
+                    continue
+                if any(
+                    rel == exempt_path and fragment in line
+                    for exempt_path, fragment, _reason in _THREE_MARKER_EXEMPTIONS
+                ):
+                    continue
+                undeclared.append((rel, number, line.strip()))
+    return undeclared
+
+
+@pytest.mark.process
+def test_no_shipped_artifact_mandates_the_superseded_three_marker_conjunction() -> None:
+    """A paragraph that contradicts its own command is worse than neither fixed.
+
+    Sites had their prose updated to say a missing ``_bmad/`` alone is BMAD's
+    absence rather than CWD drift, while a success criterion or failure message
+    directly beside it still promised that all three markers must be present --
+    a claim that is false in exactly the case the prose says to continue
+    through. An operator following the criterion gets the behaviour the
+    paragraph tells them is wrong, and this is the check a dispatcher runs
+    before every spawn.
+
+    Enumerated broadly and dispositioned against a declared exemption set
+    rather than pattern-matched, for the reasons recorded above the set.
+    """
+    undeclared = _undeclared_marker_references()
+    assert undeclared == [], (
+        "pov-tree lines name the _bmad/ marker without a declared disposition. "
+        "Each is either a surviving three-marker claim to fix, or a legitimate "
+        "reference to add to _THREE_MARKER_EXEMPTIONS with a stated reason: "
+        + "; ".join(f"{path}:{number}: {line}" for path, number, line in undeclared)
+    )
+
+
+@pytest.mark.process
+def test_the_exemption_set_is_live_and_none_of_it_is_stale() -> None:
+    """An exemption that matches nothing is a claim about a line that has moved.
+
+    The exemption set is the deliverable, so it needs its own guard: a stale
+    entry silently widens the hole it was written to narrow, and reads as
+    coverage while covering nothing.
+    """
+    dead = []
+    for exempt_path, fragment, _reason in _THREE_MARKER_EXEMPTIONS:
+        target = PRODUCT_ROOT / exempt_path
+        if not target.exists():
+            dead.append(f"{exempt_path} (file missing) :: {fragment}")
+            continue
+        text = target.read_text(encoding="utf-8", errors="ignore")
+        if not any(
+            fragment in line and _MARKER_REFERENCE.search(line)
+            for line in text.splitlines()
+        ):
+            dead.append(f"{exempt_path} :: {fragment}")
+    assert dead == [], (
+        "declared exemptions match no _bmad/ line in their file and are stale: "
+        + "; ".join(dead)
     )
 
 
@@ -839,6 +1074,63 @@ def test_agent_lifecycle_gates_persona_activation_on_bmad_presence() -> None:
             "every BMAD-presence gate must state that persona activation is "
             "skipped. Reporting the dependency without refusing the activation "
             f"is the silent no-op the declaration exists to deny: {line!r}"
+        )
+        assert "DEPENDENCIES.md" in line, (
+            "every BMAD-presence gate must name what would provide the missing "
+            "dependency, not merely that it is missing. AC-1 requires the "
+            f"remedy half and a gate naming only the dependency fails it: {line!r}"
+        )
+
+
+@pytest.mark.process
+def test_cycle_agent_dispatch_gates_persona_activation_on_bmad_presence() -> None:
+    """The dispatch cycle degrades to a generic spawn and says what would fix it (AC-1).
+
+    ``cap:cycle-agent-dispatch`` declares that it runs the generic spawn and
+    instruction steps and reports the BMAD activation step as unavailable
+    instead of instructing an activation that cannot resolve. Its declaration
+    lives on the cycle's ``workflow.md``; the message an operator actually reads
+    lives one file down, in the spawn step's own sentinel line, so that line is
+    what this asserts.
+
+    Position is what makes the second clause real: the gate is read before the
+    step instructs a ``bmad-<role>`` persona load. A gate read after it is a
+    gate read too late to stop the activation it exists to prevent.
+
+    The fourth clause is the one this capability shipped without. Naming the
+    missing dependency without naming what would provide it leaves an operator
+    on a BMAD-less machine told what is broken and not what to do, which is the
+    half of AC-1 a message can omit while still looking complete.
+    """
+    step = (
+        PRODUCT_ROOT
+        / POV_TREE
+        / "workflows/cycles/agent-dispatch/steps-c/step-02-spawn-agent.md"
+    )
+    text = step.read_text(encoding="utf-8")
+
+    gates = [m.start() for m in re.finditer(re.escape("test -d _bmad"), text)]
+    activation = text.find("bmad-<role>")
+    assert gates, f"{step.name} spawns BMAD agents with no BMAD-presence gate"
+    assert activation != -1, (
+        f"{step.name} no longer instructs a bmad-<role> persona load — "
+        "re-derive this test"
+    )
+    assert min(gates) < activation, (
+        "the BMAD-presence gate must be read before the bmad-<role> persona "
+        "load: an activation instructed first cannot resolve"
+    )
+
+    for gate in gates:
+        line = text[text.rfind("\n", 0, gate) + 1 : text.find("\n", gate)]
+        assert "unavailable" in line, (
+            "every BMAD-presence gate must report the dependency as "
+            f"unavailable: {line!r}"
+        )
+        assert "without a BMAD persona" in line, (
+            "every BMAD-presence gate must state that the spawn still happens "
+            "without the persona, or the absent path has no declared "
+            f"outcome: {line!r}"
         )
         assert "DEPENDENCIES.md" in line, (
             "every BMAD-presence gate must name what would provide the missing "

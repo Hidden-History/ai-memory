@@ -92,7 +92,7 @@ task_summary: <one-line>
 files:
   - <absolute-path-1>
   - <absolute-path-2>
-workspace_root: <absolute-path>      # MUST contain _ai-memory/ + _bmad/ + oversight/
+workspace_root: <absolute-path>      # MUST contain _ai-memory/ + oversight/ (_bmad/ optional: absent means BMAD is unavailable)
 complexity: straightforward | moderate | significant | complex
 reviewer_plan:
   mode: none | single | dual

@@ -193,7 +193,7 @@ ONLY when the pane is open, Claude launched, the activation command has been sen
 ## SYSTEM SUCCESS/FAILURE METRICS
 
 ### SUCCESS:
-- Workspace root sentinel passed (`_ai-memory/` + `_bmad/` + `oversight/` all present)
+- Workspace root sentinel passed (`_ai-memory/` + `oversight/` present; `_bmad/` present or reported unavailable)
 - Model validated against the catalog for the selected backend
 - Pane created with captured PANE_TARGET ID
 - Wrapper launched with correct backend flags

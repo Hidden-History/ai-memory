@@ -181,8 +181,8 @@ def test_strict_failure_stdout_lines(
     r = _run(sentinel, "--required-root", str(tmp_path), cwd=tmp_path, env=base_env)
     assert r.returncode == 1
     assert (
-        "FAIL: CWD is not workspace root. Expected _ai-memory/, _bmad/, oversight/ all present."
-        in r.stdout
+        "FAIL: CWD is not workspace root. Expected _ai-memory/ and oversight/ "
+        "present (_bmad/ is BMAD's own and is not required here)." in r.stdout
     )
     assert "CWD: " in r.stdout
     assert "Aborting dispatch. cd to workspace root and re-invoke." in r.stdout
