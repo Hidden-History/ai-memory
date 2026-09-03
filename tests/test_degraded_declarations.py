@@ -549,6 +549,7 @@ def test_distinct_dependencies_at_one_site_still_parse(tmp_path: Path) -> None:
 _BEHAVIOURAL_TESTS_IN_THIS_MODULE = frozenset(
     {
         "test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence",
+        "test_agent_lifecycle_gates_persona_activation_on_bmad_presence",
         "test_bmad_dispatch_requires_bmad_before_it_creates_a_pane",
     }
 )
@@ -763,3 +764,64 @@ def test_no_shipped_artifact_mandates_the_superseded_three_marker_conjunction() 
         "shipped artifacts mandate the superseded three-marker conjunction, "
         f"which contradicts their own prose: {sorted(offenders)}"
     )
+
+
+@pytest.mark.process
+def test_agent_lifecycle_gates_persona_activation_on_bmad_presence() -> None:
+    """Generic spawn and monitoring survive BMAD's absence; activation is refused (AC-1).
+
+    ``cap:agent-lifecycle`` is ``cap:agent-dispatch``'s structural twin: same
+    dependency, same two-clause shape, same gate primitive. It declares that it
+    spawns and monitors generic agents normally, and that it reports BMAD
+    two-phase persona activation as unavailable instead of sending an
+    activation command into a pane that cannot resolve it.
+
+    Both clauses live in this skill's own Step 1 gate, so both are asserted
+    here rather than one of them being left to read as covered.
+
+    Position is what makes the second clause real. The gate is read before the
+    ``tmux send-keys`` that puts a live ``/bmad-<role>`` command into a pane; a
+    gate read after it is a gate read too late to stop the activation it exists
+    to prevent, and the pane is already spent.
+
+    Anchored to the gate's own line rather than a byte window, and asserted at
+    every gate site rather than one chosen by position, so a gate added later
+    that omits a clause is caught. Both departures follow the sibling fixture
+    for ``cap:agent-dispatch``.
+    """
+    skill = PRODUCT_ROOT / POV_TREE / "skills/aim-agent-lifecycle/SKILL.md"
+    text = skill.read_text(encoding="utf-8")
+
+    gates = [m.start() for m in re.finditer(re.escape("test -d _bmad"), text)]
+    activation = text.find("/bmad-")
+    assert gates, f"{skill.name} spawns BMAD agents with no BMAD-presence gate"
+    assert activation != -1, (
+        f"{skill.name} no longer sends a /bmad-* activation command into a pane "
+        "— re-derive this test"
+    )
+    assert min(gates) < activation, (
+        "the BMAD-presence gate must be read before the /bmad-* activation "
+        "command: a command sent first lands in a pane that cannot resolve it"
+    )
+
+    for gate in gates:
+        line = text[text.rfind("\n", 0, gate) + 1 : text.find("\n", gate)]
+        assert "unavailable" in line, (
+            "every BMAD-presence gate must report the dependency as "
+            f"unavailable: {line!r}"
+        )
+        assert "generic dispatch" in line, (
+            "every BMAD-presence gate must state that generic spawn and "
+            "monitoring continue, or the absent path has no declared "
+            f"outcome: {line!r}"
+        )
+        assert "skip BMAD persona activation" in line, (
+            "every BMAD-presence gate must state that persona activation is "
+            "skipped. Reporting the dependency without refusing the activation "
+            f"is the silent no-op the declaration exists to deny: {line!r}"
+        )
+        assert "DEPENDENCIES.md" in line, (
+            "every BMAD-presence gate must name what would provide the missing "
+            "dependency, not merely that it is missing. AC-1 requires the "
+            f"remedy half and a gate naming only the dependency fails it: {line!r}"
+        )
