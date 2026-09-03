@@ -729,6 +729,11 @@ def test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence() -> None:
             "every BMAD-presence gate must state that generic dispatch "
             f"continues, or the absent path has no declared outcome: {line!r}"
         )
+        assert "DEPENDENCIES.md" in line, (
+            "every BMAD-presence gate must name what would provide the missing "
+            "dependency, not merely that it is missing. AC-1 requires the "
+            f"remedy half and a gate naming only the dependency fails it: {line!r}"
+        )
 
 
 @pytest.mark.process

@@ -22,7 +22,7 @@ allowed-tools: Read
 
 ## Step 0: Pre-Spawn Sentinel Gate (MANDATORY -- re-run before EVERY spawn)
 
-Before routing any dispatch, assert the current directory is the workspace root by confirming co-presence of `_ai-memory/`, `_bmad/`, and `oversight/` (CLAUDE.md workspace-root sentinel). Concretely: `test -d _ai-memory && test -d oversight` for drift, then `test -d _bmad` separately for BMAD presence. A missing `_bmad/` alone is **not** drift: it is BMAD's own directory, and its absence means BMAD is not installed here. Report `bmad` as unavailable and continue with non-BMAD dispatch; abort only when `_ai-memory/` or `oversight/` is missing.
+Before routing any dispatch, assert the current directory is the workspace root by confirming co-presence of `_ai-memory/`, `_bmad/`, and `oversight/` (CLAUDE.md workspace-root sentinel). Concretely: `test -d _ai-memory && test -d oversight` for drift, then `test -d _bmad` separately for BMAD presence. A missing `_bmad/` alone is **not** drift: it is BMAD's own directory, and its absence means BMAD is not installed here. Report `bmad` as unavailable and continue with non-BMAD dispatch; abort only when `_ai-memory/` or `oversight/` is missing. Install BMAD to enable BMAD-dependent dispatch (upstream source: DEPENDENCIES.md in the Parzival tree).
 
 - PASS -> proceed to Step 1.
 - FAIL -> **ABORT the spawn.** Report: "CWD drift -- not at workspace root; return to root before spawning." Do NOT route to /aim-model-dispatch or /aim-agent-lifecycle.
@@ -200,7 +200,7 @@ Set `AI_MEMORY_AGENT_ID` environment variable when spawning.
 #### B4. Verify Activation (MANDATORY — two-phase)
 
 **Sentinel (CLAUDE.md workspace-root):** before every spawn, as its own Bash step, assert workspace root:
-`test -d _ai-memory && test -d oversight` for drift, then `test -d _bmad` separately for BMAD presence. Missing `_ai-memory/` or `oversight/` → ABORT. Missing `_bmad/` alone → report `bmad` as unavailable and continue with non-BMAD dispatch.
+`test -d _ai-memory && test -d oversight` for drift, then `test -d _bmad` separately for BMAD presence. Missing `_ai-memory/` or `oversight/` → ABORT. Missing `_bmad/` alone → report `bmad` as unavailable and continue with non-BMAD dispatch. Install BMAD to enable BMAD-dependent dispatch (upstream source: DEPENDENCIES.md in the Parzival tree).
 
 **Spawn (two-phase, GC-20):** the spawn prompt loads the BMAD persona via the Skill tool (e.g.
 `Use the Skill tool to load bmad-agent-dev` — likewise `bmad-create-story`, `bmad-code-review`; a bare
