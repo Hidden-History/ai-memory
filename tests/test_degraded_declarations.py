@@ -121,10 +121,30 @@ def test_every_bmad_dependent_capability_declares_its_degradation(
 
 
 @pytest.mark.process
-def test_every_declaration_names_its_dependency_and_remedy(
+def test_every_declaration_joins_to_a_dependency_that_declares_a_remedy(
     real_discovery: DiscoveryResult,
 ) -> None:
-    """AC-1: each declaration names the missing dependency and its remedy."""
+    """Surface A's ``depends_on`` resolves to a Surface B entry carrying a remedy.
+
+    What this checks is the *join*: every declaration names a dependency, and
+    that dependency has a declaration of its own whose ``upstream_source`` is
+    populated. It is a schema test over the two surfaces.
+
+    🔴 **What it does NOT check, stated because its previous name claimed
+    otherwise.** It never reads a message. ``AC-1`` requires that the
+    capability, when invoked with the dependency absent, *emits* text naming
+    the missing dependency and what would provide it — and nothing here
+    inspects the artifact that emits it. The old name,
+    ``test_every_declaration_names_its_dependency_and_remedy``, read as an
+    ``AC-1`` assertion and was cited as one, while passing green for a
+    declaration whose ``degraded_behaviour`` was replaced with ``xyzzy.``.
+
+    ``AC-1`` is asserted per capability, by the behavioural fixtures at the
+    bottom of this module, against the artifact that actually carries the
+    message. A declaration with no such fixture is marked ``not-yet-enforced``
+    and counted — which is what ``AC-3`` requires and what this test must not
+    be mistaken for.
+    """
     unremedied = []
     for declaration in real_discovery.declarations:
         assert declaration.depends_on
@@ -606,7 +626,7 @@ def test_schema_self_citation_is_still_refused_by_the_narrowed_guard(
     """Direction one: a genuine schema self-citation must still be caught."""
     cited = (
         f"tests/{Path(__file__).name}"
-        "::test_every_declaration_names_its_dependency_and_remedy"
+        "::test_every_declaration_joins_to_a_dependency_that_declares_a_remedy"
     )
     _synthetic_tree(
         tmp_path,
