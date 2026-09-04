@@ -1484,6 +1484,26 @@ main() {
     # FEATURE-001: Multi-IDE support — detect and configure Gemini/Cursor/Codex
     configure_multi_ide "$PROJECT_PATH" "$INSTALL_DIR" "$PROJECT_NAME" "${IDE_FLAG:-}" "${FORCE_IDE:-false}"
 
+    # Story 1.5 — report BMAD Module availability for this project (AD-33).
+    # Per-project, so it runs in add-project mode as well as full: an operator
+    # adding a second project to an existing shared install must get the same
+    # answer for that project. Consumed in a condition, never bare — under the
+    # global `set -euo pipefail` a bare call whose last command returns non-zero
+    # would abort the install mid-run, which AC-4 forbids.
+    #
+    # WHAT `|| true` ACTUALLY DOES, stated precisely because an earlier revision of
+    # this comment had it wrong. It does NOT add a second guarantee alongside the
+    # unconditional `return 0`s: invoking a function as the left operand of `||`
+    # SUSPENDS errexit for the whole of its body, so `|| true` REPLACES errexit here
+    # rather than backing it up. Measured, with a control: a function body whose
+    # first command is `false` runs to completion under `f || true` and aborts at
+    # that command when called bare. The trade is deliberate and right for AC-4 — an
+    # aborted install is worse than a silent internal failure — but it is a trade,
+    # not a belt-and-braces, and the cost is that a future internal failure goes
+    # quiet. The reporter's `*)` arm is what keeps that silence from being
+    # indistinguishable from success.
+    report_bmad_module_state "$PROJECT_PATH" || true
+
     # BUG-243: Register project for GitHub sync — parity between interactive and non-interactive
     if [[ "$INSTALL_MODE" == "add-project" && "$GITHUB_SYNC_ENABLED" == "true" && "${PROJECT_GITHUB_SKIP:-false}" == "true" ]]; then
         # H-2: Option 3 path — register project with github.enabled=false so stale YAML is updated
@@ -4236,6 +4256,272 @@ configure_multi_ide() {
 # =============================================================================
 # End FEATURE-001
 # =============================================================================
+
+# =============================================================================
+# Story 1.5 — BMAD Module-granularity detection (AD-33, FR-2, FR-3)
+# =============================================================================
+
+# Resolve BMAD availability for a project at MODULE granularity.
+#
+# THE SURFACE, chosen normatively because the choice selects the answer. Two
+# surfaces can be asked "is BMM installed?" and they disagree on the same machine
+# at the same moment:
+#   - .claude/skills/bmad-*  — no skill directory name carries a module segment,
+#     so this surface can answer "BMAD?" and can NEVER answer "BMM?". A detector
+#     built on it satisfies AC-1 and AC-3 and fails AC-2 silently.
+#   - _bmad/config.yaml      — the BMAD root config is NOT a module registry. It
+#     names a subset of the installed modules, so parsing it reports BMM missing
+#     on a machine that has BMM: AC-2 inverted, the operator told a Module is
+#     dark when it is lit.
+# The module TREE is the surface used here: _bmad/ is the BMAD root, and each
+# Module is a directory beneath it carrying its own config.yaml. That layout was
+# checked against a real BMAD installation rather than assumed: all seven modules
+# present there (_memory, bmb, bmm, cis, core, gds, tea) follow the identical
+# _bmad/<module>/config.yaml shape, with no _bmad/modules/ level and no .yml
+# variant. Recorded here because nothing else in the tree records that it was
+# verified, and a surface that is right by luck reads exactly like one that is
+# right by design.
+#
+# THE DISCRIMINATOR is the Module's own config, and it must be a NON-EMPTY
+# REGULAR FILE — an empty _bmad/bmm/ is not an installed Module, neither is a
+# zero-byte config, and neither is a DIRECTORY that happens to be named
+# config.yaml. The test is `-f && -s` and BOTH halves are load-bearing: `-s`
+# alone is true on a directory, and `-f` alone is true on a zero-byte file. `-f`
+# is the node-type half; `-s` is the emptiness half. Neither replaced the other —
+# an earlier revision of this paragraph presented `-s` as the single test that
+# had superseded `-f`, which stopped being true when the node-type half was added
+# and is corrected here rather than left to mislead the next reader. The module
+# config is where BMAD records the module version that Story 1.6 will need to
+# read: an empty file records no version, and a directory records none readably.
+#
+# DESIGN A of the two the story permits: the state is written to STDOUT and this
+# function ALWAYS returns 0. A multi-valued answer cannot ride in a return status
+# without using a non-zero value, and under this script's global `set -euo
+# pipefail` a non-zero return from a bare call is an aborted install — which is
+# precisely what AC-4 forbids. The return status is therefore not the answer
+# channel, and every filesystem read below is a guarded `[[ ]]` test.
+#
+# FAIL OPEN — zero exit, condition reported. This does not contradict the
+# fail-CLOSED non-zero exits elsewhere in this script: they are different classes,
+# and reporting a condition is separable from changing the exit status.
+#
+# NOT CACHED, anywhere: installing BMAD afterwards must enable the capability with
+# no reinstall, so this writes no state file, no docker/.env key and nothing else
+# durable. The PARZIVAL_ENABLED* persistence pattern is the wrong analogy here.
+#
+# THE FOURTH STATE, and why it exists. AD-33 enumerates three states. The
+# filesystem can present a fourth: the evidence is THERE but cannot be READ. A
+# BMAD root at mode 000 satisfies `[[ -d ]]` (stat needs only search permission on
+# the PARENT) while every test beneath it fails with EACCES, which `[[ ]]` renders
+# indistinguishable from ENOENT. Falling through to "bmm-absent" would tell an
+# operator whose machine HAS BMM that BMM is absent — AC-2 inverted, by the same
+# mechanism this function rejects the _bmad/config.yaml surface for. It is
+# reported as its own state instead. Under AD-24 that classification is a spine
+# question and NOT an implementer's judgement call; it was escalated and ruled on
+# by the owner as DEC-PM454-D6 (PM #454, recorded in
+# oversight/tracking/archive/decision-log-ARCHIVE-2026-09.md) — "report loudly,
+# do not abort" — corroborated by PM449 § Q3. This comment is the receipt, and it
+# names the record instead of asserting its own authority.
+#   THE RULING'S SECOND HALF IS NOT DISCHARGED HERE, and is recorded as owed
+#   rather than paraphrased away: DEC-PM454-D6 says "loudly" means NAMED AND
+#   COUNTED, never fatal. This function names the state. Nothing counts it.
+#
+# WHAT THE FOURTH STATE COVERS, stated narrowly because the general claim is
+# false. It detects PERMISSION DENIAL and unresolvable nodes, and only where they
+# are observable from the project path downward: at _bmad, at _bmad/bmm, at a
+# _bmad symlink whose target cannot be resolved, and at an unsearchable project
+# path. It is NOT a general "could not look" detector. `[[ ]]` exposes no errno,
+# so a denial arising ABOVE the project path — an unsearchable ancestor of it —
+# is invisible to every test available here and still resolves bmad-absent. That
+# residue is left open deliberately: closing it needs machinery beyond `[[ ]]`,
+# which CLAUDE.md §2 argues against for a case no acceptance criterion reaches.
+# The limit is written down rather than implied by silence.
+#
+# AD-36's "three results, never one" is the same rule at a different altitude and
+# is cited BY ANALOGY, marked here for the same reason AD-26's citation is
+# marked: AD-36's Binds: line reads "FR-9, FR-10; consumed by AD-41, AD-42,
+# AD-43", and this path is FR-2/FR-3, so it does not reach. The analogy is sound
+# and the binding is not claimed — "could not look" is not a kind of "not there".
+#
+# SOURCING PRECISION: AD-33 binds FR-2 and FR-3, which are this path's criteria,
+# so it is cited directly. AD-24 is ALSO cited directly, not by analogy: its
+# Binds: line reads "the resolver; the dispatch path; every detector", and this
+# function is a detector. An earlier revision of this comment claimed AD-24 was
+# cited by analogy and that "a literal binds-match claim would be false" — that
+# was wrong, and it is corrected here rather than quietly dropped, because it is
+# what made silently classifying the fourth state look permissible. The narrower
+# claim it was reaching for IS true and is kept: AD-24's ENUMERATED fail-OPEN list
+# does not contain this condition. The classification comes from AD-33's exit-zero
+# clause; AD-24 supplies the vocabulary and the separation of reporting from exit
+# status — and, because it binds, its rule that an unclassified condition is a
+# spine defect rather than an implementer's pick.
+# AD-26 IS cited by analogy, and that is correct: its Binds: line reads "the
+# resolver; every BMAD-dependent capability; FR-5", and this installer report is
+# not itself a BMAD-dependent capability.
+#
+# Args:
+#   $1 - project path. Every path tested is formed beneath it. NOTE the honest
+#        limit of that claim: `-d`/`-f`/`-s` follow symlinks, so a `_bmad` symlink
+#        pointing outside the project resolves to its target. That is a
+#        legitimate layout (one shared BMAD install linked into several projects)
+#        and is deliberately NOT canonicalised here — no acceptance criterion
+#        covers it, and canonicalising would break the shared-install case. What
+#        is portable (N-8) is that no path is hard-coded and no assumption is made
+#        about the operator or the layout; what is not claimed is containment.
+# Outputs (stdout, exactly one):
+#   bmad-absent | bmm-absent | bmm-present | bmad-indeterminate
+detect_bmad_module_state() {
+    # `${1:-}` not `$1`: under `set -u` a bare `$1` with no argument aborts the
+    # shell, and as the left operand of `||` it takes the caller down with it —
+    # the one abort class the "every read is a guarded [[ ]] test" framing above
+    # does not cover, because it fires before the first test runs.
+    local project_path="${1:-}"
+    local bmad_root
+
+    if [[ -z "$project_path" ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
+    bmad_root="$project_path/_bmad"
+
+    # "Could we look?" is asked ABOVE _bmad as well as at it. `[[ -d ]]` renders
+    # EACCES and ENOENT identically, so a bare `! -d "$bmad_root"` reads "the
+    # parent refused us" as "there is no BMAD" — a CONFIDENT absent where
+    # DEC-PM454-D6 requires indeterminate, which is one state worse than the case
+    # that ruling was made on. TWO independent conditions produce that negative
+    # and neither subsumes the other; both measured against this function:
+    #   _bmad is a symlink whose target cannot be RESOLVED  -> -d FALSE, -L TRUE
+    #   _bmad is a real dir under an unsearchable project   -> -d FALSE, -L FALSE
+    # `-L` is BLIND to the second, so a guard built on `-L` alone would close half
+    # of this and read as complete. `-x "$project_path"` is what covers it: `-x`
+    # on an existing directory needs only search permission on ITS parent, so an
+    # unsearchable project path stays observable when nothing beneath it is.
+    # `-d "$project_path"` is required alongside `! -x` so a project path that is
+    # genuinely NOT THERE keeps answering bmad-absent — there we did look, and
+    # there was nothing.
+    if [[ ! -d "$bmad_root" ]]; then
+        # `! -e` is the load-bearing half of the first test, not decoration. A
+        # symlink that RESOLVES to a non-directory — a regular file, a FIFO, a
+        # socket, a device — is "we looked, and it is not a BMAD root": absent,
+        # the same answer a bare regular file at this path already gets. Firing
+        # on `-L` alone would answer indeterminate for the symlink and absent for
+        # the bare file in the identical operator situation, which is this
+        # finding's own defect one node type over. `-e` asks the right question
+        # ("did resolution succeed?"); `-f` would only ask "is it a regular
+        # file?" and would still misreport a FIFO, a socket and a device.
+        #   sym -> regular file / FIFO / socket / device : -e TRUE  -> absent
+        #   dangling / ELOOP / target's parent unsearchable: -e FALSE -> indeterminate
+        # Those last three are BIT-IDENTICAL to `[[ ]]` (-L TRUE, -e FALSE) — it
+        # exposes no errno, so ENOENT, ELOOP and EACCES cannot be told apart here.
+        # One of the three is the adjudicated permission case, so all three take
+        # its answer; splitting them would need machinery past `[[ ]]`.
+        if [[ ( -L "$bmad_root" && ! -e "$bmad_root" ) || ( -d "$project_path" && ! -x "$project_path" ) ]]; then
+            echo "bmad-indeterminate"
+            return 0
+        fi
+        echo "bmad-absent"
+        return 0
+    fi
+
+    # The root is there. If it cannot be searched, nothing beneath it is evidence
+    # of anything: a negative here means "could not look", not "not there". Every
+    # read below is a named lookup, never a directory listing, so search (`-x`) is
+    # the only permission this needs — `-r` would fire on a searchable-but-not-
+    # listable directory whose named children are still fully resolvable.
+    if [[ ! -x "$bmad_root" ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
+    if [[ -f "$bmad_root/bmm/config.yaml" && -s "$bmad_root/bmm/config.yaml" ]]; then
+        echo "bmm-present"
+        return 0
+    fi
+
+    # Same rule one level down, and it must be checked BEFORE concluding absence:
+    # a present-but-unsearchable module directory cannot be read as an absent Module.
+    if [[ -d "$bmad_root/bmm" && ! -x "$bmad_root/bmm" ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
+    echo "bmm-absent"
+    return 0
+}
+
+# Report the Module-granularity state to the operator.
+#
+# Absence is a NAMED report, never a silence: a check that found nothing to
+# inspect must stay distinguishable from a check that passed. Presence is the
+# opposite — silence is the required behaviour, and a reassuring "detected" line
+# is a defect under the same rule that forbids the warning, so BMM present goes to
+# log_debug, which is gated behind LOG_LEVEL=debug and is absent from a normal run.
+#
+# The BMM-absent message names BMM as the required Module. "BMAD is incomplete"
+# would not: naming BMAD in general is the failure this reporting exists to remove.
+#
+# DECLARED: AC-3 AS WRITTEN IS KNOWINGLY VIOLATED IN ONE STATE. AC-3 reads "Given
+# a repository with BMM present When the installer runs Then it emits no warning
+# at all", and its Given is unconditional — it says nothing about permissions. A
+# repository that HAS BMM but whose evidence cannot be read resolves
+# bmad-indeterminate, and this function warns. That is not a defect to fix: it is
+# DEC-PM454-D6 ("report loudly, do not abort") meeting an AC written before it,
+# and the ruling is the higher authority. It is written down here so a reviewer
+# re-deriving AC-3 finds a disclosed exception rather than an undisclosed one.
+#
+# The INDETERMINATE message says "unknown", never "absent", and it does not assert
+# that BMAD is present either. Its whole purpose is to refuse to assert a state the
+# evidence does not support; a message that softened it into "BMM may be absent"
+# would be the false claim again in a quieter voice, and one that said "BMAD present"
+# would be a fresh false claim on the path where the project path itself is missing.
+#
+# Deliberately carries NO upstream source and NO version string. The route out —
+# where to get it and which version scope applies — is Story 1.6's, and a version
+# string written into installer output would violate AD-1 and AD-2.
+#
+# Emits only through the existing guarded log helpers. No new OPERATOR-FACING
+# `echo` is added — the detector's three bare `echo`s are its stdout answer
+# channel, always consumed in a command substitution and never seen by an operator
+# — and the existing unguarded ones are not swept: that sweep carries a binding
+# ordering constraint and a different owner.
+#
+# ALWAYS returns 0, for the same reason detect_bmad_module_state does.
+#
+# Args:
+#   $1 - project path, passed straight through to the detector.
+report_bmad_module_state() {
+    local project_path="${1:-}"
+    local state
+
+    state=$(detect_bmad_module_state "$project_path")
+
+    case "$state" in
+        bmad-absent)
+            log_warning "BMAD absent — BMM is the required Module for BMAD-dependent capabilities. Install continues; absence is a supported operating state."
+            ;;
+        bmm-absent)
+            log_warning "BMAD present / BMM absent — BMM is the required Module for BMAD-dependent capabilities. Install continues; absence is a supported operating state."
+            ;;
+        bmm-present)
+            log_debug "BMM present"
+            ;;
+        bmad-indeterminate)
+            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. Check that the project path is correct and that you have permission to enter it and its _bmad directory. Install continues; detection never changes the install's exit status."
+            ;;
+        *)
+            # Unreachable by construction today, and deliberately not silent. The
+            # answer channel is stdout, a shared stream: any future stray output
+            # inside the detector lands in $state, matches no arm, and — because
+            # silence is this design's BMM-present signal — a detection failure
+            # would be indistinguishable from success. AD-24: a fail-open condition
+            # that reports nothing is a defect.
+            log_warning "BMAD module detection returned an unrecognised state: '${state:-<empty>}'. Whether the BMM Module is installed is unknown. Install continues; detection never changes the install's exit status."
+            ;;
+    esac
+
+    return 0
+}
 
 # Verify project hooks configuration
 verify_project_hooks() {
