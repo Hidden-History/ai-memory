@@ -805,7 +805,35 @@ _MARKER_REFERENCE = re.compile(r"_bmad(?![A-Za-z0-9_-])|bmad_dir")
 _SUPERSEDED_CLAIMS: tuple[str, ...] = (
     "test -d _ai-memory && test -d _bmad && test -d oversight",
     "3-marker sentinel",
+    # The same mandate written through the variable that holds the path. It
+    # carries no ``_bmad`` token, so before ``_MARKER_REFERENCE`` learned
+    # ``bmad_dir`` it was collected nowhere; it is listed here as well because
+    # collection alone is not disposition -- on a line that also matches an
+    # exemption for this file, a collected-but-exempt stale mandate reads as
+    # clean. Both brace spellings, since shell accepts either and a claim that
+    # only catches one is a claim about punctuation.
+    'test -d _ai-memory && test -d "${bmad_dir}" && test -d oversight',
+    'test -d _ai-memory && test -d "$bmad_dir" && test -d oversight',
 )
+
+# Files the walk below must visit before any count taken over it means
+# anything. MEASURED FROM THE WALK ITSELF at authoring time (2026-09-05),
+# against ``_ai-memory/pov``: ``os.walk`` visits 542 files in a fresh checkout
+# -- which is also what ``git archive`` and CI produce, and what ``git ls-tree
+# -r`` reports for that path -- and 585 in a live worktree, where 34
+# ``__pycache__`` entries are visited too (551 excluding them).
+#
+# It is a FLOOR, not an equality, and sits well below the smallest of those
+# three deliberately. An equality would be a magic number: it fails on every
+# ordinary file addition or removal, gets bumped without thought, and stops
+# being read -- the failure mode this module already carries elsewhere. A floor
+# only moves when the tree genuinely shrinks, so it can be left alone.
+#
+# What it exists to catch is the walk silently collapsing -- an unreadable
+# subtree, a mistaken root, an enumeration narrowed by a later edit -- which
+# costs hundreds of files, not one. The largest single subtree under the pov
+# tree holds 287 files, so losing any one of them already lands below this.
+_POV_TREE_FILE_FLOOR = 400
 
 # (path relative to PRODUCT_ROOT, distinctive fragment of the line, why it is fine)
 #
@@ -927,8 +955,13 @@ _THREE_MARKER_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
     ),
     (
         f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
-        "bmad_dir=",
-        "variable assignment",
+        'bmad_dir="${required_root}/_bmad"',
+        "variable assignment, absolute branch",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        'bmad_dir="_bmad"',
+        "variable assignment, CWD-relative branch",
     ),
     # -- Newly collected once the predicate learned the ``bmad_dir`` variable.
     #    Fragments are deliberately long here: the exemption predicate licenses
@@ -977,8 +1010,8 @@ _THREE_MARKER_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
 
 def _undeclared_marker_references(
     root: Path | None = None,
-) -> tuple[list[tuple[str, int, str]], list[tuple[str, int, str]]]:
-    """Every line under ``root`` naming the BMAD directory, and the undeclared subset.
+) -> tuple[list[tuple[str, int, str]], list[tuple[str, int, str]], int]:
+    """Every line under ``root`` naming the BMAD directory, the undeclared subset, files visited.
 
     "Naming" is the lexical test above: the ``_bmad`` marker at a token
     boundary, or the ``bmad_dir`` variable that holds the same path.
@@ -988,6 +1021,15 @@ def _undeclared_marker_references(
     what a walk that collected nothing returns, and the two are the states this
     guard exists to tell apart.
 
+    The third element -- the number of files the walk actually visited -- is
+    returned for the same reason, one layer down. ``collected`` being non-empty
+    proves the walk reached *something*, not that it reached the tree: a walk
+    narrowed to a single readable directory still collects lines and still
+    reports every exemption as visited, because the exemptions it would have
+    missed are the ones in the part it never entered. Only a count taken over
+    the walk itself distinguishes a whole tree from a fragment of one, so the
+    shipped call site asserts it against ``_POV_TREE_FILE_FLOOR``.
+
     ``root`` defaults to the pov tree and exists so a fixture can drive this
     enumerator over a seeded tree rather than a second copy of it. The shipped
     call site passes nothing; widening the scope is not what the parameter is
@@ -995,14 +1037,28 @@ def _undeclared_marker_references(
     """
     collected: list[tuple[str, int, str]] = []
     undeclared: list[tuple[str, int, str]] = []
+    visited = 0
     root = PRODUCT_ROOT / POV_TREE if root is None else Path(root)
-    for base, _dirs, names in os.walk(root):
+
+    def _refuse(error: OSError) -> None:
+        """A walk that cannot read part of its tree has not read the tree.
+
+        ``os.walk`` swallows errors by default, so an unreadable directory
+        removes its whole subtree from the enumeration and returns the same
+        clean result a clean tree returns. Raising is what makes the two
+        distinguishable.
+        """
+        raise error
+
+    for base, _dirs, names in os.walk(root, onerror=_refuse):
         for name in sorted(names):
+            visited += 1
             path = Path(base) / name
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
+            # Deliberately not wrapped in ``except OSError: continue``. That
+            # skipped an unreadable file silently, which is the same defect as
+            # the swallowed walk error above one level down: the offender the
+            # guard exists to find is exactly the file it would skip.
+            text = path.read_text(encoding="utf-8", errors="ignore")
             rel = str(
                 path.relative_to(PRODUCT_ROOT)
                 if path.is_relative_to(PRODUCT_ROOT)
@@ -1021,7 +1077,7 @@ def _undeclared_marker_references(
                 ):
                     continue
                 undeclared.append((rel, number, line.strip()))
-    return collected, undeclared
+    return collected, undeclared, visited
 
 
 @pytest.mark.process
@@ -1039,11 +1095,20 @@ def test_no_shipped_artifact_mandates_the_superseded_three_marker_conjunction() 
     Enumerated broadly and dispositioned against a declared exemption set
     rather than pattern-matched, for the reasons recorded above the set.
     """
-    collected, undeclared = _undeclared_marker_references()
+    collected, undeclared, visited = _undeclared_marker_references()
     assert collected, (
         "the enumerator collected no lines at all. An empty undeclared list is "
         "what a clean tree returns and also what a collapsed walk returns; "
         "this assertion is what distinguishes them"
+    )
+    assert visited >= _POV_TREE_FILE_FLOOR, (
+        f"the walk visited {visited} files, below the floor of "
+        f"{_POV_TREE_FILE_FLOOR}. Every count below this line is taken over "
+        "that walk, so a narrowed one makes them measurements of a tree that "
+        "was never read -- and a narrowed walk reads here as a clean tree. "
+        "Either the pov tree genuinely shrank by hundreds of files, in which "
+        "case re-measure the floor from the walk and say so, or the walk did "
+        "not reach it"
     )
     unvisited = sorted(
         {exempt_path for exempt_path, _fragment, _reason in _THREE_MARKER_EXEMPTIONS}
@@ -1094,22 +1159,73 @@ def test_the_marker_enumerator_can_actually_fail(tmp_path: Path) -> None:
 
     Drives the REAL enumerator over a seeded tree instead of re-deriving the
     predicate here. A control that re-implements what it is testing proves only
-    that a regex it has just typed works; if the walk, the encoding handling or
-    the exemption logic broke, a second implementation agreeing with itself
-    would still pass.
+    that a regex it has just typed works; if the walk or the encoding handling
+    broke, a second implementation agreeing with itself would still pass.
+
+    🔴 **Three probes, because the enumerator has three exits and one probe
+    only ever reached the first.** A collected line leaves by the superseded
+    branch, by the exemption branch, or by falling through to ``undeclared``.
+    The original single probe carried ``_SUPERSEDED_CLAIMS[0]`` verbatim, so it
+    left by the superseded branch and ``continue``d *before* the exemption
+    ``any()`` was ever evaluated. The disposition logic was therefore executed
+    by no test at all: replacing the whole exemption predicate with
+    ``if True: continue`` -- the gate wholly dead, every offender in the tree
+    waved through -- left this file green, and this docstring previously
+    claimed that exact coverage in as many words.
+
+    Probes B and C are the ones that hold it. Neither may carry a superseded
+    literal, or it would short-circuit at the same branch and re-create the
+    hole this exists to close.
     """
-    seeded = "MUST run `test -d _ai-memory && test -d _bmad && test -d oversight`"
-    (tmp_path / "seeded_offender.md").write_text(seeded + "\n", encoding="utf-8")
+    # -- Probe A: superseded literal, non-exempt path. Exits at the superseded
+    #    branch. This is the original probe, kept: it is the only one covering
+    #    that branch.
+    probe_a = "MUST run `test -d _ai-memory && test -d _bmad && test -d oversight`"
+    (tmp_path / "seeded_offender.md").write_text(probe_a + "\n", encoding="utf-8")
 
-    collected, undeclared = _undeclared_marker_references(tmp_path)
+    # -- Probe B: marker line, NO superseded literal, NON-EXEMPT path. Reaches
+    #    the exemption ``any()``, matches nothing, falls through.
+    probe_b = "the _bmad marker is asserted here with no disposition on file"
+    (tmp_path / "seeded_undisposed.md").write_text(probe_b + "\n", encoding="utf-8")
 
-    assert [(number, line) for _path, number, line in undeclared] == [(1, seeded)], (
-        "the real enumerator did not flag a seeded three-marker claim, so the "
-        f"guard cannot be observed refusing and is not a gate: {undeclared}"
+    # -- Probe C: marker line at an EXEMPT path that the exemption's fragment
+    #    does NOT cover. Reaches the ``any()``, matches the path but not the
+    #    fragment, falls through. This is the probe that distinguishes a
+    #    per-line exemption from a per-file one -- a file is licensed for a
+    #    fragment, never wholesale.
+    #
+    #    The path is derived from the exemption set rather than written out, so
+    #    it cannot name a file the set has stopped exempting.
+    exempt_path = _THREE_MARKER_EXEMPTIONS[0][0]
+    probe_c = "an unrelated _bmad sentence appended beside a licensed line"
+    fragments_for_path = [
+        fragment
+        for path, fragment, _reason in _THREE_MARKER_EXEMPTIONS
+        if path == exempt_path
+    ]
+    assert not any(fragment in probe_c for fragment in fragments_for_path), (
+        "probe C must not contain any fragment declared for its own path, or "
+        f"it tests the exemption matching rather than escaping it: {exempt_path}"
     )
-    assert len(collected) == 1, (
-        f"the enumerator collected {len(collected)} lines from a one-line tree: "
-        f"{collected}"
+    seeded_c = tmp_path / exempt_path
+    seeded_c.parent.mkdir(parents=True, exist_ok=True)
+    seeded_c.write_text(probe_c + "\n", encoding="utf-8")
+
+    collected, undeclared, visited = _undeclared_marker_references(tmp_path)
+
+    assert sorted(line for _path, _number, line in undeclared) == sorted(
+        [probe_a, probe_b, probe_c]
+    ), (
+        "the real enumerator did not flag all three seeded probes, so at least "
+        "one exit of the disposition logic is executed by nothing and the "
+        f"guard cannot be observed refusing on it: {undeclared}"
+    )
+    assert sorted(line for _path, _number, line in collected) == sorted(
+        [probe_a, probe_b, probe_c]
+    ), f"the enumerator collected lines this test did not seed: {collected}"
+    assert visited == 3, (
+        f"the walk visited {visited} files from a three-file seeded tree, so "
+        "the count the shipped floor is asserted against is not a file count"
     )
 
 
@@ -1125,7 +1241,7 @@ def test_the_marker_enumerator_collects_only_marker_lines(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    assert _undeclared_marker_references(tmp_path) == ([], [])
+    assert _undeclared_marker_references(tmp_path) == ([], [], 1)
 
 
 @pytest.mark.process
