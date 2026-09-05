@@ -77,3 +77,10 @@ If scope changes require replanning during a sprint:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:phase-planning
+depends_on: bmad
+degraded_behaviour: Runs planning without the BMAD sprint-planning and story-creation skills and reports each as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

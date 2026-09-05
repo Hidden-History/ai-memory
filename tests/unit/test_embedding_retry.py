@@ -562,6 +562,15 @@ class TestStoreAsyncHookFallback:
         mock_cfg.embedding_dimension = 768
         mock_cfg.security_scanning_enabled = False
         mock_cfg.hybrid_search_enabled = False
+        # queue_dir MUST be assigned. The pending-fallback path this test exercises
+        # reaches memory.classifier.queue._resolve_queue_dir(), which does
+        # Path(get_config().queue_dir) — and get_config is patched to return this
+        # mock. Left unassigned, MagicMock auto-creates the attribute and the queue
+        # is written to a path derived from the mock's repr, landing a real
+        # classification_queue.jsonl in the REPO ROOT (MagicMock/mock.queue_dir/<id>/)
+        # where it is not gitignored and would be committed. Assigning it keeps the
+        # write inside tmp_path.
+        mock_cfg.queue_dir = str(tmp_path / "queue")
         # NOTE: patched onto memory.config.get_config below, AFTER reset_config()
         # and the real EmbeddingClient() construction — reset_config() needs the
         # real lru_cache-wrapped get_config still in place to clear.

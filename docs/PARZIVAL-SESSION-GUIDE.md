@@ -320,13 +320,29 @@ On confirmation, the installer deploys:
 
 ### Manual Enable
 
-If you skipped Parzival during install, add these to your `.env`:
+If you skipped Parzival during install, add these to your `docker/.env`:
 
 ```bash
 PARZIVAL_ENABLED=true
+PARZIVAL_ENABLED_CAUSE=
 PARZIVAL_USER_NAME=YourName
 PARZIVAL_LANGUAGE=English
 ```
+
+> **`PARZIVAL_ENABLED_CAUSE=` must be cleared in the same edit.** Setting the flag
+> true while a stale `opt-out`/`failed` cause is still on the line produces
+> `enabled` with a cause attached — a state the record declares must not exist, and
+> which makes every cause-aware consumer report a problem on a working install. The
+> installer clears it automatically; a hand-edit has to do it explicitly.
+
+> **Check the cause first.** This works only if you *declined* Parzival. Run
+> `aim-status`, or read `PARZIVAL_ENABLED_CAUSE` in `docker/.env`:
+>
+> - `opt-out` — you declined; the steps above apply.
+> - `failed` — the installer could not deploy the `_ai-memory/` package. Setting
+>   the flag will **not** enable Parzival, because the package is not there.
+>   Re-run the installer instead.
+> - absent or `unknown` — this install recorded no cause. Re-run the installer.
 
 Then re-run the installer targeting the Parzival component:
 

@@ -5,10 +5,13 @@ actual code paths rather than testing mocks.
 """
 
 import importlib.util
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from memory.config import MemoryConfig
 
 # Load manual_save_memory as a module from the hooks script path
 _script_path = (
@@ -106,7 +109,7 @@ class TestMainAgentPath:
             "memory_id": "test-id-1234",
             "embedding_status": "complete",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (
@@ -136,7 +139,7 @@ class TestMainAgentPath:
             "memory_id": "test-id-5678",
             "embedding_status": "complete",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (
@@ -165,10 +168,24 @@ class TestMainAgentPath:
         assert result == 1
 
     def test_parzival_disabled_returns_error(self, monkeypatch):
-        """Agent types require parzival_enabled=true."""
+        """Agent types require parzival_enabled=true.
+
+        ``parzival_enabled_cause`` MUST be assigned. A ``MagicMock(spec=MemoryConfig)``
+        that never assigns it raises ``AttributeError`` on read — deliberately, so the
+        cause branches cannot silently take the wrong path (``resolve_cause``'s
+        fail-loud contract). This test previously assigned only ``parzival_enabled``
+        and passed anyway, because ``manual_save_memory`` imported ``parzival_state``
+        inside the same blanket ``except Exception`` as the config load: the
+        AttributeError was swallowed, the run printed *"Could not load config"*, and
+        the assertion ``result == 1`` was satisfied by the WRONG branch. Separating
+        the import from the config load exposed it. Fixed by assigning the field, not
+        by loosening the guard — the A-6 / TR-8 failure mode, caught in the suite.
+        """
         monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = False
+        mock_config.parzival_enabled_cause = "opt-out"
+        mock_config.parzival_enabled_condition = "complete"
 
         with (
             patch.object(
@@ -180,6 +197,47 @@ class TestMainAgentPath:
             result = self.mod.main()
 
         assert result == 1
+
+    def test_an_unimportable_parzival_state_still_reports_a_reason(
+        self, monkeypatch, capsys
+    ):
+        """The ``except ImportError`` fallback on the disabled path had no coverage.
+
+        Models a mixed-vintage installed ``src`` — ``config.py`` carrying the field,
+        ``memory.parzival_state`` absent — by forcing the import to fail.
+        ``sys.modules[name] = None`` is the supported way to do that: the import
+        system raises ``ImportError`` instead of reaching the real module.
+
+        Until this test the branch was dead to the suite. Its message is a
+        hand-written member of the disabled-state message family that cannot be
+        sourced from ``_MESSAGES`` — that table lives inside the very module this
+        branch exists to cope with the absence of — so an assertion here is the only
+        thing that can hold it in place.
+        """
+        monkeypatch.setenv("AI_MEMORY_PROJECT_ID", "test-project")
+        mock_config = MagicMock(spec=MemoryConfig)
+        mock_config.parzival_enabled = False
+        mock_config.parzival_enabled_cause = "opt-out"
+        mock_config.parzival_enabled_condition = "complete"
+
+        monkeypatch.setitem(sys.modules, "memory.parzival_state", None)
+
+        with (
+            patch.object(
+                self.mod.sys, "argv", ["script", "--type", "agent_memory", "text"]
+            ),
+            patch("memory.config.get_config", return_value=mock_config),
+            patch.object(self.mod, "resolve_project_id", return_value="test-project"),
+        ):
+            result = self.mod.main()
+
+        assert result == 1
+        err = capsys.readouterr().err
+        assert "Traceback" not in err, err
+        assert "cannot report why" in err, err
+        assert "re-run the installer" in err, err
+        # The cause is genuinely unavailable, so the fallback must not invent one.
+        assert "declined at install" not in err, err
 
     def test_no_type_uses_default_path(self, monkeypatch):
         """No --type flag uses the existing store_manual_summary path."""
@@ -204,7 +262,7 @@ class TestMainAgentPath:
             "status": "error",
             "memory_id": "test-id",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (
@@ -229,7 +287,7 @@ class TestMainAgentPath:
             "memory_id": "test-id",
             "embedding_status": "complete",
         }
-        mock_config = MagicMock()
+        mock_config = MagicMock(spec=MemoryConfig)
         mock_config.parzival_enabled = True
 
         with (

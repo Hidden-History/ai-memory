@@ -23,6 +23,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from memory.config import MemoryConfig
+
 _REPO = Path(__file__).resolve().parent.parent
 _SCRIPTS = _REPO / "scripts" / "memory"
 
@@ -46,7 +48,7 @@ def _patch_memory_modules(
     monkeypatch, mock_storage_instance: MagicMock, group_id: str
 ) -> None:
     """Inject fake ``memory.*`` modules so scripts never touch live services."""
-    fake_config = MagicMock()
+    fake_config = MagicMock(spec=MemoryConfig)
     fake_config.parzival_enabled = True
 
     memory_pkg = types.ModuleType("memory")

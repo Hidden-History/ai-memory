@@ -79,3 +79,10 @@ Abbreviated release is appropriate when:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:phase-maintenance
+depends_on: bmad
+degraded_behaviour: Runs maintenance without the BMAD analyst and dev personas and reports each as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

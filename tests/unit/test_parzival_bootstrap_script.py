@@ -53,6 +53,13 @@ def _load_bootstrap_module():
 def _inject_fake_memory(monkeypatch, resolve_spy: MagicMock) -> None:
     fake_config = MagicMock()
     fake_config.parzival_enabled = True
+    # AD-32: bootstrap.py branches on the CAUSE when not enabled, so the double has
+    # to carry a real cause value. Left unassigned, MagicMock auto-creates the
+    # attribute and resolve_cause raises rather than silently resolving `unknown` --
+    # which is the point: a mock that never assigned the field was taking the wrong
+    # branch and passing anyway (the A-6 failure mode).
+    fake_config.parzival_enabled_cause = "opt-out"
+    fake_config.parzival_enabled_condition = "complete"
     fake_config.bootstrap_token_budget = 1000
     fake_config.handoff_ceiling_tokens = 500
 
@@ -107,12 +114,32 @@ def test_main_resolves_scope_and_runs(monkeypatch, capsys, tmp_path):
     assert "No cross-session memories found" in out
 
 
-@pytest.mark.parametrize("enabled", [False])
-def test_main_respects_parzival_disabled(monkeypatch, capsys, tmp_path, enabled):
+@pytest.mark.parametrize(
+    "cause,expected,forbidden",
+    [
+        ("opt-out", "declined at install", "could not be installed"),
+        ("failed", "could not be installed", "declined at install"),
+        # Empty normalises to the `unknown` read-side sentinel (NORMATIVE rule 3/4).
+        ("", "did not record why", "declined at install"),
+    ],
+)
+def test_main_respects_parzival_disabled(
+    monkeypatch, capsys, tmp_path, cause, expected, forbidden
+):
+    """TR-7 fixture pair for bootstrap.py — with a PINNED per-cause observable.
+
+    The previous assertion was ``"Parzival is not enabled" in out``, a substring
+    present in ALL THREE _MESSAGES renderings. It was therefore green for any cause
+    and could not distinguish branching-on-cause from printing a constant — exactly
+    the unpinned-observable failure TR-7 exists to forbid. Each case now asserts the
+    substring unique to its own rendering AND the absence of another cause's.
+    """
     monkeypatch.chdir(tmp_path)
     resolve_spy = MagicMock(return_value="resolved-project")
     _inject_fake_memory(monkeypatch, resolve_spy)
-    sys.modules["memory.config"].MemoryConfig.return_value.parzival_enabled = enabled
+    cfg = sys.modules["memory.config"].MemoryConfig.return_value
+    cfg.parzival_enabled = False
+    cfg.parzival_enabled_cause = cause
 
     module = _load_bootstrap_module()
     rc = module.main()
@@ -120,6 +147,47 @@ def test_main_respects_parzival_disabled(monkeypatch, capsys, tmp_path, enabled)
     assert rc == 0
     out = capsys.readouterr().out
     assert "Parzival is not enabled" in out
+    assert expected in out, out
+    assert forbidden not in out, out
+
+
+def test_an_unimportable_parzival_state_degrades_instead_of_tracebacking(
+    monkeypatch, capsys, tmp_path
+):
+    """The ``except ImportError`` fallback on the disabled path had no coverage.
+
+    This stdout is INJECTED INTO A SESSION AS CONTEXT, so the failure this branch
+    prevents is a Python traceback becoming an agent's context. The branch is
+    reachable on an installed ``src`` at a mixed vintage — one predating
+    ``parzival_state`` — which is modelled here by making the import fail.
+    ``sys.modules[name] = None`` is the supported way to force that: the import
+    system raises ``ImportError`` rather than reaching the real module.
+
+    Until this test the branch was dead to the suite: nothing rendered it, so the
+    hand-written message could drift from the disabled-state message family it
+    belongs to without anything noticing.
+    """
+    monkeypatch.chdir(tmp_path)
+    resolve_spy = MagicMock(return_value="resolved-project")
+    _inject_fake_memory(monkeypatch, resolve_spy)
+    cfg = sys.modules["memory.config"].MemoryConfig.return_value
+    cfg.parzival_enabled = False
+    cfg.parzival_enabled_cause = "opt-out"
+
+    monkeypatch.setitem(sys.modules, "memory.parzival_state", None)
+
+    module = _load_bootstrap_module()
+    rc = module.main()
+
+    assert rc == 0, "an old installed src must not turn bootstrap into a failure"
+    out = capsys.readouterr().out
+    assert "Traceback" not in out, f"a traceback reached session context:\n{out}"
+    assert "Parzival is not enabled" in out, out
+    assert "cannot report why" in out, out
+    assert "re-run the installer" in out, out
+    # The cause is genuinely unavailable here, so the fallback must NOT invent one.
+    assert "declined at install" not in out, out
+    assert "could not be installed" not in out, out
 
 
 def test_insights_not_truncated_at_200_chars(monkeypatch, capsys, tmp_path):

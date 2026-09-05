@@ -99,10 +99,28 @@ def main() -> int:
         return 0
 
     if not config.parzival_enabled:
+        # AD-32: branch on the CAUSE, never the bare value. This consumer's stdout is
+        # injected into a session as context rather than read at a terminal, so it
+        # renders the markdown form of the shared mapping. The previous text told the
+        # operator to set PARZIVAL_ENABLED=true unconditionally -- advice that cannot
+        # work when the cause is `failed`, because the package is absent.
+        # Guarded like every other memory.* import in this file, and for a sharper
+        # reason than convention: this stdout is INJECTED INTO A SESSION AS CONTEXT.
+        # On an installed `src` at a mixed vintage -- one predating parzival_state --
+        # an unguarded import would deliver a Python traceback into the session
+        # instead of the degraded message, on the disabled path, which is the only
+        # path that reaches here.
         print("## Cross-Session Memory (Parzival Bootstrap)\n")
-        print(
-            "Parzival is not enabled. Set `PARZIVAL_ENABLED=true` in .env to activate."
-        )
+        try:
+            from memory.parzival_state import disabled_message, resolve_cause
+
+            print(disabled_message(resolve_cause(config), markdown=True))
+        except ImportError:
+            print(
+                "Parzival is not enabled. This install cannot report why "
+                "(`memory.parzival_state` is unavailable — the installed `src` "
+                "predates the cause record); re-run the installer."
+            )
         return 0
 
     try:

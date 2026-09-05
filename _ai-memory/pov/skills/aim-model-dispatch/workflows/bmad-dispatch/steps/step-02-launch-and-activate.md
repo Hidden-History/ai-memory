@@ -28,6 +28,11 @@ Run BEFORE any pane creation. The sentinel requires the co-presence of
 insufficient because a nested source repo (e.g., `ai-memory/`) also contains
 `_ai-memory/` and would pass.
 
+`_bmad/` is shipped by BMAD, not by AI-Memory. When it alone is missing the
+sentinel reports a degraded state and returns 0: the workspace root is correct
+and dispatch that does not need BMAD proceeds. Only a missing `_ai-memory/` or
+`oversight/` is CWD drift.
+
 ```bash
 # Scope: dev workspace dispatches only. End-user installs (~/.ai-memory/) launch
 # via skill installer wrappers and do not require this sentinel.
@@ -37,6 +42,30 @@ cwd_sentinel || exit 1
 ```
 
 If this check fails, stop — do not proceed to pane creation.
+
+### 0a-bis. Require BMAD (this workflow, and only this workflow)
+
+The sentinel returns 0 when `_bmad/` alone is missing, because most dispatch
+does not need BMAD. **This workflow does, by definition** — it exists to
+activate a BMAD agent — so the sentinel's success is not sufficient here and
+this gate is what stops a pane being created and an activation sent to a
+machine that has no BMAD to activate.
+
+Run AFTER the sentinel and BEFORE pane creation. Report the dependency and its
+remedy and stop; do not create a pane, do not send an activation, and do not
+fall back to a generic persona silently.
+
+```bash
+if ! test -d _bmad; then
+  echo "DEGRADED: dependency 'bmad' is unavailable (no _bmad/). BMAD agent dispatch cannot proceed."
+  echo "Install BMAD to enable BMAD-dependent dispatch (upstream source: DEPENDENCIES.md in the Parzival tree)."
+  echo "Workspace root is correct — this is BMAD's absence, not CWD drift. Non-BMAD dispatch is unaffected."
+  exit 1
+fi
+```
+
+If this check fails, stop — the operator is told what is missing and what
+would provide it, which is the whole of the degraded contract for this path.
 
 ### 0b. Pre-Spawn Model Validation
 
@@ -164,7 +193,7 @@ ONLY when the pane is open, Claude launched, the activation command has been sen
 ## SYSTEM SUCCESS/FAILURE METRICS
 
 ### SUCCESS:
-- Workspace root sentinel passed (`_ai-memory/` + `_bmad/` + `oversight/` all present)
+- Workspace root sentinel passed (`_ai-memory/` + `oversight/` present; `_bmad/` present or reported unavailable)
 - Model validated against the catalog for the selected backend
 - Pane created with captured PANE_TARGET ID
 - Wrapper launched with correct backend flags

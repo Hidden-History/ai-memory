@@ -342,6 +342,28 @@ def create_v206_payload_indexes(client, dry_run: bool) -> bool:
 # ─── Step 6: Append config vars to .env ──────────────────────────────────────
 
 PARZIVAL_VARS = [
+    # AD-32: the enablement record is value + cause + condition -- but this migration
+    # deliberately seeds NEITHER the cause NOR the condition, and adding them here is
+    # a regression, not a completion.
+    #
+    # Two independent reasons, either sufficient:
+    #
+    # 1. It cannot know the cause. A migration finds an existing PARZIVAL_ENABLED and
+    #    no record of why. Seeding "opt-out" is exactly what NORMATIVE rule 4 forbids
+    #    by name -- it tells every operator whose install FAILED that they chose it,
+    #    the precise conflation this record exists to remove. Absent cause reads as
+    #    "unknown" through every reader (memory.parzival_state.normalize_cause,
+    #    install.sh::read_parzival_cause, upgrade.sh), which is the correct and
+    #    honest answer here. Seeding the empty string is no better: update_env_file
+    #    appends PER KEY, so on an install already carrying PARZIVAL_ENABLED=true the
+    #    value key is skipped while the cause key is appended -- writing the
+    #    (enabled x non-empty cause) cell directly, with no interrupt required.
+    #
+    # 2. The back-fill is Story 1.2's, not this story's. Story 1.1 states migration is
+    #    out of scope and that the conversion of existing installs lands with 1.2 --
+    #    the same code that produces the "partial" condition. Writing a partial
+    #    record here performs a slice of that migration early and leaves 1.2 unable to
+    #    distinguish "1.1 seeded this" from "the operator's install recorded it".
     ("PARZIVAL_ENABLED", "false"),
     ("PARZIVAL_USER_NAME", "Developer"),
     ("PARZIVAL_LANGUAGE", "English"),
