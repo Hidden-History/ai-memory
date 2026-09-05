@@ -829,10 +829,40 @@ _SUPERSEDED_CLAIMS: tuple[str, ...] = (
 # being read -- the failure mode this module already carries elsewhere. A floor
 # only moves when the tree genuinely shrinks, so it can be left alone.
 #
-# What it exists to catch is the walk silently collapsing -- an unreadable
-# subtree, a mistaken root, an enumeration narrowed by a later edit -- which
-# costs hundreds of files, not one. The largest single subtree under the pov
-# tree holds 287 files, so losing any one of them already lands below this.
+# What it exists to catch is NOT a mistaken or narrowed root, and NOT an
+# unreadable subtree. Three other instruments hold those, each by a mechanism
+# this one does not have. Measured at this SHA: narrow the root to any single
+# subtree of the pov tree and the exemption-coverage check goes non-empty at
+# all nine, while ``collected`` goes empty at the seven carrying no marker
+# line. Make a subtree unreadable -- ``chmod 000`` on ``workflows/phases``,
+# 101 files -- and ``_refuse`` raises PermissionError before any count is
+# taken.
+#
+# 🔴 That last case is stated twice on purpose, because this floor is the
+# obvious thing to credit for it and it cannot make the save. Swallow the walk
+# error instead of raising it and the same chmod leaves visited at 441 --
+# ABOVE this floor -- reporting collected=28, undeclared=0, unvisited=0. Clean,
+# on every instrument including this one. A justification that says or implies
+# the floor catches a subtree going unreadable is false, however carefully it
+# is worded.
+#
+# The niche that is left is narrow, and worth stating exactly. A loss reaches
+# this floor only if it is SILENT (no OSError, so ``_refuse`` never fires),
+# LARGER than the floor's 142-file slack (542 - 400), and sparing all 8 files
+# the exemption set names, so the coverage check stays empty while a marker
+# line still stands and keeps ``collected`` non-empty. Measured: delete 286
+# files from ``workflows/``, keeping the one exemption file it holds, and the
+# walk reports visited=256, collected=28, undeclared=0, unvisited=0 -- every
+# other instrument clean, this one refusing. That is the whole of it.
+#
+# Two corollaries, both previously written down wrongly. The floor is bounded
+# below by its slack, so no silent collapse of 142 files or fewer reaches it:
+# ``skills``, the second-largest subtree at 132 files, could vanish whole and
+# leave this satisfied. And the wording this replaces said the largest subtree
+# holds 287 files "so losing any one of them already lands below this" -- only
+# ``workflows`` does, at 255 remaining; without ``skills`` the walk still
+# visits 410 files, without ``constraints`` 450, and every other subtree is
+# smaller again.
 _POV_TREE_FILE_FLOOR = 400
 
 # (path relative to PRODUCT_ROOT, distinctive fragment of the line, why it is fine)
@@ -1023,12 +1053,19 @@ def _undeclared_marker_references(
 
     The third element -- the number of files the walk actually visited -- is
     returned for the same reason, one layer down. ``collected`` being non-empty
-    proves the walk reached *something*, not that it reached the tree: a walk
-    narrowed to a single readable directory still collects lines and still
-    reports every exemption as visited, because the exemptions it would have
-    missed are the ones in the part it never entered. Only a count taken over
-    the walk itself distinguishes a whole tree from a fragment of one, so the
-    shipped call site asserts it against ``_POV_TREE_FILE_FLOOR``.
+    proves the walk reached *something*, not how much of it: a walk narrowed to
+    a single readable subtree still collects lines.
+
+    What it does not do is hide, and the claim here that it does was measured
+    false. Narrow the root to any one subtree of the pov tree at this SHA and
+    the exemption-coverage check goes non-empty -- at all nine of them -- while
+    ``collected`` goes empty at seven, so a narrowed root is refused by the
+    assertions that name files, not by a count. The count is asserted at the
+    shipped call site against ``_POV_TREE_FILE_FLOOR`` for the narrower case
+    those two cannot see: a loss that is silent, larger than that floor's
+    slack, and sparing every file they name. An unreadable subtree is not that
+    case -- ``_refuse`` below raises on it first, and the floor measurably does
+    not fire on it. The derivation lives on that constant.
 
     ``root`` defaults to the pov tree and exists so a fixture can drive this
     enumerator over a seeded tree rather than a second copy of it. The shipped
@@ -1050,7 +1087,15 @@ def _undeclared_marker_references(
         """
         raise error
 
-    for base, _dirs, names in os.walk(root, onerror=_refuse):
+    # ``followlinks=True`` because ``onerror`` cannot report what ``os.walk``
+    # never attempts. A symlinked subtree is classified as a directory and then
+    # not descended into, which raises nothing: the subtree leaves the
+    # enumeration and the walk returns the clean result a clean tree returns.
+    # That is the same silence ``_refuse`` exists to break, one level up, and the
+    # handler is structurally unable to see it. Latent at this SHA -- the pov
+    # tree carries zero symlinks, in the worktree and in the committed tree
+    # alike -- so this closes a coverage claim rather than a live hole.
+    for base, _dirs, names in os.walk(root, onerror=_refuse, followlinks=True):
         for name in sorted(names):
             visited += 1
             path = Path(base) / name
@@ -1176,12 +1221,83 @@ def test_the_marker_enumerator_can_actually_fail(tmp_path: Path) -> None:
     Probes B and C are the ones that hold it. Neither may carry a superseded
     literal, or it would short-circuit at the same branch and re-create the
     hole this exists to close.
+
+    🔴 **Probe A is seeded at an EXEMPT path, which is the other half of the
+    same finding.** Seeded at a non-exempt one it discriminated nothing: there
+    the superseded branch and the fall-through both append to ``undeclared``,
+    so the assertion passed either way. Deleting the superseded branch outright
+    left this file green, and so did corrupting any one of the four
+    ``_SUPERSEDED_CLAIMS`` entries -- all four, individually. At an exempt path
+    whose own declared fragment matches the seeded line, the exemption would
+    ``continue`` and the line would escape, so the superseded branch must take
+    precedence over it or this fails. One seeded line per entry, because a
+    probe carrying one entry observes one entry and leaves the rest unwatched.
     """
-    # -- Probe A: superseded literal, non-exempt path. Exits at the superseded
-    #    branch. This is the original probe, kept: it is the only one covering
-    #    that branch.
-    probe_a = "MUST run `test -d _ai-memory && test -d _bmad && test -d oversight`"
-    (tmp_path / "seeded_offender.md").write_text(probe_a + "\n", encoding="utf-8")
+
+    def _licensed_by_fragment(path: str, line: str) -> bool:
+        """True if a declared exemption licenses *line* at *path*.
+
+        The real predicate, re-derived from the set rather than restated, so
+        the probes below cannot drift away from what the enumerator does.
+        """
+        return any(
+            path == exempt and fragment in line
+            for exempt, fragment, _reason in _THREE_MARKER_EXEMPTIONS
+        )
+
+    # -- Probe A: the superseded literals, at an EXEMPT path, on lines the
+    #    path's own declared fragment matches. Exits at the superseded branch,
+    #    and is the only probe covering it. Both halves are load-bearing: the
+    #    exemption is what that branch must take precedence over, and one line
+    #    per entry is what puts every entry under observation.
+    #
+    #    Path and fragment are derived from the exemption set rather than
+    #    written out, so they cannot name a file the set has stopped exempting.
+    #    A path distinct from probe C's is required -- the two are separate
+    #    files -- and probe C takes the first entry, so this takes the first
+    #    entry naming a different file.
+    probe_a_path, probe_a_fragment = next(
+        (path, fragment)
+        for path, fragment, _reason in _THREE_MARKER_EXEMPTIONS
+        if path != _THREE_MARKER_EXEMPTIONS[0][0]
+    )
+    #    The claim text is copied literally, NOT generated from
+    #    ``_SUPERSEDED_CLAIMS``. A probe derived from the list under test moves
+    #    with it: a typo in an entry corrupts the probe in the same stroke, the
+    #    two still match, and the control stays green while the guard has
+    #    stopped recognising that offender in the real tree. The duplication is
+    #    the point, and the assertion below is what keeps the two copies in
+    #    step -- it fails when an entry is added or reworded, which is the
+    #    review this control exists to force.
+    probe_a_claims = (
+        "test -d _ai-memory && test -d _bmad && test -d oversight",
+        "3-marker sentinel",
+        'test -d _ai-memory && test -d "${bmad_dir}" && test -d oversight',
+        'test -d _ai-memory && test -d "$bmad_dir" && test -d oversight',
+    )
+    assert sorted(probe_a_claims) == sorted(_SUPERSEDED_CLAIMS), (
+        "the seeded claims and _SUPERSEDED_CLAIMS have diverged, so an entry is "
+        "either unobserved by this control or has been reworded under it. Copy "
+        "the entry here as well rather than generating these from the list: "
+        f"{sorted(set(_SUPERSEDED_CLAIMS) ^ set(probe_a_claims))}"
+    )
+    probe_a_lines = [
+        f"{probe_a_fragment} the _bmad marker, and still mandates {claim}"
+        for claim in probe_a_claims
+    ]
+    for probe_a in probe_a_lines:
+        assert _MARKER_REFERENCE.search(probe_a), (
+            "every probe A line must be collected before it can be "
+            f"dispositioned: {probe_a!r}"
+        )
+        assert _licensed_by_fragment(probe_a_path, probe_a), (
+            "every probe A line must be licensed by a declared exemption at "
+            "its own path, or the superseded branch has nothing to take "
+            f"precedence over and stops being observed: {probe_a!r}"
+        )
+    seeded_a = tmp_path / probe_a_path
+    seeded_a.parent.mkdir(parents=True, exist_ok=True)
+    seeded_a.write_text("\n".join(probe_a_lines) + "\n", encoding="utf-8")
 
     # -- Probe B: marker line, NO superseded literal, NON-EXEMPT path. Reaches
     #    the exemption ``any()``, matches nothing, falls through.
@@ -1198,12 +1314,7 @@ def test_the_marker_enumerator_can_actually_fail(tmp_path: Path) -> None:
     #    it cannot name a file the set has stopped exempting.
     exempt_path = _THREE_MARKER_EXEMPTIONS[0][0]
     probe_c = "an unrelated _bmad sentence appended beside a licensed line"
-    fragments_for_path = [
-        fragment
-        for path, fragment, _reason in _THREE_MARKER_EXEMPTIONS
-        if path == exempt_path
-    ]
-    assert not any(fragment in probe_c for fragment in fragments_for_path), (
+    assert not _licensed_by_fragment(exempt_path, probe_c), (
         "probe C must not contain any fragment declared for its own path, or "
         f"it tests the exemption matching rather than escaping it: {exempt_path}"
     )
@@ -1213,16 +1324,46 @@ def test_the_marker_enumerator_can_actually_fail(tmp_path: Path) -> None:
 
     collected, undeclared, visited = _undeclared_marker_references(tmp_path)
 
-    assert sorted(line for _path, _number, line in undeclared) == sorted(
-        [probe_a, probe_b, probe_c]
-    ), (
-        "the real enumerator did not flag all three seeded probes, so at least "
-        "one exit of the disposition logic is executed by nothing and the "
-        f"guard cannot be observed refusing on it: {undeclared}"
+    # Whole records, not just the line text. Dropping the path and the line
+    # number from these assertions cost real coverage: with only the text
+    # compared, renumbering every reported line -- 0-based instead of 1-based --
+    # left this green, and a report is a location or it is not actionable.
+    expected = sorted(
+        [(probe_a_path, number, line) for number, line in enumerate(probe_a_lines, 1)]
+        + [("seeded_undisposed.md", 1, probe_b), (exempt_path, 1, probe_c)]
     )
-    assert sorted(line for _path, _number, line in collected) == sorted(
-        [probe_a, probe_b, probe_c]
-    ), f"the enumerator collected lines this test did not seed: {collected}"
+    assert sorted(undeclared) == expected, (
+        "the real enumerator did not flag every seeded probe at its own path "
+        "and line, so either an exit of the disposition logic is executed by "
+        "nothing, or the report cannot be acted on: "
+        f"{sorted(undeclared)} != {expected}"
+    )
+    assert sorted(collected) == expected, (
+        "the enumerator collected lines this test did not seed, so the "
+        "collection half and the disposition half are no longer measuring the "
+        f"same set of lines: {sorted(collected)}"
+    )
+
+    # Probe C's discriminating property, asserted on what the enumerator
+    # actually reported rather than on the variable that seeded it. What makes
+    # probe C different from probe B is that its path IS licensed and its line
+    # is not: a file is licensed for a fragment, never wholesale. Retarget it
+    # to a non-exempt path and it becomes a second probe B -- which was green,
+    # because both fall through to the same exit. A repo-local TMPDIR breaks
+    # the same property for real: the seeded tree lands under PRODUCT_ROOT and
+    # the enumerator reports paths the exemption set does not name. Measured,
+    # the record assertion above reaches that case first; both refuse it.
+    licensed_but_unmatched = [
+        (path, line)
+        for path, _number, line in undeclared
+        if any(path == exempt for exempt, _f, _r in _THREE_MARKER_EXEMPTIONS)
+        and not _licensed_by_fragment(path, line)
+    ]
+    assert licensed_but_unmatched == [(exempt_path, probe_c)], (
+        "no seeded line reached the enumerator at a licensed path that its "
+        "licence does not cover, so the per-line half of the exemption "
+        f"predicate is observed by nothing: {licensed_but_unmatched}"
+    )
     assert visited == 3, (
         f"the walk visited {visited} files from a three-file seeded tree, so "
         "the count the shipped floor is asserted against is not a file count"
