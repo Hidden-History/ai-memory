@@ -1,15 +1,22 @@
 """Companion test for scripts/lib/cwd_sentinel.sh.
 
-Consolidates the 2+1 inline CWD-sentinel forms from aim-model-dispatch:
-  Form 1: bmad-dispatch/steps/step-02-launch-and-activate.md:35-41  (strict)
-  Form 2: tmux-dispatch/steps/step-02-launch-pane.md:35-41          (strict, byte-identical)
-  Form 3: claude-native/workflow.md:65-67                            (loose variant)
+Consolidates the 2+1 CWD-sentinel forms from aim-model-dispatch. Each of the
+three now sources this helper rather than inlining a check of its own; cited by
+file, not by line, because line ranges here went stale within one round:
+  Form 1: bmad-dispatch/steps/step-02-launch-and-activate.md  (strict)
+  Form 2: tmux-dispatch/steps/step-02-launch-pane.md          (strict, byte-identical)
+  Form 3: claude-native/workflow.md                           (loose variant)
 
 Parity rationale
 ----------------
-Forms 1+2 are byte-identical: ``if ! (test -d _ai-memory && test -d _bmad &&
-test -d oversight); then echo "FAIL: ..."; echo "CWD: $(pwd)"; echo "Aborting
-..."; exit 1; fi; echo "OK: workspace root ($(pwd))"``.
+Forms 1+2 are byte-identical: both source this helper and run ``cwd_sentinel ||
+exit 1``. The three-marker conjunction they inlined before that consolidation is
+deliberately not quoted here. It is superseded -- a missing ``_bmad/`` alone is
+BMAD's absence, reported as a degraded state returning 0, not CWD drift -- and a
+superseded command quoted in the docstring of the test that replaced it is a
+stale claim outliving the code it described. It also sat wrapped across two
+lines, where the guard that hunts such claims matches per physical line and
+could not see it.
 
 Form 3 diverges on three axes (the 1 known variant):
   - exit code on failure: strict=1 / loose=0 (``echo`` in ``||`` branch exits 0)

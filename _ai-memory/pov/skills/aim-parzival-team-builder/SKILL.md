@@ -87,7 +87,7 @@ provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | m
 model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
 agent: <role-name>                   # dev | pm | architect | analyst | ux-designer | tech-writer | code-reviewer | <generic>
 agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "architect-design"
-bmad_agent_type: <type> | null       # null ONLY for genuine non-BMAD work (code-reviewer, verify). If a BMAD role fits, null is a FAIL — assign the persona.
+bmad_agent_type: <type> | null       # null ONLY for genuine non-BMAD work (code-reviewer, verify), or on every entry when BMAD is unavailable — then report BMAD role assignment as unavailable. With BMAD present, a fitting BMAD role and null is a FAIL — assign the persona.
 task_summary: <one-line>
 files:
   - <absolute-path-1>

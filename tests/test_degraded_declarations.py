@@ -774,8 +774,14 @@ def test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence() -> None:
 # So collection here is deliberately un-clever, and the judgment happens after
 # it. The predicate is lexical, not semantic: every line naming the ``_bmad``
 # directory marker, with a token boundary that drops ``_bmad-output`` and
-# ``check_bmad_commands`` because those name other things. It reads no phrasing,
-# so it cannot miss a phrasing nobody thought of.
+# ``check_bmad_commands`` because those name other things -- or naming that same
+# directory through the ``bmad_dir`` variable the sentinel holds it in.
+#
+# The second alternative is here because the first alone was not the closed set
+# it read as: a stale three-marker mandate written ``test -d "${bmad_dir}"``
+# carries no ``_bmad`` token and was collected nowhere. Lexical collection is
+# still narrower than the class it polices -- a claim naming no identifier at
+# all evades it -- and that is a bound on this guard, not a property of it.
 #
 # Every collected line must then match a declared exemption below or the test
 # fails naming it. A new line about ``_bmad/`` therefore lands as an unexplained
@@ -788,7 +794,7 @@ def test_agent_dispatch_gates_bmad_persona_routing_on_bmad_presence() -> None:
 # over-broad *phrasing* predicate tried first here (it carries no MUST, no
 # conjunction word, no "all present"), which is this record's thesis landing
 # inside its own instrument.
-_MARKER_REFERENCE = re.compile(r"_bmad(?![A-Za-z0-9_-])")
+_MARKER_REFERENCE = re.compile(r"_bmad(?![A-Za-z0-9_-])|bmad_dir")
 
 # Literals already known to be false under the corrected sentinel. An exemption
 # cannot rescue a line carrying one of these: a line may hold a corrected clause
@@ -924,6 +930,30 @@ _THREE_MARKER_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
         "bmad_dir=",
         "variable assignment",
     ),
+    # -- Newly collected once the predicate learned the ``bmad_dir`` variable.
+    #    Fragments are deliberately long here: the exemption predicate licenses
+    #    a file plus a fragment, not a line, so a short one would rescue text
+    #    appended beside it.
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "local ai_memory_dir bmad_dir",
+        "local variable declaration",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        'if test -d "$bmad_dir"',
+        "the separated BMAD-presence test itself, which is the corrected shape",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "dispatch that does not need BMAD is unaffected",
+        "the degraded message the sentinel emits, which is the corrected behaviour",
+    ),
+    (
+        f"{POV_TREE}/skills/aim-model-dispatch/scripts/lib/cwd_sentinel.sh",
+        "(no ${bmad_dir}); workspace root is correct",
+        "the loose variant of the same degraded message",
+    ),
     (
         f"{POV_TREE}/skills/aim-model-dispatch/workflows/bmad-dispatch/steps"
         "/step-02-launch-and-activate.md",
@@ -945,20 +975,43 @@ _THREE_MARKER_EXEMPTIONS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def _undeclared_marker_references() -> list[tuple[str, int, str]]:
-    """Every pov-tree line naming ``_bmad/`` that no exemption declares."""
+def _undeclared_marker_references(
+    root: Path | None = None,
+) -> tuple[list[tuple[str, int, str]], list[tuple[str, int, str]]]:
+    """Every line under ``root`` naming the BMAD directory, and the undeclared subset.
+
+    "Naming" is the lexical test above: the ``_bmad`` marker at a token
+    boundary, or the ``bmad_dir`` variable that holds the same path.
+
+    Both halves are returned because the undeclared half cannot be asserted
+    against on its own: an empty list is what a clean tree returns and also
+    what a walk that collected nothing returns, and the two are the states this
+    guard exists to tell apart.
+
+    ``root`` defaults to the pov tree and exists so a fixture can drive this
+    enumerator over a seeded tree rather than a second copy of it. The shipped
+    call site passes nothing; widening the scope is not what the parameter is
+    for.
+    """
+    collected: list[tuple[str, int, str]] = []
     undeclared: list[tuple[str, int, str]] = []
-    for base, _dirs, names in os.walk(PRODUCT_ROOT / POV_TREE):
+    root = PRODUCT_ROOT / POV_TREE if root is None else Path(root)
+    for base, _dirs, names in os.walk(root):
         for name in sorted(names):
             path = Path(base) / name
             try:
                 text = path.read_text(encoding="utf-8", errors="ignore")
             except OSError:
                 continue
-            rel = str(path.relative_to(PRODUCT_ROOT))
+            rel = str(
+                path.relative_to(PRODUCT_ROOT)
+                if path.is_relative_to(PRODUCT_ROOT)
+                else path.relative_to(root)
+            )
             for number, line in enumerate(text.splitlines(), 1):
                 if not _MARKER_REFERENCE.search(line):
                     continue
+                collected.append((rel, number, line.strip()))
                 if any(claim in line for claim in _SUPERSEDED_CLAIMS):
                     undeclared.append((rel, number, line.strip()))
                     continue
@@ -968,7 +1021,7 @@ def _undeclared_marker_references() -> list[tuple[str, int, str]]:
                 ):
                     continue
                 undeclared.append((rel, number, line.strip()))
-    return undeclared
+    return collected, undeclared
 
 
 @pytest.mark.process
@@ -986,7 +1039,21 @@ def test_no_shipped_artifact_mandates_the_superseded_three_marker_conjunction() 
     Enumerated broadly and dispositioned against a declared exemption set
     rather than pattern-matched, for the reasons recorded above the set.
     """
-    undeclared = _undeclared_marker_references()
+    collected, undeclared = _undeclared_marker_references()
+    assert collected, (
+        "the enumerator collected no lines at all. An empty undeclared list is "
+        "what a clean tree returns and also what a collapsed walk returns; "
+        "this assertion is what distinguishes them"
+    )
+    unvisited = sorted(
+        {exempt_path for exempt_path, _fragment, _reason in _THREE_MARKER_EXEMPTIONS}
+        - {path for path, _number, _line in collected}
+    )
+    assert unvisited == [], (
+        "the walk never reached files that declared exemptions name, so those "
+        "exemptions were tested against nothing and a narrowed enumeration "
+        "reads here as a clean tree: " + "; ".join(unvisited)
+    )
     assert undeclared == [], (
         "pov-tree lines name the _bmad/ marker without a declared disposition. "
         "Each is either a surviving three-marker claim to fix, or a legitimate "
@@ -1019,6 +1086,46 @@ def test_the_exemption_set_is_live_and_none_of_it_is_stale() -> None:
         "declared exemptions match no _bmad/ line in their file and are stale: "
         + "; ".join(dead)
     )
+
+
+@pytest.mark.process
+def test_the_marker_enumerator_can_actually_fail(tmp_path: Path) -> None:
+    """Positive control: a guard never observed refusing is not a gate.
+
+    Drives the REAL enumerator over a seeded tree instead of re-deriving the
+    predicate here. A control that re-implements what it is testing proves only
+    that a regex it has just typed works; if the walk, the encoding handling or
+    the exemption logic broke, a second implementation agreeing with itself
+    would still pass.
+    """
+    seeded = "MUST run `test -d _ai-memory && test -d _bmad && test -d oversight`"
+    (tmp_path / "seeded_offender.md").write_text(seeded + "\n", encoding="utf-8")
+
+    collected, undeclared = _undeclared_marker_references(tmp_path)
+
+    assert [(number, line) for _path, number, line in undeclared] == [(1, seeded)], (
+        "the real enumerator did not flag a seeded three-marker claim, so the "
+        f"guard cannot be observed refusing and is not a gate: {undeclared}"
+    )
+    assert len(collected) == 1, (
+        f"the enumerator collected {len(collected)} lines from a one-line tree: "
+        f"{collected}"
+    )
+
+
+@pytest.mark.process
+def test_the_marker_enumerator_collects_only_marker_lines(tmp_path: Path) -> None:
+    """Negative half of the control: it flags the marker line, not every line.
+
+    Without this, the control above is satisfied by an enumerator that reports
+    everything it walks.
+    """
+    (tmp_path / "seeded_clean.md").write_text(
+        "MUST run the workspace-root sentinel before every spawn.\n",
+        encoding="utf-8",
+    )
+
+    assert _undeclared_marker_references(tmp_path) == ([], [])
 
 
 @pytest.mark.process
@@ -1101,6 +1208,15 @@ def test_cycle_agent_dispatch_gates_persona_activation_on_bmad_presence() -> Non
     missing dependency without naming what would provide it leaves an operator
     on a BMAD-less machine told what is broken and not what to do, which is the
     half of AC-1 a message can omit while still looking complete.
+
+    The gate's own imperative is asserted, and its termination is not. The
+    sibling fixtures assert ``exit 1`` because their gate is shell; this one is
+    a prose instruction, and more importantly ``workflow.md``'s declaration for
+    this capability is *"Runs the generic spawn and instruction steps, and
+    reports the BMAD activation step as unavailable"* -- fall-through is the
+    declared behaviour here, so asserting termination would assert the opposite
+    of what this capability declares. What can degrade silently is the
+    imperative itself, which is what is asserted instead.
     """
     step = (
         PRODUCT_ROOT
@@ -1123,6 +1239,12 @@ def test_cycle_agent_dispatch_gates_persona_activation_on_bmad_presence() -> Non
 
     for gate in gates:
         line = text[text.rfind("\n", 0, gate) + 1 : text.find("\n", gate)]
+        assert "MUST run" in line, (
+            "the gate must be mandatory. Without this the three clauses below "
+            "are asserted on a line that no longer requires anything: a "
+            "downgrade to MAY passes, and so does a MUST NOT, which inverts "
+            f"the gate while satisfying every other assertion here: {line!r}"
+        )
         assert "unavailable" in line, (
             "every BMAD-presence gate must report the dependency as "
             f"unavailable: {line!r}"
