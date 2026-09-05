@@ -830,13 +830,20 @@ _SUPERSEDED_CLAIMS: tuple[str, ...] = (
 # only moves when the tree genuinely shrinks, so it can be left alone.
 #
 # What it exists to catch is NOT a mistaken or narrowed root, and NOT an
-# unreadable subtree. Three other instruments hold those, each by a mechanism
-# this one does not have. Measured at this SHA: narrow the root to any single
-# subtree of the pov tree and the exemption-coverage check goes non-empty at
-# all nine, while ``collected`` goes empty at the seven carrying no marker
-# line. Make a subtree unreadable -- ``chmod 000`` on ``workflows/phases``,
-# 101 files -- and ``_refuse`` raises PermissionError before any count is
-# taken.
+# unreadable subtree. The narrowed-root case is held by two other
+# instruments, each running against the real tree as part of this suite:
+# narrow the root to any single subtree of the pov tree and the
+# exemption-coverage check goes non-empty at all nine, while ``collected``
+# goes empty at the seven carrying no marker line.
+#
+# The unreadable-subtree case has no instrument in this suite. ``_refuse``
+# is present in the walk below (``onerror=_refuse``) and was demonstrated
+# once by hand at authoring time: ``chmod 000`` on ``workflows/phases``,
+# 101 files, and ``_refuse`` raised PermissionError before any count was
+# taken. Nothing protects that demonstration -- this module has no
+# ``chmod``, no ``0o000``, no ``PermissionError`` fixture, and no
+# unreadable-directory test, so the handler is present but unobserved by any
+# automated test.
 #
 # 🔴 That last case is stated twice on purpose, because this floor is the
 # obvious thing to credit for it and it cannot make the save. Swallow the walk
@@ -1064,8 +1071,11 @@ def _undeclared_marker_references(
     shipped call site against ``_POV_TREE_FILE_FLOOR`` for the narrower case
     those two cannot see: a loss that is silent, larger than that floor's
     slack, and sparing every file they name. An unreadable subtree is not that
-    case -- ``_refuse`` below raises on it first, and the floor measurably does
-    not fire on it. The derivation lives on that constant.
+    case either, but no instrument in this suite holds it: ``_refuse`` below
+    exists to raise before any count is taken, demonstrated once by hand, not
+    by a test -- see the comment on ``_POV_TREE_FILE_FLOOR`` for what was
+    actually run and what remains unobserved. The derivation lives on that
+    constant.
 
     ``root`` defaults to the pov tree and exists so a fixture can drive this
     enumerator over a seeded tree rather than a second copy of it. The shipped
@@ -1092,9 +1102,12 @@ def _undeclared_marker_references(
     # not descended into, which raises nothing: the subtree leaves the
     # enumeration and the walk returns the clean result a clean tree returns.
     # That is the same silence ``_refuse`` exists to break, one level up, and the
-    # handler is structurally unable to see it. Latent at this SHA -- the pov
-    # tree carries zero symlinks, in the worktree and in the committed tree
-    # alike -- so this closes a coverage claim rather than a live hole.
+    # handler is structurally unable to see it. Present but unobserved by any
+    # automated test: no fixture here builds a symlinked subtree, so nothing
+    # exercises this argument either way. Latent at this SHA regardless -- the
+    # pov tree carries zero symlinks, in the worktree and in the committed tree
+    # alike -- so the gap this argument closes is not live even though no test
+    # stands over the closing.
     for base, _dirs, names in os.walk(root, onerror=_refuse, followlinks=True):
         for name in sorted(names):
             visited += 1
