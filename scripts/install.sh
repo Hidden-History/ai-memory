@@ -4441,7 +4441,11 @@ detect_bmad_module_state() {
 
     # Same rule one level down, and it must be checked BEFORE concluding absence:
     # a present-but-unsearchable module directory cannot be read as an absent Module.
-    if [[ -d "$bmad_root/bmm" && ! -x "$bmad_root/bmm" ]]; then
+    # The `-L`/`! -e` limb mirrors the root guard above for the same reason: dangling,
+    # ELOOP and "target's parent unsearchable" are bit-identical to `[[ ]]` at this
+    # node too, and the ruling that resolves that ambiguity at the root does not stop
+    # there — ENOENT, ELOOP and EACCES are as indistinguishable here as they are above.
+    if [[ ( -d "$bmad_root/bmm" && ! -x "$bmad_root/bmm" ) || ( -L "$bmad_root/bmm" && ! -e "$bmad_root/bmm" ) ]]; then
         echo "bmad-indeterminate"
         return 0
     fi
@@ -4507,7 +4511,7 @@ report_bmad_module_state() {
             log_debug "BMM present"
             ;;
         bmad-indeterminate)
-            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. Check that the project path is correct and that you have permission to enter it and its _bmad directory. Install continues; detection never changes the install's exit status."
+            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. Check that the project path is correct and that you have permission to enter its _bmad directory and _bmad/bmm Module directory. Install continues; detection never changes the install's exit status."
             ;;
         *)
             # Unreachable by construction today, and deliberately not silent. The

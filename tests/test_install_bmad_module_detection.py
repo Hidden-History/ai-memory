@@ -357,6 +357,40 @@ def symlinked_root_with_unresolvable_target(tmp_path):
     shared.chmod(0o755)
 
 
+@pytest.fixture
+def symlinked_module_with_unresolvable_target(tmp_path):
+    """`_bmad/bmm` symlinked to a shared install whose parent cannot be searched.
+
+    The Module-level twin of `symlinked_root_with_unresolvable_target`: here the
+    root is a real, searchable directory, and the Module itself is the
+    shared-install link. The link is fully visible (`-L` true); its target is not
+    (`-d` false). BMM is genuinely installed on the other end.
+
+    FAILS — does not skip — on a non-enforcing user or filesystem.
+    """
+    project = _project(tmp_path, "symlinked_module_project", "_bmad")
+    shared = tmp_path / "shared_module_install"
+    real_module = shared / "bmm"
+    real_module.mkdir(parents=True)
+    (real_module / "config.yaml").write_text(
+        "module_name: sample-module\n", encoding="utf-8"
+    )
+    (project / "_bmad" / "bmm").symlink_to(real_module)
+    shared.chmod(0o000)
+    try:
+        still_reachable = (project / "_bmad" / "bmm").is_dir()
+    except PermissionError:
+        still_reachable = False
+    if still_reachable:
+        shared.chmod(0o755)
+        pytest.fail(
+            "cannot construct an unresolvable symlink target: this user or "
+            f"filesystem does not enforce directory permissions at {shared}."
+        )
+    yield project
+    shared.chmod(0o755)
+
+
 class TestDetectorResolvesThreeStates:
     """AC-1, AC-2, AC-3 — three distinct states, not present/absent."""
 
@@ -508,22 +542,6 @@ class TestDetectorResolvesThreeStates:
 
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_ABSENT
-
-    def test_dangling_module_symlink_does_not_certify_the_module(
-        self, install_sh_no_main, tmp_path
-    ):
-        """A `_bmad/bmm` symlink to nowhere resolves no Module config.
-
-        Pinned as behaviour rather than left to chance: `-s` follows symlinks and
-        is false on a dangling one, so the Module is correctly not certified.
-        """
-        project = _project(tmp_path, "dangling_symlink_project", "_bmad")
-        (project / "_bmad" / "bmm").symlink_to(tmp_path / "no_such_target")
-
-        result = _detect(install_sh_no_main, project)
-
-        assert result.returncode == 0, result.stderr
-        assert _state_of(result) == STATE_BMM_ABSENT
 
     def test_module_config_present_resolves_bmm_present(
         self, install_sh_no_main, tmp_path
@@ -792,6 +810,42 @@ class TestIndeterminateEvidenceIsNotReportedAsAbsence:
         """
         project = _project(tmp_path, "symlink_loop_project")
         (project / "_bmad").symlink_to(project / "_bmad")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_symlinked_module_with_unresolvable_target_is_not_reported_as_bmm_absent(
+        self, install_sh_no_main, symlinked_module_with_unresolvable_target
+    ):
+        """The Module-level twin of the root's shared-install instance.
+
+        `_bmad/bmm` mode 000 (one level down from the root's adjudicated case) and
+        this tree put the operator in the identical situation — the Module's
+        `config.yaml` is Permission denied on both — so the module guard must
+        answer the same way the root guard already does for its own shared-install
+        shape.
+        """
+        result = _detect(install_sh_no_main, symlinked_module_with_unresolvable_target)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_dangling_module_symlink_is_not_reported_as_bmm_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A `_bmad/bmm` symlink whose target is gone: unresolved, not absent.
+
+        Previously pinned as `bmm-absent` — an accident of what the code happened
+        to do before the module guard gained the root's `-L`/`! -e` limb, not a
+        decision about what it should do. Bit-identical to the root's dangling
+        case (`[[ ]]` exposes no errno, so ENOENT, ELOOP and EACCES cannot be told
+        apart here either), and the root already answers indeterminate for it —
+        an unresolved node is never certified absent, at any depth.
+        """
+        project = _project(tmp_path, "dangling_module_symlink_project", "_bmad")
+        (project / "_bmad" / "bmm").symlink_to(tmp_path / "no_such_target")
 
         result = _detect(install_sh_no_main, project)
 
