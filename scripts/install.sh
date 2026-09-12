@@ -4450,6 +4450,15 @@ detect_bmad_module_state() {
         return 0
     fi
 
+    # One node further down: the Module directory resolved, but its own
+    # config.yaml can itself be the unresolvable node (a per-file shared-install
+    # link, rather than the whole Module directory, symlinked in). Same governing
+    # rule as the two guards above, at the same depth-independent standard.
+    if [[ -L "$bmad_root/bmm/config.yaml" && ! -e "$bmad_root/bmm/config.yaml" ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
     echo "bmm-absent"
     return 0
 }

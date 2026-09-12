@@ -391,6 +391,39 @@ def symlinked_module_with_unresolvable_target(tmp_path):
     shared.chmod(0o755)
 
 
+@pytest.fixture
+def symlinked_module_config_with_unresolvable_target(tmp_path):
+    """`_bmad/bmm/config.yaml` symlinked to a file whose parent cannot be searched.
+
+    One node further than `symlinked_module_with_unresolvable_target`: here the
+    Module directory itself is real, and only its `config.yaml` is the
+    shared-install link — the per-file variant of the same layout. The link is
+    fully visible (`-L` true); its target is not (`-e` false). The target holds
+    real, non-empty content, so BMM is genuinely installed on the other end.
+
+    FAILS — does not skip — on a non-enforcing user or filesystem.
+    """
+    project = _project(tmp_path, "symlinked_module_config_project", "_bmad/bmm")
+    shared = tmp_path / "shared_config_install"
+    shared.mkdir()
+    real_config = shared / "config.yaml"
+    real_config.write_text("module_name: sample-module\n", encoding="utf-8")
+    (project / "_bmad" / "bmm" / "config.yaml").symlink_to(real_config)
+    shared.chmod(0o000)
+    try:
+        still_reachable = (project / "_bmad" / "bmm" / "config.yaml").is_file()
+    except PermissionError:
+        still_reachable = False
+    if still_reachable:
+        shared.chmod(0o755)
+        pytest.fail(
+            "cannot construct an unresolvable symlink target: this user or "
+            f"filesystem does not enforce directory permissions at {shared}."
+        )
+    yield project
+    shared.chmod(0o755)
+
+
 class TestDetectorResolvesThreeStates:
     """AC-1, AC-2, AC-3 — three distinct states, not present/absent."""
 
@@ -846,6 +879,42 @@ class TestIndeterminateEvidenceIsNotReportedAsAbsence:
         """
         project = _project(tmp_path, "dangling_module_symlink_project", "_bmad")
         (project / "_bmad" / "bmm").symlink_to(tmp_path / "no_such_target")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_symlinked_module_config_with_unresolvable_target_is_not_reported_as_bmm_absent(
+        self, install_sh_no_main, symlinked_module_config_with_unresolvable_target
+    ):
+        """One node further than the Module directory: `config.yaml` itself is the link.
+
+        The same shared-install layout, applied to the per-file config link
+        instead of the whole Module directory. The Module's `config.yaml` is
+        Permission denied, exactly as the Module-directory and root shared-install
+        instances already are, so it must resolve the same way they do.
+        """
+        result = _detect(
+            install_sh_no_main, symlinked_module_config_with_unresolvable_target
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_dangling_module_config_symlink_is_not_reported_as_bmm_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """A `_bmad/bmm/config.yaml` symlink whose target is gone: unresolved, not absent.
+
+        The per-file twin of `test_dangling_module_symlink_is_not_reported_as_bmm_absent`.
+        Bit-identical to the Module-directory and root dangling cases (`[[ ]]`
+        exposes no errno here either), so it takes the same answer.
+        """
+        project = _project(tmp_path, "dangling_module_config_project", "_bmad/bmm")
+        (project / "_bmad" / "bmm" / "config.yaml").symlink_to(
+            tmp_path / "no_such_target"
+        )
 
         result = _detect(install_sh_no_main, project)
 
