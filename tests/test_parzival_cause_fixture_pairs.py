@@ -520,11 +520,12 @@ class TestStateChangeNoticePair:
         before_pkg,
         after_value,
         after_pkg,
+        before_prior_install,
     ) -> str:
         bash_cmd = f"""
 set -euo pipefail
 source "{install_sh_no_main}"
-announce_parzival_state_change "{before_value}" "{before_pkg}" "{after_value}" "{after_pkg}"
+announce_parzival_state_change "{before_value}" "{before_pkg}" "{after_value}" "{after_pkg}" "{before_prior_install}"
 """
         res = subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
         assert res.returncode == 0, res.stdout + res.stderr
@@ -536,14 +537,20 @@ announce_parzival_state_change "{before_value}" "{before_pkg}" "{after_value}" "
         """The product-level statements this story actually ships (AC-3a,
         construction-scoped) must NOT trip the same check."""
         installed = self._notice(
-            install_sh_no_main, tmp_path, "false", "false", "true", "true"
+            install_sh_no_main, tmp_path, "false", "false", "true", "true", "false"
         )
+        # The conversion AC-4 row 2 is named for: the package was never deployed
+        # (P false) but a prior install left its marker (I true). Rendering it is
+        # the point of the fifth argument, and it must be as claim-free as the
+        # other two.
         converted = self._notice(
-            install_sh_no_main, tmp_path, "false", "true", "true", "true"
+            install_sh_no_main, tmp_path, "false", "false", "true", "true", "true"
         )
         disabled = self._notice(
-            install_sh_no_main, tmp_path, "true", "true", "false", "true"
+            install_sh_no_main, tmp_path, "true", "true", "false", "true", "true"
         )
+        assert "parzival_notice=installed" in installed, installed
+        assert "parzival_notice=converted" in converted, converted
+        assert "parzival_notice=disabled" in disabled, disabled
         for statement in (installed, converted, disabled):
-            assert "parzival_notice=" in statement, statement
             assert not self._asserts_prior_choice(statement), statement
