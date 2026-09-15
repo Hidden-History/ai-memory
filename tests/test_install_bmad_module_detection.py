@@ -494,6 +494,93 @@ class TestDetectorResolvesThreeStates:
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_ABSENT
 
+    def test_module_symlink_to_a_regular_file_resolves_bmm_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The Module-depth twin of `test_root_symlink_to_a_regular_file_resolves_bmad_absent`.
+
+        Pins the `! -e` conjunct at `_bmad/bmm`: mirrors the root guard's own
+        `-L`/`! -e` limb, so it needs the same two-sided pin the root guard has.
+        Without this test, deleting `! -e` from the module guard — leaving `-L`
+        alone — still passes every other test in this module, because every
+        other `_bmad/bmm` symlink fixture is dangling (`-e` false). Here the
+        symlink RESOLVES, so `-L` alone would wrongly answer indeterminate.
+        """
+        target = tmp_path / "not_a_directory"
+        target.write_text("x", encoding="utf-8")
+        project = _project(tmp_path, "module_symlink_to_file_project", "_bmad")
+        (project / "_bmad" / "bmm").symlink_to(target)
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
+    def test_module_symlink_to_a_non_regular_file_resolves_bmm_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The Module-depth twin of `test_root_symlink_to_a_non_regular_file_resolves_bmad_absent`.
+
+        `/dev/null` resolves, so `_bmad/bmm` was looked at and is not a Module
+        directory. Rules out a `-L && ! -f` narrowing at this node the same way
+        the root-level counterpart does: `-f` is false on a device too, so that
+        narrower guard would also misreport this resolved case as indeterminate.
+        """
+        project = _project(tmp_path, "module_symlink_to_device_project", "_bmad")
+        (project / "_bmad" / "bmm").symlink_to("/dev/null")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
+    def test_config_symlink_to_an_empty_regular_file_resolves_bmm_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The config-depth twin of `test_root_symlink_to_a_regular_file_resolves_bmad_absent`.
+
+        Pins the `! -e` conjunct at `_bmad/bmm/config.yaml`: without this test,
+        deleting `! -e` from the config guard — leaving `-L` alone — still passes
+        every other test in this module, because every other `config.yaml`
+        symlink fixture is dangling (`-e` false). Here the symlink RESOLVES, so
+        `-L` alone would wrongly answer indeterminate.
+
+        The target is EMPTY, not merely a regular file: the presence check
+        (`-f && -s`) runs before either indeterminate guard and follows symlinks,
+        so a symlink resolving to a NON-EMPTY regular file is legitimately
+        `bmm-present` (the shared-install case) rather than the node this test
+        pins — a non-empty target here would test the presence check, not this
+        guard's `! -e` conjunct.
+        """
+        target = tmp_path / "not_a_config"
+        target.write_text("", encoding="utf-8")
+        project = _project(
+            tmp_path, "config_symlink_to_empty_file_project", "_bmad/bmm"
+        )
+        (project / "_bmad" / "bmm" / "config.yaml").symlink_to(target)
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
+    def test_config_symlink_to_a_non_regular_file_resolves_bmm_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The config-depth twin of `test_root_symlink_to_a_non_regular_file_resolves_bmad_absent`.
+
+        `/dev/null` resolves, so `_bmad/bmm/config.yaml` was looked at and is not
+        a usable config. Rules out a `-L && ! -f` narrowing at this node for the
+        same reason the root- and module-depth counterparts do.
+        """
+        project = _project(tmp_path, "config_symlink_to_device_project", "_bmad/bmm")
+        (project / "_bmad" / "bmm" / "config.yaml").symlink_to("/dev/null")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
     def test_bmad_root_without_module_resolves_bmm_absent(
         self, install_sh_no_main, tmp_path
     ):
