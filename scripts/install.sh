@@ -4520,7 +4520,7 @@ report_bmad_module_state() {
             log_debug "BMM present"
             ;;
         bmad-indeterminate)
-            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. Check that the project path is correct and that you have permission to enter its _bmad directory and _bmad/bmm Module directory. Install continues; detection never changes the install's exit status."
+            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. This can be a permissions problem: check that the project path is correct and that you have permission to enter it and its _bmad directory and _bmad/bmm Module directory. It can also be a dangling or unresolvable symlink at the project path, _bmad, _bmad/bmm, or _bmad/bmm/config.yaml — there is no permission to fix that; repair or remove the link so it resolves. Install continues; detection never changes the install's exit status."
             ;;
         *)
             # Unreachable by construction today, and deliberately not silent. The
