@@ -4327,12 +4327,21 @@ configure_multi_ide() {
 #   COUNTED, never fatal. This function names the state. Nothing counts it.
 #
 # WHAT THE FOURTH STATE COVERS, stated narrowly because the general claim is
-# false. It detects PERMISSION DENIAL and unresolvable nodes, and only where they
-# are observable from the project path downward: at _bmad, at _bmad/bmm, at a
-# _bmad symlink whose target cannot be resolved, and at an unsearchable project
-# path. It is NOT a general "could not look" detector. `[[ ]]` exposes no errno,
-# so a denial arising ABOVE the project path — an unsearchable ancestor of it —
-# is invisible to every test available here and still resolves bmad-absent. That
+# false, and ENUMERATED NODE BY NODE because a narrow claim that is also incomplete
+# reads as exhaustive while it is not. It detects PERMISSION DENIAL and unresolvable
+# nodes, and only where they are observable from the project path downward: at an
+# unsearchable project path, at _bmad, at _bmad/bmm, and at a symlink whose target
+# cannot be resolved at ANY of the three nodes that carry one — _bmad, _bmad/bmm and
+# the Module's own _bmad/bmm/config.yaml. The config.yaml node is the one an earlier
+# revision of this list omitted while still billing itself narrow-but-complete; the
+# code has guarded it since the per-file shared-install link was covered, and the
+# suite pins it. One further condition is covered that is not a filesystem state at
+# all: an EMPTY OR MISSING project-path argument, where there is nothing to look at
+# and answering about some other directory would be the confident-wrong answer this
+# state exists to refuse. It is NOT a general "could not look" detector.
+# `[[ ]]` exposes no errno, so a denial arising ABOVE the project path — an
+# unsearchable ancestor of it — is invisible to every test available here and
+# still resolves bmad-absent. That
 # residue is left open deliberately: closing it needs machinery beyond `[[ ]]`,
 # which CLAUDE.md §2 argues against for a case no acceptance criterion reaches.
 # The limit is written down rather than implied by silence.
@@ -4520,7 +4529,7 @@ report_bmad_module_state() {
             log_debug "BMM present"
             ;;
         bmad-indeterminate)
-            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. This can be a permissions problem: check that the project path is correct and that you have permission to enter it and its _bmad directory and _bmad/bmm Module directory. It can also be a dangling or unresolvable symlink at _bmad, _bmad/bmm, or _bmad/bmm/config.yaml — there is no permission to fix that; repair or remove the link so it resolves. Install continues; detection never changes the install's exit status."
+            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. The causes are not separable here and this is not a menu to choose from: work through all of them. Permissions: check that you have permission to enter the _bmad directory and the _bmad/bmm Module directory. Symlinks: _bmad, _bmad/bmm and _bmad/bmm/config.yaml may each be a link, and a link whose target is missing looks identical here to one whose target is merely unreadable — so also check permission on the directory holding the link target, which for a shared BMAD install is outside this project. A link whose target is missing cannot be fixed by changing permissions: repair it, or remove it, which makes the state report as absent rather than unknown. Also check that the project path is the one you meant. Install continues; detection never changes the install's exit status."
             ;;
         *)
             # Unreachable by construction today, and deliberately not silent. The
