@@ -1387,3 +1387,149 @@ mktemp() {
             + res.stdout
             + res.stderr
         )
+
+
+class TestTd734TheFullCopyToShimTransition:
+    """Task 6 / TD-734. This story closes the "non-Parzival install" class by
+    construction -- the leak's proposed gate becomes always-true -- so the record
+    is dispositioned rather than re-fixed. What is genuinely new is the
+    TRANSITION it creates, and nothing has ever run it: a project installed
+    before the thin-shim model carries FULL copies of the POV skills under
+    .claude/skills/, and every install now generates shims over them.
+
+    THE STORY'S POPULATION FIGURE DOES NOT REPRODUCE, and the test is built on
+    the measurement instead. The story says "9 unreconciled full copies". At
+    7cc9a17 there are TWELVE POV skills under _ai-memory/pov/skills/, SIX of them
+    also ship a .claude/skills/ copy, and all six of those are ALREADY thin shims
+    -- so the shipped tree contains no full copy to reconcile at all. The hazard
+    is therefore not in what ships; it is in what an OLDER install left on a
+    project's disk, which is what this seeds.
+
+    The path is also no longer the two functions the intake describes. There are
+    three: deploy_ai_memory_skills (unconditional, first), deploy_parzival_shims
+    (which prunes, but only inside .claude/agents/pov and .claude/commands/pov),
+    and generate_parzival_skill_shims.
+    """
+
+    _SKILL = "aim-parzival-bootstrap"
+
+    def _seed_and_run(self, install_sh_copy, install_dir, project_dir, tmp_path):
+        # Shipped source: the thin-shim copy the installer deploys from.
+        src_skill = install_dir / ".claude" / "skills" / self._SKILL
+        src_skill.mkdir(parents=True)
+        (src_skill / "SKILL.md").write_text(
+            "---\nname: " + self._SKILL + "\n---\n\n# Shipped\n", encoding="utf-8"
+        )
+
+        # The project as an OLDER install left it: a genuine full copy, with
+        # support files beside the SKILL.md.
+        old = project_dir / ".claude" / "skills" / self._SKILL
+        (old / "scripts").mkdir(parents=True)
+        (old / "SKILL.md").write_text(
+            "---\nname: " + self._SKILL + "\n---\n\n# Full copy, pre-shim\n"
+            "Every step inlined here.\n",
+            encoding="utf-8",
+        )
+        (old / "scripts" / "legacy.py").write_text(
+            "# shipped with the full copy\n", encoding="utf-8"
+        )
+
+        # The deployed pov tree the generated shim will point at.
+        pov = project_dir / "_ai-memory" / "pov" / "skills" / self._SKILL
+        pov.mkdir(parents=True)
+        (pov / "SKILL.md").write_text(
+            "---\nname: " + self._SKILL + "\ndescription: real\n---\n\n# Real skill\n",
+            encoding="utf-8",
+        )
+
+        return subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"""
+set -euo pipefail
+export INSTALL_DIR="{install_dir}"
+export PROJECT_PATH="{project_dir}"
+export NON_INTERACTIVE="true"
+source "{install_sh_copy}"
+INSTALL_DIR="{install_dir}"
+PROJECT_PATH="{project_dir}"
+NON_INTERACTIVE="true"
+deploy_ai_memory_skills
+generate_parzival_skill_shims
+""",
+            ],
+            capture_output=True,
+            text=True,
+            env=_bash_env(tmp_path),
+        )
+
+    def test_the_end_state_is_a_shim_pointing_at_a_file_that_exists(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The load-bearing coherence property. A generated shim whose LOAD path
+        names a missing file is a skill that is discoverable and unusable, which
+        is worse than one that is absent.
+        """
+        install_dir, project_dir = dirs
+        res = self._seed_and_run(install_sh_no_main, install_dir, project_dir, tmp_path)
+        assert res.returncode == 0, res.stdout + res.stderr
+
+        shim = project_dir / ".claude" / "skills" / self._SKILL / "SKILL.md"
+        text = shim.read_text(encoding="utf-8")
+        assert "**LOAD**" in text, f"the full copy was not replaced by a shim:\n{text}"
+        assert "Full copy, pre-shim" not in text, text
+
+        rel = text.split("`")[1]
+        assert (project_dir / rel).is_file(), f"shim points at a missing file: {rel}"
+
+    def test_the_old_full_copys_support_files_are_left_behind(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """PINNED AS THE OBSERVED END STATE, NOT ASSERTED AS DESIRABLE.
+
+        For a skill with no canonical entry -- which is every POV skill -- the
+        deploy is mkdir -p followed by cp -r, with no rm -rf of the target. Only
+        files the source also carries are overwritten, so SKILL.md becomes a shim
+        while the old copy's scripts/ survives beside it. The surviving file is a
+        stale duplicate of one that also lives under the deployed pov tree, so a
+        skill resolving a script path relative to its own directory can reach the
+        stale one.
+
+        This story's Task 6 is to TEST the transition, not to re-fix TD-734, so
+        the behaviour is pinned here and reported rather than changed. If it is
+        ever fixed, this test is the one that should fail and be updated.
+        """
+        install_dir, project_dir = dirs
+        res = self._seed_and_run(install_sh_no_main, install_dir, project_dir, tmp_path)
+        assert res.returncode == 0, res.stdout + res.stderr
+
+        orphan = (
+            project_dir / ".claude" / "skills" / self._SKILL / "scripts" / "legacy.py"
+        )
+        assert orphan.is_file(), (
+            "the observed end state has changed: the pre-shim full copy's support "
+            "files used to survive the transition. If this was fixed deliberately, "
+            "update this test and TD-734's disposition together."
+        )
+
+    def test_the_shipped_tree_carries_no_full_copy_of_a_pov_skill(self):
+        """The population claim, re-derived rather than quoted.
+
+        Every POV skill that also ships a .claude/skills/ copy must already be a
+        thin shim. If a full copy ever ships again, the transition above stops
+        being only a legacy concern and starts happening on fresh installs.
+        """
+        root = _INSTALL_SH.parent.parent
+        pov_skills = sorted(
+            p.name for p in (root / "_ai-memory/pov/skills").iterdir() if p.is_dir()
+        )
+        assert pov_skills, "no POV skills found -- the derivation has rotted"
+        offenders = []
+        for name in pov_skills:
+            shipped = root / ".claude" / "skills" / name / "SKILL.md"
+            if shipped.is_file() and "**LOAD**" not in shipped.read_text(
+                encoding="utf-8"
+            ):
+                offenders.append(name)
+        assert not offenders, f"these ship a full copy rather than a shim: {offenders}"
