@@ -6224,25 +6224,77 @@ if not rows:
     sys.exit(0)
 
 rows.sort(key=lambda r: r[0])
+
+
+def classify(old, dep, new):
+    """Derive the classification from the digest TRIPLE, never from the fact
+    that a row exists (TD-850, first over-fire).
+
+    Every entry used to be stamped MANAGED_MERGE_REQUIRED / high / merge from a
+    hardcoded literal, so the manifest asserted "local edits AND upstream both
+    changed since the last-shipped base" about rows where it could not possibly
+    know that -- and a report that asks for a three-way merge on nearly every
+    entry is not a report. Populating old_shipped_hash alone fixes nothing while
+    the literal stands; the literal is the defect.
+
+    The three cases are the three the record measured, not invented buckets:
+
+    * NO BASE (old == ""). Base B is unidentifiable -- either a legacy
+      pre-manifest file, or a path with several known prior-shipped hashes that
+      the registry cannot order. A three-way merge needs a base, so asking for
+      one here is asking for something nobody can perform. Surfaced for review.
+    * TEMPLATE UNCHANGED (old == new). The shipped template has not moved since
+      the recorded base; only the project copy has. That is local drift, not a
+      conflict, and there is nothing upstream to adopt.
+    * GENUINELY BOTH-CHANGED. Base known, template moved off it, project moved
+      off it. This is BP-187's "conflict" quadrant and the only one that is
+      really a merge.
+
+    Every row stays IN the manifest whatever its class: the over-fire was in
+    what the entries claimed, not in which files were surfaced.
+    """
+    if not old:
+        return (
+            "BASE_UNKNOWN",
+            "review",
+            "low",
+            "No identifiable last-shipped base for this path, so upstream "
+            "movement cannot be established and a 3-way merge has no base to "
+            "merge from. Review the local copy against the current template.",
+        )
+    if old == new:
+        return (
+            "LOCAL_DRIFT_ONLY",
+            "review",
+            "low",
+            "The shipped template has not changed since the recorded base; only "
+            "the project copy differs. Local drift to review, with nothing "
+            "upstream to adopt.",
+        )
+    return (
+        "MANAGED_MERGE_REQUIRED",
+        "merge",
+        "high",
+        "Local edits and upstream template both changed since last deploy; "
+        "3-way merge required to preserve user data while adopting the "
+        "structural update.",
+    )
+
+
 entries = []
 for order, (rel, old, dep, new) in enumerate(rows):
+    classification, action, severity, rationale = classify(old, dep, new)
     entries.append(
         {
             "id": rel,
             "path": f"oversight/{rel}",
-            # Both-changed = BP-187 4-outcome "conflict": user edits AND upstream
-            # both moved since the last-shipped base -> 3-way merge required.
-            "classification": "MANAGED_MERGE_REQUIRED",
+            "classification": classification,
             "old_shipped_hash": old,  # base B (may be "" for a legacy pre-manifest file)
             "deployed_hash": dep,
             "new_template_hash": new,
-            "suggested_action": "merge",
-            "rationale": (
-                "Local edits and upstream template both changed since last "
-                "deploy; 3-way merge required to preserve user data while "
-                "adopting the structural update."
-            ),
-            "severity": "high",
+            "suggested_action": action,
+            "rationale": rationale,
+            "severity": severity,
             "order": order,
         }
     )
@@ -6286,6 +6338,63 @@ PY
 
 # Core engine. $1 = "deploy" (apply) | "check" (dry-run, report + exit code).
 # Uses globals INSTALL_DIR + PROJECT_PATH. Silent when everything is in-sync.
+# Install a shipped template over a project file crash-atomically (TD-825).
+#
+# The three deploy paths below -- new file, stale-unmodified sync, stale-migrate
+# -- each used a bare `cp`, which truncates the destination and then fills it.
+# A crash or a killed installer mid-`cp` leaves a HYBRID file: half the old
+# oversight record, half the new template, with nothing to say so. That is the
+# WSL2 corruption mode this project has already been bitten by, and an oversight
+# record is exactly the kind of file whose truncation is discovered late.
+#
+# ADOPTED, NOT DESIGNED. The invariant is reconcile_engine.py::atomic_write's,
+# per BP-187 §4: write a temp file in the SAME directory (so the rename is never
+# cross-device) -> flush -> fsync -> os.replace -> fsync the directory. install.sh
+# already demonstrates this shape itself, in _write_pending_updates' inline
+# python, which is why this is inline python too rather than a third pattern in
+# shell. Mode is carried across from the source template, the way cp would.
+#
+# The fourth branch -- both-changed / needs-merge -- never copies at all. It is
+# the genuinely no-clobber path and is deliberately untouched.
+_atomic_install_file() {
+    local src="$1" dest="$2"
+    python3 - "$src" "$dest" <<'PY'
+import os
+import shutil
+import sys
+import tempfile
+
+src, dest = sys.argv[1:3]
+directory = os.path.dirname(dest) or "."
+
+fd, tmp = tempfile.mkstemp(dir=directory, prefix=os.path.basename(dest) + ".", suffix=".tmp")
+try:
+    with open(src, "rb") as fh_in, os.fdopen(fd, "wb") as fh_out:
+        shutil.copyfileobj(fh_in, fh_out)
+        fh_out.flush()
+        os.fsync(fh_out.fileno())
+    shutil.copymode(src, tmp)
+    os.replace(tmp, dest)
+except BaseException:
+    # Leave the original intact; never publish a partial destination.
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    raise
+
+# Best-effort: fsync the directory so the rename itself survives a crash.
+try:
+    dir_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+except OSError:
+    pass
+PY
+}
+
 _sync_oversight_templates() {
     local mode="$1"
     local tmpl_source="$INSTALL_DIR/templates/oversight"
@@ -6339,7 +6448,7 @@ _sync_oversight_templates() {
             n_new=$((n_new + 1))
             if [[ "$mode" == "deploy" ]]; then
                 mkdir -p "$(dirname "$dest_file")"
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
             else
                 echo "  [new]     oversight/$rel_path (would deploy)"
@@ -6361,7 +6470,7 @@ _sync_oversight_templates() {
         if [[ -n "$h_recorded" && "$h_project" == "$h_recorded" ]]; then
             n_sync=$((n_sync + 1))
             if [[ "$mode" == "deploy" ]]; then
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
                 log_info "template synced (unmodified → current): oversight/$rel_path"
             else
@@ -6375,7 +6484,7 @@ _sync_oversight_templates() {
         if [[ -z "$h_recorded" ]] && _known_template_hashes "$rel_path" "$registry" | grep -qxF "$h_project"; then
             n_migrate=$((n_migrate + 1))
             if [[ "$mode" == "deploy" ]]; then
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
                 log_info "template migrated (stale old-shipped → current): oversight/$rel_path"
             else
@@ -6422,9 +6531,17 @@ _sync_oversight_templates() {
                     old_base="$known_hashes"
                 fi
             fi
+            # TD-850, second over-fire: GATED ON `reconciled`. The manifest is
+            # level-triggered and rebuilt every deploy, but the row was appended
+            # unconditionally -- so an entry the operator had already disposed of
+            # in the ledger came back on every single run. The warn path above
+            # already treats a reconciled drift as "no action"; the manifest is
+            # the surface that asks for the action, so it must agree.
             # Skip when temp alloc failed (empty path); `|| true` tolerates a
             # mid-loop write failure (e.g. ENOSPC) without aborting under set -e.
-            [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
+            if (( ! reconciled )); then
+                [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
+            fi
         fi
         if [[ "$mode" == "check" ]]; then
             if (( reconciled )); then
