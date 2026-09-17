@@ -4942,17 +4942,28 @@ show_success_message() {
             echo "│       Re-run the installer to deploy _ai-memory/           │"
             ;;
         opt-out)
+            # NOT TOUCHED BY THIS STORY, DELIBERATELY. "declined at install" is
+            # a forbidden CLAIM (AD-67) -- every non-interactive install reached
+            # this arm and none of them declined -- but that is a claim-half
+            # defect, and AC-5's quantifier reaches optionality framing, not
+            # claims. Absorbing it here would be scope creep dressed as a fix, so
+            # it is reported to the dispatching PM for routing and left as-is.
             echo "│     ○ Parzival V2 not enabled — declined at install        │"
-            # The re-run clause is NOT optional padding. Every other surface
-            # carries it (parzival_state._MESSAGES, both aim-save SKILL copies,
-            # CLAUDE-PARZIVAL-SECTION.md); omitting it here told the operator to
-            # set the flag true while PARZIVAL_ENABLED_CAUSE=opt-out remained,
-            # i.e. to hand-build the (enabled x non-empty cause) cell that
-            # docs/PARZIVAL-SESSION-GUIDE.md warns against — by documented
-            # procedure. Re-running is what clears the cause (configure_parzival_env
-            # writes value+empty-cause in one pass).
-            echo "│       Set PARZIVAL_ENABLED=true in docker/.env, then       │"
-            echo "│       re-run the installer to enable it                    │"
+            # The remedy no longer names the flag as the operator's lever. Under
+            # FR-1/AD-68 the installer converts an opt-out record on every run,
+            # so "set PARZIVAL_ENABLED=true, then re-run" is not merely
+            # optional-sounding, it is FALSE: re-running alone is what enables,
+            # and the hand-set flag it used to instruct is the (enabled x
+            # non-empty cause) cell docs/PARZIVAL-SESSION-GUIDE.md warns against.
+            # The re-run clause itself is NOT padding and stays: every other
+            # surface carries it, and re-running is what clears the cause
+            # (configure_parzival_env writes value+empty-cause in one pass).
+            #
+            # Whether this arm still has a reachable state after this story is a
+            # separate question (AD-71) and is reported, not acted on: the panel
+            # branches on the RECORD, and a legacy opt-out record stays on disk
+            # until a run converts it. Removing the reader is not commissioned.
+            echo "│       Re-run the installer to enable it                    │"
             ;;
         *)
             # DECLINE TO ASSERT WHAT THIS BRANCH CANNOT KNOW. Reaching here means
@@ -5772,14 +5783,16 @@ setup_parzival() {
         log_info "Non-interactive mode — enabling Parzival V2 for this project"
     else
         # DEC-PM465-D1 (option A): setup_parzival solicits NO input on
-        # enablement. The "Enable Parzival session agent? [y/N]" read, its
-        # [y/N] hint, its ^(y|yes)$ match, its EOF branch and the
-        # "Parzival Session Agent (Optional)" banner that introduced it are all
+        # enablement. The enablement read, its yes/no hint, its affirmative
+        # match, its EOF branch and the banner that introduced it are all
         # removed -- a blocking read IS input on the question, and FR-1
         # consequence 1 requires a fresh interactive install to produce a
-        # working Parzival with no user input on it. The descriptive lines below
-        # are kept: they describe what the agent does, never that it is
-        # optional, and no AC commissions removing them.
+        # working Parzival with no user input on it. The removed strings are
+        # deliberately NOT quoted here: AC-5's sweep asserts their ABSENCE from
+        # this file, and a comment reproducing them would defeat that check
+        # while looking like documentation. The descriptive lines below are
+        # kept -- they describe what the agent does, never that it is optional,
+        # and no AC commissions removing them.
         log_info "Enabling Parzival V2 for this project"
         echo ""
         echo "Parzival is a Technical PM & Quality Gatekeeper that provides:"
