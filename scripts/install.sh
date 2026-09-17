@@ -5752,21 +5752,35 @@ setup_parzival() {
         return 0
     fi
 
-    # Non-interactive CI runs skip Parzival unless INSTALL_PARZIVAL=true
-    local parzival_enable=false
+    # FR-1: every install produces a working agent, on BOTH entry mechanisms.
+    # The non-interactive gate and the interactive path are two separate sites
+    # (AD-45), and changing one is not a discharge -- so both are changed here.
+    # The variable stays because the two mechanisms still log differently; every
+    # arm now enables.
+    #
+    # INSTALL_PARZIVAL is an opt-IN variable: INSTALL.md ships the contract that
+    # it "only enables Parzival when its value is the literal string true. Any
+    # other value (including 1, yes, or unset) leaves the default skip behavior
+    # in place". `false` was therefore never a decline, and DEC-PM441-D1 rules
+    # that it CONVERTS like any other non-true value. There is no supported
+    # disable path; the product offers no off-switch and does not chase one an
+    # operator hand-makes (DEC-PM441-D3).
+    local parzival_enable=true
     if [[ "${INSTALL_PARZIVAL:-}" == "true" ]]; then
-        parzival_enable=true
         log_info "INSTALL_PARZIVAL=true — enabling Parzival V2 for this project"
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
-        log_info "Non-interactive mode — skipping Parzival setup (set INSTALL_PARZIVAL=true to enable)"
-        set_parzival_enablement "false" "opt-out"
-        sync_parzival_settings
-        return 0
+        log_info "Non-interactive mode — enabling Parzival V2 for this project"
     else
-        echo ""
-        echo "══════════════════════════════════════════════════════════"
-        echo "  Parzival Session Agent (Optional)"
-        echo "══════════════════════════════════════════════════════════"
+        # DEC-PM465-D1 (option A): setup_parzival solicits NO input on
+        # enablement. The "Enable Parzival session agent? [y/N]" read, its
+        # [y/N] hint, its ^(y|yes)$ match, its EOF branch and the
+        # "Parzival Session Agent (Optional)" banner that introduced it are all
+        # removed -- a blocking read IS input on the question, and FR-1
+        # consequence 1 requires a fresh interactive install to produce a
+        # working Parzival with no user input on it. The descriptive lines below
+        # are kept: they describe what the agent does, never that it is
+        # optional, and no AC commissions removing them.
+        log_info "Enabling Parzival V2 for this project"
         echo ""
         echo "Parzival is a Technical PM & Quality Gatekeeper that provides:"
         echo "  - Cross-session memory (remembers previous sessions via Qdrant)"
@@ -5774,50 +5788,6 @@ setup_parzival() {
         echo "  - Quality gatekeeping (verification checklists)"
         echo "  - Parallel agent team dispatch and review cycles"
         echo ""
-        # `read` returns non-zero on EOF EVEN WHEN IT HAS ALREADY POPULATED THE
-        # VARIABLE. `printf 'y' | ./install.sh`, a heredoc with no trailing
-        # newline, and an expect driver all deliver a real answer with no final
-        # newline -- so testing the return code alone DISCARDS the operator's `y`
-        # and records a decline. The answer is what was typed, not what the exit
-        # status implies: treat a populated variable as an answer regardless.
-        #
-        # A genuine EOF (nothing typed) WRITES NOTHING TO THE RECORD.
-        # Three reasons, in increasing severity:
-        #   1. A cause is a claim about operator intent (AD-32) and a closed stdin
-        #      supports no such claim -- so `opt-out` is out.
-        #   2. Writing an empty cause DESTROYS INFORMATION: a `cause=failed` from an
-        #      earlier run is overwritten, turning a correctly recorded deployment
-        #      failure into `unknown`. Nothing reads the prior cause first.
-        #   3. `setup_parzival` performs ZERO reads of the existing PARZIVAL_ENABLED
-        #      before prompting, so writing `false` here DISABLES A DEPLOYED, WORKING
-        #      PARZIVAL because nobody answered a prompt -- flatly against
-        #      DEC-PM441-D1 ("Parzival enabled all the time; the installer should
-        #      override an opt-out"), and against AD-71 (ratified DEC-PM441-D4),
-        #      under which a failed deployment is the sole permitted terminal
-        #      not-enabled state. AD-71 is NOT quoted here on purpose: the
-        #      decision-log rendering of it was found truncated at PM #442, and the
-        #      authoritative text is the spine's own. Reason 3 does not lean on it --
-        #      DEC-PM441-D1 alone forbids the installer turning Parzival off.
-        # Writing nothing leaves whatever the record already held: on a fresh install
-        # that is `copy_files`' false/empty/complete from .env.example -- byte-for-byte
-        # what this branch used to write -- and on a re-install it is the true record.
-        # The write bought nothing where it was correct and destroyed where it was not.
-        # This is distinct from NON_INTERACTIVE above, which IS a configured choice.
-        local parzival_choice=""
-        local parzival_read_rc=0
-        read -r -p "Enable Parzival session agent? [y/N] " parzival_choice || parzival_read_rc=$?
-        if (( parzival_read_rc != 0 )) && [[ -z "$parzival_choice" ]]; then
-            log_warning "No response on stdin (EOF) — skipping Parzival setup; the enablement record is left unchanged"
-            sync_parzival_settings
-            return 0
-        fi
-
-        local parzival_choice_normalized
-        parzival_choice_normalized=$(printf '%s' "$parzival_choice" | tr '[:upper:]' '[:lower:]')
-
-        if [[ "$parzival_choice_normalized" =~ ^(y|yes)$ ]]; then
-            parzival_enable=true
-        fi
     fi
 
     if [[ "$parzival_enable" == "true" ]]; then
@@ -5907,10 +5877,6 @@ setup_parzival() {
         setup_model_dispatch
 
         log_success "Parzival V2 enabled"
-    else
-        log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
-        set_parzival_enablement "false" "opt-out"
-        sync_parzival_settings
     fi
 }
 
@@ -6337,7 +6303,16 @@ configure_parzival_env() {
 
     # Prompt for user name (skip in non-interactive mode)
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        read -p "Your name for Parzival greetings [Developer]: " user_name
+        # TD-1065: `read` returns non-zero on EOF and `set -euo pipefail` is
+        # global, so an exhausted stdin here aborted the ENTIRE install --
+        # mid-run, after the enablement record already said enabled. Until the
+        # enablement prompt above was removed its EOF branch returned before
+        # this line; nothing stands between exhausted stdin and this read now.
+        # `|| true` is the whole fix: on EOF the default "Developer" written by
+        # append_env_if_missing above stands, and a populated variable is still
+        # honoured by the -n test below (the sibling prompt's own lesson --
+        # `read` can fail AND have delivered a real answer).
+        read -p "Your name for Parzival greetings [Developer]: " user_name || true
         if [[ -n "$user_name" ]]; then
             escaped_name=$(printf '%s\n' "$user_name" | sed 's/[&/\$`"!]/\\&/g')
             sed -i.bak "s/^PARZIVAL_USER_NAME=.*/PARZIVAL_USER_NAME=$escaped_name/" "$env_file" && rm -f "$env_file.bak"
