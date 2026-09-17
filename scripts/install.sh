@@ -4330,9 +4330,12 @@ configure_multi_ide() {
 # false, and ENUMERATED NODE BY NODE because a narrow claim that is also incomplete
 # reads as exhaustive while it is not. It detects PERMISSION DENIAL and unresolvable
 # nodes, and only where they are observable from the project path downward: at an
-# unsearchable project path, at _bmad, at _bmad/bmm, and at a symlink whose target
-# cannot be resolved at ANY of the three nodes that carry one — _bmad, _bmad/bmm and
-# the Module's own _bmad/bmm/config.yaml. The config.yaml node is the one an earlier
+# unsearchable project path (reachable in this function only — through main() it
+# is not, because the top-level PROJECT_PATH normalisation replaces a path it
+# cannot enter with the working directory first; TD-1207), at _bmad, at
+# _bmad/bmm, and at a symlink whose target cannot be resolved at ANY of the three
+# nodes that carry one — _bmad, _bmad/bmm and the Module's own
+# _bmad/bmm/config.yaml. The config.yaml node is the one an earlier
 # revision of this list omitted while still billing itself narrow-but-complete; the
 # code has guarded it since the per-file shared-install link was covered, and the
 # suite pins it. One further condition is covered that is not a filesystem state at
@@ -4529,7 +4532,7 @@ report_bmad_module_state() {
             log_debug "BMM present"
             ;;
         bmad-indeterminate)
-            log_warning "BMM undetermined — the BMAD evidence could not be read, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. The causes are not separable here and this is not a menu to choose from: work through all of them. Permissions: check that you have permission to enter the _bmad directory and the _bmad/bmm Module directory. Symlinks: _bmad, _bmad/bmm and _bmad/bmm/config.yaml may each be a link, and a link whose target is missing looks identical here to one whose target is merely unreadable — so also check permission on the directory holding the link target, which for a shared BMAD install is outside this project. A link whose target is missing cannot be fixed by changing permissions: repair it, or remove it, which makes the state report as absent rather than unknown. Also check that the project path is the one you meant. Install continues; detection never changes the install's exit status."
+            log_warning "BMM undetermined — the BMAD evidence could not be checked, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. The causes overlap and this check cannot tell them apart, so this is not a menu to choose from: work through all of them. Permissions: check that you have permission to enter the _bmad directory and the _bmad/bmm Module directory. Symlinks: _bmad, _bmad/bmm and _bmad/bmm/config.yaml may each be a link, and to this check a link whose target is missing, a link that loops, and a link whose path runs through a directory you cannot search all look the same. That directory can be any directory along the path the link resolves through, not only the target's parent, and for a shared BMAD install it is outside this project. Run stat -L on the link to tell them apart: 'Permission denied' means a directory along that path cannot be searched, so check search permission on every directory along it; any other error, such as 'No such file or directory', 'Too many levels of symbolic links' or 'Not a directory', means the link is broken, which changing permissions cannot fix — repair it, or remove it, which makes the state report as absent rather than unknown. Those quoted messages are the GNU/glibc wording and may differ on other systems. Also check that the project path is the one you meant. Install continues; detection never changes the install's exit status."
             ;;
         *)
             # Unreachable by construction today, and deliberately not silent. The

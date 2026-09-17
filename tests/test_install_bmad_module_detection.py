@@ -9,10 +9,12 @@ Three states are required, and they are three — not "present/absent":
   * ``bmm-absent``   — BMAD root present, the BMM Module is not             (AC-2)
   * ``bmm-present``  — the BMM Module is installed                          (AC-3)
 
-A **fourth** state is reported for evidence that exists but cannot be read:
+A **fourth** state is reported when the check cannot get an answer:
 
-  * ``bmad-indeterminate`` — the BMAD root is there and cannot be traversed, or no
-    project path was supplied. ``[[ -d ]]`` succeeds on a mode-000 directory while
+  * ``bmad-indeterminate`` — the project path, the BMAD root or the Module
+    directory cannot be searched; ``_bmad``, ``_bmad/bmm`` or the Module's
+    ``config.yaml`` is a link that does not resolve; or no project path was
+    supplied. ``[[ -d ]]`` succeeds on a mode-000 directory while
     every test beneath it fails with ``EACCES``, which ``[[ ]]`` cannot distinguish
     from ``ENOENT`` — so falling through to ``bmm-absent`` would tell an operator
     whose machine *has* BMM that BMM is absent. ``AD-33`` enumerates three states
@@ -720,6 +722,23 @@ class TestDetectorResolvesThreeStates:
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMM_ABSENT
 
+    def test_module_as_a_regular_file_is_not_an_installed_module(
+        self, install_sh_no_main, tmp_path
+    ):
+        """AC-2: a `_bmad/bmm` that is not a directory holds no Module config.
+
+        `-f` on `bmm/config.yaml` fails with ENOTDIR, and neither Module guard
+        fires on a regular file, so the answer is `bmm-absent` — the case the
+        INSTALL.md row names as "a `_bmad/bmm` that is not a directory".
+        """
+        project = _project(tmp_path, "module_file_project", "_bmad")
+        (project / "_bmad" / "bmm").write_text("not a module\n", encoding="utf-8")
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMM_ABSENT
+
     def test_empty_module_config_is_not_an_installed_module(
         self, install_sh_no_main, tmp_path
     ):
@@ -1044,6 +1063,72 @@ class TestIndeterminateEvidenceIsNotReportedAsAbsence:
 
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_INDETERMINATE
+
+    def test_root_symlink_under_an_unsearchable_ancestor_is_not_reported_as_absent(
+        self, install_sh_no_main, tmp_path
+    ):
+        """The unsearchable directory need not be the target's parent.
+
+        Path resolution needs search permission on EVERY directory along the
+        target's path, so a denial two levels up gives the same `-L` true, `-e`
+        false as one at the parent — which is why the operator text sends the
+        operator to every directory along that path, not only the parent.
+        """
+        project = _project(tmp_path, "ancestor_denied_project")
+        ancestor = tmp_path / "shared_ancestor"
+        real_root = ancestor / "searchable_parent" / "_bmad"
+        (real_root / "bmm").mkdir(parents=True)
+        (real_root / "bmm" / "config.yaml").write_text(
+            "module_name: sample-module\n", encoding="utf-8"
+        )
+        (project / "_bmad").symlink_to(real_root)
+        ancestor.chmod(0o000)
+        try:
+            try:
+                still_reachable = (project / "_bmad").is_dir()
+            except PermissionError:
+                still_reachable = False
+            if still_reachable:
+                pytest.fail(
+                    "cannot construct an unsearchable ancestor: this user or "
+                    f"filesystem does not enforce directory permissions at {ancestor}."
+                )
+            result = _detect(install_sh_no_main, project)
+        finally:
+            ancestor.chmod(0o755)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+        assert _state_of(_detect(install_sh_no_main, project)) == STATE_BMM_PRESENT
+
+    @pytest.mark.parametrize("shape", ["dangling", "loop"])
+    def test_unresolvable_project_path_link_resolves_bmad_absent(
+        self, install_sh_no_main, tmp_path, shape
+    ):
+        """A project path that is itself a broken link answers absent, today.
+
+        Nothing beneath a link that does not resolve can be found, and the
+        detector's root guard tests `-L` on `_bmad`, not on the project path, so
+        both shapes fall through to `bmad-absent`. The operator text rests on
+        that: it no longer names the project path among the symlink causes.
+
+        This PINS CURRENT BEHAVIOUR while `D-2` — whether the project path gets
+        the root's own `-L && ! -e` limb — is an open owner question. Building
+        `D-2` is meant to turn both cases red; re-point them then, do not delete
+        them, and put the project path back into the symlink causes.
+        """
+        project = tmp_path / f"{shape}_project_link"
+        if shape == "dangling":
+            project.symlink_to(tmp_path / "no_such_project")
+        else:
+            partner = tmp_path / "loop_partner"
+            project.symlink_to(partner)
+            partner.symlink_to(project)
+
+        result = _detect(install_sh_no_main, project)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_ABSENT
 
     def test_symlinked_module_with_unresolvable_target_is_not_reported_as_bmm_absent(
         self, install_sh_no_main, symlinked_module_with_unresolvable_target
@@ -1486,49 +1571,81 @@ def _shell_function_body(text: str, name: str) -> str:
     """Slice one shell function out of install.sh, opening line to closing brace.
 
     Every line inside these two functions is indented, so a `\\n}\\n` is the close
-    and cannot match anything internal. Asserted non-empty: a slice that silently
-    came back blank would make every check built on it vacuously true.
+    and cannot match anything internal. The slice always carries the signature
+    line, so "non-empty" is checked past it: a slice that came back as the
+    signature alone would make every check built on it vacuously true.
     """
     start = text.index(f"\n{name}() {{\n")
     end = text.index("\n}\n", start)
     body = text[start:end]
-    assert body.strip(), f"empty body sliced for {name}()"
+    assert len(body.strip().splitlines()) > 2, f"no body sliced for {name}()"
     return body
 
 
 def _detection_section() -> str:
-    """The `### BMAD Module Detection` section of INSTALL.md, heading to next heading."""
+    """The `### BMAD Module Detection` section of INSTALL.md, heading to next heading.
+
+    Ends at the next heading of level 1 to 3; a `####` below it is a subsection
+    of this section and stays inside it.
+    """
     text = _INSTALL_MD.read_text(encoding="utf-8")
-    start = text.index("### BMAD Module Detection")
-    rest = text[start + 1 :]
-    following = re.search(r"\n#{2,3} ", rest)
+    rest = text[text.index("### BMAD Module Detection") :]
+    following = re.search(r"\n#{1,3} ", rest)
     section = rest[: following.start()] if following else rest
     assert "| What you see |" in section, "state table not found in detection section"
     return section
 
 
 def _table_row(section: str, headline: str) -> str:
-    """The one table row whose FIRST cell — the message column — carries `headline`.
+    """The one table row whose FIRST cell — the message column — quotes `headline`.
 
     Matched on the first cell, not the whole line: rows cross-reference each
     other's states in their descriptions ("is reported `BMM undetermined`, not
-    absent"), so a whole-line match returns three rows for one headline.
+    absent"), so a whole-line match returns three rows for one headline. Matched
+    as the whole headline after the level tag, so one headline cannot match
+    inside a longer one.
     """
+    pattern = re.compile(rf"\] {re.escape(headline)}(?: —|:)")
     rows = [
         line
         for line in section.splitlines()
-        if line.startswith("|") and headline in line.split("|")[1]
+        if line.startswith("|") and pattern.search(line.split("|")[1])
     ]
     assert len(rows) == 1, f"expected one row for {headline!r}, found {len(rows)}"
     return rows[0]
 
 
+def _names(text: str, token: str) -> bool:
+    """Whether `text` names `token` as a whole path, not as part of a longer one.
+
+    `_bmad` is a prefix of `_bmad/bmm`, which is a prefix of
+    `_bmad/bmm/config.yaml`, so a plain `in` finds all three in a text that names
+    only the deepest.
+    """
+    return re.search(rf"(?<![\w/]){re.escape(token)}(?![\w/])", text) is not None
+
+
+def _reporter_arms() -> list[tuple[str, str, str]]:
+    """`(arm, level, message)` for each arm of the reporter's `case`.
+
+    Each arm must emit exactly one message, so an arm added without one, or
+    with a second, fails here rather than being silently skipped.
+    """
+    body = _shell_function_body(_install_sh_text(), "report_bmad_module_state")
+    block = body[body.index('case "$state" in') : body.index("esac")]
+    arms = re.split(r"\n\s*([\w*-]+)\)\n", block)[1:]
+    found = []
+    for arm, arm_body in zip(arms[::2], arms[1::2], strict=True):
+        calls = re.findall(r'\blog_(warning|debug|info|error) "([^"]+)"', arm_body)
+        assert len(calls) == 1, f"arm {arm!r} emits {len(calls)} messages"
+        found.append((arm, *calls[0]))
+    assert len(found) >= 4, f"case extraction found only {found!r}"
+    return found
+
+
 def _reporter_messages() -> list[str]:
     """Every operator-facing string `report_bmad_module_state` can emit."""
-    body = _shell_function_body(_install_sh_text(), "report_bmad_module_state")
-    found = re.findall(r'\blog_(?:warning|debug) "([^"]+)"', body)
-    assert len(found) >= 4, f"message extraction found only {found!r}"
-    return found
+    return [message for _, _, message in _reporter_arms()]
 
 
 def _headline(message: str) -> str:
@@ -1546,7 +1663,12 @@ def _indeterminate_guard_conditions() -> list[str]:
             continue
         for candidate in reversed(lines[:index]):
             stripped = candidate.strip()
-            if stripped.startswith("if [["):
+            if stripped.startswith(("if [[", "elif [[")):
+                # A guard continued onto a second line would be read as its first
+                # line only, and under-derive without failing.
+                assert stripped.endswith(
+                    "; then"
+                ), f"guard is not on one line, so it cannot be read: {stripped!r}"
                 conditions.append(stripped)
                 break
         else:
@@ -1555,27 +1677,50 @@ def _indeterminate_guard_conditions() -> list[str]:
     return conditions
 
 
-# Path expression in a guard -> the token the prose describing it must use. The
-# closing quote is part of each key, so `"$bmad_root"` cannot match inside
-# `"$bmad_root/bmm"` and the three depths stay distinct.
+# Expression in a guard -> the token the prose describing it must use. The
+# closing quote is part of each path key, so `"$bmad_root"` cannot match inside
+# `"$bmad_root/bmm"` and the three depths stay distinct. The project path is
+# keyed on its SEARCH test, not on the bare variable: the `-z "$project_path"`
+# guard is about a missing argument, not a filesystem node, and must not count.
 _NODE_PROSE = {
     '"$bmad_root/bmm/config.yaml"': "_bmad/bmm/config.yaml",
     '"$bmad_root/bmm"': "_bmad/bmm",
     '"$bmad_root"': "_bmad",
-    '"$project_path"': "project path",
+    '-x "$project_path"': "project path",
 }
 
 
 def _indeterminate_nodes() -> set:
-    """Prose tokens for every filesystem node at which the detector answers unknown."""
+    """Prose tokens for every filesystem node at which the detector answers unknown.
+
+    Every entry of `_NODE_PROSE` must be found: a node that drops out of the
+    extraction would otherwise shrink the requirement along with the code.
+    """
     nodes = {
         prose
         for condition in _indeterminate_guard_conditions()
         for expression, prose in _NODE_PROSE.items()
         if expression in condition
     }
-    assert len(nodes) >= 3, f"node extraction found only {nodes!r}"
+    assert len(nodes) == len(_NODE_PROSE), f"node extraction found only {nodes!r}"
     return nodes
+
+
+def _unresolvable_link_nodes() -> set:
+    """Prose tokens for every node guarded by `-L x && ! -e x`."""
+    expressions = {
+        match.group(1)
+        for condition in _indeterminate_guard_conditions()
+        for match in re.finditer(r"-L (\"[^\"]+\") && ! -e \1", condition)
+    }
+    nodes = {_NODE_PROSE[e] for e in expressions}
+    assert len(nodes) == 3, f"link-guard extraction found {nodes!r}"
+    return nodes
+
+
+def _carve_out(row: str) -> str:
+    """The sentences of a row that send a case on to `BMM undetermined`."""
+    return " ".join(s for s in row.split(". ") if "undetermined" in s)
 
 
 def _fourth_state_comment() -> str:
@@ -1601,44 +1746,75 @@ class TestOperatorTextMatchesTheDetector:
         The table is headed "What you see", so it is an enumeration, and an
         enumeration missing an arm is the omission form of the defect. This is
         derived from the `case` arms rather than counted, so a future arm added
-        without a row fails here.
+        without a row fails here. Each headline must open a row's FIRST cell:
+        finding it anywhere in the section would accept a row's description, or
+        prose under the table, as its row. The debug line is the one exception —
+        it has no row of its own and is documented in the silent row instead.
         """
         section = _detection_section()
-        messages = _reporter_messages()
-        missing = sorted(
-            {_headline(m) for m in messages if _headline(m) not in section}
+        silent_row = next(
+            line
+            for line in section.splitlines()
+            if line.startswith("|") and "*(nothing)*" in line.split("|")[1]
         )
-        assert not missing, (
-            f"reporter can emit {len(messages)} messages; these have no row in "
-            f"INSTALL.md's state table: {missing}"
-        )
+        for arm, level, message in _reporter_arms():
+            if level == "debug":
+                assert (
+                    f"`[DEBUG] {message}`" in silent_row
+                ), f"arm {arm!r}: the silent row does not quote its debug line"
+            else:
+                _table_row(section, _headline(message))
 
-    def test_bmad_absent_row_carves_out_an_unresolvable_root_symlink(self):
-        """ "Not a directory" is true of a dangling `_bmad`, which is not absent.
+    def test_every_link_node_carves_out_to_the_undetermined_row(self):
+        """ "Not a directory" is true of a dangling link, which is not absent.
 
-        A `_bmad` symlink that fails to resolve answers the fourth state, not
-        `bmad-absent`, while one that resolves to a regular file, FIFO, socket or
-        device does answer absent. The row must carry the carve-out its neighbour
-        already carries, or it over-claims on exactly the dangling case.
+        A link that fails to resolve answers the fourth state, while one that
+        resolves to a non-directory answers absent. Each row that would otherwise
+        claim the dangling case must carry the carve-out, naming every link node
+        at its depth: `_bmad` in the `BMAD absent` row, `_bmad/bmm` and its
+        `config.yaml` in the `BMM absent` row. The node set comes from the
+        detector's `-L && ! -e` guards, and each node is matched as a whole path.
         """
-        row = _table_row(_detection_section(), "BMAD absent")
-        assert "symlink" in row, f"row names no symlink behaviour: {row}"
-        assert "undetermined" in row, f"row lacks the fourth-state carve-out: {row}"
+        section = _detection_section()
+        nodes = _unresolvable_link_nodes()
+        rows = {
+            "BMAD absent": {n for n in nodes if n == "_bmad"},
+            "BMAD present / BMM absent": {n for n in nodes if n != "_bmad"},
+        }
+        for headline, expected in rows.items():
+            row = _table_row(section, headline)
+            carve_out = _carve_out(row)
+            assert "symlink" in carve_out, f"{headline} row: no symlink carve-out"
+            missing = sorted(n for n in expected if not _names(carve_out, n))
+            assert not missing, f"{headline} row carve-out omits {missing}"
 
     def test_bmm_absent_row_names_every_discriminator_failure(self):
         """`-f && -s` is two halves, and both produce this state.
 
         `-f` is the node-type half and `-s` the emptiness half — an empty Module
-        directory, a zero-byte config and a `config.yaml` that is not a regular
-        file all resolve `bmm-absent`. The detector's own header says so; the row
-        must not be the lossy copy.
+        directory, a zero-byte config, a `config.yaml` that is not a regular file
+        and a `_bmad/bmm` that is not a directory all resolve `bmm-absent`. The
+        detector's own header says so; the row must not be the lossy copy. Both
+        halves are checked on the guard that answers `bmm-present`, not anywhere
+        in the function.
         """
-        detector = _shell_function_body(_install_sh_text(), "detect_bmad_module_state")
-        assert '-f "$bmad_root/bmm/config.yaml"' in detector, "node-type half gone"
-        assert '-s "$bmad_root/bmm/config.yaml"' in detector, "emptiness half gone"
+        lines = _shell_function_body(
+            _install_sh_text(), "detect_bmad_module_state"
+        ).splitlines()
+        answer = next(
+            i for i, line in enumerate(lines) if f'echo "{STATE_BMM_PRESENT}"' in line
+        )
+        guard = lines[answer - 1].strip()
+        assert '-f "$bmad_root/bmm/config.yaml"' in guard, "node-type half gone"
+        assert '-s "$bmad_root/bmm/config.yaml"' in guard, "emptiness half gone"
 
         row = _table_row(_detection_section(), "BMAD present / BMM absent")
-        for phrase in ("empty", "zero-byte", "not a regular file"):
+        for phrase in (
+            "empty",
+            "zero-byte",
+            "not a regular file",
+            "`_bmad/bmm` that is not a directory",
+        ):
             assert phrase in row, f"row does not name {phrase!r}: {row}"
 
     def test_fourth_state_comment_enumerates_every_indeterminate_node(self):
@@ -1648,7 +1824,7 @@ class TestOperatorTextMatchesTheDetector:
         not, which is worse than the general claim it replaced.
         """
         comment = _fourth_state_comment()
-        missing = sorted(node for node in _indeterminate_nodes() if node not in comment)
+        missing = sorted(n for n in _indeterminate_nodes() if not _names(comment, n))
         assert not missing, f"nodes the code guards and the comment omits: {missing}"
 
         if any('-z "$project_path"' in c for c in _indeterminate_guard_conditions()):
@@ -1665,18 +1841,21 @@ class TestOperatorTextMatchesTheDetector:
         normalises its project path before calling — so it belongs in the
         developer-facing comment above and not in operator guidance.
 
-        OWED TO `W-1`'s ACCEPTANCE, recorded here because this is where it gets
-        caught. The operator text no longer names the project path as a cause of
-        the permissions kind: an unenterable project path is replaced by the
-        installer's own working directory before the detector runs, so it cannot
-        produce this state and naming it sends the operator to check a permission
-        that emitted no message. When `W-1` fixes that normalisation the cause
-        becomes reachable and **the permissions branch must name the project path
-        again on both surfaces.** Nothing else is wired to notice: this test
-        checks that every node the detector guards is named, and the project path
-        stays named by the re-aimed sentence ("the one you meant") whether or not
-        the permissions branch carries it — so this assertion passes either way
-        and the restoration has to be carried by `W-1`, not discovered here.
+        OWED TO TD-1207 (review finding `W-1`), recorded here because this is
+        where it would be caught and cannot be. The operator text no longer names
+        the project path as a cause of the permissions kind. install.sh replaces
+        a project path it cannot enter with its own working directory before the
+        detector runs, so in practice that cause does not produce this state.
+        (Not "cannot": if the working directory is itself unenterable, the
+        fallback returns it and the guard would fire. That half is measured; that
+        the project-configuration steps before the detector call fail first in
+        that case is inferred from the call order, not executed.) When TD-1207
+        fixes the normalisation, the cause becomes reachable and **the
+        permissions branch must name the project path again on both surfaces.**
+        This assertion cannot notice: the project path stays named by the
+        re-aimed sentence ("the one you meant") whether or not the permissions
+        branch carries it, so it passes either way. TD-1207 carries the
+        restoration.
         """
         nodes = _indeterminate_nodes()
         message = next(
@@ -1685,7 +1864,7 @@ class TestOperatorTextMatchesTheDetector:
         row = _table_row(_detection_section(), "BMM undetermined")
 
         for surface, text in (("operator message", message), ("INSTALL.md row", row)):
-            missing = sorted(node for node in nodes if node not in text)
+            missing = sorted(n for n in nodes if not _names(text, n))
             assert not missing, f"{surface} omits nodes the detector guards: {missing}"
 
     def test_permission_caused_fourth_state_fixtures_are_pinned_by_name(self):
@@ -1694,29 +1873,40 @@ class TestOperatorTextMatchesTheDetector:
         These are the evidence that the fourth state's causes do NOT partition
         into "a permissions problem" and "an unresolvable symlink": each is both
         at once — `-L` true, `-e` false, bit-identical to a dangling link, with
-        BMM genuinely installed on the other end and a `chmod` on the target's
-        parent as the actual remedy.
+        BMM genuinely installed on the other end and a `chmod` on a directory
+        along the target's path as the actual remedy.
 
         Named rather than counted, because a cause-list assertion exercising only
         dangling links would pass while re-admitting the claim that these refute.
-        They erode silently — a fixture deleted, or kept but no longer consumed —
-        and this fails when they do.
+        They erode silently — a fixture deleted, kept but no longer consumed, or
+        kept and quietly turned into a plain dangling link — and this fails when
+        they do. Each fixture's own source is read from the parsed module, never
+        sliced by searching for the next decorator: the last fixture in the file
+        has no next decorator, and a slice that runs to the end of the file
+        contains this test's own literals.
         """
         source = Path(__file__).read_text(encoding="utf-8")
+        defined = {
+            node.name: node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef)
+        }
         fixtures = (
             "symlinked_root_with_unresolvable_target",
             "symlinked_module_with_unresolvable_target",
             "symlinked_module_config_with_unresolvable_target",
         )
         for name in fixtures:
-            marker = f"def {name}(tmp_path):"
-            assert marker in source, f"missing fixture {name}"
+            assert name in defined, f"missing fixture {name}"
+            node = defined[name]
+            assert any(
+                ast.unparse(d) == "pytest.fixture" for d in node.decorator_list
+            ), f"{name} is no longer a fixture"
 
-            start = source.index(marker)
-            following = source.find("\n@pytest.fixture", start)
-            body = source[start : following if following != -1 else len(source)]
+            body = ast.get_source_segment(source, node)
             assert ".symlink_to(" in body, f"{name} builds no symlink"
             assert ".chmod(0o000)" in body, f"{name} builds no permission denial"
+            assert ".write_text(" in body, f"{name} installs nothing behind the link"
 
             assert re.search(
                 rf"def test_\w+\([^)]*\b{name}\b", source
@@ -1726,10 +1916,11 @@ class TestOperatorTextMatchesTheDetector:
         """The fourth state's causes overlap, so no surface may present a menu.
 
         `[[ -L x && ! -e x ]]` is one bit. It is true for a link whose target is
-        missing (ENOENT), for a loop (ELOOP), and for a link into a shared BMAD
-        install whose target's parent is unsearchable (EACCES) — and in that last
-        case BMM is installed on the other end and a `chmod` on that parent is the
-        remedy. Three fixtures build exactly that tree, one per node:
+        missing (ENOENT), for a loop (ELOOP), for a path through a non-directory
+        (ENOTDIR), and for a link into a shared BMAD install with an unsearchable
+        directory anywhere along the target's path (EACCES) — and in that last
+        case BMM is installed on the other end and a `chmod` on that directory is
+        the remedy. Three fixtures build that tree, one per node:
         `symlinked_root_with_unresolvable_target`,
         `symlinked_module_with_unresolvable_target` and
         `symlinked_module_config_with_unresolvable_target`.
@@ -1737,7 +1928,8 @@ class TestOperatorTextMatchesTheDetector:
         Each banned phrase below is a claim the text used to make and the fixtures
         above refute. They are pinned as phrases, not paraphrased, because the
         regression this stops is the exact sentence returning — and every other
-        assertion in this module passed while it was there.
+        assertion in this module passed while it was there. The required phrases
+        are the claims that replace them.
         """
         message = next(
             m for m in _reporter_messages() if m.startswith("BMM undetermined")
@@ -1746,20 +1938,38 @@ class TestOperatorTextMatchesTheDetector:
 
         banned = (
             ("two distinct causes", "the causes overlap at every symlink node"),
-            ("no permission to fix", "a chmod on the link target's parent is a fix"),
+            ("no permission to fix", "a chmod on the target's path is a fix"),
             ("so it resolves", "removing a link never makes it resolve"),
             (
                 "permission to enter it",
-                "an unenterable project path cannot reach this state through main()",
+                "an unenterable project path does not reach this state through main()",
             ),
             (
                 "project path is correct",
                 "install.sh normalises the project path to pwd before the detector "
                 "runs, so this cause produces no warning at all",
             ),
+            (
+                "unreadable",
+                "the check reads nothing; a denial is a directory that cannot be "
+                "searched, and a mode-000 file is not a cause",
+            ),
+            (
+                "could not be read",
+                "a dangling link has no evidence to read; the check got no answer",
+            ),
         )
         required = (
-            ("target", "the link target's parent is where the permission fix lives"),
+            (
+                "not only the target's parent",
+                "any unsearchable directory along the target's path gives this state",
+            ),
+            ("every directory", "the permission fix may be on any of them"),
+            ("search", "the permission that matters on a directory is search"),
+            ("loop", "a looping link gives this state and is fixed like a missing one"),
+            ("stat -l", "the one command that tells the causes apart"),
+            ("any other error", "every non-permission failure is a broken link"),
+            ("glibc", "the quoted stat messages are GNU/glibc wording"),
             ("outside this project", "that directory is not under the project path"),
         )
 
