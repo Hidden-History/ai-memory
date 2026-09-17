@@ -63,6 +63,7 @@ Synthetic identifiers throughout. The one live name used is the literal ``bmm``,
 which is the Module under test and is named by the requirement itself.
 """
 
+import ast
 import hashlib
 import os
 import re
@@ -86,6 +87,21 @@ STATE_BMM_ABSENT = "bmm-absent"
 STATE_BMM_PRESENT = "bmm-present"
 STATE_BMAD_INDETERMINATE = "bmad-indeterminate"
 
+# Harness isolation. Every subprocess here sources a copy of the real installer,
+# so it runs with an environment BUILT from these keys, never inherited: an
+# inherited one carries the operator's install binding, live credentials and a
+# PATH on which the real `docker` resolves.
+_HARNESS_ENV_KEYS = frozenset({"PATH", "HOME", "LOG_LEVEL"})
+# What sourcing the stripped copy and running the two functions under test calls
+# beyond bash builtins: install.sh's top-level preamble (`dirname`, `basename`,
+# `sed`, `tr`). `git` is deliberately absent — the preamble's one `git` call is
+# `|| true`-guarded with stderr discarded, so leaving it off PATH changes nothing.
+_HARNESS_TOOLS = ("bash", "basename", "dirname", "sed", "tr")
+_CREDENTIAL_NAME = re.compile(
+    r"KEY|TOKEN|SECRET|PASS|CREDENTIAL|AUTH|COOKIE|(^|_)PAT($|_)", re.IGNORECASE
+)
+_LIVE_COMMANDS = ("docker", "install.sh", "stack.sh")
+
 
 @pytest.fixture
 def install_sh_no_main(tmp_path) -> Path:
@@ -105,14 +121,44 @@ def install_sh_no_main(tmp_path) -> Path:
     return copy
 
 
-def _env(log_level: str = "info") -> dict:
-    """A pinned environment for every harness subprocess.
+_harness = {}
 
-    ``subprocess.run`` inherits ``os.environ`` by default, so a runner with
-    ``LOG_LEVEL=debug`` exported would flip both the documented behaviour and the
-    result of the AC-3 silence test. The level is pinned rather than inherited.
+
+@pytest.fixture(scope="module", autouse=True)
+def _harness_sandbox(tmp_path_factory):
+    """Build the curated PATH and the empty HOME that `_env()` hands out.
+
+    PATH is one directory holding a link to each of `_HARNESS_TOOLS` and nothing
+    else, so no other command — `docker` above all — can resolve. The tools are
+    looked up in the system directories, not on the runner's PATH.
     """
-    return {**os.environ, "LOG_LEVEL": log_level}
+    root = tmp_path_factory.mktemp("bmad-harness")
+    bin_dir = root / "bin"
+    bin_dir.mkdir()
+    for tool in _HARNESS_TOOLS:
+        real = shutil.which(tool, path="/usr/bin:/bin")
+        if real is None:
+            pytest.fail(f"harness tool {tool!r} not found in /usr/bin or /bin")
+        (bin_dir / tool).symlink_to(real)
+    home = root / "home"
+    home.mkdir()
+    _harness.update(path=str(bin_dir), home=str(home))
+    yield
+    _harness.clear()
+
+
+def _env(log_level: str = "info") -> dict:
+    """The environment for every harness subprocess, built — never inherited.
+
+    ``subprocess.run`` inherits ``os.environ`` by default, and that carries the
+    operator's install binding, live credentials and a PATH that resolves the
+    real ``docker``. Only ``_HARNESS_ENV_KEYS`` are set. ``LOG_LEVEL`` is pinned
+    because a runner with ``LOG_LEVEL=debug`` exported would flip the AC-3
+    silence test. ``HOME`` is pinned because install.sh falls back to
+    ``$HOME/.ai-memory`` when ``AI_MEMORY_INSTALL_DIR`` is unset.
+    """
+    assert _harness, "harness sandbox not set up"
+    return {"PATH": _harness["path"], "HOME": _harness["home"], "LOG_LEVEL": log_level}
 
 
 def _project(tmp_path, name: str, *relative_dirs: str) -> Path:
@@ -423,6 +469,68 @@ def symlinked_module_config_with_unresolvable_target(tmp_path):
         )
     yield project
     shared.chmod(0o755)
+
+
+class TestHarnessEnvironmentIsIsolated:
+    """The controls every other test here depends on — checked without running any.
+
+    Nothing in this class sources the installer copy. Its assertions print key
+    NAMES only, never values, because the environment it inspects is exactly the
+    one that must not carry credentials.
+    """
+
+    def test_harness_environment_is_built_from_the_allowlist(self):
+        keys = sorted(_env())
+
+        assert "AI_MEMORY_INSTALL_DIR" not in keys
+        assert not [k for k in keys if _CREDENTIAL_NAME.search(k)]
+        assert set(keys) <= _HARNESS_ENV_KEYS, sorted(set(keys) - _HARNESS_ENV_KEYS)
+
+    def test_harness_path_resolves_no_live_command(self):
+        path = _env()["PATH"]
+        resolved = [c for c in _LIVE_COMMANDS if shutil.which(c, path=path)]
+
+        assert not resolved, f"harness PATH resolves {resolved}"
+        entries = path.split(os.pathsep)
+        assert len(entries) == 1, f"harness PATH has {len(entries)} entries, not 1"
+        assert sorted(p.name for p in Path(entries[0]).iterdir()) == sorted(
+            _HARNESS_TOOLS
+        )
+
+    def test_harness_home_is_not_an_install_root(self):
+        """Removing AI_MEMORY_INSTALL_DIR alone is not isolation.
+
+        install.sh's default is `${AI_MEMORY_INSTALL_DIR:-$HOME/.ai-memory}`, so
+        with the key gone a real HOME resolves the operator's live install. HOME
+        must be pinned too, and the pinned one must hold no install.
+        """
+        home = Path(_env()["HOME"])
+
+        assert home != Path.home()
+        assert not (home / ".ai-memory").exists()
+
+    def test_every_harness_subprocess_uses_the_built_environment(self):
+        """An allowlisted `_env()` protects nothing a call site does not pass."""
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        runs = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and ast.unparse(node.func) in ("subprocess.run", "subprocess.Popen")
+        ]
+        unguarded = [
+            node.lineno
+            for node in runs
+            if not any(
+                kw.arg == "env"
+                and isinstance(kw.value, ast.Call)
+                and ast.unparse(kw.value.func) == "_env"
+                for kw in node.keywords
+            )
+        ]
+
+        assert runs, "found no subprocess call to check"
+        assert not unguarded, f"subprocess calls without env=_env(...): {unguarded}"
 
 
 class TestDetectorResolvesThreeStates:
