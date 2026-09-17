@@ -4310,7 +4310,7 @@ configure_multi_ide() {
 # durable. The PARZIVAL_ENABLED* persistence pattern is the wrong analogy here.
 #
 # THE FOURTH STATE, and why it exists. AD-33 enumerates three states. The
-# filesystem can present a fourth: the evidence is THERE but cannot be READ. A
+# filesystem can present a fourth: the check cannot get an answer. A
 # BMAD root at mode 000 satisfies `[[ -d ]]` (stat needs only search permission on
 # the PARENT) while every test beneath it fails with EACCES, which `[[ ]]` renders
 # indistinguishable from ENOENT. Falling through to "bmm-absent" would tell an
@@ -4423,7 +4423,7 @@ detect_bmad_module_state() {
         # ("did resolution succeed?"); `-f` would only ask "is it a regular
         # file?" and would still misreport a FIFO, a socket and a device.
         #   sym -> regular file / FIFO / socket / device : -e TRUE  -> absent
-        #   dangling / ELOOP / target's parent unsearchable: -e FALSE -> indeterminate
+        #   dangling / ELOOP / a dir on target's path unsearchable: -e FALSE -> indeterminate
         # Those last three are BIT-IDENTICAL to `[[ ]]` (-L TRUE, -e FALSE) — it
         # exposes no errno, so ENOENT, ELOOP and EACCES cannot be told apart here.
         # One of the three is the adjudicated permission case, so all three take
@@ -4454,9 +4454,10 @@ detect_bmad_module_state() {
     # Same rule one level down, and it must be checked BEFORE concluding absence:
     # a present-but-unsearchable module directory cannot be read as an absent Module.
     # The `-L`/`! -e` limb mirrors the root guard above for the same reason: dangling,
-    # ELOOP and "target's parent unsearchable" are bit-identical to `[[ ]]` at this
-    # node too, and the ruling that resolves that ambiguity at the root does not stop
-    # there — ENOENT, ELOOP and EACCES are as indistinguishable here as they are above.
+    # ELOOP and "a directory on the target's path unsearchable" are bit-identical
+    # to `[[ ]]` at this node too, and the ruling that resolves that ambiguity at the
+    # root does not stop there — ENOENT, ELOOP and EACCES are as indistinguishable
+    # here as they are above.
     if [[ ( -d "$bmad_root/bmm" && ! -x "$bmad_root/bmm" ) || ( -L "$bmad_root/bmm" && ! -e "$bmad_root/bmm" ) ]]; then
         echo "bmad-indeterminate"
         return 0
@@ -4489,7 +4490,7 @@ detect_bmad_module_state() {
 # DECLARED: AC-3 AS WRITTEN IS KNOWINGLY VIOLATED IN ONE STATE. AC-3 reads "Given
 # a repository with BMM present When the installer runs Then it emits no warning
 # at all", and its Given is unconditional — it says nothing about permissions. A
-# repository that HAS BMM but whose evidence cannot be read resolves
+# repository that HAS BMM but whose evidence cannot be checked resolves
 # bmad-indeterminate, and this function warns. That is not a defect to fix: it is
 # DEC-PM454-D6 ("report loudly, do not abort") meeting an AC written before it,
 # and the ruling is the higher authority. It is written down here so a reviewer
@@ -4532,7 +4533,7 @@ report_bmad_module_state() {
             log_debug "BMM present"
             ;;
         bmad-indeterminate)
-            log_warning "BMM undetermined — the BMAD evidence could not be checked, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. The causes overlap and this check cannot tell them apart, so this is not a menu to choose from: work through all of them. Permissions: check that you have permission to enter the _bmad directory and the _bmad/bmm Module directory. Symlinks: _bmad, _bmad/bmm and _bmad/bmm/config.yaml may each be a link, and to this check a link whose target is missing, a link that loops, and a link whose path runs through a directory you cannot search all look the same. That directory can be any directory along the path the link resolves through, not only the target's parent, and for a shared BMAD install it is outside this project. Run stat -L on the link to tell them apart: 'Permission denied' means a directory along that path cannot be searched, so check search permission on every directory along it; any other error, such as 'No such file or directory', 'Too many levels of symbolic links' or 'Not a directory', means the link is broken, which changing permissions cannot fix — repair it, or remove it, which makes the state report as absent rather than unknown. Those quoted messages are the GNU/glibc wording and may differ on other systems. Also check that the project path is the one you meant. Install continues; detection never changes the install's exit status."
+            log_warning "BMM undetermined — the BMAD evidence could not be checked, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. The causes overlap and this check cannot tell them apart, so this is not a menu to choose from: work through all of them. Permissions: check that you have permission to enter the _bmad directory and the _bmad/bmm Module directory. Symlinks: _bmad, _bmad/bmm and _bmad/bmm/config.yaml may each be a link, and to this check a link whose target is missing, a link that loops, and a link whose path runs through a directory you cannot search all look the same. That directory can be any directory along the path the link resolves through, not only the target's parent, and for a shared BMAD install it is outside this project. Run stat -L on each link to tell them apart. If stat -L succeeds, the link resolves and is not broken: the cause is permission, so check that you can enter the directory it points to. 'Permission denied' means a directory along that path cannot be searched, so check search permission on every directory along it. 'No such file or directory', 'Too many levels of symbolic links' or 'Not a directory' means the link is broken, which changing permissions cannot fix — repair it, or remove it, which makes the state report as absent rather than unknown. Any other error does not show that the link is broken: 'Stale file handle', 'Transport endpoint is not connected' or 'Input/output error' mean the storage the link points into cannot be reached, for example a disconnected network mount, so do not remove the link — restore access to that storage first. More than one of these can be true at once, and stat -L reports only the first it meets, so after each fix run stat -L again until it succeeds. Those quoted messages are the GNU/glibc wording and may differ on other systems. Also check that the project path is the one you meant. Install continues; detection never changes the install's exit status."
             ;;
         *)
             # Unreachable by construction today, and deliberately not silent. The

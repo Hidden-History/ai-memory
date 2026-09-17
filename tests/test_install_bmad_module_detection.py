@@ -473,6 +473,73 @@ def symlinked_module_config_with_unresolvable_target(tmp_path):
     shared.chmod(0o755)
 
 
+@pytest.fixture
+def symlinked_module_to_unsearchable_directory(tmp_path):
+    """`_bmad/bmm` symlinked to a Module directory that itself cannot be searched.
+
+    The link RESOLVES — `stat -L` on it succeeds, so it is not broken — and the
+    state is still undetermined, because the directory it resolves to cannot be
+    entered. This is the tree behind the operator text's "if `stat -L`
+    succeeds" sentence. BMM is genuinely installed on the other end.
+
+    FAILS — does not skip — on a non-enforcing user or filesystem.
+    """
+    project = _project(tmp_path, "module_link_to_unsearchable_project", "_bmad")
+    real_module = tmp_path / "shared_unsearchable_module" / "bmm"
+    real_module.mkdir(parents=True)
+    (real_module / "config.yaml").write_text(
+        "module_name: sample-module\n", encoding="utf-8"
+    )
+    (project / "_bmad" / "bmm").symlink_to(real_module)
+    real_module.chmod(0o000)
+    try:
+        still_reachable = (project / "_bmad" / "bmm" / "config.yaml").is_file()
+    except PermissionError:
+        still_reachable = False
+    if still_reachable:
+        real_module.chmod(0o755)
+        pytest.fail(
+            "cannot construct an unsearchable link target: this user or "
+            f"filesystem does not enforce directory permissions at {real_module}."
+        )
+    yield project
+    real_module.chmod(0o755)
+
+
+@pytest.fixture
+def symlinked_root_with_stacked_failures(tmp_path):
+    """`_bmad` symlinked through an unsearchable directory to a target that is missing.
+
+    Two failures on one path. `stat -L` reports only the first it meets —
+    `Permission denied` — and once that directory is fixed it reports the
+    second, `No such file or directory`. This is the tree behind the operator
+    text's "run `stat -L` again" sentence: one fix does not restore the state.
+    Yields the project and the unsearchable directory, so a test can fix it.
+
+    FAILS — does not skip — on a non-enforcing user or filesystem.
+    """
+    project = _project(tmp_path, "stacked_failures_project")
+    blocker = tmp_path / "stacked_blocker"
+    blocker.mkdir()
+    (project / "_bmad").symlink_to(blocker / "no_such_bmad_root")
+    blocker.chmod(0o000)
+    try:
+        os.stat(project / "_bmad")
+        denied = False
+    except PermissionError:
+        denied = True
+    except OSError:
+        denied = False
+    if not denied:
+        blocker.chmod(0o755)
+        pytest.fail(
+            "cannot construct a denial ahead of a missing target: this user or "
+            f"filesystem does not enforce directory permissions at {blocker}."
+        )
+    yield project, blocker
+    blocker.chmod(0o755)
+
+
 class TestHarnessEnvironmentIsIsolated:
     """The controls every other test here depends on — checked without running any.
 
@@ -974,7 +1041,7 @@ echo "REACHED_END=yes"
 
 
 class TestIndeterminateEvidenceIsNotReportedAsAbsence:
-    """The fourth state — evidence that exists and cannot be read.
+    """The fourth state — the check cannot get an answer.
 
     Round 1 shipped this case resolving silently to `bmm-absent`, and its suite
     declined to assert which state came out, citing AD-24 as an open question.
@@ -1100,6 +1167,52 @@ class TestIndeterminateEvidenceIsNotReportedAsAbsence:
         assert result.returncode == 0, result.stderr
         assert _state_of(result) == STATE_BMAD_INDETERMINATE
         assert _state_of(_detect(install_sh_no_main, project)) == STATE_BMM_PRESENT
+
+    def test_module_link_that_resolves_to_an_unsearchable_directory_is_undetermined(
+        self, install_sh_no_main, symlinked_module_to_unsearchable_directory
+    ):
+        """`stat -L` succeeds on the link, and the answer is still unknown.
+
+        `os.stat` follows the link the way `stat -L` does, so it returning is the
+        operator's successful `stat -L`. The cause is permission on the directory
+        the link points to: restoring it makes the installed Module visible.
+        """
+        link = symlinked_module_to_unsearchable_directory / "_bmad" / "bmm"
+        os.stat(link)
+
+        result = _detect(install_sh_no_main, symlinked_module_to_unsearchable_directory)
+
+        assert result.returncode == 0, result.stderr
+        assert _state_of(result) == STATE_BMAD_INDETERMINATE
+        Path(os.readlink(link)).chmod(0o755)
+        assert (
+            _state_of(
+                _detect(install_sh_no_main, symlinked_module_to_unsearchable_directory)
+            )
+            == STATE_BMM_PRESENT
+        )
+
+    def test_fixing_one_failure_on_a_stacked_path_leaves_the_state_undetermined(
+        self, install_sh_no_main, symlinked_root_with_stacked_failures
+    ):
+        """After the permission fix the link still does not resolve, for another reason.
+
+        `os.stat` stands in for `stat -L`: `Permission denied` first, then — with
+        that directory fixed — `No such file or directory`. The state is
+        undetermined before and after, so the text must not promise that one fix
+        restores it.
+        """
+        project, blocker = symlinked_root_with_stacked_failures
+        before = _detect(install_sh_no_main, project)
+
+        blocker.chmod(0o755)
+        with pytest.raises(FileNotFoundError):
+            os.stat(project / "_bmad")
+        after = _detect(install_sh_no_main, project)
+
+        for result in (before, after):
+            assert result.returncode == 0, result.stderr
+            assert _state_of(result) == STATE_BMAD_INDETERMINATE
 
     @pytest.mark.parametrize("shape", ["dangling", "loop"])
     def test_unresolvable_project_path_link_resolves_bmad_absent(
@@ -1968,7 +2081,6 @@ class TestOperatorTextMatchesTheDetector:
             ("search", "the permission that matters on a directory is search"),
             ("loop", "a looping link gives this state and is fixed like a missing one"),
             ("stat -l", "the one command that tells the causes apart"),
-            ("any other error", "every non-permission failure is a broken link"),
             ("glibc", "the quoted stat messages are GNU/glibc wording"),
             ("outside this project", "that directory is not under the project path"),
         )
@@ -1981,3 +2093,102 @@ class TestOperatorTextMatchesTheDetector:
                 ), f"{surface} still claims {phrase!r}: {why}"
             for phrase, why in required:
                 assert phrase in lowered, f"{surface} omits {phrase!r}: {why}"
+
+    def test_stat_guidance_covers_every_result_an_operator_can_get(self):
+        """`stat -L` has more outcomes than "Permission denied" and "broken link".
+
+        Three gaps in the earlier text, each pinned here on both surfaces:
+
+        * **It can succeed** while the state is undetermined — a link that
+          resolves to a directory you cannot enter. The fixture
+          `symlinked_module_to_unsearchable_directory` builds that tree.
+        * **Not every other error is a broken link.** On a shared install behind a
+          stale network or FUSE mount, `stat -L` reports `Stale file handle`,
+          `Transport endpoint is not connected` or `Input/output error`, and the
+          link may be valid. "Remove it" there turns an unreachable BMM into a
+          confident absent while the mount stays broken. That errno behaviour
+          cannot be built here; only the text is pinned.
+        * **Failures stack**, and `stat -L` reports only the first. Fixing it need
+          not restore the state; the operator must run `stat -L` again. The
+          fixture `symlinked_root_with_stacked_failures` builds that tree.
+
+        The sentence that calls a link broken must list its messages and must not
+        cover "any other error" or any of the unreachable-storage messages.
+        """
+        message = next(
+            m for m in _reporter_messages() if m.startswith("BMM undetermined")
+        )
+        row = _table_row(_detection_section(), "BMM undetermined")
+
+        banned = (
+            (
+                "restores the true state",
+                "one fix does not restore it if failures stack",
+            ),
+            ("any other error, such as", "not every other error is a broken link"),
+            ("any other error means", "not every other error is a broken link"),
+        )
+        unreachable_storage = (
+            "stale file handle",
+            "transport endpoint is not connected",
+            "input/output error",
+        )
+        required = (
+            ("if stat -l succeeds", "a link that resolves can still be undetermined"),
+            ("run stat -l again", "stat -L reports only the first of stacked failures"),
+            ("do not remove the link", "the link may be valid behind a stale mount"),
+            *(
+                (m, "an unreachable-storage error is not a broken link")
+                for m in unreachable_storage
+            ),
+        )
+
+        for surface, text in (("operator message", message), ("INSTALL.md row", row)):
+            lowered = text.lower().replace("`", "")
+            for phrase, why in banned:
+                assert (
+                    phrase not in lowered
+                ), f"{surface} still claims {phrase!r}: {why}"
+            for phrase, why in required:
+                assert phrase in lowered, f"{surface} omits {phrase!r}: {why}"
+
+            broken = [s for s in lowered.split(". ") if "means the link is broken" in s]
+            assert len(broken) == 1, f"{surface}: {len(broken)} broken-link sentences"
+            assert "no such file or directory" in broken[0], broken[0]
+            assert "any other error" not in broken[0], broken[0]
+            wrong = [m for m in unreachable_storage if m in broken[0]]
+            assert not wrong, f"{surface} calls {wrong} a broken link"
+
+        source = Path(__file__).read_text(encoding="utf-8")
+        for name in (
+            "symlinked_module_to_unsearchable_directory",
+            "symlinked_root_with_stacked_failures",
+        ):
+            assert re.search(
+                rf"@pytest\.fixture\ndef {name}\(", source
+            ), f"missing fixture {name}"
+            assert re.search(
+                rf"def test_\w+\([^)]*\b{name}\b", source
+            ), f"{name} is defined but no test consumes it"
+
+    def test_detector_comments_carry_no_retired_cause_wording(self):
+        """The developer comments must not keep what the operator text dropped.
+
+        "target's parent unsearchable" is too narrow — any directory along the
+        target's path gives the same bit — and "cannot be read" is the wrong
+        framing: the check reads nothing, and a dangling link has nothing to read.
+        Scanned from the detector's header comment to the end of the reporter.
+        """
+        text = _install_sh_text()
+        start = text.index(
+            "# Resolve BMAD availability for a project at MODULE granularity."
+        )
+        end = text.index("\n}\n", text.index("\nreport_bmad_module_state() {\n"))
+        code = text[start:end].lower()
+
+        for phrase in (
+            "target's parent unsearchable",
+            "but cannot be read",
+            "evidence cannot be read",
+        ):
+            assert phrase not in code, f"detector comments still say {phrase!r}"
