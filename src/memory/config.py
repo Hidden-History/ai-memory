@@ -1468,3 +1468,106 @@ def reset_config() -> None:
         >>> reset_config()  # Clean up after test
     """
     get_config.cache_clear()
+
+
+# =============================================================================
+# Parzival enablement CONDITION — the normalisation counterpart to
+# parzival_state.resolve_cause (SPEC-015 / AD-32).
+#
+# The record carries three keys and, until this story, only two of them had a
+# reader that normalised. `PARZIVAL_ENABLED_CONDITION` had none. That was
+# harmless while `partial` was unreachable -- every write passed two arguments
+# and so recorded the default -- and Task 4 is what makes it reachable, which is
+# what makes normalisation load-bearing rather than tidy.
+#
+# WHAT GOES WRONG WITHOUT IT, and it fails in the dangerous direction: a raw
+# comparison against the literal "partial" is false for `Partial`, for a
+# quoted `"partial"`, and for a CRLF `docker/.env` where the value arrives with
+# a trailing carriage return. python-dotenv strips the quotes and the CR before
+# MemoryConfig sees them, but the host-side hooks read RAW process env
+# (BUG-120), where nothing has been stripped -- so the two transports disagree
+# about the same file, and the one that disagrees reads a partial install as
+# complete.
+#
+# The transform is character-for-character the one normalize_cause applies, and
+# deliberately so: two normalisers for one record that differ in any step are a
+# reader-disagreement bug waiting to happen.
+#
+# WHERE THIS LIVES, stated because it is not obvious. Its sibling for the cause
+# axis lives in memory/parzival_state.py, and a reader may reasonably expect
+# this beside it. The story scopes Task 7's edit to this module -- the field is
+# declared here -- and lists parzival_state.py as read-only for this work.
+# Splitting one record's readers across two modules is recorded as a concern
+# rather than resolved by moving somebody else's file.
+# =============================================================================
+
+CONDITION_COMPLETE = "complete"
+CONDITION_PARTIAL = "partial"
+
+#: Conditions the installer actually writes.
+KNOWN_CONDITIONS = (CONDITION_COMPLETE, CONDITION_PARTIAL)
+
+
+def normalize_condition(raw) -> str:
+    """Reduce a raw condition value to a known condition.
+
+    ``None`` means "no condition recorded", which the record defines as
+    ``complete``: both ``.env.example`` merge loops append only *missing* keys,
+    so every install predating this record carries no condition key at all, and
+    the installer's own writer defaults its third parameter the same way.
+
+    An UNRECOGNISED token also resolves to ``complete``, and that choice is
+    deliberately the conservative-by-contract one rather than the
+    conservative-by-instinct one. Reading a typo'd condition as ``partial``
+    would be the safer-sounding direction, but ``partial`` is a claim that a
+    deployment stopped part-way, and a garbled token is no evidence of that.
+    Inventing a third state to hold "the condition is unreadable" would be a
+    Condition Table classification, which AD-24 assigns to the spine and the
+    story's own guardrail says is not an implementer's judgement call. Recorded
+    as a concern for the architect instead of decided here.
+
+    A non-string raises, for the same reason its cause twin does: the value
+    reaches here from a pydantic ``str`` field, so the only way to get another
+    type is a test double. A ``MagicMock(spec=MemoryConfig)`` that never
+    *assigns* the attribute still auto-creates a ``MagicMock`` for it, and
+    ``spec=`` constrains attribute names, never their values -- so a silent
+    coercion would let the condition branch take the wrong path with the tests
+    still passing.
+    """
+    if raw is None:
+        return CONDITION_COMPLETE
+    if not isinstance(raw, str):
+        raise TypeError(
+            "parzival condition must be a str (pydantic declares it as one); got "
+            f"{type(raw).__name__}. A MagicMock here means a test double auto-created "
+            "the attribute instead of assigning it -- spec= constrains names, not values."
+        )
+    # Order matches normalize_cause exactly: strip CR (a CRLF .env), strip
+    # whitespace, strip surrounding quotes, strip whitespace again, lowercase.
+    condition = raw.rstrip("\r").strip().strip("\"'").strip().lower()
+    return condition if condition in KNOWN_CONDITIONS else CONDITION_COMPLETE
+
+
+def resolve_condition(config) -> str:
+    """Return the recorded condition — transport 3 (MemoryConfig attribute).
+
+    The attribute is read directly rather than through ``getattr(..., "")``. A
+    missing ``parzival_enabled_condition`` means the field was never declared on
+    ``MemoryConfig``; ``extra="ignore"`` would then be silently discarding the
+    key from ``docker/.env`` and every consumer would read ``complete`` forever.
+    That is a build defect, not an unrecorded condition, and swallowing it would
+    hide the difference.
+    """
+    return normalize_condition(config.parzival_enabled_condition)
+
+
+def resolve_condition_from_env(environ=None) -> str:
+    """Resolve the condition from raw process env — transport 2.
+
+    Host-side hooks read the record from the environment rather than from
+    ``docker/.env`` (BUG-120), so they cannot go through ``MemoryConfig``. This
+    is the transport where the quote- and CR-stripping actually matters, because
+    python-dotenv has not run.
+    """
+    env = os.environ if environ is None else environ
+    return normalize_condition(env.get("PARZIVAL_ENABLED_CONDITION"))
