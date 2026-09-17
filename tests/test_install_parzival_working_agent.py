@@ -51,6 +51,7 @@ aborts in production.
 """
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -155,6 +156,7 @@ def _run(
     with_notice: bool = False,
     stdin: str = "",
     extra_bash: str = "",
+    post_bash: str = "",
 ) -> subprocess.CompletedProcess:
     """Drive the real ``setup_parzival``, optionally wrapped as ``main`` wraps it.
 
@@ -213,6 +215,7 @@ NON_INTERACTIVE="{non_interactive}"
 {deploy_line}
 {extra_bash}
 {call}
+{post_bash}
 """
     return subprocess.run(
         ["bash", "-c", bash_cmd],
@@ -345,6 +348,11 @@ class TestInteractiveInstallAlwaysProducesAWorkingAgent:
         """Option A's actual requirement: not "the default flipped" but "nothing
         is asked". A default flip would leave the read in place and still satisfy
         the three cases above, because all three would answer it the same way.
+
+        The predicate is a PROMPTED read, ``read ... -p``, not the word ``read``.
+        Soliciting is what ``-p`` does; ``setup_parzival`` also reads from a
+        here-string to walk the retained-backup list, and a blanket ban on the
+        token would fail that for no reason -- it asks the operator nothing.
         """
         body = subprocess.run(
             ["bash", "-c", f'source "{install_sh_no_main}"; declare -f setup_parzival'],
@@ -353,9 +361,14 @@ class TestInteractiveInstallAlwaysProducesAWorkingAgent:
         )
         assert body.returncode == 0, body.stdout + body.stderr
         assert "Enable Parzival session agent" not in body.stdout, body.stdout
-        assert "read " not in body.stdout, (
-            "setup_parzival must solicit no input on enablement:\n" + body.stdout
-        )
+        prompted = [
+            line
+            for line in body.stdout.splitlines()
+            if re.search(r"\bread\b[^\n]*\s-\w*p\b", line)
+        ]
+        assert (
+            not prompted
+        ), "setup_parzival must solicit no input on enablement:\n" + "\n".join(prompted)
 
 
 class TestStdinNoLongerConsumedByTheRemovedPrompt:
@@ -824,4 +837,553 @@ class TestNoInstallerStringCallsTheAgentOptional:
         text = _INSTALL_SH.read_text(encoding="utf-8")
         assert "Set PARZIVAL_ENABLED=true in docker/.env" not in text, text[:0] or (
             "the opt-out arm's remedy still names a lever this story removes"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC-4 -- a conversion that stops partway is stated, recoverable and reported.
+#
+# The failure is injected INSIDE the real deploy_parzival_v2 body, because that
+# is where the stop points are. Both sibling drivers stub the function out, which
+# is why AC-4 had no coverage: a stubbed deploy cannot stop partway. `cp` is
+# shadowed so exactly one call fails and every other runs `command cp`;
+# set_parzival_enablement uses no `cp` at all, so the record write still works
+# and the record can therefore carry the condition.
+#
+# The record commit's `mv` is deliberately NOT the injection point. On this path
+# `mv() { return 1; }` reaches exactly one `mv` -- set_parzival_enablement's
+# commit rename -- so it fails the record write itself, the record cannot carry
+# condition=partial, and what it produces is the exit-3 path instead.
+# ---------------------------------------------------------------------------
+
+# Fail only the package copy: its source arguments are the globbed entries of
+# $INSTALL_DIR/_ai-memory. By the time it runs, rm -rf "$dst" has already gone,
+# so this is unambiguously an after-touch stop.
+_FAIL_PACKAGE_COPY = """
+cp() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            "$INSTALL_DIR"/_ai-memory/*) return 1 ;;
+        esac
+    done
+    command cp "$@"
+}
+"""
+
+# Fail only the _memory backup: a before-touch stop, and TD-537's site.
+_FAIL_MEMORY_BACKUP = """
+cp() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            "$PROJECT_PATH"/_ai-memory/_memory) return 1 ;;
+        esac
+    done
+    command cp "$@"
+}
+"""
+
+# Fail only the sanctum backup, which runs AFTER the _memory backup has
+# completed -- so a stop here leaves a COMPLETE _memory backup on disk.
+_FAIL_SANCTUM_BACKUP = """
+cp() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            "$PROJECT_PATH"/_ai-memory/sanctum) return 1 ;;
+        esac
+    done
+    command cp "$@"
+}
+"""
+
+# Fail only a WRITE INTO the restored sanctum tree. Deliberately distinct from
+# the backup shadow above: that one matches the source directory exactly, with
+# no trailing slash, while this matches paths BENEATH the destination. By the
+# time the sanctum restore loop runs, the _memory backup has already been
+# removed -- which is the state the "names no missing path" case needs.
+_FAIL_SANCTUM_RESTORE = """
+cp() {
+    local a
+    for a in "$@"; do
+        case "$a" in
+            "$PROJECT_PATH"/_ai-memory/sanctum/*) return 1 ;;
+        esac
+    done
+    command cp "$@"
+}
+"""
+
+
+def _seed_existing_install(install_dir: Path, project_dir: Path) -> None:
+    """A shipped source package plus a deployed project carrying operator data."""
+    src = install_dir / "_ai-memory" / "pov"
+    src.mkdir(parents=True, exist_ok=True)
+    (src / "shipped.md").write_text("shipped\n", encoding="utf-8")
+
+    dst = project_dir / "_ai-memory"
+    (dst / "pov").mkdir(parents=True, exist_ok=True)
+    (dst / "_memory").mkdir(parents=True, exist_ok=True)
+    (dst / "_memory" / "user-note.md").write_text(
+        "operator content\n", encoding="utf-8"
+    )
+    (dst / "sanctum" / "parzival").mkdir(parents=True, exist_ok=True)
+    (dst / "sanctum" / "parzival" / "identity.md").write_text(
+        "instance identity\n", encoding="utf-8"
+    )
+
+
+def _backup_dirs(install_dir: Path) -> list[Path]:
+    """Every backup directory deploy_parzival_v2 could have created this run."""
+    return sorted(install_dir.glob(".parzival-*backup*"))
+
+
+class TestAStopAfterTheDestinationIsTouched:
+    """AC-4. Stated, recoverable, AND reported -- recording without reporting
+    does not satisfy it.
+
+    RED at baseline on every assertion: errexit is off inside
+    deploy_parzival_v2, so the failing copy was ignored, the function ran on to
+    log_success and returned 0, and configure_parzival_env then recorded
+    true / "" / complete over a package that is not there.
+    """
+
+    def test_the_condition_is_stated_in_the_record(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_PACKAGE_COPY,
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_record(_env_values(install_dir), "false", "failed", "partial")
+
+    def test_the_condition_is_reported_with_a_machine_token(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """A literal token, never a prose log string, and deliberately not a
+        member of the parzival_notice= family -- that notice is the cause-blind
+        state-change diff, it has no condition input, and it stays SILENT when a
+        stop leaves the effective state unchanged, which is the usual case here.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            with_notice=True,
+            extra_bash=_FAIL_PACKAGE_COPY,
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "parzival_condition=partial" in combined, combined
+
+    def test_the_report_names_the_retained_backups(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_PACKAGE_COPY,
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        retained = _backup_dirs(install_dir)
+        assert retained, "an after-touch stop must KEEP the backups"
+        for path in retained:
+            assert str(path) in combined, f"{path} not named in the report:\n{combined}"
+
+    def test_the_report_names_no_path_that_does_not_exist(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """Every named path must be there at the moment of the stop.
+
+        The stop is forced INSIDE THE SANCTUM RESTORE LOOP, and that placement is
+        the whole test. By then ``rm -rf "$mem_backup"`` has already run, so the
+        _memory backup is gone while its variable is still in scope: a report
+        built from the variables rather than from what exists would hand the
+        operator a directory that is not there. Forcing the stop at the package
+        copy instead would leave BOTH backups present and the assertion would
+        hold vacuously -- which is what an earlier version of this test did, and
+        it was the one test in this module that could not fail at baseline.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_SANCTUM_RESTORE,
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        named = [
+            token
+            for line in combined.splitlines()
+            for token in line.split()
+            if ".parzival-" in token and "backup" in token
+        ]
+        assert named, "an after-touch stop must name the backups it retained"
+        for token in named:
+            assert Path(token).is_dir(), f"named a missing path: {token!r}"
+        assert not any(
+            "memory-backup" in token for token in named
+        ), f"the _memory backup was already removed by this point: {named}"
+
+    def test_the_backups_still_hold_the_operator_content(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """Recoverable means the content survived, not merely that a directory
+        with the right name is present.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_PACKAGE_COPY,
+        )
+        found = {
+            p.name: p.read_text(encoding="utf-8")
+            for backup in _backup_dirs(install_dir)
+            for p in backup.rglob("*")
+            if p.is_file()
+        }
+        assert found.get("user-note.md") == "operator content\n", found
+        assert found.get("identity.md") == "instance identity\n", found
+
+    def test_the_report_warns_against_the_installers_own_cleanup_advice(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The retained backups live under INSTALL_DIR, and an aborted full-mode
+        run prints "To clean up and retry: rm -rf $INSTALL_DIR". Unqualified,
+        the installer's own advice tells the operator to delete the only
+        recovery copy it just handed them.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_PACKAGE_COPY,
+        )
+        combined = res.stdout + res.stderr
+        assert "Copy them elsewhere before running" in combined, combined
+
+    def test_configure_parzival_env_does_not_run_after_the_stop(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """Its two-argument true-write would record enabled and reset the
+        condition to complete over a package that is not there -- undoing both
+        halves of AC-4 in one call.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_PACKAGE_COPY
+            + '\nconfigure_parzival_env() { echo "configure_ran=1"; }\n',
+        )
+        assert "configure_ran=1" not in (res.stdout + res.stderr)
+
+    def test_a_re_run_with_the_failure_removed_ends_with_a_working_agent(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """Recoverable, end to end. condition is deliberately NOT asserted on the
+        re-run: the ruled option C (routed separately, not built here) changes
+        what a two-argument write does to an existing partial.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        first = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_PACKAGE_COPY,
+        )
+        assert first.returncode == 0, first.stdout + first.stderr
+        _assert_record(_env_values(install_dir), "false", "failed", "partial")
+
+        second = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+        )
+        assert second.returncode == 0, second.stdout + second.stderr
+        _assert_working_agent(install_dir, project_dir, "recovery re-run")
+
+
+class TestRetainedBackupsSurviveALaterRun:
+    """A retained backup that a later run deletes is not a recovery copy.
+
+    The backups used to be named with a $$ suffix and every run began by
+    rm -rf'ing its own two paths, so a second run with the same PID deleted the
+    directory the first run's report had just named -- and then reused the path.
+    PIDs repeat when they wrap and in fresh PID namespaces.
+
+    Both runs happen inside ONE bash process here, which shares $$ by
+    construction. That reproduces PID reuse deterministically instead of waiting
+    for a wrap, and it is why this test would have been RED under the old naming
+    rather than merely flaky.
+    """
+
+    def test_a_second_run_in_the_same_process_neither_deletes_nor_reuses_them(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_PACKAGE_COPY + """
+setup_parzival
+_first_backups="$_PARZIVAL_STOP_BACKUPS"
+echo "same_pid=$$"
+unset -f cp
+""",
+            post_bash="""
+while IFS= read -r _p; do
+    [[ -n "$_p" ]] || continue
+    if [[ -d "$_p" ]]; then echo "retained_survived=$_p"; else echo "retained_LOST=$_p"; fi
+done <<< "$_first_backups"
+""",
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "retained_survived=" in combined, combined
+        assert "retained_LOST=" not in combined, combined
+
+
+class TestAStopBeforeTheDestinationIsTouched:
+    """The other kind of stop: $dst still holds what it held, so nothing is
+    retained and the condition is the default one.
+    """
+
+    def test_a_failed_memory_backup_leaves_the_destination_untouched(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_MEMORY_BACKUP,
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_record(_env_values(install_dir), "false", "failed", "complete")
+        note = project_dir / "_ai-memory" / "_memory" / "user-note.md"
+        assert note.is_file(), "the operator's _memory/ must be untouched"
+        assert note.read_text(encoding="utf-8") == "operator content\n"
+
+    def test_td_537_the_memory_backup_does_not_leak(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """TD-537. A successful mkdir followed by a failed cp -rp used to skip
+        the cleanup silently -- and, because errexit is off in this function,
+        used to fall through to rm -rf "$dst" and delete the only complete copy
+        of the operator's _memory/. The sanctum twin is NOT asserted here: it was
+        already unconditional at baseline, so a test there passes before the
+        change and proves nothing.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_MEMORY_BACKUP,
+        )
+        assert _backup_dirs(install_dir) == [], _backup_dirs(install_dir)
+
+    def test_a_failed_sanctum_backup_also_removes_the_complete_memory_backup(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The sanctum backup runs after the _memory backup has finished, so a
+        stop here leaves a COMPLETE backup on disk as well as the incomplete one.
+        "No backup directory created by this run remains" covers both; reading
+        the requirement as "remove the incomplete one" leaves the other behind.
+        """
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_SANCTUM_BACKUP,
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_record(_env_values(install_dir), "false", "failed", "complete")
+        assert _backup_dirs(install_dir) == [], _backup_dirs(install_dir)
+        assert (project_dir / "_ai-memory" / "_memory" / "user-note.md").is_file()
+
+
+class TestTd819RefusesAnUnexpectedDestination:
+    """TD-819. The guard was an EXISTENCE check, not a path-shape check, and
+    AC-4 says fail CLOSED -- an unguarded recursive delete is the one operation
+    that cannot. This story multiplies the blast radius, because on an update
+    over a never-converted install $dst holds the operator's real _memory/ and
+    sanctum/.
+
+    The shape that actually goes wrong is PROJECT_PATH: install.sh silently falls
+    back to the current directory when it cannot enter its target argument, which
+    yields a RELATIVE path. It keeps prune_pov_shims' exit 1 rather than
+    recording anything, because a destination of the wrong shape means
+    PROJECT_PATH itself is wrong.
+    """
+
+    def test_a_relative_destination_is_refused_rather_than_deleted(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, _ = dirs
+        (install_dir / "_ai-memory" / "pov").mkdir(parents=True, exist_ok=True)
+        relative_root = tmp_path / "relproj"
+        (relative_root / "_ai-memory" / "_memory").mkdir(parents=True)
+        (relative_root / "_ai-memory" / "_memory" / "user-note.md").write_text(
+            "operator content\n", encoding="utf-8"
+        )
+
+        res = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"""
+set -euo pipefail
+cd "{tmp_path}"
+export INSTALL_DIR="{install_dir}"
+export PROJECT_PATH="relproj"
+export NON_INTERACTIVE="true"
+source "{install_sh_no_main}"
+INSTALL_DIR="{install_dir}"
+PROJECT_PATH="relproj"
+NON_INTERACTIVE="true"
+{_STUBS}
+deploy_parzival_v2
+""",
+            ],
+            capture_output=True,
+            text=True,
+            env=_bash_env(tmp_path),
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode != 0, (
+            "fail CLOSED: the run must not continue\n" + combined
+        )
+        assert "Refusing to rm -rf" in combined, combined
+        assert (
+            relative_root / "_ai-memory" / "_memory" / "user-note.md"
+        ).is_file(), "the destination must not have been deleted"
+
+
+class TestTheNewExitCodeIsAssertedDistinctly:
+    """The enablement-record failure code is 3, not merely non-zero.
+
+    Tasks 1-3 change which branches write the record, and therefore how many
+    writes occur, so they change exit-3 reachability. A harness that buckets all
+    non-zero exits together cannot see this and reports a regression as a generic
+    failure.
+    """
+
+    def test_a_clean_converting_run_does_not_exit_3(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The negative half. Without it, "exit 3 on a record failure" is
+        satisfied by exiting 3 always.
+        """
+        install_dir, project_dir = dirs
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            post_bash="parzival_record_status\n",
+        )
+        assert res.returncode == 0, res.stdout + res.stderr
+        _assert_working_agent(install_dir, project_dir, "clean converting run")
+
+    def test_a_failed_record_write_exits_3(self, install_sh_no_main, dirs, tmp_path):
+        install_dir, project_dir = dirs
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            # Fail ONLY the record's temp file. `mktemp -d` is left working
+            # because deploy_parzival_v2 now uses it for the backups, and failing
+            # that instead would produce a before-touch stop -- a different
+            # event that happens to share an exit code.
+            #
+            # The test is on $1 being exactly the flag, NOT a `*-d*` glob over
+            # "$*". The glob matched the TEMPLATE argument too, because pytest's
+            # tmp_path here contains "-dev-", so the shadow forwarded every call
+            # to the real mktemp, no write ever failed, and the test reported a
+            # missing exit 3 that the installer was never asked to produce.
+            extra_bash="""
+mktemp() {
+    if [[ "${1:-}" == "-d" ]]; then
+        command mktemp "$@"
+    else
+        return 1
+    fi
+}
+""",
+            post_bash="parzival_record_status\n",
+        )
+        assert res.returncode == 3, (
+            f"expected the distinct record-failure code 3, got {res.returncode}:\n"
+            + res.stdout
+            + res.stderr
         )

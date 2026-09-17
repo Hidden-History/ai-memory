@@ -5202,9 +5202,56 @@ cleanup_stale_tilde_dir() {
 
 # Deploy _ai-memory/ package to target project
 # On V2->V2 update: removes stale files, preserves _memory/ user-created data
+# Backup bookkeeping for deploy_parzival_v2's stop points.
+#
+# Errexit does NOTHING inside deploy_parzival_v2: its only caller is
+# `deploy_parzival_v2 || {`, and bash suppresses set -e for the whole body of a
+# function called on the left of ||. So a failing rm -rf, cp -r or cp -p used to
+# be ignored, the function ran on to log_success and returned 0, and
+# configure_parzival_env then recorded enabled/complete over a package that was
+# half written. That is the half-converted-and-silent outcome AC-4 forbids, and
+# it was recorded as a success. Each stop point therefore tests its own exit
+# status explicitly. Removing the || to get errexit back is not an option: the
+# note beside that call site (R2-NF1) records that a bare return 1 would then
+# kill the installer.
+#
+# The return status tells the caller WHICH KIND of stop it was:
+#   1  stopped BEFORE the destination was touched -- $dst still holds what it
+#      held, so the install is recoverable by re-running and nothing is retained
+#   2  stopped AFTER the destination was touched -- $dst is partial, and the
+#      backups are the operator's only copy
+_PARZIVAL_STOP_BACKUPS=""
+
+# Before-touch stop: leave no backup directory created by this run, complete or
+# not. A stop at the sanctum backup leaves a COMPLETE _memory backup behind, so
+# this takes every path it is given rather than only the one that failed.
+_parzival_discard_backups() {
+    local path
+    for path in "$@"; do
+        [[ -n "$path" ]] || continue
+        rm -rf "$path" 2>/dev/null || true
+    done
+}
+
+# After-touch stop: record the backups that STILL EXIST, so the report names
+# every recovery copy and names no path that is not there. By the time the
+# sanctum restore loop runs, the _memory backup has already been removed and its
+# variable cleared; a project that never had _memory/ or sanctum/ never made the
+# matching backup at all.
+_parzival_note_retained_backups() {
+    local path
+    _PARZIVAL_STOP_BACKUPS=""
+    for path in "$@"; do
+        [[ -n "$path" && -d "$path" ]] || continue
+        _PARZIVAL_STOP_BACKUPS+="${_PARZIVAL_STOP_BACKUPS:+$'\n'}$path"
+    done
+}
+
 deploy_parzival_v2() {
     local src="$INSTALL_DIR/_ai-memory"
     local dst="$PROJECT_PATH/_ai-memory"
+
+    _PARZIVAL_STOP_BACKUPS=""
 
     if [[ ! -d "$src" ]]; then
         log_error "_ai-memory/ package not found in $INSTALL_DIR"
@@ -5212,42 +5259,98 @@ deploy_parzival_v2() {
         return 1
     fi
 
-    # Preserve _memory/ user-created files on update
-    # PID-suffixed path prevents race conditions with parallel installs (R2-NF6)
-    local mem_backup="$INSTALL_DIR/.parzival-memory-backup-$$"
-    rm -rf "$mem_backup" 2>/dev/null || true
+    # Preserve _memory/ user-created files on update.
+    #
+    # mktemp -d, NOT a $$ suffix. The PID suffix was chosen to keep parallel
+    # installs off each other's backup paths (R2-NF6), and mktemp does that at
+    # least as well -- but a PID repeats, when it wraps and in a fresh PID
+    # namespace, and each run used to begin by rm -rf'ing its own two paths. A
+    # backup deliberately RETAINED by an after-touch stop (below) therefore sat
+    # on a path a later run would delete and then reuse, which would destroy the
+    # only recovery copy this function's own report had just named. A freshly
+    # minted name cannot collide with one, so the pre-clean is gone with it.
+    local mem_backup=""
     if [[ -d "$dst/_memory" ]]; then
-        mkdir -p "$mem_backup"
-        cp -rp "$dst/_memory" "$mem_backup/"
+        if ! mem_backup=$(mktemp -d "$INSTALL_DIR/.parzival-memory-backup-XXXXXX"); then
+            log_error "Could not create a backup directory for _memory/ — Parzival deployment stopped before the project was touched"
+            return 1
+        fi
+        if ! cp -rp "$dst/_memory" "$mem_backup/"; then
+            log_error "Could not back up _memory/ — Parzival deployment stopped before the project was touched"
+            _parzival_discard_backups "$mem_backup"
+            return 1
+        fi
         log_debug "Preserved _memory/ user data for restore"
     fi
 
     # Preserve sanctum/ per-instance identity on update (installer-audit.md §E2)
-    # PID-suffixed path prevents race conditions with parallel installs
-    local sanctum_backup="$INSTALL_DIR/.parzival-sanctum-backup-$$"
-    rm -rf "$sanctum_backup" 2>/dev/null || true
+    local sanctum_backup=""
     if [[ -d "$dst/sanctum" ]]; then
-        mkdir -p "$sanctum_backup"
-        cp -rp "$dst/sanctum" "$sanctum_backup/"
+        if ! sanctum_backup=$(mktemp -d "$INSTALL_DIR/.parzival-sanctum-backup-XXXXXX"); then
+            log_error "Could not create a backup directory for sanctum/ — Parzival deployment stopped before the project was touched"
+            _parzival_discard_backups "$mem_backup"
+            return 1
+        fi
+        if ! cp -rp "$dst/sanctum" "$sanctum_backup/"; then
+            log_error "Could not back up sanctum/ — Parzival deployment stopped before the project was touched"
+            # BOTH, not just this one: the _memory backup finished successfully
+            # before this point, so a stop here leaves a COMPLETE backup behind
+            # as well as an incomplete one. A before-touch stop leaves no backup
+            # directory created by this run, whichever backup failed.
+            _parzival_discard_backups "$mem_backup" "$sanctum_backup"
+            return 1
+        fi
         log_debug "Preserved sanctum/ user identity for restore"
     fi
 
-    # Clean destination to remove stale files (R1-Finding-4)
-    # _memory/ and sanctum/ are already backed up above
+    # TD-819: refuse to recursively delete anything that is not the managed
+    # _ai-memory/ destination. The existing guard was an EXISTENCE check, and
+    # existence is not a path shape -- AC-4 says fail CLOSED, and an unguarded
+    # recursive delete is the one operation that cannot. This story is what
+    # multiplies the blast radius: on an update over a never-converted install
+    # $dst holds the operator's real _memory/ and sanctum/. The shape and the
+    # exit 1 are copied from prune_pov_shims rather than invented; refusing
+    # aborts the run rather than recording anything, because a $dst that is not
+    # the managed path means PROJECT_PATH itself is wrong.
     if [[ -d "$dst" ]]; then
+        # The shape is "absolute, at least one component below the root, and
+        # named _ai-memory". A bare */_ai-memory test would be tautological --
+        # $dst is built as "$PROJECT_PATH/_ai-memory", so it always ends that
+        # way and the guard could never fire. What can go wrong is PROJECT_PATH:
+        # install.sh silently falls back to the current directory when it cannot
+        # enter its target argument, which yields a RELATIVE path, and an empty
+        # PROJECT_PATH yields "/_ai-memory" at the filesystem root. Both are
+        # rejected here; a normal absolute target is not.
+        if [[ "$dst" != /*/_ai-memory ]]; then
+            log_error "Refusing to rm -rf unexpected Parzival destination: $dst"
+            exit 1
+        fi
         rm -rf "$dst"
     fi
 
-    # Deploy fresh package
-    mkdir -p "$dst"
+    # Past this line the destination has been touched and the backups are the
+    # only copy of the operator's _memory/ and sanctum/ content. Every stop from
+    # here returns 2, and KEEPS the backups on purpose -- deleting them is what
+    # would make the condition unrecoverable, which AC-4 forbids.
+    _PARZIVAL_STOP_BACKUPS=""
+
+    if ! mkdir -p "$dst"; then
+        log_error "Could not create $dst"
+        _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+        return 2
+    fi
     if compgen -G "$src/*" > /dev/null 2>&1; then
-        cp -r "$src/"* "$dst/"
+        if ! cp -r "$src/"* "$dst/"; then
+            log_error "Could not copy the _ai-memory/ package into $dst"
+            _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+            return 2
+        fi
     fi
     find "$dst" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
     # Restore user-created _memory/ files (R1-Finding-5)
     # Only restore files that are NOT in the fresh template (user-created content only)
-    if [[ -d "$mem_backup/_memory" ]]; then
+    if [[ -n "$mem_backup" && -d "$mem_backup/_memory" ]]; then
         while IFS= read -r -d '' user_file; do
             local rel="${user_file#$mem_backup/_memory/}"
             local template_file="$dst/_memory/$rel"
@@ -5255,25 +5358,42 @@ deploy_parzival_v2() {
                 # User-created file not in template — restore it
                 local target_dir
                 target_dir=$(dirname "$dst/_memory/$rel")
-                mkdir -p "$target_dir"
-                cp -p "$user_file" "$dst/_memory/$rel"
+                if ! mkdir -p "$target_dir"; then
+                    log_error "Could not recreate $target_dir while restoring _memory/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
+                if ! cp -p "$user_file" "$dst/_memory/$rel"; then
+                    log_error "Could not restore $rel into _memory/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
             fi
         done < <(find "$mem_backup/_memory" -type f -print0 2>/dev/null)
         rm -rf "$mem_backup"
+        mem_backup=""
         log_debug "Restored user-created _memory/ files"
     fi
 
     # Restore per-instance sanctum/ identity files (parzival-answers.md DQ-1)
     # Only restores files NOT present in the fresh template (user/instance-created content only)
-    if [[ -d "$sanctum_backup/sanctum" ]]; then
+    if [[ -n "$sanctum_backup" && -d "$sanctum_backup/sanctum" ]]; then
         while IFS= read -r -d '' user_file; do
             local rel="${user_file#$sanctum_backup/sanctum/}"
             local template_file="$dst/sanctum/$rel"
             if [[ ! -f "$template_file" ]]; then
                 local target_dir
                 target_dir=$(dirname "$dst/sanctum/$rel")
-                mkdir -p "$target_dir"
-                cp -p "$user_file" "$dst/sanctum/$rel"
+                if ! mkdir -p "$target_dir"; then
+                    log_error "Could not recreate $target_dir while restoring sanctum/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
+                if ! cp -p "$user_file" "$dst/sanctum/$rel"; then
+                    log_error "Could not restore $rel into sanctum/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
             fi
         done < <(find "$sanctum_backup/sanctum" -type f -print0 2>/dev/null)
         log_debug "Restored per-instance sanctum/ identity files"
@@ -5284,7 +5404,7 @@ deploy_parzival_v2() {
     # Static identity fields come from new template
     # F-M2 fix: helper path injectable for failure-mode regression test
     local _creed_merge_script="${CREED_MERGE_SCRIPT:-$SCRIPT_DIR/_merge_sanctum_creed_frontmatter.py}"
-    if [[ -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
+    if [[ -n "$sanctum_backup" && -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
         if python3 "$_creed_merge_script" \
                 "$sanctum_backup/sanctum/parzival/CREED.md" \
                 "$dst/sanctum/parzival/CREED.md"; then
@@ -5292,11 +5412,20 @@ deploy_parzival_v2() {
         else
             local merge_rc=$?
             log_error "CREED frontmatter merge failed (rc=$merge_rc) — restoring backup CREED.md verbatim to preserve user identity"
-            cp -p "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"
+            # A failed merge is NOT a stop: this fallback is what handles it. A
+            # failed FALLBACK is, because then the operator's CREED.md is gone
+            # from the destination and survives only in the backup.
+            if ! cp -p "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"; then
+                log_error "Could not restore CREED.md verbatim"
+                _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                return 2
+            fi
         fi
     fi
 
-    rm -rf "$sanctum_backup" 2>/dev/null || true
+    if [[ -n "$sanctum_backup" ]]; then
+        rm -rf "$sanctum_backup" 2>/dev/null || true
+    fi
 
     local file_count
     file_count=$(find "$dst" -type f | wc -l)
@@ -5823,9 +5952,46 @@ setup_parzival() {
         # Deploy _ai-memory/ package (must be before shims)
         # Wrapped with error handler (R2-NF1: return 1 would crash under set -e)
         deploy_parzival_v2 || {
+            local parzival_deploy_rc=$?
             log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted (cause=failed)"
-            log_info "The installer will continue without Parzival"
-            set_parzival_enablement "false" "failed"
+            if (( parzival_deploy_rc == 2 )); then
+                # AC-4: the deployment stopped AFTER the destination was touched,
+                # so the project carries a partial package. State it, make it
+                # recoverable, and REPORT it -- recording without reporting does
+                # not satisfy AC-4. condition=partial is passed as an explicit
+                # third argument; every other call site passes two and so writes
+                # the default, complete.
+                #
+                # The token is a literal, not a prose string, and is deliberately
+                # NOT a member of the parzival_notice= family: that notice is
+                # AD-66's cause-blind state-change diff, it has no condition
+                # input, and it stays silent precisely when a stop leaves the
+                # effective state unchanged -- which is the usual case here.
+                log_error "Parzival deployment stopped after the project was modified; _ai-memory/ at $PROJECT_PATH is incomplete. (parzival_condition=partial)"
+                if [[ -n "$_PARZIVAL_STOP_BACKUPS" ]]; then
+                    log_error "Your _memory/ and sanctum/ content is preserved in:"
+                    while IFS= read -r _parzival_backup_path; do
+                        [[ -n "$_parzival_backup_path" ]] || continue
+                        log_error "  $_parzival_backup_path"
+                    done <<< "$_PARZIVAL_STOP_BACKUPS"
+                    # These live under INSTALL_DIR, and an aborted full-mode run
+                    # prints "To clean up and retry: rm -rf $INSTALL_DIR". Left
+                    # unsaid, the installer's own advice would tell the operator
+                    # to delete the only recovery copy it had just handed them.
+                    log_error "Copy them elsewhere before running any 'rm -rf $INSTALL_DIR' cleanup advice."
+                fi
+                log_info "Re-run the installer to redeploy Parzival"
+                set_parzival_enablement "false" "failed" "partial"
+            else
+                # Stopped before the destination was touched: it still holds what
+                # it held, so the condition is the default one. This is also the
+                # existing package-missing return 1.
+                log_info "The installer will continue without Parzival"
+                set_parzival_enablement "false" "failed"
+            fi
+            # configure_parzival_env must NOT run after either stop: its
+            # two-argument true-write would record enabled and reset the
+            # condition to complete over a package that is not there.
             sync_parzival_settings
             return 0
         }
