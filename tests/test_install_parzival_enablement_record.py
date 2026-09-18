@@ -377,31 +377,45 @@ class TestDeployFailureRecordsFailed:
         assert "cause=failed" in combined, combined
 
 
-class TestNonInteractiveRecordsOptOut:
-    """TR-3: non-interactive with INSTALL_PARZIVAL unset -> opt-out, no error."""
+class TestNonInteractiveEnables:
+    """TR-3, UPDATED BY STORY 1.2: non-interactive with INSTALL_PARZIVAL unset
+    now ENABLES, and still emits no error.
 
-    def test_records_opt_out_without_emitting_error(self, install_sh_no_main, dirs):
+    This asserted ``false`` / ``opt-out`` / ``complete``. That was the contract
+    until FR-1: the arm logged "skipping Parzival setup", wrote the decline and
+    returned. Story 1.2 changes the default at both entry mechanisms, and
+    ``opt-out`` has no writers left anywhere in the installer. The no-error half
+    of the original assertion is kept unchanged -- enabling is not a failure any
+    more than declining was, and that matcher was added here because it had been
+    missing.
+    """
+
+    def test_enables_without_emitting_error(self, install_sh_no_main, dirs):
         install_dir, project_dir = dirs
         res = _run_setup_parzival(
             install_sh_no_main, install_dir, project_dir, package_present=True
         )
         assert res.returncode == 0, res.stdout + res.stderr
-        _assert_record(_env_values(install_dir), "false", "opt-out", "complete")
+        _assert_record(_env_values(install_dir), "true", "", "complete")
         combined = res.stdout + res.stderr
-        assert "cause=failed" not in combined, "opt-out must not emit a failure cause"
-        # TR-3 requires that NO error is emitted, not merely that the failure token
-        # is absent. The [ERROR] matcher exists in the sibling positive test and was
-        # simply never negated here, so an opt-out path that started emitting
-        # [ERROR] stayed green. Declining is not a failure.
+        assert "cause=failed" not in combined, "enabling must not emit a failure cause"
         assert (
             "[ERROR]" not in combined
-        ), f"opt-out is a supported state and must emit no error: {combined}"
+        ), f"enabling is the supported state and must emit no error: {combined}"
 
 
-class TestInteractiveDeclineRecordsOptOut:
-    """TR-4: an operator who declines at the prompt records opt-out."""
+class TestInteractiveEnablesWhateverIsOnStdin:
+    """TR-4, UPDATED BY STORY 1.2: there is no decline to record.
 
-    def test_decline_records_opt_out(self, install_sh_no_main, dirs):
+    This asserted that an operator answering ``n`` records ``opt-out``. Under
+    DEC-PM465-D1 the enablement question is removed outright -- a blocking read
+    is itself input on a question FR-1 says must not be asked -- so ``n`` is not
+    an answer to anything and the branch that recorded it is gone. The input is
+    kept rather than dropped, because feeding it is what proves the decline was
+    removed rather than merely defaulted the other way.
+    """
+
+    def test_an_explicit_n_enables_anyway(self, install_sh_no_main, dirs):
         install_dir, project_dir = dirs
         res = _run_setup_parzival(
             install_sh_no_main,
@@ -412,7 +426,7 @@ class TestInteractiveDeclineRecordsOptOut:
             stdin="n\n",
         )
         assert res.returncode == 0, res.stdout + res.stderr
-        _assert_record(_env_values(install_dir), "false", "opt-out", "complete")
+        _assert_record(_env_values(install_dir), "true", "", "complete")
 
 
 class TestTrueWriteClearsCause:
@@ -639,22 +653,40 @@ class TestAnAnswerIsNeverDiscarded:
         _assert_record(_env_values(install_dir), "true", "", "complete")
 
 
-class TestGenuineEofLeavesTheRecordAlone:
-    """A closed stdin writes NOTHING to the record.
+class TestAClosedStdinStillProducesAWorkingAgent:
+    """UPDATED BY STORY 1.2. A closed stdin used to write NOTHING to the record.
 
-    Three reasons, in increasing severity: a cause is a claim about operator intent
-    and a closed stdin supports none; writing an empty cause DESTROYS a `cause=failed`
-    recorded by an earlier run; and because `setup_parzival` never reads the existing
-    PARZIVAL_ENABLED before prompting, writing `false` here DISABLES A DEPLOYED,
+    The original reasoning, preserved because it is why the EOF branch existed: a
+    cause is a claim about operator intent and a closed stdin supports none;
+    writing an empty cause would DESTROY a `cause=failed` recorded by an earlier
+    run; and because `setup_parzival` never read the existing PARZIVAL_ENABLED
+    before prompting, writing `false` there would have DISABLED A DEPLOYED,
     WORKING PARZIVAL because nobody answered a prompt.
 
-    Writing nothing must NOT mean saying nothing: `DEC-PM441-D3` attaches a
-    visibility condition to the OFFERS ruling — the product never lets a disabled
-    state be silent. The announcement is asserted separately below so "quiet" cannot
-    pass for "correct".
+    Every one of those hazards is about what a PROMPT does when nobody answers
+    it, and DEC-PM465-D1 removes the prompt. A closed stdin is no longer a
+    non-answer to a question -- no question is asked -- so the run takes the
+    enable path like every other. The third hazard in particular is now
+    impossible by construction rather than by branch: nothing in `setup_parzival`
+    writes `false` on an input-driven path at all.
     """
 
-    def test_the_eof_path_still_announces(self, install_sh_no_main, dirs):
+    def test_a_closed_stdin_completes_and_enables(self, install_sh_no_main, dirs):
+        """UPDATED BY STORY 1.2: there is no EOF branch to announce.
+
+        This asserted that the EOF path SAYS it wrote nothing -- "EOF" and "left
+        unchanged" in the output -- because a silent skip is what
+        DEC-PM441-D3's visibility condition forbids. The branch was a return-code
+        test on the enablement ``read``, and DEC-PM465-D1 removes that read, so
+        the branch has no antecedent and there is no skip left to announce.
+
+        What replaces it is stronger, not weaker: a closed stdin now produces a
+        working agent, so there is nothing to be silent ABOUT. The run completing
+        is part of the assertion -- with the enablement question gone, an
+        exhausted stdin reaches the greeting-name read, which returned non-zero
+        under the global errexit and killed the installer until TD-1065 guarded
+        it.
+        """
         install_dir, project_dir = dirs
         res = _run_setup_parzival(
             install_sh_no_main,
@@ -664,13 +696,12 @@ class TestGenuineEofLeavesTheRecordAlone:
             non_interactive="false",
             stdin="",
         )
-        assert res.returncode == 0, res.stdout + res.stderr
-        combined = res.stdout + res.stderr
-        assert "EOF" in combined, combined
-        assert "left unchanged" in combined, (
-            "the EOF path must say that it wrote nothing — a silent skip is exactly "
-            f"what DEC-PM441-D3's visibility condition forbids:\n{combined}"
+        assert res.returncode == 0, (
+            "an exhausted stdin must not abort the run (TD-1065):\n"
+            + res.stdout
+            + res.stderr
         )
+        _assert_record(_env_values(install_dir), "true", "", "complete")
 
     def test_eof_does_not_disable_a_working_install(self, install_sh_no_main, dirs):
         install_dir, project_dir = dirs
@@ -692,7 +723,23 @@ class TestGenuineEofLeavesTheRecordAlone:
         assert res.returncode == 0, res.stdout + res.stderr
         _assert_record(_env_values(install_dir), "true", "", "complete")
 
-    def test_eof_does_not_overwrite_a_recorded_failure(self, install_sh_no_main, dirs):
+    def test_a_recorded_failure_is_re_attempted_rather_than_preserved(
+        self, install_sh_no_main, dirs
+    ):
+        """UPDATED BY STORY 1.2: ``failed`` now re-attempts the deployment.
+
+        This asserted that a closed stdin leaves a recorded ``failed`` untouched,
+        on the grounds that writing an empty cause would destroy information --
+        turning a correctly recorded deployment failure into ``unknown``. That
+        reasoning was about a branch that WROTE nothing, and it is superseded by
+        AD-68: ``failed`` does not convert, it RE-ATTEMPTS, recording ``enabled``
+        with a cleared cause on success and ``failed`` again on failure.
+
+        So the stale cause is not destroyed here -- it is discharged. The driver
+        stubs the deploy to succeed, which is the successful-retry case; the
+        failing-retry case (where the record correctly stays ``false`` /
+        ``failed``) is covered by the deploy-failure test above.
+        """
         install_dir, project_dir = dirs
         env_file = install_dir / "docker" / ".env"
         env_file.write_text(
@@ -710,7 +757,7 @@ class TestGenuineEofLeavesTheRecordAlone:
             stdin="",
         )
         assert res.returncode == 0, res.stdout + res.stderr
-        _assert_record(_env_values(install_dir), "false", "failed", "complete")
+        _assert_record(_env_values(install_dir), "true", "", "complete")
 
 
 class TestTheWriterMatchesEveryFormPythonDotenvAccepts:
@@ -1960,16 +2007,27 @@ class TestUniversalStateChangeNotice:
 
     def test_same_state_rewrite_emits_no_notice(self, install_sh_no_main, dirs):
         """Task 1's own verify subtask: a same-state rewrite emits nothing.
+        "Changed" is a diff, not a write.
 
-        Package undeployed, non-interactive skip -> still not-enabled, still
-        undeployed: "changed" is a diff, not a write.
+        DRIVER UPDATED BY STORY 1.2, ASSERTION UNCHANGED. The constant state used
+        to be reached by the non-interactive skip: not-enabled and undeployed
+        before, the same after. That arm now enables, so it no longer holds any
+        state constant. The other end of the same axis does: an install that is
+        ALREADY enabled and deployed is rewritten to the same effective state on
+        every run, and must still say nothing.
         """
         install_dir, project_dir = dirs
+        (install_dir / "docker" / ".env").write_text(
+            "PARZIVAL_ENABLED=true\n"
+            "PARZIVAL_ENABLED_CAUSE=\n"
+            "PARZIVAL_ENABLED_CONDITION=complete\n",
+            encoding="utf-8",
+        )
         res = _run_with_notice(
             install_sh_no_main,
             install_dir,
             project_dir,
-            deployed_before=False,
+            deployed_before=True,
             non_interactive="true",
         )
         combined = res.stdout + res.stderr
@@ -2028,12 +2086,21 @@ class TestUniversalStateChangeNotice:
         assert second.returncode == 0, combined
         assert "parzival_notice=installed" in combined, combined
 
-    def test_interactive_decline_on_an_already_enabled_install_emits_disabled(
+    def test_a_failed_deploy_on_an_already_enabled_install_emits_disabled(
         self, install_sh_no_main, dirs
     ):
-        """AC-2's ``any`` quantifier is not one-directional — Condition Table
-        row 1 (declined at the prompt) can also flip an already-enabled,
-        already-deployed install to not-enabled, and that is a change too.
+        """AC-2's ``any`` quantifier is not one-directional: a run can also flip
+        an already-enabled, already-deployed install to not-enabled, and that is
+        a change too.
+
+        DRIVER UPDATED BY STORY 1.2, ASSERTION UNCHANGED. The downward transition
+        used to be reached by declining at the prompt. No decline exists now, and
+        the enablement question is gone -- but the transition itself is NOT gone,
+        which is why this test is re-pointed rather than retired: a deployment
+        that fails on an install which was enabled before records ``failed`` and
+        leaves the effective state not-enabled. That is the surviving way an
+        operator loses a working Parzival across a run, and it is exactly the
+        case the universal notice exists to refuse to be silent about.
         """
         install_dir, project_dir = dirs
         (install_dir / "docker" / ".env").write_text(
@@ -2045,8 +2112,8 @@ class TestUniversalStateChangeNotice:
             install_dir,
             project_dir,
             deployed_before=True,
-            non_interactive="false",
-            stdin="n\n",
+            non_interactive="true",
+            deploy_fails=True,
         )
         combined = res.stdout + res.stderr
         assert res.returncode == 0, combined
@@ -2073,10 +2140,17 @@ class TestUniversalStateChangeNotice:
         )
         combined = res.stdout + res.stderr
         assert res.returncode == 0, combined
-        # Non-interactive re-run without INSTALL_PARZIVAL=true writes opt-out —
-        # the malformed "yes" is overwritten to "false", never read as true, and
-        # the run does not abort on the malformed input.
-        assert "parzival_notice=" not in combined, combined
+        # UPDATED BY STORY 1.2. This used to assert that NO notice is emitted: a
+        # non-interactive re-run wrote opt-out, so the malformed "yes" went to
+        # "false" and the effective state never moved. That arm now converts, and
+        # the assertion INVERTS while proving the same thing more directly. The
+        # package was present before, so if "yes" had been read as enabled the
+        # effective state would have been unchanged and the notice silent.
+        # Getting a notice at all is what demonstrates the malformed value
+        # resolved not-enabled -- and getting `converted` rather than `installed`
+        # additionally shows the package was seen as already deployed.
+        assert "parzival_notice=converted" in combined, combined
+        _assert_record(_env_values(install_dir), "true", "", "complete")
 
 
 class TestMainWiresTheSampleAndAnnounceSequence:
