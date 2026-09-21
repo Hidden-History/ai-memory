@@ -2,20 +2,20 @@
 # Python 3.10+
 
 # Vector Database
-qdrant-client==1.18.0
+qdrant-client==1.19.0
 
 # HTTP Client
 httpx==0.28.1
 
 # Environment Configuration
-pydantic==2.13.4
-pydantic-settings==2.14.2
+pydantic==2.13.5
+pydantic-settings==2.15.0
 
 # Logging
 structlog>=24.0.0,<27.0.0
 
 # Monitoring (optional but included in core)
-prometheus-client==0.25.0
+prometheus-client==0.26.0
 
 # Anthropic SDK for conversation capture (TECH-DEBT-035)
 anthropic==0.111.0
