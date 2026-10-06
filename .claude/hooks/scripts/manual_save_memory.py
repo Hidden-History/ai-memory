@@ -337,20 +337,41 @@ def main() -> int:
 
     # Agent memory storage path (SPEC-017 S4)
     if type_override in ("agent_memory", "agent_insight"):
-        # Check if parzival is enabled
+        # Check if parzival is enabled.
+        #
+        # The config load and the cause rendering are deliberately SEPARATE. When
+        # `memory.parzival_state` was imported alongside `memory.config` inside one
+        # blanket `except Exception`, an installed `src` at a mixed vintage -- one
+        # carrying config but not parzival_state -- made this command fail on a
+        # fully working, ENABLED install and blame the config load for it. The cause
+        # message is a nicety on the disabled path; the config load is the check.
         try:
             from memory.config import get_config
 
             config = get_config()
-            if not config.parzival_enabled:
-                print(
-                    "Error: Agent memory types require Parzival to be enabled (parzival_enabled=true)",
-                    file=sys.stderr,
-                )
-                return 1
-        except Exception:
+        except Exception as _cfg_e:
             print(
-                "Error: Could not load config to check parzival_enabled",
+                f"Error: Could not load config to check parzival_enabled ({_cfg_e})",
+                file=sys.stderr,
+            )
+            return 1
+
+        if not config.parzival_enabled:
+            # AD-32: branch on the cause. The old text advised enabling the
+            # flag unconditionally, which cannot work when the cause is
+            # `failed` — the package is not there to enable.
+            try:
+                from memory.parzival_state import disabled_message, resolve_cause
+
+                _detail = disabled_message(resolve_cause(config))
+            except ImportError:
+                _detail = (
+                    "This install cannot report why (memory.parzival_state is "
+                    "unavailable — the installed src predates the cause record); "
+                    "re-run the installer."
+                )
+            print(
+                f"Error: Agent memory types require Parzival. {_detail}",
                 file=sys.stderr,
             )
             return 1
