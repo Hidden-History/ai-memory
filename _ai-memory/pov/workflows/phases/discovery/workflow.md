@@ -44,3 +44,10 @@ These apply across ALL steps in this workflow:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:phase-discovery
+depends_on: bmad
+degraded_behaviour: Runs discovery without the BMAD PM and analyst personas and reports each as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

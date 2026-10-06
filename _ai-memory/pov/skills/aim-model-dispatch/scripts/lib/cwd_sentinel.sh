@@ -16,8 +16,8 @@
 #     Always exits 0; 1 informational line to stdout. Matches Form 3:
 #       claude-native/workflow.md:65-67
 #
-# Exit codes: 0 = markers present (both variants)
-#             1 = markers absent (strict only)
+# Exit codes: 0 = workspace-root markers present, or present except _bmad/ (degraded)
+#             1 = workspace-root markers absent (strict only)
 #             2 = bad argument
 #
 # Output routing (TASK-071-wide rule):
@@ -80,21 +80,41 @@ cwd_sentinel() {
         oversight_dir="oversight"
     fi
 
+    # _bmad/ is shipped by BMAD, not by AI-Memory, so its absence is the normal
+    # state of a correct workspace root on a machine without BMAD. It is a
+    # degraded state, not CWD drift: reporting it as drift names the wrong
+    # cause, offers no remedy, and aborts dispatches that never needed BMAD.
+    local root_ok="false" bmad_present="false"
+    if test -d "$ai_memory_dir" && test -d "$oversight_dir"; then
+        root_ok="true"
+    fi
+    if test -d "$bmad_dir"; then
+        bmad_present="true"
+    fi
+
     if [[ "$variant" == "strict" ]]; then
         # Matches Forms 1+2: stdout parity preserved (inline forms used plain echo).
-        if ! { test -d "$ai_memory_dir" && test -d "$bmad_dir" && test -d "$oversight_dir"; }; then
-            echo "FAIL: CWD is not workspace root. Expected _ai-memory/, _bmad/, oversight/ all present."
+        if [[ "$root_ok" != "true" ]]; then
+            echo "FAIL: CWD is not workspace root. Expected _ai-memory/ and oversight/ present (_bmad/ is BMAD's own and is not required here)."
             echo "CWD: $(pwd)"
             echo "Aborting dispatch. cd to workspace root and re-invoke."
             return 1
         fi
+        if [[ "$bmad_present" != "true" ]]; then
+            echo "DEGRADED: dependency 'bmad' is unavailable (no ${bmad_dir}). Workspace root is correct; dispatch that does not need BMAD is unaffected."
+            echo "Install BMAD to enable BMAD-dependent dispatch (upstream source: DEPENDENCIES.md in the Parzival tree)."
+            return 0
+        fi
         echo "OK: workspace root ($(pwd))"
     else
         # loose: matches Form 3; stdout parity preserved. Always returns 0.
-        if test -d "$ai_memory_dir" && test -d "$bmad_dir" && test -d "$oversight_dir"; then
-            echo "OK: workspace root"
+        if [[ "$root_ok" != "true" ]]; then
+            echo "FAIL: not workspace root (missing _ai-memory/ or oversight/; _bmad/ is not required here)"
+        elif [[ "$bmad_present" != "true" ]]; then
+            echo "DEGRADED: dependency 'bmad' is unavailable (no ${bmad_dir}); workspace root is correct."
+            echo "Install BMAD to enable BMAD-dependent dispatch (upstream source: DEPENDENCIES.md)."
         else
-            echo "FAIL: not workspace root (missing one of _ai-memory/, _bmad/, oversight/)"
+            echo "OK: workspace root"
         fi
     fi
 }

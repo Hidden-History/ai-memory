@@ -8,8 +8,8 @@ exact operator-facing string from the story's cause->wording mapping, plus the
 exit status where the site has one.
 
 The advice itself is what matters. Telling an operator whose install *failed* to
-"set PARZIVAL_ENABLED=true" is advice that cannot work — the package is absent —
-and that is the conflation this story exists to remove.
+re-run install.sh the way opt-out's remedy does is advice that cannot work — the
+package is absent — and that is the conflation this story exists to remove.
 
 Fixtures are ``spec=MemoryConfig``-bound deliberately (TR-8): a bare ``MagicMock``
 makes cause branches take the wrong path and still pass, because
@@ -123,13 +123,25 @@ class TestSaveScriptsBranchOnCause:
         assert rc_opt == rc_failed == _SITES[site][1]
 
     def test_failed_does_not_advise_setting_the_flag(self, monkeypatch, capsys, site):
-        """The package is absent; this advice cannot work."""
-        _, out = _run_site(monkeypatch, capsys, site, CAUSE_FAILED)
-        assert "PARZIVAL_ENABLED=true" not in out, out
+        """The package is absent; this advice cannot work.
 
-    def test_opt_out_advises_setting_the_flag(self, monkeypatch, capsys, site):
+        H-2 (round 2): was pinned to the retired "PARZIVAL_ENABLED=true" flag
+        token, which no longer appears anywhere in `_MESSAGES` (H-3 removed it
+        from opt-out's remedy too) — so that assertion could no longer fail
+        against the leak it was written to catch. Retargeted to "install.sh",
+        the string opt-out's remedy now uniquely carries.
+        """
+        _, out = _run_site(monkeypatch, capsys, site, CAUSE_FAILED)
+        assert "install.sh" not in out, out
+
+    def test_opt_out_advises_reinstalling(self, monkeypatch, capsys, site):
+        """H-3 (round 2): the remedy no longer names a flag at all — AC-5
+        forbids framing enablement as an opt-in switch, and any named flag
+        ('set X=true') reads as exactly that. Renamed from
+        ``test_opt_out_advises_setting_the_flag``.
+        """
         _, out = _run_site(monkeypatch, capsys, site, CAUSE_OPT_OUT)
-        assert "PARZIVAL_ENABLED=true" in out, out
+        assert "install.sh" in out, out
 
     def test_absent_cause_never_claims_the_operator_declined(
         self, monkeypatch, capsys, site

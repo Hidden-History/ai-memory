@@ -32,11 +32,9 @@ KNOWN_CAUSES = (CAUSE_OPT_OUT, CAUSE_FAILED)
 _MESSAGES = {
     CAUSE_OPT_OUT: (
         "Parzival is not enabled: it was declined at install. "
-        "Set PARZIVAL_ENABLED=true in docker/.env and re-run the installer "
-        "to enable it.",
+        "Re-run install.sh to install it.",
         "Parzival is not enabled: it was declined at install. "
-        "Set `PARZIVAL_ENABLED=true` in `docker/.env` and re-run the installer "
-        "to enable it.",
+        "Re-run `install.sh` to install it.",
     ),
     CAUSE_FAILED: (
         "Parzival is not enabled: it could not be installed. "

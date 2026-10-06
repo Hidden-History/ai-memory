@@ -1626,7 +1626,20 @@ main() {
     setup_audit_directory
 
     # Parzival session agent (optional, SPEC-015)
+    # AD-66: sample effective state immediately before setup_parzival runs --
+    # docker/.env is guaranteed to exist by this point in BOTH full and
+    # add-project mode, so the predicate does not diverge between them.
+    local _parzival_value_before _parzival_package_before
+    _parzival_value_before=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+    _parzival_package_before=$(parzival_package_present "$PROJECT_PATH")
     setup_parzival
+    # End sample: after the record write and deployment, before show_success_message.
+    local _parzival_value_after _parzival_package_after
+    _parzival_value_after=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+    _parzival_package_after=$(parzival_package_present "$PROJECT_PATH")
+    announce_parzival_state_change \
+        "$_parzival_value_before" "$_parzival_package_before" \
+        "$_parzival_value_after" "$_parzival_package_after"
 
     # FEATURE-001: Multi-IDE support — detect and configure Gemini/Cursor/Codex
     configure_multi_ide "$PROJECT_PATH" "$INSTALL_DIR" "$PROJECT_NAME" "${IDE_FLAG:-}" "${FORCE_IDE:-false}"
@@ -6582,6 +6595,103 @@ normalize_parzival_cause() {
     c="${c#"${c%%[![:space:]]*}"}"
     c="${c%"${c##*[![:space:]]}"}"
     printf '%s' "$c" | tr '[:upper:]' '[:lower:]'
+}
+
+# --- AD-66: the universal state-change notice --------------------------------
+#
+# Effective enabled state is the RESOLVED record value (AD-69's cause-symmetric
+# strip/lower transform -- reused via normalize_parzival_cause rather than
+# re-derived, Anti-patterns 1) AND the package present at $PROJECT_PATH/_ai-memory/pov
+# (AD-70's scope -- corrected here, H-1 round 2). AD-70's own text names bare
+# $PROJECT_PATH/_ai-memory/ as the deployment scope; that predicate is refuted
+# by deploy_ai_memory_skills(), which mkdir -p's _ai-memory/skills
+# unconditionally as setup_parzival's first statement -- even on the decline
+# or fail path -- so bare _ai-memory/ is true on every install regardless of
+# Parzival's own state. _ai-memory/pov is the part only deploy_parzival_v2
+# creates, matching detect_parzival_version's own predicate. Reported to the
+# architect; AD-70's text is not corrected here. The two samples are kept as
+# SEPARATE fields, not collapsed into one boolean, so the notice's content
+# (AC-4) can tell a genuinely new deployment from a flag flip on an install
+# that already had the package -- without ever reading the cause. See
+# announce_parzival_state_change.
+
+# Resolve PARZIVAL_ENABLED the same way the cause is resolved: the value axis is
+# cause-symmetric under AD-69, so the shared strip/lower helper applies as-is.
+# Anything outside {true,false} after that transform is malformed and fails
+# closed to "false" (AD-69) -- this probe does not itself count or report a
+# malformed value; that is a value-axis obligation this story does not carry.
+parzival_read_enabled_value() {
+    local env_file="$1"
+    local raw
+    raw=$(grep "^PARZIVAL_ENABLED=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    raw=$(normalize_parzival_cause "$raw")
+    if [[ "$raw" == "true" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+parzival_package_present() {
+    local project_path="$1"
+    # H-1 (round 2): "$project_path/_ai-memory" is not a valid discriminator --
+    # deploy_ai_memory_skills() creates it unconditionally (mkdir -p
+    # "$PROJECT_PATH/_ai-memory/skills") as the FIRST statement of
+    # setup_parzival(), even when Parzival itself is declined or failed. That
+    # made the after-sample always "true" and made the before-sample mean "did
+    # a prior install deploy the aim-* skills", not "did this project have
+    # Parzival". "_ai-memory/pov" is Parzival-specific: only deploy_parzival_v2
+    # (called only on the enable path) ever creates it, matching
+    # detect_parzival_version's own predicate.
+    if [[ -d "$project_path/_ai-memory/pov" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+# Emit the universal state-change notice (AC-2) with content derived from the
+# observed transition (AC-4), never a fixed sentence. Takes only the four
+# before/after samples -- it reads NO cause value, in either language: a single
+# trigger keyed on cause cannot satisfy both AD-66 rules (the notice is
+# universal, the choice-specific claim is exclusive), so this function has no
+# path to PARZIVAL_ENABLED_CAUSE / read_parzival_cause at all (Task 5).
+#
+# `[[ cond ]] && var=x` as a standalone statement is unsafe here: under
+# `set -euo pipefail` a false condition makes the `&&` list's exit status
+# non-zero, and being untested that would abort the run (Anti-patterns 6) --
+# every branch below is an explicit if/then instead.
+announce_parzival_state_change() {
+    local before_value="$1" before_package="$2" after_value="$3" after_package="$4"
+    local before_effective="false" after_effective="false"
+    if [[ "$before_value" == "true" && "$before_package" == "true" ]]; then
+        before_effective="true"
+    fi
+    if [[ "$after_value" == "true" && "$after_package" == "true" ]]; then
+        after_effective="true"
+    fi
+
+    # "Changed" is a diff, not a write (AD-66): a run that rewrites the same
+    # effective state emits nothing.
+    if [[ "$before_effective" == "$after_effective" ]]; then
+        return 0
+    fi
+
+    if [[ "$after_effective" == "true" ]]; then
+        if [[ "$before_package" == "false" ]]; then
+            # never-present -> enabled: the package itself is new here. States
+            # only that Parzival is installed -- never-present carries no
+            # history to assert (AD-67).
+            log_info "Parzival is now installed and enabled for this project. (parzival_notice=installed)"
+        else
+            # not-enabled -> enabled: the package was already deployed and the
+            # flag flipped. States the observable transition, never a claim
+            # about why (AD-67).
+            log_info "Parzival was not enabled; the default has changed, and it is enabled now. (parzival_notice=converted)"
+        fi
+    else
+        log_info "Parzival is no longer enabled for this project. (parzival_notice=disabled)"
+    fi
 }
 
 create_agent_id_index() {

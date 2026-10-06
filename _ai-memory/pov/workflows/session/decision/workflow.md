@@ -49,3 +49,10 @@ Follow-up scheduling is enforced at Step 3 (log-decision): every new entry gets 
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:session-decision
+depends_on: bmad
+degraded_behaviour: Records the decision normally and reports the BMAD multi-perspective consultation skill as unavailable.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->
