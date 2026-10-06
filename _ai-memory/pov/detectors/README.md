@@ -179,8 +179,14 @@ path.
 | `1` | fail: the Detector flagged |
 | anything else, runs past the time limit, cannot be started, or ends on an uncaught exception | could not be run: neither pass nor fail |
 
-An uncaught exception also exits `1`. The check tells it from a finding by the
-interpreter's traceback on standard error.
+An uncaught exception also exits `1`. The check tells it from a finding by one
+rule: an exit of `1` is read as "could not be run" when the Detector's standard
+error holds the interpreter's line `Traceback (most recent call last):`.
+
+The rule has one known limit. A Detector that writes that line to standard
+error itself while exiting `1` for a real finding is read as a crash. It is
+then `unchecked:<name>` and the check exits `2`, so the error is never read as
+a pass.
 
 ### What the binding check decides
 

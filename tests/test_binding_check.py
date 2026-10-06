@@ -361,6 +361,20 @@ def test_a_detector_that_crashes_on_its_positive_only_is_not_functional(
     assert _run_root(tmp_path).returncode == 2
 
 
+def test_a_detector_that_flags_and_writes_to_stderr_is_still_read_as_flagging(
+    tmp_path: Path,
+) -> None:
+    """The other side of the crash rule: an ordinary exit 1 is a finding."""
+    source = STUB.replace(
+        "    with open(", '    print("zz-flagged", file=sys.stderr)\n    with open('
+    )
+    assert source != STUB
+    _detector(tmp_path, "zz_stub", source)
+    _pair(tmp_path, "zz_stub")
+
+    assert _tokens(tmp_path) == {"zz_stub": "functional"}
+
+
 def test_a_finding_beside_an_unchecked_detector_still_exits_one(
     tmp_path: Path,
 ) -> None:
