@@ -1629,9 +1629,13 @@ main() {
     # AD-66: sample effective state immediately before setup_parzival runs --
     # docker/.env is guaranteed to exist by this point in BOTH full and
     # add-project mode, so the predicate does not diverge between them.
-    local _parzival_value_before _parzival_package_before
+    # _parzival_prior_install_before is sampled here and NOWHERE ELSE: after
+    # setup_parzival it is true on every install, because deploy_ai_memory_skills
+    # has run by then.
+    local _parzival_value_before _parzival_package_before _parzival_prior_install_before
     _parzival_value_before=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
     _parzival_package_before=$(parzival_package_present "$PROJECT_PATH")
+    _parzival_prior_install_before=$(ai_memory_project_previously_installed "$PROJECT_PATH")
     setup_parzival
     # End sample: after the record write and deployment, before show_success_message.
     local _parzival_value_after _parzival_package_after
@@ -1639,7 +1643,8 @@ main() {
     _parzival_package_after=$(parzival_package_present "$PROJECT_PATH")
     announce_parzival_state_change \
         "$_parzival_value_before" "$_parzival_package_before" \
-        "$_parzival_value_after" "$_parzival_package_after"
+        "$_parzival_value_after" "$_parzival_package_after" \
+        "$_parzival_prior_install_before"
 
     # FEATURE-001: Multi-IDE support — detect and configure Gemini/Cursor/Codex
     configure_multi_ide "$PROJECT_PATH" "$INSTALL_DIR" "$PROJECT_NAME" "${IDE_FLAG:-}" "${FORCE_IDE:-false}"
@@ -6609,10 +6614,15 @@ normalize_parzival_cause() {
 # or fail path -- so bare _ai-memory/ is true on every install regardless of
 # Parzival's own state. _ai-memory/pov is the part only deploy_parzival_v2
 # creates, matching detect_parzival_version's own predicate. Reported to the
-# architect; AD-70's text is not corrected here. The two samples are kept as
-# SEPARATE fields, not collapsed into one boolean, so the notice's content
-# (AC-4) can tell a genuinely new deployment from a flag flip on an install
-# that already had the package -- without ever reading the cause. See
+# architect; AD-70's text is not corrected here.
+#
+# THREE fields are sampled, not two, and they are kept separate on purpose. The
+# value and the package presence are the two conjuncts of effective state and
+# together form the TRIGGER. The third, the prior-install marker, is not part of
+# effective state at all and never enters the trigger -- it is the notice's
+# CONTENT discriminator, because the trigger's two enabling classes present the
+# identical transition and cannot be told apart by it. None of the three reads
+# the cause. See ai_memory_project_previously_installed and
 # announce_parzival_state_change.
 
 # Resolve PARZIVAL_ENABLED the same way the cause is resolved: the value axis is
@@ -6650,6 +6660,36 @@ parzival_package_present() {
     fi
 }
 
+# NOT the deployment scope, and deliberately a DIFFERENT directory from
+# parzival_package_present's. This is the PRIOR-INSTALL marker: did this project
+# ever run an install at all? It is the notice's CONTENT discriminator and it
+# never enters the trigger. Sampled BEFORE setup_parzival only.
+#
+# Why a third field rather than reusing the package-presence sample: both of the
+# content's two classes present the IDENTICAL observed transition. A brand-new
+# project has no record row and no package; an operator who declined has a row
+# reading false and no package -- after normalisation those reach the announcer
+# as the same before-state, so the transition cannot separate them. Package
+# presence cannot either: pov/ lives inside _ai-memory/, so package-presence
+# implies prior-install and keying content on it is a strict subset of the
+# correct rule. It never wrongly says "converted"; it says "installed" to the
+# operator who converted, which is the one case this notice exists for.
+#
+# Soundness: the only creator of $PROJECT_PATH/_ai-memory/ is
+# deploy_ai_memory_skills, whose sole call site is setup_parzival's first
+# statement -- strictly after the before-sample -- and no not-enabled path
+# removes it. That guard is asserted positionally in
+# tests/test_install_parzival_enablement_record.py, because moving the call
+# earlier would make this marker always true and no test would go red.
+ai_memory_project_previously_installed() {
+    local project_path="$1"
+    if [[ -d "$project_path/_ai-memory" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
 # Emit the universal state-change notice (AC-2) with content derived from the
 # observed transition (AC-4), never a fixed sentence. Takes only the four
 # before/after samples -- it reads NO cause value, in either language: a single
@@ -6663,6 +6703,7 @@ parzival_package_present() {
 # every branch below is an explicit if/then instead.
 announce_parzival_state_change() {
     local before_value="$1" before_package="$2" after_value="$3" after_package="$4"
+    local before_prior_install="$5"
     local before_effective="false" after_effective="false"
     if [[ "$before_value" == "true" && "$before_package" == "true" ]]; then
         before_effective="true"
@@ -6678,15 +6719,22 @@ announce_parzival_state_change() {
     fi
 
     if [[ "$after_effective" == "true" ]]; then
-        if [[ "$before_package" == "false" ]]; then
-            # never-present -> enabled: the package itself is new here. States
-            # only that Parzival is installed -- never-present carries no
-            # history to assert (AD-67).
+        # The content discriminator is the prior-install marker, NOT the
+        # package-presence conjunct above. The two are separate parameters on
+        # purpose: package presence answers "did the effective state change",
+        # prior-install answers "did this project have a prior state at all".
+        # Collapsing them silently downgrades every conversion to "installed".
+        if [[ "$before_prior_install" == "false" ]]; then
+            # never-present -> enabled: nothing of this project existed before,
+            # so there is no history to describe. States only that Parzival is
+            # installed (AD-67).
             log_info "Parzival is now installed and enabled for this project. (parzival_notice=installed)"
         else
-            # not-enabled -> enabled: the package was already deployed and the
-            # flag flipped. States the observable transition, never a claim
-            # about why (AD-67).
+            # not-enabled -> enabled on a project that was installed before.
+            # States the observable transition and the product change, never a
+            # claim about why the prior state was what it was (AD-67). A failed
+            # first deploy lands here too and is not separable from a decline --
+            # ruled acceptable, because all three clauses are true of it.
             log_info "Parzival was not enabled; the default has changed, and it is enabled now. (parzival_notice=converted)"
         fi
     else

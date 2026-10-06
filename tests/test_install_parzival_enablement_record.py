@@ -225,6 +225,7 @@ def _run_with_notice(
     project_dir: Path,
     *,
     deployed_before: bool,
+    previously_installed: bool = False,
     source_package_present: bool = True,
     non_interactive: str = "true",
     install_parzival: str | None = None,
@@ -259,11 +260,28 @@ def _run_with_notice(
     a successful run at ``$PROJECT_PATH/_ai-memory/pov`` — the stubbed version
     otherwise has zero filesystem side-effects, so an "after" package-presence
     sample could never observe a deployment.
+
+    ``previously_installed`` seeds a THIRD directory, deliberately neither of the
+    two above: ``$PROJECT_PATH/_ai-memory/skills`` — the bare parent without
+    ``pov/``. That is what an install leaves behind when Parzival itself was
+    declined or failed but ``deploy_ai_memory_skills`` still ran, and it is the
+    only state that separates AC-4's two ``false → true`` classes. Seeding
+    ``deployed_before`` implies it (``pov/`` lives inside ``_ai-memory/``), so the
+    cell that discriminates is ``previously_installed=True, deployed_before=False``.
+
+    ``deploy_ai_memory_skills`` is re-stubbed here to deposit
+    ``_ai-memory/skills`` the way the real one does — on the decline and fail
+    paths too, since it is ``setup_parzival``'s first statement and runs before
+    any enablement branch. ``_STUBS``' inert ``{ :; }`` made a stub artifact look
+    like a production fact: it is what allowed a test to assert that a failed
+    deploy deposits nothing, which is false of production.
     """
     if source_package_present:
         (install_dir / "_ai-memory").mkdir(parents=True, exist_ok=True)
     if deployed_before:
         (project_dir / "_ai-memory" / "pov").mkdir(parents=True, exist_ok=True)
+    if previously_installed:
+        (project_dir / "_ai-memory" / "skills").mkdir(parents=True, exist_ok=True)
 
     install_parzival_line = (
         f'INSTALL_PARZIVAL="{install_parzival}"' if install_parzival is not None else ""
@@ -286,14 +304,16 @@ PROJECT_PATH="{project_dir}"
 NON_INTERACTIVE="{non_interactive}"
 {install_parzival_line}
 {_STUBS}
+deploy_ai_memory_skills() {{ mkdir -p "{project_dir}/_ai-memory/skills"; }}
 deploy_parzival_v2() {{ {deploy_side_effect} return {deploy_rc}; }}
 {extra_bash}
 _before_value=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
 _before_package=$(parzival_package_present "$PROJECT_PATH")
+_before_prior_install=$(ai_memory_project_previously_installed "$PROJECT_PATH")
 setup_parzival
 _after_value=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
 _after_package=$(parzival_package_present "$PROJECT_PATH")
-announce_parzival_state_change "$_before_value" "$_before_package" "$_after_value" "$_after_package"
+announce_parzival_state_change "$_before_value" "$_before_package" "$_after_value" "$_after_package" "$_before_prior_install"
 """
     return subprocess.run(
         ["bash", "-c", bash_cmd],
@@ -1958,6 +1978,50 @@ class TestUniversalStateChangeNotice:
         assert res.returncode == 0, combined
         assert "parzival_notice=converted" in combined, combined
 
+    @pytest.mark.parametrize("non_interactive", ["true", "false"])
+    def test_opt_out_conversion_emits_converted(
+        self, install_sh_no_main, dirs, non_interactive
+    ):
+        """AC-4 row 2, and the one case that separates a correct implementation
+        from round 2's.
+
+        The operator this story is named for: a prior install that recorded
+        ``opt-out``, so ``_ai-memory/skills`` is on disk but ``_ai-memory/pov``
+        never was. The prior-install marker ``I`` is therefore true while the
+        package-presence conjunct ``P`` is false — the only cell in which the
+        two disagree. Branching the CONTENT on ``P`` (round 2) reads this as a
+        first-ever install and says ``installed``; branching it on ``I`` says
+        ``converted``, which is what the operator is owed.
+
+        Because ``P ⇒ I``, a ``P``-keyed implementation is a strict subset of a
+        correct one — it never wrongly says ``converted``, so no other test in
+        this class can see the defect. This one can.
+        """
+        install_dir, project_dir = dirs
+        (install_dir / "docker" / ".env").write_text(
+            "PARZIVAL_ENABLED=false\n"
+            "PARZIVAL_ENABLED_CAUSE=opt-out\n"
+            "PARZIVAL_ENABLED_CONDITION=complete\n",
+            encoding="utf-8",
+        )
+        res = _run_with_notice(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            deployed_before=False,
+            previously_installed=True,
+            non_interactive=non_interactive,
+            install_parzival="true",
+            stdin="y\n",
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "parzival_notice=converted" in combined, (
+            "an opt-out conversion must be told the default changed, not that "
+            "Parzival was freshly installed — the content discriminator is the "
+            f"prior-install marker I, never package presence P. Got: {combined}"
+        )
+
     def test_same_state_rewrite_emits_no_notice(self, install_sh_no_main, dirs):
         """Task 1's own verify subtask: a same-state rewrite emits nothing.
 
@@ -1999,7 +2063,21 @@ class TestUniversalStateChangeNotice:
         self, install_sh_no_main, dirs
     ):
         """AC-3a: a failed-cause install whose re-attempt succeeds DOES emit
-        AC-2's notice — the case AD-66 exists for."""
+        AC-2's notice — the case AD-66 exists for.
+
+        The wording is ``converted``, not ``installed``: ``deploy_ai_memory_skills``
+        runs on the failed path too, so the first run leaves the prior-install
+        marker behind and the re-attempt lands in AC-4 row 2. That is ruled
+        acceptable and is not separable from an opt-out conversion — separating
+        them would require the cause, which the announcer may not read (Task 5).
+        All three of row 2's clauses are true of it.
+
+        The assertion that used to stand here — that the failed deploy deposits
+        no ``_ai-memory/`` at all — was deleted rather than adjusted. It held only
+        because ``_STUBS`` replaced ``deploy_ai_memory_skills`` with ``{ :; }``,
+        while the real function creates ``_ai-memory/skills`` regardless of
+        Parzival's own outcome. It encoded a stub artifact as a production fact.
+        """
         install_dir, project_dir = dirs
         first = _run_with_notice(
             install_sh_no_main,
@@ -2011,9 +2089,6 @@ class TestUniversalStateChangeNotice:
             deploy_fails=True,
         )
         assert "parzival_notice=" not in (first.stdout + first.stderr)
-        assert not (
-            project_dir / "_ai-memory"
-        ).is_dir(), "the failed deploy must not have deposited the package"
 
         second = _run_with_notice(
             install_sh_no_main,
@@ -2026,7 +2101,7 @@ class TestUniversalStateChangeNotice:
         )
         combined = second.stdout + second.stderr
         assert second.returncode == 0, combined
-        assert "parzival_notice=installed" in combined, combined
+        assert "parzival_notice=converted" in combined, combined
 
     def test_interactive_decline_on_an_already_enabled_install_emits_disabled(
         self, install_sh_no_main, dirs
@@ -2099,6 +2174,16 @@ class TestMainWiresTheSampleAndAnnounceSequence:
     this suite, so a real edit to ``main()`` changes what this test reads.
     """
 
+    @staticmethod
+    def _strip_comments(text: str) -> str:
+        """Drop whole-line shell comments. Deliberately not a shell parser: a
+        trailing `# ...` on a code line is left alone, which is the conservative
+        direction — it can only keep a call visible, never hide one.
+        """
+        return "\n".join(
+            line for line in text.splitlines() if not line.lstrip().startswith("#")
+        )
+
     def _main_body(self) -> str:
         text = _INSTALL_SH.read_text(encoding="utf-8")
         start = text.index("\nmain() {\n") + 1
@@ -2113,6 +2198,7 @@ class TestMainWiresTheSampleAndAnnounceSequence:
         markers = [
             'parzival_read_enabled_value "$INSTALL_DIR/docker/.env")',  # before-value sample
             'parzival_package_present "$PROJECT_PATH")',  # before-package sample
+            'ai_memory_project_previously_installed "$PROJECT_PATH")',  # I, before only
             "setup_parzival",
             'parzival_read_enabled_value "$INSTALL_DIR/docker/.env")',  # after-value sample
             'parzival_package_present "$PROJECT_PATH")',  # after-package sample
@@ -2129,6 +2215,71 @@ class TestMainWiresTheSampleAndAnnounceSequence:
             )
             pos = found
 
+    def test_the_prior_install_marker_is_sampled_once_and_only_before(self):
+        """``I`` is a BEFORE-only sample, and the test above cannot say so.
+
+        That test walks markers with an advancing cursor, so it proves ``I``
+        appears before ``setup_parzival`` — it would stay green if a second,
+        after-run sample were added and passed instead. An after-sample of ``I``
+        is always true (``deploy_ai_memory_skills`` has run by then), which would
+        make every install read ``converted`` with nothing going red.
+        """
+        body = self._main_body()
+        assert body.count("ai_memory_project_previously_installed") == 1, (
+            "the prior-install marker must be sampled exactly once in main(), "
+            "before setup_parzival. A second sample after the run reads true on "
+            "every install, because deploy_ai_memory_skills has run by then.\n"
+            f"{body}"
+        )
+
+    def test_the_prior_install_marker_cannot_be_deposited_before_it_is_sampled(self):
+        """``I``'s silent failure mode, pinned at its actual cause.
+
+        ``I`` is only a discriminator while nothing creates
+        ``$PROJECT_PATH/_ai-memory/`` before the before-sample. The sole creator
+        is ``deploy_ai_memory_skills``, and its validity rests entirely on that
+        call staying inside ``setup_parzival`` — which runs after the sample.
+        Hoist it into main()'s Project Configuration block and every install
+        reads ``converted``, while every notice test above stays green: they
+        drive the sequence by hand and never execute main().
+
+        This asserts the containment directly rather than by marker order.
+        ``deploy_ai_memory_skills`` appears nowhere in main() at all, so a
+        cursor-walk marker could not express it.
+        """
+        text = _INSTALL_SH.read_text(encoding="utf-8")
+
+        # Comments are stripped throughout: this asserts where the function is
+        # CALLED, and a comment naming it is not a call. Matching raw text would
+        # go red on any future comment that mentions it — a false red, and one
+        # this test itself provoked while being written.
+        main_calls = self._strip_comments(self._main_body())
+        assert "deploy_ai_memory_skills" not in main_calls, (
+            "deploy_ai_memory_skills must not be called from main(): it creates "
+            "$PROJECT_PATH/_ai-memory/, which is exactly what the prior-install "
+            "marker samples. Calling it before the sample makes I always true."
+        )
+
+        setup_start = text.index("\nsetup_parzival() {\n") + 1
+        setup_end = text.index("\n}\n", setup_start) + 2
+        setup_body = self._strip_comments(text[setup_start:setup_end])
+        assert "deploy_ai_memory_skills" in setup_body, (
+            "deploy_ai_memory_skills is no longer called from setup_parzival. "
+            "The prior-install marker's soundness depends on its only caller "
+            "running after main()'s before-sample."
+        )
+
+        call_sites = [
+            line
+            for line in self._strip_comments(text).splitlines()
+            if "deploy_ai_memory_skills" in line
+            and "deploy_ai_memory_skills()" not in line
+        ]
+        assert len(call_sites) == 1, (
+            "deploy_ai_memory_skills must have exactly one call site (inside "
+            f"setup_parzival). Found: {call_sites!r}"
+        )
+
 
 class TestAnnouncerIsCauseBlind:
     """Task 5: the announcer is a cause-blind SHELL surface, not a ninth member
@@ -2141,7 +2292,8 @@ class TestAnnouncerIsCauseBlind:
         bash_cmd = f"""
 set -euo pipefail
 source "{install_sh_no_main}"
-declare -f parzival_read_enabled_value parzival_package_present announce_parzival_state_change
+declare -f parzival_read_enabled_value parzival_package_present \\
+    ai_memory_project_previously_installed announce_parzival_state_change
 """
         res = subprocess.run(["bash", "-c", bash_cmd], capture_output=True, text=True)
         assert res.returncode == 0, res.stdout + res.stderr
