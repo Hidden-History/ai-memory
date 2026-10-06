@@ -428,6 +428,55 @@ def test_an_undeclared_or_unprovable_exemption_set_is_refused(
     assert binding_check.exit_status(result) == 1
 
 
+@pytest.mark.parametrize(
+    ("reserved", "files"),
+    [
+        # The stub flags its own negative; the exemption points at a quiet file.
+        (
+            "negative",
+            {
+                "positive.txt": f"{FLAG}\n",
+                "negative.txt": f"{FLAG}\n",
+                "other.txt": "zz-quiet\n",
+            },
+        ),
+        # The stub does not flag its positive; the exemption points at one it does.
+        (
+            "positive",
+            {
+                "positive.txt": "zz-quiet\n",
+                "negative.txt": "zz-quiet\n",
+                "other.txt": f"{FLAG}\n",
+            },
+        ),
+    ],
+    ids=["negative", "positive"],
+)
+def test_an_exemption_cannot_take_the_name_of_a_fixture_of_the_pair(
+    tmp_path: Path, reserved: str, files: dict[str, str]
+) -> None:
+    """An exemption named like a fixture must not be run in that fixture's place."""
+    _detector(tmp_path, "zz_stub")
+    _pair(
+        tmp_path,
+        "zz_stub",
+        manifest=_manifest(exemptions={reserved: "other.txt"}),
+        files=files,
+    )
+
+    result, entry = _one(tmp_path)
+    done = _run_root(tmp_path)
+
+    assert entry.token == "refused:exemptions"
+    assert entry.named == "exemptions"
+    assert reserved in entry.reason
+    assert binding_check.exit_status(result) == 1
+    assert done.returncode == 1
+    assert _findings(done.stdout)[0].startswith(
+        "finding: zz_stub.py: refused:exemptions - "
+    )
+
+
 @pytest.mark.parametrize("case", ["absent", "another-value"])
 def test_a_pair_without_the_fixture_marker_is_refused(
     tmp_path: Path, case: str

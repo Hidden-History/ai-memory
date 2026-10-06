@@ -146,7 +146,7 @@ is not reported.
 | `args` | yes | it is a list of strings, and at least one contains `{fixture}` |
 | `positive` | yes | it is a relative path to an existing fixture inside the pair directory: the example the Detector must flag |
 | `negative` | yes | the same: the example the Detector must not flag |
-| `exemptions` | yes | it is an object mapping an exemption id to a fixture path inside the pair directory. It may be empty |
+| `exemptions` | yes | it is an object mapping an exemption id to a fixture path inside the pair directory. It may be empty. An id cannot be `positive` or `negative` |
 
 A path that is absolute, contains `..`, or resolves outside the pair directory
 is not valid.

@@ -299,6 +299,14 @@ def _bind(root: Path, file_name: str, parse_error: str) -> DetectorBinding:
             _KEY_EXEMPTIONS,
         )
     for exemption in sorted(exemptions):
+        # These two names are the pair's own fixtures, in results and in output.
+        if exemption in (_KEY_POSITIVE, _KEY_NEGATIVE):
+            return verdict(
+                REFUSED,
+                f"an exemption cannot be named {exemption!r}, which names a "
+                "fixture of the pair",
+                _KEY_EXEMPTIONS,
+            )
         target = _contained(pair, exemptions[exemption])
         if target is None or not target.exists():
             return verdict(
