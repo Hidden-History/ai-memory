@@ -39,7 +39,7 @@ from typing import NamedTuple
 DEFAULT_ROOT = Path(__file__).resolve().parent
 
 #: Files in this check's own directory that it does not check, by file name.
-SKIPPED_FILES = ("binding_check.py", "enforcement_report.py")
+SKIPPED_FILES = ("detector_runner.py", "binding_check.py", "enforcement_report.py")
 
 FIXTURES_DIR = "fixtures"
 MANIFEST = "fixture-pair.json"

@@ -123,8 +123,9 @@ it cannot be shown not to be one.
 
 The binding check does not check itself, and does not check
 `enforcement_report.py`, a program in this directory that refuses nothing and
-so owes no pair. The last line it prints names the files in its own directory
-that it left out.
+so owes no pair. It does not check `detector_runner.py` either; the tests of
+that program are its pair. The last line it prints names the files in its own
+directory that it left out.
 
 ### Where a pair lives
 
@@ -233,7 +234,8 @@ Exit status `2` is also what a wrong command line returns. The check returns
 `0`, `1` or `2` and no other value.
 
 Any total the check prints counts the Detector files present in that one
-directory, not counting its own file or `enforcement_report.py`. The check
+directory, not counting its own file, `enforcement_report.py` or
+`detector_runner.py`. The check
 does **not** read the Constraint registry, does **not** check that any
 Constraint names a Detector, and does **not** inspect fixture content.
 
@@ -308,8 +310,9 @@ it read: `<name>.py`, with no directory part. A path, a name without `.py`,
 and a name no Detector file has, name none. The row is then lowered with the
 reason `not-found`. That is counted, not reported as an error.
 
-A row that names `binding_check.py` or `enforcement_report.py` names no
-Detector, because the binding check leaves both out.
+A row that names `binding_check.py`, `enforcement_report.py` or
+`detector_runner.py` names no Detector, because the binding check leaves all
+three out.
 
 The binding check is run only when at least one row is `bound`. With no such
 row the detectors directory is not read.
@@ -372,3 +375,115 @@ Other code that needs these facts imports `build_report` from
 `enforcement_report.py`; the printed text has no machine-readable form.
 `build_report(registry_path, detectors_dir)` returns the run's status, the four
 counts keyed by state, one entry per row, and the count of each counted line.
+
+## The detector runner
+
+### Read this first: on the shipped product there is nothing to resolve
+
+1. `detector_runner.py` reads **the rows of one registry file** and reports
+   each row that names a Detector which is not there. It does not run any
+   Detector.
+2. The shipped registry has no rows. So on the shipped product the runner
+   prints `empty:detector-resolution` and exits `0`.
+3. `empty` means something different for each command. For the orphan check
+   it means the registry holds no rows. For the runner it means no row
+   declares a Detector, which includes a registry with no rows.
+
+`orphan_check.py` is the registry linter. It runs on its own: it needs
+`constraint_registry.py` beside it and no other file of this directory.
+
+`detector_runner.py` is a program in this directory and is not a Detector for
+the binding check, which leaves it out. It has no fixture pair on disk.
+
+### What a `detector` value must be
+
+The runner uses the word Detector as the binding check does, and takes the
+list of Detectors from it: `detector_files` in `binding_check.py`.
+
+A row's `detector` value names a Detector when, after trimming spaces, it is
+exactly the file name of a Detector directly in the detectors directory:
+`<name>.py`, with no directory part, compared as written. Each of these names
+none:
+
+- a name without `.py`, a relative or absolute path, or the same name in a
+  different case, even when it points at a Detector that exists;
+- a file in a sub-directory;
+- a file that is not a Detector: a `.py` file with no top-level
+  `if __name__ == "__main__":` block, or a file that is not `.py`;
+- `binding_check.py`, `enforcement_report.py` and `detector_runner.py`;
+- a name no file has.
+
+The runner compares the value with the listed file names. It does not open a
+path built from the value.
+
+A `.py` file that cannot be parsed is in the list, as it is for the binding
+check, so a row that names it is `resolved`. The binding check is where that
+file is reported.
+
+This is the rule the enforcement report uses for its `not-found` reason. Each
+of the two programs has its own copy of it.
+
+### What the runner decides
+
+Every row of the registry is read the same way, whatever its `id`, its
+`enforcement_state` or any other column holds.
+
+| Row | Token | Makes the runner exit `1` |
+|---|---|---|
+| `detector` is empty | none; the row declares no Detector | no |
+| `detector` names a Detector | `resolved`; no line is printed for it | no |
+| `detector` is not empty and names no Detector | `resolution-error` | yes |
+| `detector` failed validation: the row is too short to have the field, or the field holds a byte that is not valid UTF-8 | `excluded:detector` | no |
+
+A row whose `detector` failed validation is refused by the orphan check, with
+exit status `1`. The runner counts it and does not refuse it a second time.
+
+A failure in another column does not stop a row being resolved. A row whose
+`id` failed validation is printed as `(no usable id)` with its line number.
+
+### Running it
+
+From this directory:
+
+```text
+python3 detector_runner.py [--registry PATH]
+```
+
+With no `--registry`, the runner reads `constraint-registry.csv` beside itself.
+It looks for Detectors in the directory it is in. `--detectors DIR` makes it
+look in another directory; that option exists for the product's own tests.
+
+Output is text on standard output. Each `resolution-error` row prints one line
+starting `finding:`, with the row's line number in the file, its `id`, the
+token, the `detector` value and the directory it was looked for in. The
+`excluded:detector` rows are counted on one line, with their line numbers;
+that line is printed when there is at least one such row. The last line is the
+outcome.
+
+| Outcome | When | Exit status |
+|---|---|---|
+| finding lines, then a `checked ...` line | at least one row is a `resolution-error` | `1` |
+| `clean:detector-resolution` | at least one row declares a Detector and each such row is `resolved` | `0` |
+| `empty:detector-resolution` | the registry was read and no row declares a Detector | `0` |
+| `unchecked:detector-resolution` | the registry could not be checked, for any reason the orphan check gives `unchecked:constraint-registry`; or the detectors directory is not a directory or could not be listed; or the run itself failed | `2` |
+
+Exit status `2` is also what a wrong command line returns, and what the runner
+returns when it could not write its output, whatever it had decided.
+
+The detectors directory is listed on every run. A `--detectors` path that is
+not a directory gives `unchecked:detector-resolution` even when no row
+declares a Detector.
+
+The last line carries three counts: the rows read, the rows that declare a
+Detector, and the resolution errors. The runner reads the rows of that one
+registry file and the Detector files directly in that one directory. It does
+**not** run any Detector, does **not** check fixture pairs, and does **not**
+compare the registry against the constraint files on disk, so a Constraint
+with no row is not seen. Nothing runs the runner in an installed project.
+
+Other code that needs these facts imports `enumerate_constraints` and
+`resolve_detector` from `detector_runner.py`; the printed text has no
+machine-readable form. `enumerate_constraints(registry_path, detectors_dir)`
+returns the run's status, the count of rows read, and one entry for each row
+that declares a Detector or was excluded, with its line number, its token and,
+for a `resolved` row, the Detector's file name.
