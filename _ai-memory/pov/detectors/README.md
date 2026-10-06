@@ -121,8 +121,10 @@ By that rule `orphan_check.py` is the one Detector here.
 A `.py` file that cannot be read or parsed is treated as a Detector, because
 it cannot be shown not to be one.
 
-The binding check does not check itself. The last line it prints names the
-files in its own directory that it left out.
+The binding check does not check itself, and does not check
+`enforcement_report.py`, a program in this directory that refuses nothing and
+so owes no pair. The last line it prints names the files in its own directory
+that it left out.
 
 ### Where a pair lives
 
@@ -231,9 +233,9 @@ Exit status `2` is also what a wrong command line returns. The check returns
 `0`, `1` or `2` and no other value.
 
 Any total the check prints counts the Detector files present in that one
-directory, not counting its own file. The check does **not** read the
-Constraint registry, does **not** check that any Constraint names a Detector,
-and does **not** inspect fixture content.
+directory, not counting its own file or `enforcement_report.py`. The check
+does **not** read the Constraint registry, does **not** check that any
+Constraint names a Detector, and does **not** inspect fixture content.
 
 Other code that needs these facts imports `check_bindings` and
 `detector_files` from `binding_check.py`; the printed text has no
@@ -241,3 +243,132 @@ machine-readable form. `check_bindings(root)` returns the run's outcome and
 one entry per Detector with its name, its file name and its verdict.
 `detector_files(root)` returns the sorted Detector file names, or `None` when
 the directory is absent or cannot be listed.
+
+## The enforcement report
+
+### Read this first: on the shipped product every count is zero
+
+1. `enforcement_report.py` counts **the rows of one registry file**, each row
+   at most once, in the four Enforcement states. It prints the four counts on
+   four lines and never adds them together.
+2. The shipped registry has no rows. So on the shipped product each of the
+   four counts is `0`, and the report prints `empty:enforcement-report`.
+3. **That means no Constraint has been entered. It does not mean that nothing
+   is unenforced.**
+4. The report is not a gate. It exits `0` whenever it was produced, and it
+   never exits `1`. The orphan check is where a row is refused.
+
+`enforcement_report.py` is a program in this directory and is not a Detector:
+it checks no Constraint, so the binding check leaves it out and it has no
+fixture pair.
+
+### How a row gets its state
+
+The report takes each row's disposition from the orphan check and does not
+work it out again.
+
+| The orphan check's disposition | Counted in |
+|---|---|
+| `marked:unenforceable` | `unenforceable` |
+| `marked:not-yet-enforced` | `not-yet-enforced` |
+| `bound` | see the next table |
+| `orphan` | none of the four; counted on the `uncounted` line |
+| `refused:<column>` | none of the four; counted on the `uncounted` line |
+| anything else | none of the four; counted on the `uncounted` line |
+
+A `bound` row names a Detector. Two things place it: the state the row
+declares in `enforcement_state`, and whether the binding check's verdict for
+the named Detector is `functional`.
+
+| The row declares | The named Detector is `functional` | Any other case |
+|---|---|---|
+| `enforced-and-blocking` | `enforced-and-blocking` | `not-yet-enforced`, counted on the `lowered` line |
+| `enforced-but-non-blocking` | `enforced-but-non-blocking` | `not-yet-enforced`, counted on the `lowered` line |
+| nothing | `enforced-but-non-blocking`, counted on the `undeclared-state` line | `not-yet-enforced`, counted on the `lowered` line |
+| `not-yet-enforced` | `not-yet-enforced` | `not-yet-enforced` |
+| `unenforceable` | `unenforceable` | `unenforceable` |
+
+- A Detector's verdict only ever lowers a count. It never raises one: a row
+  that declares a lower state than its Detector could support is counted as
+  declared.
+- A row is counted as `enforced-and-blocking` only when it says so and its
+  Detector is `functional`. The report trusts the row's word on whether the
+  Detector is run where it can fail a build; it does not observe that.
+- A Detector that is run to report and not to refuse is recorded on the
+  Constraint's row, as `enforced-but-non-blocking`. Such a row is never counted
+  as `enforced-and-blocking`.
+- "Any other case" is every verdict except `functional`, and a `detector`
+  value that names no Detector.
+
+### Which Detector a row names
+
+A row's `detector` value names a Detector when, after trimming spaces, it is
+exactly the file name of a Detector the binding check found in the directory
+it read: `<name>.py`, with no directory part. A path, a name without `.py`,
+and a name no Detector file has, name none. The row is then lowered with the
+reason `not-found`. That is counted, not reported as an error.
+
+A row that names `binding_check.py` or `enforcement_report.py` names no
+Detector, because the binding check leaves both out.
+
+The binding check is run only when at least one row is `bound`. With no such
+row the detectors directory is not read.
+
+### Counted lines
+
+Each of these is a condition the report states and counts while still exiting
+`0`. A line is printed only when its count is not zero. It carries the token,
+the count, and the registry line of each thing it counts.
+
+| Token | What it counts | Beside each registry line |
+|---|---|---|
+| `uncounted` | rows in none of the four states | the row's disposition from the orphan check |
+| `lowered` | `bound` rows counted as `not-yet-enforced` because the Detector is not shown to work | the reason: the binding check's verdict, or `not-found` |
+| `undeclared-state` | `bound` rows with a `functional` Detector and no declared state | nothing |
+| `field-exclusion` | **fields** the registry reader dropped, not rows | the column |
+
+`field-exclusion` and `uncounted` count different things and can both name the
+same registry line. A row whose `enforcement_state` is not valid is one row on
+the `uncounted` line and one field on the `field-exclusion` line. Two rows
+sharing an `id` are two rows and two fields.
+
+### Running it
+
+From this directory:
+
+```text
+python3 enforcement_report.py [--registry PATH]
+```
+
+With no `--registry`, the report reads `constraint-registry.csv` beside itself.
+It reads Detectors from the directory it is in. `--detectors DIR` makes it read
+them from another directory; that option exists for the product's own tests.
+
+Output is text on standard output. The four state lines come first, always the
+same four in the same order, each with its own count. A state with no rows
+prints `0`.
+
+| Outcome | When | Exit status |
+|---|---|---|
+| the four state lines, then a `rows:` line | at least one row was read | `0` |
+| the four state lines, each `0`, then `empty:enforcement-report` | the registry was read and holds no Constraint rows | `0` |
+| `unchecked:enforcement-report`, and no state lines | the registry could not be checked; or a row is `bound` and the detectors directory could not be read; or the report itself failed | `2` |
+
+Exit status `2` is also what a wrong command line returns. The report returns
+`0` or `2` and no other value. It prints no `clean` line: the four state lines
+already show that it ran, and it gives no verdict.
+
+The `rows:` line carries the number of rows read and how many of them are in
+none of the four states. Those two, the four counts and the counted lines are
+the only figures the report prints.
+
+The report counts the rows of that one registry file. It does **not** count
+Detector files, fixture pairs, or the markings in capability declarations. It
+does **not** compare the registry against the constraint files on disk, and it
+does **not** check that anything runs a Detector. Nothing runs the report in an
+installed project.
+
+Other code that needs these facts imports `build_report` from
+`enforcement_report.py`; the printed text has no machine-readable form.
+`build_report(registry_path, detectors_dir)` returns the run's status, the four
+counts keyed by state, one entry per row, and the count of each counted line.

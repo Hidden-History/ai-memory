@@ -237,7 +237,7 @@ def test_the_self_skip_is_by_path_and_the_output_says_what_was_skipped(
 def test_the_skipped_files_are_one_tuple_and_the_sentence_is_built_from_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert (_CHECK.name,) == binding_check.SKIPPED_FILES
+    assert (_CHECK.name, "enforcement_report.py") == binding_check.SKIPPED_FILES
 
     monkeypatch.setattr(
         binding_check, "SKIPPED_FILES", (_CHECK.name, "zz_also_skipped.py")

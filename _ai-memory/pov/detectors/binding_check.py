@@ -39,7 +39,7 @@ from typing import NamedTuple
 DEFAULT_ROOT = Path(__file__).resolve().parent
 
 #: Files in this check's own directory that it does not check, by file name.
-SKIPPED_FILES = ("binding_check.py",)
+SKIPPED_FILES = ("binding_check.py", "enforcement_report.py")
 
 FIXTURES_DIR = "fixtures"
 MANIFEST = "fixture-pair.json"
@@ -376,7 +376,7 @@ def _scope() -> str:
     skipped = " and ".join(SKIPPED_FILES)
     return (
         "This check counts the Detector files present in that one directory. "
-        f"In its own directory {skipped} was not checked and is not counted. "
+        f"In its own directory {skipped} were not checked and are not counted. "
         "It does not read the Constraint registry, does not check that any "
         "Constraint names a Detector, and does not inspect fixture content."
     )
