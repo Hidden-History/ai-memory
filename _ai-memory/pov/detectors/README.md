@@ -416,9 +416,13 @@ none:
 The runner compares the value with the listed file names. It does not open a
 path built from the value.
 
-A `.py` file that cannot be parsed is in the list, as it is for the binding
-check, so a row that names it is `resolved`. The binding check is where that
-file is reported.
+A `.py` file that cannot be read or parsed is in the list, as it is for the
+binding check, because it cannot be shown not to be a Detector. The runner
+does not call a row that names it `resolved`: whether the file is a Detector
+is not known, so the run is `unchecked:detector-resolution`, with exit status
+`2`, and the line gives each such row's line number and the file it names. No
+`finding:` line is printed in that run. The binding check says why the file
+could not be read or parsed. Such a file that no row names changes nothing.
 
 This is the rule the enforcement report uses for its `not-found` reason. Each
 of the two programs has its own copy of it.
@@ -465,7 +469,7 @@ outcome.
 | finding lines, then a `checked ...` line | at least one row is a `resolution-error` | `1` |
 | `clean:detector-resolution` | at least one row declares a Detector and each such row is `resolved` | `0` |
 | `empty:detector-resolution` | the registry was read and no row declares a Detector | `0` |
-| `unchecked:detector-resolution` | the registry could not be checked, for any reason the orphan check gives `unchecked:constraint-registry`; or the detectors directory is not a directory or could not be listed; or the run itself failed | `2` |
+| `unchecked:detector-resolution` | the registry could not be checked, for any reason the orphan check gives `unchecked:constraint-registry`; or the detectors directory is not a directory or could not be listed; or a row names a `.py` file there that could not be read or parsed; or the run itself failed | `2` |
 
 Exit status `2` is also what a wrong command line returns, and what the runner
 returns when it could not write its output, whatever it had decided.

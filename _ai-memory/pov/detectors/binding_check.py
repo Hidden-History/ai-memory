@@ -200,6 +200,19 @@ def detector_files(root: Path) -> tuple[str, ...] | None:
     return None if found is None else tuple(found)
 
 
+def undecided_files(root: Path) -> tuple[str, ...] | None:
+    """The file names ``detector_files`` lists that could not be read or parsed.
+
+    Each is in that list because it cannot be shown not to be a Detector,
+    not because it was found to be one. Returns ``None`` when *root* is not
+    a directory or cannot be listed.
+    """
+    found, _ = _scan(Path(root))
+    if found is None:
+        return None
+    return tuple(name for name, error in found.items() if error)
+
+
 def _contained(pair: Path, value: object) -> Path | None:
     """The fixture *value* names inside *pair*, or None when it is not valid."""
     if not isinstance(value, str) or not value:

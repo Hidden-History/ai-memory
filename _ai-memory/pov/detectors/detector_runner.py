@@ -13,8 +13,9 @@ one directory, and gives each row that declares a Detector one token:
 A row whose ``detector`` value is empty declares no Detector and gets none.
 
 Exit status: 0 when no row is a resolution-error, 1 when at least one is, 2
-when the registry or the directory could not be read, the output could not
-be written, or the command line is wrong.
+when the registry or the directory could not be read, a row names a ``.py``
+file that could not be read or parsed, the output could not be written, or
+the command line is wrong.
 
 The runner does not run any Detector, does not check fixture pairs, and does
 not compare the registry with the constraint files on disk.
@@ -113,8 +114,10 @@ def enumerate_constraints(registry_path: Path, detectors_dir: Path) -> Enumerati
     """Resolve the Detector each row of *registry_path* declares.
 
     The directory is listed on every call, so one that cannot be listed is
-    ``unchecked`` even when no row declares a Detector. A failure inside the
-    run is returned as ``unchecked`` as well, never raised.
+    ``unchecked`` even when no row declares a Detector. A row that names a
+    ``.py`` file which could not be read or parsed makes the run ``unchecked``:
+    whether that file is a Detector is not known. A failure inside the run is
+    returned as ``unchecked`` as well, never raised.
     """
     target = Path(registry_path)
     root = Path(detectors_dir)
@@ -127,7 +130,8 @@ def enumerate_constraints(registry_path: Path, detectors_dir: Path) -> Enumerati
         if read.status == registry.UNCHECKED:
             return result(UNCHECKED, detail=read.detail)
         names = binding_check.detector_files(root)
-        if names is None:
+        undecided = binding_check.undecided_files(root)
+        if names is None or undecided is None:
             return result(
                 UNCHECKED,
                 detail=f"the detectors directory {root} is not a directory "
@@ -135,6 +139,7 @@ def enumerate_constraints(registry_path: Path, detectors_dir: Path) -> Enumerati
             )
 
         entries = []
+        not_known = []
         for row in read.rows:
             row_id = row.values.get(registry.COLUMN_ID)
             if row.failed(registry.COLUMN_DETECTOR) is not None:
@@ -144,8 +149,19 @@ def enumerate_constraints(registry_path: Path, detectors_dir: Path) -> Enumerati
             if not value:
                 continue
             found = resolve_detector(value, names)
+            if found in undecided:
+                not_known.append(f"line {row.line}: {found!r}")
+                continue
             token = RESOLUTION_ERROR if found is None else RESOLVED
             entries.append(RowResolution(row.line, row_id, value, token, found))
+        if not_known:
+            return result(
+                UNCHECKED,
+                detail=f"{len(not_known)} row(s) of {target} name a .py file in "
+                f"{root} that could not be read or parsed, so it is not known "
+                "whether that file is a Detector, and no row was resolved - "
+                + ", ".join(not_known),
+            )
     except Exception as exc:
         return result(
             UNCHECKED, detail=f"the run itself failed: {type(exc).__name__}: {exc}"

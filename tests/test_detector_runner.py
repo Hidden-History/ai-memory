@@ -82,9 +82,14 @@ def _write(tmp_path: Path, text: str) -> Path:
     return path
 
 
-def _run(*args: str, runner: Path = _RUNNER) -> subprocess.CompletedProcess[str]:
+def _run(
+    *args: str, runner: Path = _RUNNER, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-B", str(runner), *args], capture_output=True, text=True
+        [sys.executable, "-B", str(runner), *args],
+        capture_output=True,
+        text=True,
+        env=env,
     )
 
 
@@ -226,18 +231,107 @@ def test_a_value_with_surrounding_spaces_resolves_and_a_spaces_only_cell_declare
     assert detector_runner.resolve_detector("", ("zz_ok.py", "")) is None
 
 
-def test_a_py_file_that_cannot_be_parsed_is_listed_so_a_row_naming_it_resolves(
+#: File contents that cannot be parsed as Python, so the file may or may not
+#: be a Detector.
+_NOT_PARSEABLE = {
+    "a syntax error": b"def broken(:\n",
+    "plain text": b"TODO: write this detector later\n",
+    "merge-conflict markers": (
+        b"<<<<<<< ours\n"
+        + STUB.encode()
+        + b"=======\n"
+        + STUB.encode()
+        + b">>>>>>> theirs\n"
+    ),
+    "NUL bytes": b"\x00\x00\x00\x00",
+    "bytes that are not UTF-8": b"\xff\xfe\n",
+}
+
+
+@pytest.mark.parametrize(
+    "content", list(_NOT_PARSEABLE.values()), ids=list(_NOT_PARSEABLE)
+)
+def test_a_row_naming_a_py_file_that_cannot_be_parsed_makes_the_run_unchecked(
+    tmp_path: Path, content: bytes
+) -> None:
+    """The binding check lists such a file; the runner must not call it resolved."""
+    root = _detectors(tmp_path)
+    (root / "zz_broken.py").write_bytes(content)
+
+    result = _resolve(tmp_path, HEADER + "ZZ-01,zz_ok.py,\nZZ-02,zz_broken.py,\n")
+
+    assert "zz_broken.py" in binding_check.detector_files(root)
+    assert result.returncode == 2
+    assert result.stderr == ""
+    assert result.stdout.splitlines() == [_last(result.stdout)]
+    assert _last(result.stdout).startswith(f"unchecked:{SUBJECT} - ")
+    assert "line 3: 'zz_broken.py'" in result.stdout
+    assert "line 2" not in result.stdout
+    assert "clean:" not in result.stdout
+
+
+def test_a_row_naming_a_py_file_that_cannot_be_read_makes_the_run_unchecked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _detectors(tmp_path)
+    (root / "zz_noread.py").write_text(STUB, encoding="utf-8")
+    path = _write(tmp_path, HEADER + "ZZ-01,zz_noread.py,\n")
+    read_bytes = Path.read_bytes
+
+    def refuse(self: Path) -> bytes:
+        if self.name == "zz_noread.py":
+            raise PermissionError("zz-refused")
+        return read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+    result = detector_runner.enumerate_constraints(path, root)
+    status = detector_runner.main(["--registry", str(path), "--detectors", str(root)])
+
+    assert result.status == detector_runner.UNCHECKED
+    assert result.entries == ()
+    assert status == 2
+    out = capsys.readouterr().out
+    assert out.startswith(f"unchecked:{SUBJECT} - ")
+    assert "line 2: 'zz_noread.py'" in out
+    assert "clean:" not in out
+
+
+def test_an_unparseable_file_and_a_missing_one_together_are_unchecked_not_a_finding(
     tmp_path: Path,
 ) -> None:
-    """The enumeration is the binding check's: it keeps a file it cannot parse."""
+    """Exit 2 wins, and no finding line is printed with it."""
     root = _detectors(tmp_path)
     (root / "zz_broken.py").write_text("def broken(:\n", encoding="utf-8")
 
-    result = _resolve(tmp_path, HEADER + "ZZ-01,zz_broken.py,\n")
+    result = _resolve(
+        tmp_path, HEADER + "ZZ-01,zz_gone.py,\nZZ-02,  zz_broken.py ,\nZZ-03\n"
+    )
 
-    assert "zz_broken.py" in binding_check.detector_files(root)
-    assert result.returncode == 0
-    assert _last(result.stdout).startswith(f"clean:{SUBJECT} - ")
+    assert result.returncode == 2
+    assert _findings(result.stdout) == []
+    assert result.stdout.splitlines() == [_last(result.stdout)]
+    assert _last(result.stdout).startswith(f"unchecked:{SUBJECT} - ")
+    assert "line 3: 'zz_broken.py'" in result.stdout
+
+
+def test_an_unparseable_file_no_row_names_changes_no_outcome(tmp_path: Path) -> None:
+    """The control: only a row that names the file makes the run unchecked."""
+    root = _detectors(tmp_path)
+    (root / "zz_broken.py").write_text("def broken(:\n", encoding="utf-8")
+
+    clean = _resolve(tmp_path, HEADER + "ZZ-01,zz_ok.py,\n")
+    missing = _resolve(tmp_path, HEADER + "ZZ-01,zz_gone.py,\n")
+    module = _resolve(tmp_path, HEADER + "ZZ-01,zz_lib.py,\n")
+    empty = _resolve(tmp_path, HEADER + "ZZ-01,,not-yet-enforced\n")
+
+    assert clean.returncode == 0
+    assert _last(clean.stdout).startswith(f"clean:{SUBJECT} - ")
+    assert missing.returncode == 1
+    assert len(_findings(missing.stdout)) == 1
+    assert module.returncode == 1
+    assert len(_findings(module.stdout)) == 1
+    assert empty.returncode == 0
+    assert _last(empty.stdout).startswith(f"empty:{SUBJECT} - ")
 
 
 # ---------------------------------------------------------------------------
@@ -765,16 +859,26 @@ def test_the_runner_and_the_report_agree_on_a_row_naming_a_missing_detector(
 # ---------------------------------------------------------------------------
 
 
+def _bytecode() -> set[Path]:
+    return set(_DETECTORS_DIR.rglob("__pycache__"))
+
+
 @pytest.mark.process
 def test_shipped_registry_has_nothing_to_resolve_and_reports_empty() -> None:
     """T13, first part: the runner with no arguments."""
-    result = _run()
+    # Loading the modules above may already have written bytecode there, so
+    # the run is compared with what was there before it.
+    before = _bytecode()
+    # Without this variable in the way, only -B keeps bytecode out of the tree.
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+
+    result = _run(env=env)
 
     assert result.returncode == 0
     assert result.stderr == ""
     assert result.stdout.splitlines() == [_last(result.stdout)]
     assert _last(result.stdout).startswith(f"empty:{SUBJECT} - 0 row(s) of ")
-    assert not (_DETECTORS_DIR / "__pycache__").exists()
+    assert _bytecode() <= before, "the run wrote bytecode into the product tree"
 
 
 @pytest.mark.process
