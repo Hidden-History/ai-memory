@@ -29,6 +29,7 @@ _DETECTORS_DIR = Path(__file__).resolve().parent.parent / POV_TREE / "detectors"
 _REGISTRY_MODULE = _DETECTORS_DIR / "constraint_registry.py"
 _CHECK = _DETECTORS_DIR / "orphan_check.py"
 _SHIPPED_REGISTRY = _DETECTORS_DIR / "constraint-registry.csv"
+_FIXTURE_PAIR = _DETECTORS_DIR / "fixtures" / "orphan_check"
 
 _rspec = importlib.util.spec_from_file_location("constraint_registry", _REGISTRY_MODULE)
 registry = importlib.util.module_from_spec(_rspec)
@@ -88,10 +89,8 @@ def _dispositions(tmp_path: Path, text: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_fixture_pair_a_row_with_no_detector_and_no_marking_is_flagged(
-    tmp_path: Path,
-) -> None:
-    result = _check(tmp_path, HEADER + "ZZ-01,checks/zz01.py,\nZZ-02,,\n")
+def test_fixture_pair_a_row_with_no_detector_and_no_marking_is_flagged() -> None:
+    result = _run("--registry", str(_FIXTURE_PAIR / "positive.csv"))
 
     assert result.returncode == 1
     assert _findings(result.stdout) == [
@@ -101,12 +100,8 @@ def test_fixture_pair_a_row_with_no_detector_and_no_marking_is_flagged(
     assert "clean:" not in result.stdout
 
 
-def test_fixture_pair_the_same_row_with_a_marking_is_not_flagged(
-    tmp_path: Path,
-) -> None:
-    result = _check(
-        tmp_path, HEADER + "ZZ-01,checks/zz01.py,\nZZ-02,,not-yet-enforced\n"
-    )
+def test_fixture_pair_the_same_row_with_a_marking_is_not_flagged() -> None:
+    result = _run("--registry", str(_FIXTURE_PAIR / "negative.csv"))
 
     assert result.returncode == 0
     assert _findings(result.stdout) == []

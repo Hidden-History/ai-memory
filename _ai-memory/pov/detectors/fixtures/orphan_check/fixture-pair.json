@@ -1,0 +1,10 @@
+{
+  "fixture_marker": "synthetic-fixture",
+  "args": ["--registry", "{fixture}"],
+  "positive": "positive.csv",
+  "negative": "negative.csv",
+  "exemptions": {
+    "labelled-evidentiary-quotation": "labelled-evidentiary-quotation.csv",
+    "historical-record-not-to-inherit": "historical-record-not-to-inherit/registry.csv"
+  }
+}
