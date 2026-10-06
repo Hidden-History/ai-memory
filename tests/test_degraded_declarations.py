@@ -58,15 +58,28 @@ _ARTIFACT_REFERENCE = re.compile(
 _NOT_A_BMAD_ARTIFACT = re.compile(r"bmad-dispatch|bmad-hooks|bmad_hooks|bmad-output")
 
 
+def _refuse_walk_error(error: OSError) -> None:
+    """A walk that cannot read part of its tree has not read the tree.
+
+    ``os.walk`` swallows errors by default, so an unreadable directory drops
+    its whole subtree and the walk returns what a clean tree returns. Raising
+    is what makes the two distinguishable.
+    """
+    raise error
+
+
 def _references_bmad_artifact(container: Path) -> bool:
-    """True if any file under *container* names a BMAD-shipped artifact."""
-    for base, _dirs, names in os.walk(container):
+    """True if any file under *container* names a BMAD-shipped artifact.
+
+    Raises rather than answering when a directory or file cannot be read:
+    ``False`` from a truncated walk reads as "no reference here".
+    """
+    for base, _dirs, names in os.walk(container, onerror=_refuse_walk_error):
         for name in names:
             path = Path(base) / name
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
+            # Not wrapped in ``except OSError: continue``: the file that would
+            # be skipped may be the one carrying the reference.
+            text = path.read_text(encoding="utf-8", errors="ignore")
             for match in _ARTIFACT_REFERENCE.finditer(text):
                 if not _NOT_A_BMAD_ARTIFACT.search(match.group(0)):
                     return True
@@ -118,6 +131,78 @@ def test_every_bmad_dependent_capability_declares_its_degradation(
         "capability containers reference a BMAD-shipped artifact but carry no "
         f"degraded declaration: {undeclared}"
     )
+
+
+def _make_unlistable(monkeypatch: pytest.MonkeyPatch, directory: Path) -> None:
+    """Make ``os.scandir`` refuse *directory*, as an unreadable directory does.
+
+    Injected rather than built with ``chmod``. Mode bits do not constrain
+    root, and not every filesystem this suite runs on honours them, so a
+    permission fixture can go green without ever having produced the failure
+    it claims to test.
+    """
+    real_scandir = os.scandir
+
+    def _scandir(path: object = ".") -> object:
+        if isinstance(path, (str, os.PathLike)) and Path(path) == directory:
+            raise PermissionError(f"injected: {directory} is unreadable")
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", _scandir)
+
+
+def _make_unreadable(monkeypatch: pytest.MonkeyPatch, file: Path) -> None:
+    """Make ``Path.read_text`` refuse *file*, as an unreadable file does."""
+    real_read_text = Path.read_text
+
+    def _read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self == file:
+            raise PermissionError(f"injected: {file} is unreadable")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", _read_text)
+
+
+def _container_with_a_nested_reference(root: Path) -> Path:
+    """A container whose only BMAD reference sits in a nested file; returns it."""
+    (root / "SKILL.md").write_text("Nothing here names it.\n", encoding="utf-8")
+    nested = root / "steps" / "step-01.md"
+    nested.parent.mkdir()
+    nested.write_text("Run /bmad-synthetic-skill first.\n", encoding="utf-8")
+    assert _references_bmad_artifact(root) is True, (
+        "the fixture must hold a reference the helper finds when the walk is "
+        "whole, or a refusal below proves nothing about a truncated one"
+    )
+    return nested
+
+
+@pytest.mark.process
+def test_artifact_reference_walk_refuses_an_unlistable_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A container the walk could not finish reading is not reference-free.
+
+    ``False`` drops the container out of the undeclared set, so a truncated
+    walk answering ``False`` turns the derivation guard above green over a
+    container it never read.
+    """
+    nested = _container_with_a_nested_reference(tmp_path)
+    _make_unlistable(monkeypatch, nested.parent)
+
+    with pytest.raises(PermissionError):
+        _references_bmad_artifact(tmp_path)
+
+
+@pytest.mark.process
+def test_artifact_reference_walk_refuses_an_unreadable_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same defect one level down: the skipped file is the one that matters."""
+    nested = _container_with_a_nested_reference(tmp_path)
+    _make_unreadable(monkeypatch, nested)
+
+    with pytest.raises(PermissionError):
+        _references_bmad_artifact(tmp_path)
 
 
 @pytest.mark.process
@@ -206,13 +291,16 @@ def test_no_shipped_artifact_lists_the_capabilities(
     identifiers = {d.capability for d in real_discovery.declarations}
     assert len(identifiers) > 1
 
-    for base, _dirs, names in os.walk(PRODUCT_ROOT / POV_TREE):
+    examined = 0
+    for base, _dirs, names in os.walk(
+        PRODUCT_ROOT / POV_TREE, onerror=_refuse_walk_error
+    ):
         for name in names:
             path = Path(base) / name
-            try:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            except OSError:
-                continue
+            # Not wrapped in ``except OSError: continue``: a skipped file is a
+            # file that was never checked for a roster.
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            examined += 1
             present = {
                 i
                 for i in identifiers
@@ -222,6 +310,50 @@ def test_no_shipped_artifact_lists_the_capabilities(
                 f"{path.relative_to(PRODUCT_ROOT)} names {sorted(present)} — a shipped "
                 "artifact carrying a roster of capabilities defeats derivation at its root"
             )
+    assert examined, (
+        "the walk examined no files. Every assertion above sits inside the "
+        "per-file loop, so without this a walk that yielded nothing passes"
+    )
+
+
+@pytest.mark.process
+def test_roster_walk_refuses_an_unlistable_directory(
+    real_discovery: DiscoveryResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drives the real guard: a subtree it could not list is a subtree unchecked."""
+    subtree = next(
+        entry for entry in sorted((PRODUCT_ROOT / POV_TREE).iterdir()) if entry.is_dir()
+    )
+    _make_unlistable(monkeypatch, subtree)
+
+    with pytest.raises(PermissionError):
+        test_no_shipped_artifact_lists_the_capabilities(real_discovery)
+
+
+@pytest.mark.process
+def test_roster_walk_refuses_an_unreadable_file(
+    real_discovery: DiscoveryResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drives the real guard: the file it skipped is the one that could hold a roster."""
+    _make_unreadable(monkeypatch, PRODUCT_ROOT / DEPENDENCY_DECLARATION_SITE)
+
+    with pytest.raises(PermissionError):
+        test_no_shipped_artifact_lists_the_capabilities(real_discovery)
+
+
+@pytest.mark.process
+def test_roster_walk_refuses_to_pass_over_no_files(
+    real_discovery: DiscoveryResult, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drives the real guard: a walk that yields nothing has checked nothing.
+
+    Every roster assertion sits inside the per-file loop, so a walk with no
+    files runs none of them. Without a count that reads as a clean tree.
+    """
+    monkeypatch.setattr(os, "walk", lambda *args, **kwargs: iter(()))
+
+    with pytest.raises(AssertionError, match="examined no files"):
+        test_no_shipped_artifact_lists_the_capabilities(real_discovery)
 
 
 @pytest.mark.process
