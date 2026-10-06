@@ -145,7 +145,11 @@ def read_registry(path: Path | str) -> RegistryRead:
     except OSError as exc:
         return _unchecked(target, f"{target} could not be read: {exc}")
 
-    reader = csv.DictReader(io.StringIO(text), restkey=_OVERFLOW_KEY, restval=None)
+    # strict: the file ending inside a quoted field is a parse error. Without
+    # it, a quote that is never closed takes every later row into one field.
+    reader = csv.DictReader(
+        io.StringIO(text), restkey=_OVERFLOW_KEY, restval=None, strict=True
+    )
     parsed: list[tuple[int, dict[str, str | None], dict[str, str]]] = []
     try:
         columns = reader.fieldnames

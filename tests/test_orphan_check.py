@@ -441,6 +441,33 @@ def test_a_registry_that_cannot_be_parsed_is_unchecked_and_exits_two(
     assert "could not be parsed" in result.stdout
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The open quote sits in a column the header declares.
+        "id,detector,enforcement_state,note\n"
+        'ZZ-01,checks/a.py,,"see ticket\n'
+        "ZZ-02,,\n"
+        "ZZ-03,,true\n",
+        # The open quote sits in a field beyond the header's width.
+        HEADER + 'ZZ-01,checks/a.py,,"see ticket\nZZ-02,,\nZZ-03,,true\n',
+    ],
+    ids=["declared-column", "overflow-field"],
+)
+def test_a_quote_that_is_never_closed_is_unchecked_and_exits_two(
+    tmp_path: Path, text: str
+) -> None:
+    # The rows after the open quote hold an orphan and a bare boolean. A
+    # lenient parser folds them into one field and the run passes.
+    result = _check(tmp_path, text)
+
+    assert result.returncode == 2
+    assert result.stdout.startswith("unchecked:constraint-registry - ")
+    assert "could not be parsed" in result.stdout
+    assert "clean:" not in result.stdout
+    assert "empty:" not in result.stdout
+
+
 def test_a_wrong_command_line_exits_two(tmp_path: Path) -> None:
     result = _run("--no-such-option")
 

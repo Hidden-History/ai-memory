@@ -321,6 +321,18 @@ def test_a_parse_error_is_unchecked_not_empty(tmp_path: Path) -> None:
     assert "could not be parsed" in result.detail
 
 
+def test_a_quote_that_is_never_closed_is_unchecked_and_hides_no_row(
+    tmp_path: Path,
+) -> None:
+    # A lenient parser lets the open quote take every later line into one
+    # field: the two rows after it would never be seen, and one row is read.
+    result = _read(tmp_path, HEADER + 'ZZ-01,checks/a.py,"\nZZ-02,,\nZZ-03,,true\n')
+
+    assert result.status == registry.UNCHECKED
+    assert "could not be parsed" in result.detail
+    assert result.rows == ()
+
+
 # ---------------------------------------------------------------------------
 # The result is immutable
 # ---------------------------------------------------------------------------
