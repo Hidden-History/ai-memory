@@ -881,7 +881,11 @@ def test_the_binding_check_skips_the_report_as_it_skips_itself() -> None:
         [sys.executable, "-B", str(_BINDING_CHECK)], capture_output=True, text=True
     )
 
-    assert (_BINDING_CHECK.name, _REPORT.name) == binding_check.SKIPPED_FILES
+    assert (
+        "detector_runner.py",
+        _BINDING_CHECK.name,
+        _REPORT.name,
+    ) == binding_check.SKIPPED_FILES
     assert result.returncode == 0
     reported = [
         line

@@ -237,7 +237,11 @@ def test_the_self_skip_is_by_path_and_the_output_says_what_was_skipped(
 def test_the_skipped_files_are_one_tuple_and_the_sentence_is_built_from_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert (_CHECK.name, "enforcement_report.py") == binding_check.SKIPPED_FILES
+    assert (
+        "detector_runner.py",
+        _CHECK.name,
+        "enforcement_report.py",
+    ) == binding_check.SKIPPED_FILES
 
     monkeypatch.setattr(
         binding_check, "SKIPPED_FILES", (_CHECK.name, "zz_also_skipped.py")
@@ -762,6 +766,51 @@ def test_detector_files_lists_what_check_bindings_reports(tmp_path: Path) -> Non
     assert files == tuple(
         d.file_name for d in binding_check.check_bindings(tmp_path).detectors
     )
+
+
+def test_undecided_files_names_the_listed_files_that_could_not_be_parsed(
+    tmp_path: Path,
+) -> None:
+    _detector(tmp_path, "zz_a")
+    _detector(tmp_path, "zz_broken", "def broken(:\n")
+    _detector(tmp_path, "zz_text", "TODO: write this detector later\n")
+    _detector(tmp_path, "zz_module", "ZZ_VALUE = 1\n")
+
+    undecided = binding_check.undecided_files(tmp_path)
+
+    assert undecided == ("zz_broken.py", "zz_text.py")
+    assert binding_check.detector_files(tmp_path) == (
+        "zz_a.py",
+        "zz_broken.py",
+        "zz_text.py",
+    )
+
+
+def test_undecided_files_names_a_listed_file_that_could_not_be_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _detector(tmp_path, "zz_a")
+    _detector(tmp_path, "zz_noread")
+    read_bytes = Path.read_bytes
+
+    def refuse(self: Path) -> bytes:
+        if self.name == "zz_noread.py":
+            raise PermissionError("zz-refused")
+        return read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", refuse)
+
+    assert binding_check.undecided_files(tmp_path) == ("zz_noread.py",)
+
+
+def test_undecided_files_is_empty_when_every_file_parses_and_none_without_a_directory(
+    tmp_path: Path,
+) -> None:
+    _detector(tmp_path / "zz_dir", "zz_a")
+    _detector(tmp_path / "zz_dir", "zz_module", "ZZ_VALUE = 1\n")
+
+    assert binding_check.undecided_files(tmp_path / "zz_dir") == ()
+    assert binding_check.undecided_files(tmp_path / "zz_absent") is None
 
 
 # ---------------------------------------------------------------------------

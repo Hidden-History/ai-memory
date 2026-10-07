@@ -39,7 +39,7 @@ from typing import NamedTuple
 DEFAULT_ROOT = Path(__file__).resolve().parent
 
 #: Files in this check's own directory that it does not check, by file name.
-SKIPPED_FILES = ("binding_check.py", "enforcement_report.py")
+SKIPPED_FILES = ("detector_runner.py", "binding_check.py", "enforcement_report.py")
 
 FIXTURES_DIR = "fixtures"
 MANIFEST = "fixture-pair.json"
@@ -198,6 +198,19 @@ def detector_files(root: Path) -> tuple[str, ...] | None:
     """
     found, _ = _scan(Path(root))
     return None if found is None else tuple(found)
+
+
+def undecided_files(root: Path) -> tuple[str, ...] | None:
+    """The file names ``detector_files`` lists that could not be read or parsed.
+
+    Each is in that list because it cannot be shown not to be a Detector,
+    not because it was found to be one. Returns ``None`` when *root* is not
+    a directory or cannot be listed.
+    """
+    found, _ = _scan(Path(root))
+    if found is None:
+        return None
+    return tuple(name for name, error in found.items() if error)
 
 
 def _contained(pair: Path, value: object) -> Path | None:
