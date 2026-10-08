@@ -135,24 +135,34 @@ class TestInstallSummaryPanelPair:
             f"that cannot work:\n{out}"
         )
 
-    def test_opt_out_advises_BOTH_setting_the_flag_and_re_running(
+    def test_opt_out_advises_re_running_and_no_longer_names_the_flag(
         self, install_sh_no_main, tmp_path
     ):
-        """Both clauses, because one without the other is a trap.
+        """STALE ASSERTION UPDATED, INVARIANT STRENGTHENED (Story 1.2).
 
-        Every other surface pairs them (parzival_state._MESSAGES, both aim-save
-        SKILL copies, CLAUDE-PARZIVAL-SECTION.md). Advising the flag alone tells the
-        operator to set PARZIVAL_ENABLED=true while PARZIVAL_ENABLED_CAUSE=opt-out
-        remains — hand-building the (enabled x non-empty cause) cell that
+        This asserted that the arm advises BOTH setting PARZIVAL_ENABLED=true and
+        re-running, on the grounds that the flag advice alone is a trap: it tells
+        the operator to set the flag while PARZIVAL_ENABLED_CAUSE=opt-out remains,
+        hand-building the (enabled x non-empty cause) cell that
         docs/PARZIVAL-SESSION-GUIDE.md warns against, by documented procedure.
-        Re-running is what clears the cause.
+
+        That reasoning is unchanged and is exactly why the pairing is no longer
+        the right remedy. Under FR-1/AD-68 the installer converts a not-enabled
+        record on every run, so the flag is not the operator's lever at all and
+        naming it is not merely optional-sounding but FALSE. Removing the flag
+        clause satisfies the concern this test was written to protect MORE
+        completely than pairing did: there is no flag advice left to be a trap.
+        The re-run clause stays, because re-running is what clears the cause --
+        configure_parzival_env writes value + empty-cause in one pass.
         """
         out = self._panel(install_sh_no_main, _env_dir(tmp_path, "opt-out"))
-        assert "declined at install" in out, out
-        assert "PARZIVAL_ENABLED=true" in out, out
-        assert "re-run the installer" in out, (
-            "the flag advice must carry its re-run clause, or it steers the "
-            f"operator into the forbidden cell:\n{out}"
+        assert "re-run the installer" in out.lower(), (
+            "the arm must still tell the operator what actually enables "
+            f"Parzival:\n{out}"
+        )
+        assert "PARZIVAL_ENABLED=true" not in out, (
+            "the conversion makes the flag no longer the operator's lever, so "
+            f"naming it steers them into the forbidden cell for nothing:\n{out}"
         )
 
     def test_unrecorded_cause_claims_neither(self, install_sh_no_main, tmp_path):

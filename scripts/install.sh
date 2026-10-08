@@ -4947,17 +4947,28 @@ show_success_message() {
             echo "│       Re-run the installer to deploy _ai-memory/           │"
             ;;
         opt-out)
+            # NOT TOUCHED BY THIS STORY, DELIBERATELY. "declined at install" is
+            # a forbidden CLAIM (AD-67) -- every non-interactive install reached
+            # this arm and none of them declined -- but that is a claim-half
+            # defect, and AC-5's quantifier reaches optionality framing, not
+            # claims. Absorbing it here would be scope creep dressed as a fix, so
+            # it is reported to the dispatching PM for routing and left as-is.
             echo "│     ○ Parzival V2 not enabled — declined at install        │"
-            # The re-run clause is NOT optional padding. Every other surface
-            # carries it (parzival_state._MESSAGES, both aim-save SKILL copies,
-            # CLAUDE-PARZIVAL-SECTION.md); omitting it here told the operator to
-            # set the flag true while PARZIVAL_ENABLED_CAUSE=opt-out remained,
-            # i.e. to hand-build the (enabled x non-empty cause) cell that
-            # docs/PARZIVAL-SESSION-GUIDE.md warns against — by documented
-            # procedure. Re-running is what clears the cause (configure_parzival_env
-            # writes value+empty-cause in one pass).
-            echo "│       Set PARZIVAL_ENABLED=true in docker/.env, then       │"
-            echo "│       re-run the installer to enable it                    │"
+            # The remedy no longer names the flag as the operator's lever. Under
+            # FR-1/AD-68 the installer converts an opt-out record on every run,
+            # so "set PARZIVAL_ENABLED=true, then re-run" is not merely
+            # optional-sounding, it is FALSE: re-running alone is what enables,
+            # and the hand-set flag it used to instruct is the (enabled x
+            # non-empty cause) cell docs/PARZIVAL-SESSION-GUIDE.md warns against.
+            # The re-run clause itself is NOT padding and stays: every other
+            # surface carries it, and re-running is what clears the cause
+            # (configure_parzival_env writes value+empty-cause in one pass).
+            #
+            # Whether this arm still has a reachable state after this story is a
+            # separate question (AD-71) and is reported, not acted on: the panel
+            # branches on the RECORD, and a legacy opt-out record stays on disk
+            # until a run converts it. Removing the reader is not commissioned.
+            echo "│       Re-run the installer to enable it                    │"
             ;;
         *)
             # DECLINE TO ASSERT WHAT THIS BRANCH CANNOT KNOW. Reaching here means
@@ -5196,9 +5207,122 @@ cleanup_stale_tilde_dir() {
 
 # Deploy _ai-memory/ package to target project
 # On V2->V2 update: removes stale files, preserves _memory/ user-created data
+# Backup bookkeeping for deploy_parzival_v2's stop points.
+#
+# Errexit does NOTHING inside deploy_parzival_v2: its only caller is
+# `deploy_parzival_v2 || {`, and bash suppresses set -e for the whole body of a
+# function called on the left of ||. So a failing rm -rf, cp -r or cp -p used to
+# be ignored, the function ran on to log_success and returned 0, and
+# configure_parzival_env then recorded enabled/complete over a package that was
+# half written. That is the half-converted-and-silent outcome AC-4 forbids, and
+# it was recorded as a success. Each stop point therefore tests its own exit
+# status explicitly. Removing the || to get errexit back is not an option: the
+# note beside that call site (R2-NF1) records that a bare return 1 would then
+# kill the installer.
+#
+# The return status tells the caller WHICH KIND of stop it was:
+#   1  stopped BEFORE the destination was touched -- $dst still holds what it
+#      held, so the install is recoverable by re-running and nothing is retained
+#   2  stopped AFTER the destination was touched -- $dst is partial, and the
+#      backups are the operator's only copy
+_PARZIVAL_STOP_BACKUPS=""
+
+# Before-touch stop: leave no backup directory created by this run, complete or
+# not. A stop at the sanctum backup leaves a COMPLETE _memory backup behind, so
+# this takes every path it is given rather than only the one that failed.
+_parzival_discard_backups() {
+    local path
+    for path in "$@"; do
+        [[ -n "$path" ]] || continue
+        rm -rf "$path" 2>/dev/null || true
+    done
+}
+
+# After-touch stop: record the backups that STILL EXIST, so the report names
+# every recovery copy and names no path that is not there. By the time the
+# sanctum restore loop runs, the _memory backup has already been removed and its
+# variable cleared; a project that never had _memory/ or sanctum/ never made the
+# matching backup at all.
+_parzival_note_retained_backups() {
+    local path
+    _PARZIVAL_STOP_BACKUPS=""
+    for path in "$@"; do
+        [[ -n "$path" && -d "$path" ]] || continue
+        _PARZIVAL_STOP_BACKUPS+="${_PARZIVAL_STOP_BACKUPS:+$'\n'}$path"
+    done
+}
+
+# Each backup folder carries the path of the project it was taken from, in this
+# file. The folder names do not, and INSTALL_DIR is shared by every project on
+# the machine, so without it nothing could say where a kept backup belongs.
+_PARZIVAL_BACKUP_PROJECT_NOTE="project-path.txt"
+
+# Print the commands that put kept backups back into a project, for the operator
+# to run. The installer does not run them: the backups are the only copy of the
+# content, and restoring is the operator's step.
+#
+# The order is copy back FIRST, then re-run. A re-run on its own deploys a
+# package with none of the operator's content in it and never reads a kept
+# backup. After a copy-back, the re-run's own backup-and-restore carries the
+# content through the deploy. Plain `cp -a`, so the backup wins over anything a
+# partial deploy left in the project.
+#
+# Only a folder that still exists gets a command: a stop in the sanctum restore
+# comes after the _memory backup has been restored and removed.
+#
+# The commands are echoed bare, indented and with no log prefix, so that they
+# can be copied as they stand.
+# Args: <project path> <newline-separated backup paths>
+_parzival_print_recovery_commands() {
+    local project="$1"
+    local backups="$2"
+    local path part kept=""
+
+    printf '    mkdir -p %q\n' "$project/_ai-memory"
+    while IFS= read -r path; do
+        [[ -n "$path" && -d "$path" ]] || continue
+        for part in _memory sanctum; do
+            if [[ -d "$path/$part" ]]; then
+                printf '    cp -a %q %q\n' "$path/$part" "$project/_ai-memory/"
+            fi
+        done
+        kept+=" $(printf '%q' "$path")"
+    done <<< "$backups"
+    printf '    %q %q\n' "$SCRIPT_DIR/install.sh" "$project"
+    log_warning "When the content is back in the project, delete the kept copies:"
+    echo "    rm -rf$kept"
+}
+
+# A stop after the destination was touched keeps its backups, and that run still
+# exits 0, so its message is easy to miss. Each later deploy for the same
+# project therefore lists what is still kept, with the same commands.
+#
+# Only backups recorded for THIS project are listed. INSTALL_DIR is shared, and
+# a folder without the note, or with another project's path in it, may be the
+# working backup of an install that is running right now.
+_parzival_remind_of_kept_backups() {
+    local note kept=""
+    for note in "$INSTALL_DIR"/.parzival-*-backup-*/"$_PARZIVAL_BACKUP_PROJECT_NOTE"; do
+        [[ -f "$note" ]] || continue
+        [[ "$(head -n 1 "$note" 2>/dev/null)" == "$PROJECT_PATH" ]] || continue
+        kept+="${kept:+$'\n'}${note%/*}"
+    done
+    [[ -n "$kept" ]] || return 0
+
+    log_warning "An earlier install of this project stopped partway and kept copies of its _memory/ and sanctum/ content:"
+    while IFS= read -r note; do
+        log_warning "  $note"
+    done <<< "$kept"
+    log_warning "The installer does not restore them. If that content is not back in the project yet, run these commands in this order once this run has finished: copy the kept copies back first, then re-run the installer."
+    _parzival_print_recovery_commands "$PROJECT_PATH" "$kept"
+}
+
 deploy_parzival_v2() {
     local src="$INSTALL_DIR/_ai-memory"
     local dst="$PROJECT_PATH/_ai-memory"
+
+    _PARZIVAL_STOP_BACKUPS=""
+    _parzival_remind_of_kept_backups
 
     if [[ ! -d "$src" ]]; then
         log_error "_ai-memory/ package not found in $INSTALL_DIR"
@@ -5206,42 +5330,109 @@ deploy_parzival_v2() {
         return 1
     fi
 
-    # Preserve _memory/ user-created files on update
-    # PID-suffixed path prevents race conditions with parallel installs (R2-NF6)
-    local mem_backup="$INSTALL_DIR/.parzival-memory-backup-$$"
-    rm -rf "$mem_backup" 2>/dev/null || true
+    # Preserve _memory/ user-created files on update.
+    #
+    # mktemp -d, NOT a $$ suffix. The PID suffix was chosen to keep parallel
+    # installs off each other's backup paths (R2-NF6), and mktemp does that at
+    # least as well -- but a PID repeats, when it wraps and in a fresh PID
+    # namespace, and each run used to begin by rm -rf'ing its own two paths. A
+    # backup deliberately RETAINED by an after-touch stop (below) therefore sat
+    # on a path a later run would delete and then reuse, which would destroy the
+    # only recovery copy this function's own report had just named. A freshly
+    # minted name cannot collide with one, so the pre-clean is gone with it.
+    local mem_backup=""
     if [[ -d "$dst/_memory" ]]; then
-        mkdir -p "$mem_backup"
-        cp -rp "$dst/_memory" "$mem_backup/"
+        if ! mem_backup=$(mktemp -d "$INSTALL_DIR/.parzival-memory-backup-XXXXXX"); then
+            log_error "Could not create a backup directory for _memory/ — Parzival deployment stopped before the project was touched"
+            return 1
+        fi
+        if ! cp -rp "$dst/_memory" "$mem_backup/" \
+            || ! printf '%s\n' "$PROJECT_PATH" > "$mem_backup/$_PARZIVAL_BACKUP_PROJECT_NOTE"; then
+            log_error "Could not back up _memory/ — Parzival deployment stopped before the project was touched"
+            _parzival_discard_backups "$mem_backup"
+            return 1
+        fi
         log_debug "Preserved _memory/ user data for restore"
     fi
 
     # Preserve sanctum/ per-instance identity on update (installer-audit.md §E2)
-    # PID-suffixed path prevents race conditions with parallel installs
-    local sanctum_backup="$INSTALL_DIR/.parzival-sanctum-backup-$$"
-    rm -rf "$sanctum_backup" 2>/dev/null || true
+    local sanctum_backup=""
     if [[ -d "$dst/sanctum" ]]; then
-        mkdir -p "$sanctum_backup"
-        cp -rp "$dst/sanctum" "$sanctum_backup/"
+        if ! sanctum_backup=$(mktemp -d "$INSTALL_DIR/.parzival-sanctum-backup-XXXXXX"); then
+            log_error "Could not create a backup directory for sanctum/ — Parzival deployment stopped before the project was touched"
+            _parzival_discard_backups "$mem_backup"
+            return 1
+        fi
+        if ! cp -rp "$dst/sanctum" "$sanctum_backup/" \
+            || ! printf '%s\n' "$PROJECT_PATH" > "$sanctum_backup/$_PARZIVAL_BACKUP_PROJECT_NOTE"; then
+            log_error "Could not back up sanctum/ — Parzival deployment stopped before the project was touched"
+            # BOTH, not just this one: the _memory backup finished successfully
+            # before this point, so a stop here leaves a COMPLETE backup behind
+            # as well as an incomplete one. A before-touch stop leaves no backup
+            # directory created by this run, whichever backup failed.
+            _parzival_discard_backups "$mem_backup" "$sanctum_backup"
+            return 1
+        fi
         log_debug "Preserved sanctum/ user identity for restore"
     fi
 
-    # Clean destination to remove stale files (R1-Finding-4)
-    # _memory/ and sanctum/ are already backed up above
+    # TD-819: refuse to recursively delete anything that is not the managed
+    # _ai-memory/ destination. The existing guard was an EXISTENCE check, and
+    # existence is not a path shape -- AC-4 says fail CLOSED, and an unguarded
+    # recursive delete is the one operation that cannot. This story is what
+    # multiplies the blast radius: on an update over a never-converted install
+    # $dst holds the operator's real _memory/ and sanctum/. The shape and the
+    # exit 1 are copied from prune_pov_shims rather than invented; refusing
+    # aborts the run rather than recording anything, because a $dst that is not
+    # the managed path means PROJECT_PATH itself is wrong.
     if [[ -d "$dst" ]]; then
-        rm -rf "$dst"
+        # The shape is "absolute, at least one component below the root, and
+        # named _ai-memory". A bare */_ai-memory test would be tautological --
+        # $dst is built as "$PROJECT_PATH/_ai-memory", so it always ends that
+        # way and the guard could never fire. What can go wrong is PROJECT_PATH:
+        # install.sh silently falls back to the current directory when it cannot
+        # enter its target argument, which yields a RELATIVE path, and an empty
+        # PROJECT_PATH yields "/_ai-memory" at the filesystem root. Both are
+        # rejected here; a normal absolute target is not.
+        if [[ "$dst" != /*/_ai-memory ]]; then
+            log_error "Refusing to rm -rf unexpected Parzival destination: $dst"
+            exit 1
+        fi
+        # The delete is itself a stop point, and an after-touch one: a
+        # recursive delete that fails has usually removed part of the tree
+        # first, so the destination no longer holds what it held. Copying the
+        # package over what is left and recording the run as complete would
+        # hide that.
+        if ! rm -rf "$dst"; then
+            log_error "Could not remove $dst"
+            _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+            return 2
+        fi
     fi
 
-    # Deploy fresh package
-    mkdir -p "$dst"
+    # Past this line the destination has been touched and the backups are the
+    # only copy of the operator's _memory/ and sanctum/ content. Every stop from
+    # here returns 2, and KEEPS the backups on purpose -- deleting them is what
+    # would make the condition unrecoverable, which AC-4 forbids.
+    _PARZIVAL_STOP_BACKUPS=""
+
+    if ! mkdir -p "$dst"; then
+        log_error "Could not create $dst"
+        _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+        return 2
+    fi
     if compgen -G "$src/*" > /dev/null 2>&1; then
-        cp -r "$src/"* "$dst/"
+        if ! cp -r "$src/"* "$dst/"; then
+            log_error "Could not copy the _ai-memory/ package into $dst"
+            _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+            return 2
+        fi
     fi
     find "$dst" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
     # Restore user-created _memory/ files (R1-Finding-5)
     # Only restore files that are NOT in the fresh template (user-created content only)
-    if [[ -d "$mem_backup/_memory" ]]; then
+    if [[ -n "$mem_backup" && -d "$mem_backup/_memory" ]]; then
         while IFS= read -r -d '' user_file; do
             local rel="${user_file#$mem_backup/_memory/}"
             local template_file="$dst/_memory/$rel"
@@ -5249,25 +5440,42 @@ deploy_parzival_v2() {
                 # User-created file not in template — restore it
                 local target_dir
                 target_dir=$(dirname "$dst/_memory/$rel")
-                mkdir -p "$target_dir"
-                cp -p "$user_file" "$dst/_memory/$rel"
+                if ! mkdir -p "$target_dir"; then
+                    log_error "Could not recreate $target_dir while restoring _memory/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
+                if ! cp -p "$user_file" "$dst/_memory/$rel"; then
+                    log_error "Could not restore $rel into _memory/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
             fi
         done < <(find "$mem_backup/_memory" -type f -print0 2>/dev/null)
         rm -rf "$mem_backup"
+        mem_backup=""
         log_debug "Restored user-created _memory/ files"
     fi
 
     # Restore per-instance sanctum/ identity files (parzival-answers.md DQ-1)
     # Only restores files NOT present in the fresh template (user/instance-created content only)
-    if [[ -d "$sanctum_backup/sanctum" ]]; then
+    if [[ -n "$sanctum_backup" && -d "$sanctum_backup/sanctum" ]]; then
         while IFS= read -r -d '' user_file; do
             local rel="${user_file#$sanctum_backup/sanctum/}"
             local template_file="$dst/sanctum/$rel"
             if [[ ! -f "$template_file" ]]; then
                 local target_dir
                 target_dir=$(dirname "$dst/sanctum/$rel")
-                mkdir -p "$target_dir"
-                cp -p "$user_file" "$dst/sanctum/$rel"
+                if ! mkdir -p "$target_dir"; then
+                    log_error "Could not recreate $target_dir while restoring sanctum/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
+                if ! cp -p "$user_file" "$dst/sanctum/$rel"; then
+                    log_error "Could not restore $rel into sanctum/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
             fi
         done < <(find "$sanctum_backup/sanctum" -type f -print0 2>/dev/null)
         log_debug "Restored per-instance sanctum/ identity files"
@@ -5278,7 +5486,7 @@ deploy_parzival_v2() {
     # Static identity fields come from new template
     # F-M2 fix: helper path injectable for failure-mode regression test
     local _creed_merge_script="${CREED_MERGE_SCRIPT:-$SCRIPT_DIR/_merge_sanctum_creed_frontmatter.py}"
-    if [[ -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
+    if [[ -n "$sanctum_backup" && -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
         if python3 "$_creed_merge_script" \
                 "$sanctum_backup/sanctum/parzival/CREED.md" \
                 "$dst/sanctum/parzival/CREED.md"; then
@@ -5286,11 +5494,20 @@ deploy_parzival_v2() {
         else
             local merge_rc=$?
             log_error "CREED frontmatter merge failed (rc=$merge_rc) — restoring backup CREED.md verbatim to preserve user identity"
-            cp -p "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"
+            # A failed merge is NOT a stop: this fallback is what handles it. A
+            # failed FALLBACK is, because then the operator's CREED.md is gone
+            # from the destination and survives only in the backup.
+            if ! cp -p "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"; then
+                log_error "Could not restore CREED.md verbatim"
+                _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                return 2
+            fi
         fi
     fi
 
-    rm -rf "$sanctum_backup" 2>/dev/null || true
+    if [[ -n "$sanctum_backup" ]]; then
+        rm -rf "$sanctum_backup" 2>/dev/null || true
+    fi
 
     local file_count
     file_count=$(find "$dst" -type f | wc -l)
@@ -5453,7 +5670,10 @@ setup_model_dispatch() {
         return 0
     fi
 
-    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch
+    # End-of-input is a "no". read returns non-zero when stdin is exhausted, and
+    # this function is called bare under the global errexit, so without the
+    # guard the installer dies here after the record already says enabled.
+    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch || setup_dispatch=""
     if [[ "$setup_dispatch" =~ ^[Yy] ]]; then
         log_info "Launching model dispatch setup..."
         bash "$dispatch_installer" || {
@@ -5757,21 +5977,37 @@ setup_parzival() {
         return 0
     fi
 
-    # Non-interactive CI runs skip Parzival unless INSTALL_PARZIVAL=true
-    local parzival_enable=false
+    # FR-1: every install produces a working agent, on BOTH entry mechanisms.
+    # The non-interactive gate and the interactive path are two separate sites
+    # (AD-45), and changing one is not a discharge -- so both are changed here.
+    # The variable stays because the two mechanisms still log differently; every
+    # arm now enables.
+    #
+    # INSTALL_PARZIVAL is an opt-IN variable: INSTALL.md ships the contract that
+    # it "only enables Parzival when its value is the literal string true. Any
+    # other value (including 1, yes, or unset) leaves the default skip behavior
+    # in place". `false` was therefore never a decline, and DEC-PM441-D1 rules
+    # that it CONVERTS like any other non-true value. There is no supported
+    # disable path; the product offers no off-switch and does not chase one an
+    # operator hand-makes (DEC-PM441-D3).
+    local parzival_enable=true
     if [[ "${INSTALL_PARZIVAL:-}" == "true" ]]; then
-        parzival_enable=true
         log_info "INSTALL_PARZIVAL=true — enabling Parzival V2 for this project"
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
-        log_info "Non-interactive mode — skipping Parzival setup (set INSTALL_PARZIVAL=true to enable)"
-        set_parzival_enablement "false" "opt-out"
-        sync_parzival_settings
-        return 0
+        log_info "Non-interactive mode — enabling Parzival V2 for this project"
     else
-        echo ""
-        echo "══════════════════════════════════════════════════════════"
-        echo "  Parzival Session Agent (Optional)"
-        echo "══════════════════════════════════════════════════════════"
+        # DEC-PM465-D1 (option A): setup_parzival solicits NO input on
+        # enablement. The enablement read, its yes/no hint, its affirmative
+        # match, its EOF branch and the banner that introduced it are all
+        # removed -- a blocking read IS input on the question, and FR-1
+        # consequence 1 requires a fresh interactive install to produce a
+        # working Parzival with no user input on it. The removed strings are
+        # deliberately NOT quoted here: AC-5's sweep asserts their ABSENCE from
+        # this file, and a comment reproducing them would defeat that check
+        # while looking like documentation. The descriptive lines below are
+        # kept -- they describe what the agent does, never that it is optional,
+        # and no AC commissions removing them.
+        log_info "Enabling Parzival V2 for this project"
         echo ""
         echo "Parzival is a Technical PM & Quality Gatekeeper that provides:"
         echo "  - Cross-session memory (remembers previous sessions via Qdrant)"
@@ -5779,50 +6015,6 @@ setup_parzival() {
         echo "  - Quality gatekeeping (verification checklists)"
         echo "  - Parallel agent team dispatch and review cycles"
         echo ""
-        # `read` returns non-zero on EOF EVEN WHEN IT HAS ALREADY POPULATED THE
-        # VARIABLE. `printf 'y' | ./install.sh`, a heredoc with no trailing
-        # newline, and an expect driver all deliver a real answer with no final
-        # newline -- so testing the return code alone DISCARDS the operator's `y`
-        # and records a decline. The answer is what was typed, not what the exit
-        # status implies: treat a populated variable as an answer regardless.
-        #
-        # A genuine EOF (nothing typed) WRITES NOTHING TO THE RECORD.
-        # Three reasons, in increasing severity:
-        #   1. A cause is a claim about operator intent (AD-32) and a closed stdin
-        #      supports no such claim -- so `opt-out` is out.
-        #   2. Writing an empty cause DESTROYS INFORMATION: a `cause=failed` from an
-        #      earlier run is overwritten, turning a correctly recorded deployment
-        #      failure into `unknown`. Nothing reads the prior cause first.
-        #   3. `setup_parzival` performs ZERO reads of the existing PARZIVAL_ENABLED
-        #      before prompting, so writing `false` here DISABLES A DEPLOYED, WORKING
-        #      PARZIVAL because nobody answered a prompt -- flatly against
-        #      DEC-PM441-D1 ("Parzival enabled all the time; the installer should
-        #      override an opt-out"), and against AD-71 (ratified DEC-PM441-D4),
-        #      under which a failed deployment is the sole permitted terminal
-        #      not-enabled state. AD-71 is NOT quoted here on purpose: the
-        #      decision-log rendering of it was found truncated at PM #442, and the
-        #      authoritative text is the spine's own. Reason 3 does not lean on it --
-        #      DEC-PM441-D1 alone forbids the installer turning Parzival off.
-        # Writing nothing leaves whatever the record already held: on a fresh install
-        # that is `copy_files`' false/empty/complete from .env.example -- byte-for-byte
-        # what this branch used to write -- and on a re-install it is the true record.
-        # The write bought nothing where it was correct and destroyed where it was not.
-        # This is distinct from NON_INTERACTIVE above, which IS a configured choice.
-        local parzival_choice=""
-        local parzival_read_rc=0
-        read -r -p "Enable Parzival session agent? [y/N] " parzival_choice || parzival_read_rc=$?
-        if (( parzival_read_rc != 0 )) && [[ -z "$parzival_choice" ]]; then
-            log_warning "No response on stdin (EOF) — skipping Parzival setup; the enablement record is left unchanged"
-            sync_parzival_settings
-            return 0
-        fi
-
-        local parzival_choice_normalized
-        parzival_choice_normalized=$(printf '%s' "$parzival_choice" | tr '[:upper:]' '[:lower:]')
-
-        if [[ "$parzival_choice_normalized" =~ ^(y|yes)$ ]]; then
-            parzival_enable=true
-        fi
     fi
 
     if [[ "$parzival_enable" == "true" ]]; then
@@ -5845,9 +6037,58 @@ setup_parzival() {
         # Deploy _ai-memory/ package (must be before shims)
         # Wrapped with error handler (R2-NF1: return 1 would crash under set -e)
         deploy_parzival_v2 || {
+            local parzival_deploy_rc=$?
             log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted (cause=failed)"
-            log_info "The installer will continue without Parzival"
-            set_parzival_enablement "false" "failed"
+            if (( parzival_deploy_rc == 2 )); then
+                # AC-4: the deployment stopped AFTER the destination was touched,
+                # so the project carries a partial package. State it, make it
+                # recoverable, and REPORT it -- recording without reporting does
+                # not satisfy AC-4. condition=partial is passed as an explicit
+                # third argument; every other call site passes two and so writes
+                # the default, complete.
+                #
+                # The token is a literal, not a prose string, and is deliberately
+                # NOT a member of the parzival_notice= family: that notice is
+                # AD-66's cause-blind state-change diff, it has no condition
+                # input, and it stays silent precisely when a stop leaves the
+                # effective state unchanged -- which is the usual case here.
+                log_error "Parzival deployment stopped after the project was modified; _ai-memory/ at $PROJECT_PATH is incomplete. (parzival_condition=partial)"
+                if [[ -n "$_PARZIVAL_STOP_BACKUPS" ]]; then
+                    log_error "Your _memory/ and sanctum/ content is preserved in:"
+                    while IFS= read -r _parzival_backup_path; do
+                        [[ -n "$_parzival_backup_path" ]] || continue
+                        log_error "  $_parzival_backup_path"
+                    done <<< "$_PARZIVAL_STOP_BACKUPS"
+                    # These live under INSTALL_DIR, and an aborted full-mode run
+                    # prints "To clean up and retry: rm -rf $INSTALL_DIR". Left
+                    # unsaid, the installer's own advice would tell the operator
+                    # to delete the only recovery copy it had just handed them.
+                    log_error "Copy them elsewhere before running any 'rm -rf $INSTALL_DIR' cleanup advice."
+                    # A re-run alone does NOT bring this content back, so the
+                    # commands are printed rather than described.
+                    log_error "The installer does not restore this content. To get it back, run these commands in this order: copy the kept copies back first, then re-run the installer."
+                    _parzival_print_recovery_commands "$PROJECT_PATH" "$_PARZIVAL_STOP_BACKUPS"
+                else
+                    log_info "Re-run the installer to redeploy Parzival"
+                fi
+                # Said only once the record is known to be written: a failed
+                # write is counted and ends the run with exit 3 instead, and
+                # then neither half of this sentence would be true.
+                local parzival_record_failures_before=$PARZIVAL_RECORD_FAILURES
+                set_parzival_enablement "false" "failed" "partial"
+                if (( PARZIVAL_RECORD_FAILURES == parzival_record_failures_before )); then
+                    log_error "This stop does not change the installer's exit code: unless a later step fails, this run ends with exit code 0. The install record says PARZIVAL_ENABLED=false, PARZIVAL_ENABLED_CAUSE=failed, PARZIVAL_ENABLED_CONDITION=partial."
+                fi
+            else
+                # Stopped before the destination was touched: it still holds what
+                # it held, so the condition is the default one. This is also the
+                # existing package-missing return 1.
+                log_info "The installer will continue without Parzival"
+                set_parzival_enablement "false" "failed"
+            fi
+            # configure_parzival_env must NOT run after either stop: its
+            # two-argument true-write would record enabled and reset the
+            # condition to complete over a package that is not there.
             sync_parzival_settings
             return 0
         }
@@ -5912,10 +6153,6 @@ setup_parzival() {
         setup_model_dispatch
 
         log_success "Parzival V2 enabled"
-    else
-        log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
-        set_parzival_enablement "false" "opt-out"
-        sync_parzival_settings
     fi
 }
 
@@ -6084,25 +6321,77 @@ if not rows:
     sys.exit(0)
 
 rows.sort(key=lambda r: r[0])
+
+
+def classify(old, dep, new):
+    """Derive the classification from the digest TRIPLE, never from the fact
+    that a row exists (TD-850, first over-fire).
+
+    Every entry used to be stamped MANAGED_MERGE_REQUIRED / high / merge from a
+    hardcoded literal, so the manifest asserted "local edits AND upstream both
+    changed since the last-shipped base" about rows where it could not possibly
+    know that -- and a report that asks for a three-way merge on nearly every
+    entry is not a report. Populating old_shipped_hash alone fixes nothing while
+    the literal stands; the literal is the defect.
+
+    The three cases are the three the record measured, not invented buckets:
+
+    * NO BASE (old == ""). Base B is unidentifiable -- either a legacy
+      pre-manifest file, or a path with several known prior-shipped hashes that
+      the registry cannot order. A three-way merge needs a base, so asking for
+      one here is asking for something nobody can perform. Surfaced for review.
+    * TEMPLATE UNCHANGED (old == new). The shipped template has not moved since
+      the recorded base; only the project copy has. That is local drift, not a
+      conflict, and there is nothing upstream to adopt.
+    * GENUINELY BOTH-CHANGED. Base known, template moved off it, project moved
+      off it. This is BP-187's "conflict" quadrant and the only one that is
+      really a merge.
+
+    Every row stays IN the manifest whatever its class: the over-fire was in
+    what the entries claimed, not in which files were surfaced.
+    """
+    if not old:
+        return (
+            "BASE_UNKNOWN",
+            "review",
+            "low",
+            "No identifiable last-shipped base for this path, so upstream "
+            "movement cannot be established and a 3-way merge has no base to "
+            "merge from. Review the local copy against the current template.",
+        )
+    if old == new:
+        return (
+            "LOCAL_DRIFT_ONLY",
+            "review",
+            "low",
+            "The shipped template has not changed since the recorded base; only "
+            "the project copy differs. Local drift to review, with nothing "
+            "upstream to adopt.",
+        )
+    return (
+        "MANAGED_MERGE_REQUIRED",
+        "merge",
+        "high",
+        "Local edits and upstream template both changed since last deploy; "
+        "3-way merge required to preserve user data while adopting the "
+        "structural update.",
+    )
+
+
 entries = []
 for order, (rel, old, dep, new) in enumerate(rows):
+    classification, action, severity, rationale = classify(old, dep, new)
     entries.append(
         {
             "id": rel,
             "path": f"oversight/{rel}",
-            # Both-changed = BP-187 4-outcome "conflict": user edits AND upstream
-            # both moved since the last-shipped base -> 3-way merge required.
-            "classification": "MANAGED_MERGE_REQUIRED",
+            "classification": classification,
             "old_shipped_hash": old,  # base B (may be "" for a legacy pre-manifest file)
             "deployed_hash": dep,
             "new_template_hash": new,
-            "suggested_action": "merge",
-            "rationale": (
-                "Local edits and upstream template both changed since last "
-                "deploy; 3-way merge required to preserve user data while "
-                "adopting the structural update."
-            ),
-            "severity": "high",
+            "suggested_action": action,
+            "rationale": rationale,
+            "severity": severity,
             "order": order,
         }
     )
@@ -6146,6 +6435,63 @@ PY
 
 # Core engine. $1 = "deploy" (apply) | "check" (dry-run, report + exit code).
 # Uses globals INSTALL_DIR + PROJECT_PATH. Silent when everything is in-sync.
+# Install a shipped template over a project file crash-atomically (TD-825).
+#
+# The three deploy paths below -- new file, stale-unmodified sync, stale-migrate
+# -- each used a bare `cp`, which truncates the destination and then fills it.
+# A crash or a killed installer mid-`cp` leaves a HYBRID file: half the old
+# oversight record, half the new template, with nothing to say so. That is the
+# WSL2 corruption mode this project has already been bitten by, and an oversight
+# record is exactly the kind of file whose truncation is discovered late.
+#
+# ADOPTED, NOT DESIGNED. The invariant is reconcile_engine.py::atomic_write's,
+# per BP-187 §4: write a temp file in the SAME directory (so the rename is never
+# cross-device) -> flush -> fsync -> os.replace -> fsync the directory. install.sh
+# already demonstrates this shape itself, in _write_pending_updates' inline
+# python, which is why this is inline python too rather than a third pattern in
+# shell. Mode is carried across from the source template, the way cp would.
+#
+# The fourth branch -- both-changed / needs-merge -- never copies at all. It is
+# the genuinely no-clobber path and is deliberately untouched.
+_atomic_install_file() {
+    local src="$1" dest="$2"
+    python3 - "$src" "$dest" <<'PY'
+import os
+import shutil
+import sys
+import tempfile
+
+src, dest = sys.argv[1:3]
+directory = os.path.dirname(dest) or "."
+
+fd, tmp = tempfile.mkstemp(dir=directory, prefix=os.path.basename(dest) + ".", suffix=".tmp")
+try:
+    with open(src, "rb") as fh_in, os.fdopen(fd, "wb") as fh_out:
+        shutil.copyfileobj(fh_in, fh_out)
+        fh_out.flush()
+        os.fsync(fh_out.fileno())
+    shutil.copymode(src, tmp)
+    os.replace(tmp, dest)
+except BaseException:
+    # Leave the original intact; never publish a partial destination.
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    raise
+
+# Best-effort: fsync the directory so the rename itself survives a crash.
+try:
+    dir_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+except OSError:
+    pass
+PY
+}
+
 _sync_oversight_templates() {
     local mode="$1"
     local tmpl_source="$INSTALL_DIR/templates/oversight"
@@ -6199,7 +6545,7 @@ _sync_oversight_templates() {
             n_new=$((n_new + 1))
             if [[ "$mode" == "deploy" ]]; then
                 mkdir -p "$(dirname "$dest_file")"
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
             else
                 echo "  [new]     oversight/$rel_path (would deploy)"
@@ -6221,7 +6567,7 @@ _sync_oversight_templates() {
         if [[ -n "$h_recorded" && "$h_project" == "$h_recorded" ]]; then
             n_sync=$((n_sync + 1))
             if [[ "$mode" == "deploy" ]]; then
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
                 log_info "template synced (unmodified → current): oversight/$rel_path"
             else
@@ -6235,7 +6581,7 @@ _sync_oversight_templates() {
         if [[ -z "$h_recorded" ]] && _known_template_hashes "$rel_path" "$registry" | grep -qxF "$h_project"; then
             n_migrate=$((n_migrate + 1))
             if [[ "$mode" == "deploy" ]]; then
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
                 log_info "template migrated (stale old-shipped → current): oversight/$rel_path"
             else
@@ -6282,9 +6628,17 @@ _sync_oversight_templates() {
                     old_base="$known_hashes"
                 fi
             fi
+            # TD-850, second over-fire: GATED ON `reconciled`. The manifest is
+            # level-triggered and rebuilt every deploy, but the row was appended
+            # unconditionally -- so an entry the operator had already disposed of
+            # in the ledger came back on every single run. The warn path above
+            # already treats a reconciled drift as "no action"; the manifest is
+            # the surface that asks for the action, so it must agree.
             # Skip when temp alloc failed (empty path); `|| true` tolerates a
             # mid-loop write failure (e.g. ENOSPC) without aborting under set -e.
-            [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
+            if (( ! reconciled )); then
+                [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
+            fi
         fi
         if [[ "$mode" == "check" ]]; then
             if (( reconciled )); then
@@ -6342,7 +6696,20 @@ configure_parzival_env() {
 
     # Prompt for user name (skip in non-interactive mode)
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        read -p "Your name for Parzival greetings [Developer]: " user_name
+        # TD-1065: `read` returns non-zero on EOF and `set -euo pipefail` is
+        # global, so an exhausted stdin here aborted the ENTIRE install --
+        # mid-run, after the enablement record already said enabled. Until the
+        # enablement prompt above was removed its EOF branch returned before
+        # this line; nothing stands between exhausted stdin and this read now.
+        # `|| true` is the whole fix: on EOF the default "Developer" written by
+        # append_env_if_missing above stands, and a populated variable is still
+        # honoured by the -n test below (the sibling prompt's own lesson --
+        # `read` can fail AND have delivered a real answer).
+        # A read error that is not EOF (a closed descriptor, say) assigns
+        # nothing at all, and the -n test below then dies under nounset. Start
+        # from the empty value an EOF read gives.
+        user_name=""
+        read -p "Your name for Parzival greetings [Developer]: " user_name || true
         if [[ -n "$user_name" ]]; then
             escaped_name=$(printf '%s\n' "$user_name" | sed 's/[&/\$`"!]/\\&/g')
             sed -i.bak "s/^PARZIVAL_USER_NAME=.*/PARZIVAL_USER_NAME=$escaped_name/" "$env_file" && rm -f "$env_file.bak"

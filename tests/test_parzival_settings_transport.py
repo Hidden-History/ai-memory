@@ -316,14 +316,23 @@ class TestInstallerInvokesTheSyncOnFalsePaths:
         )
         return copy
 
-    def test_non_interactive_skip_syncs_settings_json(
-        self, install_sh_no_main, tmp_path
-    ):
-        """An opt-out run must still push its cause into settings.json."""
+    def test_a_not_enabled_run_syncs_settings_json(self, install_sh_no_main, tmp_path):
+        """A not-enabled run must still push its cause into settings.json.
+
+        STALE DRIVER UPDATED, INVARIANT UNCHANGED (Story 1.2). This drove the
+        non-interactive skip, which wrote ``opt-out`` and returned. That path no
+        longer exists: an unset ``INSTALL_PARZIVAL`` now enables, and ``opt-out``
+        has no writers left. The thing this class exists to assert -- that the
+        sync is reached from outside the enabled branch -- is untouched, so the
+        test is re-pointed at a not-enabled path that survives rather than
+        retired. The package-missing guard is used because it needs no extra
+        scaffolding: omitting the shipped ``_ai-memory`` package is the whole
+        setup, and it records ``failed`` rather than ``opt-out``.
+        """
         install_dir = tmp_path / "install_dir"
         project_dir = tmp_path / "project_dir"
         (install_dir / "docker").mkdir(parents=True)
-        (install_dir / "_ai-memory").mkdir(parents=True)
+        # Deliberately NOT created: this is what trips the package-missing guard.
         (install_dir / "scripts").mkdir(parents=True)
         shutil.copy(_UPDATER, install_dir / "scripts" / "update_parzival_settings.py")
         settings = project_dir / ".claude" / "settings.json"
@@ -350,4 +359,4 @@ setup_parzival
 
         env = json.loads(settings.read_text(encoding="utf-8")).get("env", {})
         assert "PARZIVAL_ENABLED" not in env, env
-        assert env.get("PARZIVAL_ENABLED_CAUSE") == "opt-out", env
+        assert env.get("PARZIVAL_ENABLED_CAUSE") == "failed", env
