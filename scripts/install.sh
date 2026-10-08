@@ -5325,7 +5325,16 @@ deploy_parzival_v2() {
             log_error "Refusing to rm -rf unexpected Parzival destination: $dst"
             exit 1
         fi
-        rm -rf "$dst"
+        # The delete is itself a stop point, and an after-touch one: a
+        # recursive delete that fails has usually removed part of the tree
+        # first, so the destination no longer holds what it held. Copying the
+        # package over what is left and recording the run as complete would
+        # hide that.
+        if ! rm -rf "$dst"; then
+            log_error "Could not remove $dst"
+            _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+            return 2
+        fi
     fi
 
     # Past this line the destination has been touched and the backups are the

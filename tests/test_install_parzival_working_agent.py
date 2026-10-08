@@ -1153,6 +1153,88 @@ class TestAStopAfterTheDestinationIsTouched:
         _assert_working_agent(install_dir, project_dir, "recovery re-run")
 
 
+# Fail the delete of the destination itself, PARTWAY: the package half goes and
+# the command then reports failure, which is what a recursive delete does when it
+# meets an entry it cannot remove. Every other rm runs for real.
+_FAIL_DESTINATION_DELETE = """
+rm() {
+    local a
+    for a in "$@"; do
+        if [[ "$a" == "$PROJECT_PATH/_ai-memory" ]]; then
+            command rm -rf "$a/pov"
+            return 1
+        fi
+    done
+    command rm "$@"
+}
+"""
+
+
+class TestAFailedDeleteOfTheDestinationIsAStop:
+    """The delete is the first thing that touches the destination, so a delete
+    that fails partway is an after-touch stop like the six below it.
+
+    RED before the delete's status was tested: errexit is off inside
+    deploy_parzival_v2, so the failure was ignored, the package was copied over
+    whatever the delete left, and the run was recorded true / "" / complete.
+    """
+
+    def test_the_run_is_recorded_partial_not_complete(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_DESTINATION_DELETE,
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        _assert_record(_env_values(install_dir), "false", "failed", "partial")
+        assert "parzival_condition=partial" in combined, combined
+
+    def test_the_backups_are_kept_and_named(self, install_sh_no_main, dirs, tmp_path):
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_DESTINATION_DELETE,
+        )
+        combined = res.stdout + res.stderr
+        retained = _backup_dirs(install_dir)
+        assert len(retained) == 2, f"both backups must be kept: {retained}\n{combined}"
+        for path in retained:
+            assert str(path) in combined, f"{path} not named in the report:\n{combined}"
+
+    def test_nothing_is_copied_over_a_destination_that_was_not_removed(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_existing_install(install_dir, project_dir)
+        _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash=_FAIL_DESTINATION_DELETE,
+        )
+        assert not (
+            project_dir / "_ai-memory" / "pov" / "shipped.md"
+        ).exists(), "the package was copied after the delete had failed"
+
+
 class TestRetainedBackupsSurviveALaterRun:
     """A retained backup that a later run deletes is not a recovery copy.
 
