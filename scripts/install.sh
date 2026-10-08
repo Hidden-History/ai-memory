@@ -5247,11 +5247,77 @@ _parzival_note_retained_backups() {
     done
 }
 
+# Each backup folder carries the path of the project it was taken from, in this
+# file. The folder names do not, and INSTALL_DIR is shared by every project on
+# the machine, so without it nothing could say where a kept backup belongs.
+_PARZIVAL_BACKUP_PROJECT_NOTE="project-path.txt"
+
+# Print the commands that put kept backups back into a project, for the operator
+# to run. The installer does not run them: the backups are the only copy of the
+# content, and restoring is the operator's step.
+#
+# The order is copy back FIRST, then re-run. A re-run on its own deploys a
+# package with none of the operator's content in it and never reads a kept
+# backup. After a copy-back, the re-run's own backup-and-restore carries the
+# content through the deploy. Plain `cp -a`, so the backup wins over anything a
+# partial deploy left in the project.
+#
+# Only a folder that still exists gets a command: a stop in the sanctum restore
+# comes after the _memory backup has been restored and removed.
+#
+# The commands are echoed bare, indented and with no log prefix, so that they
+# can be copied as they stand.
+# Args: <project path> <newline-separated backup paths>
+_parzival_print_recovery_commands() {
+    local project="$1"
+    local backups="$2"
+    local path part kept=""
+
+    printf '    mkdir -p %q\n' "$project/_ai-memory"
+    while IFS= read -r path; do
+        [[ -n "$path" && -d "$path" ]] || continue
+        for part in _memory sanctum; do
+            if [[ -d "$path/$part" ]]; then
+                printf '    cp -a %q %q\n' "$path/$part" "$project/_ai-memory/"
+            fi
+        done
+        kept+=" $(printf '%q' "$path")"
+    done <<< "$backups"
+    printf '    %q %q\n' "$SCRIPT_DIR/install.sh" "$project"
+    log_warning "When the content is back in the project, delete the kept copies:"
+    echo "    rm -rf$kept"
+}
+
+# A stop after the destination was touched keeps its backups, and that run still
+# exits 0, so its message is easy to miss. Each later deploy for the same
+# project therefore lists what is still kept, with the same commands.
+#
+# Only backups recorded for THIS project are listed. INSTALL_DIR is shared, and
+# a folder without the note, or with another project's path in it, may be the
+# working backup of an install that is running right now.
+_parzival_remind_of_kept_backups() {
+    local note kept=""
+    for note in "$INSTALL_DIR"/.parzival-*-backup-*/"$_PARZIVAL_BACKUP_PROJECT_NOTE"; do
+        [[ -f "$note" ]] || continue
+        [[ "$(head -n 1 "$note" 2>/dev/null)" == "$PROJECT_PATH" ]] || continue
+        kept+="${kept:+$'\n'}${note%/*}"
+    done
+    [[ -n "$kept" ]] || return 0
+
+    log_warning "An earlier install of this project stopped partway and kept copies of its _memory/ and sanctum/ content:"
+    while IFS= read -r note; do
+        log_warning "  $note"
+    done <<< "$kept"
+    log_warning "The installer does not restore them. If that content is not back in the project yet, run these commands in this order once this run has finished: copy the kept copies back first, then re-run the installer."
+    _parzival_print_recovery_commands "$PROJECT_PATH" "$kept"
+}
+
 deploy_parzival_v2() {
     local src="$INSTALL_DIR/_ai-memory"
     local dst="$PROJECT_PATH/_ai-memory"
 
     _PARZIVAL_STOP_BACKUPS=""
+    _parzival_remind_of_kept_backups
 
     if [[ ! -d "$src" ]]; then
         log_error "_ai-memory/ package not found in $INSTALL_DIR"
@@ -5275,7 +5341,8 @@ deploy_parzival_v2() {
             log_error "Could not create a backup directory for _memory/ — Parzival deployment stopped before the project was touched"
             return 1
         fi
-        if ! cp -rp "$dst/_memory" "$mem_backup/"; then
+        if ! cp -rp "$dst/_memory" "$mem_backup/" \
+            || ! printf '%s\n' "$PROJECT_PATH" > "$mem_backup/$_PARZIVAL_BACKUP_PROJECT_NOTE"; then
             log_error "Could not back up _memory/ — Parzival deployment stopped before the project was touched"
             _parzival_discard_backups "$mem_backup"
             return 1
@@ -5291,7 +5358,8 @@ deploy_parzival_v2() {
             _parzival_discard_backups "$mem_backup"
             return 1
         fi
-        if ! cp -rp "$dst/sanctum" "$sanctum_backup/"; then
+        if ! cp -rp "$dst/sanctum" "$sanctum_backup/" \
+            || ! printf '%s\n' "$PROJECT_PATH" > "$sanctum_backup/$_PARZIVAL_BACKUP_PROJECT_NOTE"; then
             log_error "Could not back up sanctum/ — Parzival deployment stopped before the project was touched"
             # BOTH, not just this one: the _memory backup finished successfully
             # before this point, so a stop here leaves a COMPLETE backup behind
@@ -5991,9 +6059,21 @@ setup_parzival() {
                     # unsaid, the installer's own advice would tell the operator
                     # to delete the only recovery copy it had just handed them.
                     log_error "Copy them elsewhere before running any 'rm -rf $INSTALL_DIR' cleanup advice."
+                    # A re-run alone does NOT bring this content back, so the
+                    # commands are printed rather than described.
+                    log_error "The installer does not restore this content. To get it back, run these commands in this order: copy the kept copies back first, then re-run the installer."
+                    _parzival_print_recovery_commands "$PROJECT_PATH" "$_PARZIVAL_STOP_BACKUPS"
+                else
+                    log_info "Re-run the installer to redeploy Parzival"
                 fi
-                log_info "Re-run the installer to redeploy Parzival"
+                # Said only once the record is known to be written: a failed
+                # write is counted and ends the run with exit 3 instead, and
+                # then neither half of this sentence would be true.
+                local parzival_record_failures_before=$PARZIVAL_RECORD_FAILURES
                 set_parzival_enablement "false" "failed" "partial"
+                if (( PARZIVAL_RECORD_FAILURES == parzival_record_failures_before )); then
+                    log_error "This stop does not change the installer's exit code: unless a later step fails, this run ends with exit code 0. The install record says PARZIVAL_ENABLED=false, PARZIVAL_ENABLED_CAUSE=failed, PARZIVAL_ENABLED_CONDITION=partial."
+                fi
             else
                 # Stopped before the destination was touched: it still holds what
                 # it held, so the condition is the default one. This is also the

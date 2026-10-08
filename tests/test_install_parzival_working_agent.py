@@ -1293,6 +1293,377 @@ class TestAFailedDeleteOfTheDestinationIsAStop:
         ).exists(), "the package was copied after the delete had failed"
 
 
+# The stops the recovery tests drive, by where they fall. Each leaves a different
+# set of backups behind: the sanctum-stage stop has already restored _memory/ and
+# removed that backup, and the failed delete leaves the operator's folders in the
+# project as well as in both backups.
+_AFTER_TOUCH_STOPS = {
+    "package-copy": _FAIL_PACKAGE_COPY,
+    "sanctum-restore": _FAIL_SANCTUM_RESTORE,
+    "destination-delete": _FAIL_DESTINATION_DELETE,
+}
+
+_CREED = """---
+type: creed
+agent: parzival
+sessions_completed: 41
+last_session: 2026-10-01
+updated: 2026-10-01
+tier_promoted_on: 2026-08-14
+---
+
+# Creed
+
+Written by the instance, not by the installer.
+"""
+
+
+def _seed_operator_content(
+    install_dir: Path, project_dir: Path, tmp_path: Path
+) -> None:
+    """``_seed_existing_install`` plus nested content and a real CREED.md.
+
+    The CREED merge helper is copied beside the installer copy so the REAL
+    merge runs on the re-run; without it the installer takes its verbatim
+    fallback and the merge step is never exercised.
+    """
+    _seed_existing_install(install_dir, project_dir)
+    dst = project_dir / "_ai-memory"
+    (dst / "_memory" / "nested" / "deep").mkdir(parents=True)
+    (dst / "_memory" / "nested" / "deep" / "log.md").write_text(
+        "line one\nline two\n", encoding="utf-8"
+    )
+    (dst / "sanctum" / "parzival" / "CREED.md").write_text(_CREED, encoding="utf-8")
+    (dst / "sanctum" / "parzival" / "sessions").mkdir()
+    (dst / "sanctum" / "parzival" / "sessions" / "2026-10-01.md").write_text(
+        "session log\n", encoding="utf-8"
+    )
+    shutil.copy(_SCRIPTS_DIR / "_merge_sanctum_creed_frontmatter.py", tmp_path)
+
+
+def _operator_tree(project_dir: Path) -> dict[str, bytes]:
+    """Every file under the two operator-owned folders, by relative path."""
+    root = project_dir / "_ai-memory"
+    return {
+        str(p.relative_to(root)): p.read_bytes()
+        for sub in ("_memory", "sanctum")
+        for p in sorted((root / sub).rglob("*"))
+        if p.is_file()
+    }
+
+
+def _printed_commands(output: str) -> list[str]:
+    """The commands the installer printed for the operator to run.
+
+    They are the only lines it prints indented by exactly four spaces with no
+    log prefix, so that they can be copied as they stand.
+    """
+    return [
+        line[4:]
+        for line in output.splitlines()
+        if line.startswith("    ") and not line.startswith("     ")
+    ]
+
+
+def _run_printed(commands: list[str], tmp_path: Path) -> None:
+    """Run printed commands exactly as an operator pasting them would."""
+    res = subprocess.run(
+        ["bash", "-c", "set -e\n" + "\n".join(commands)],
+        capture_output=True,
+        text=True,
+        env=_bash_env(tmp_path),
+    )
+    assert res.returncode == 0, f"{commands}\n{res.stdout}{res.stderr}"
+
+
+def _stop(install_sh_no_main, install_dir, project_dir, tmp_path, failure: str):
+    return _run(
+        install_sh_no_main,
+        install_dir,
+        project_dir,
+        tmp_path,
+        install_parzival="true",
+        stub_deploy=False,
+        extra_bash=failure,
+    )
+
+
+def _plain_run(install_sh_no_main, install_dir, project_dir, tmp_path):
+    return _run(
+        install_sh_no_main,
+        install_dir,
+        project_dir,
+        tmp_path,
+        install_parzival="true",
+        stub_deploy=False,
+    )
+
+
+class TestTheStopMessageSaysHowToGetTheContentBack:
+    """After a stop past the delete the operator's _memory/ and sanctum/ content
+    is in the kept backups and nowhere the installer will look again. The
+    installer restores nothing itself; it prints the commands, in the order
+    that works: copy the backups back FIRST, then re-run.
+
+    RED before the message carried them: it said "Re-run the installer", and a
+    re-run alone ends recorded as complete with the content still in the
+    backups.
+    """
+
+    def test_the_commands_copy_the_backups_back_before_the_re_run(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        res = _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        combined = res.stdout + res.stderr
+        commands = _printed_commands(combined)
+        copies = [i for i, c in enumerate(commands) if c.startswith("cp -a ")]
+        reruns = [
+            i
+            for i, c in enumerate(commands)
+            if c == f"{install_sh_no_main} {project_dir}"
+        ]
+        assert len(copies) == 2, f"one copy per kept backup: {commands}\n{combined}"
+        assert len(reruns) == 1, f"the exact re-run command: {commands}\n{combined}"
+        assert max(copies) < reruns[0], f"copy back first, then re-run: {commands}"
+        for backup in _backup_dirs(install_dir):
+            assert any(
+                str(backup) in commands[i] for i in copies
+            ), f"no copy command for {backup}: {commands}"
+
+    def test_no_printed_command_uses_cp_n(self, install_sh_no_main, dirs, tmp_path):
+        """``cp -n`` warns on current coreutils and skips exactly the files a
+        partial deploy left behind; the backup must win.
+        """
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        res = _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        commands = _printed_commands(res.stdout + res.stderr)
+        assert commands, res.stdout + res.stderr
+        assert not [c for c in commands if re.search(r"\bcp\b.*\s-\w*n", c)], commands
+
+    def test_only_a_backup_that_still_exists_gets_a_command(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """A stop in the sanctum restore comes after the _memory backup has been
+        restored and removed, so a fixed pair of commands would name a folder
+        that is gone.
+        """
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        res = _stop(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            _FAIL_SANCTUM_RESTORE,
+        )
+        commands = _printed_commands(res.stdout + res.stderr)
+        copies = [c for c in commands if c.startswith("cp -a ")]
+        assert len(copies) == 1, commands
+        assert "sanctum-backup" in copies[0], commands
+        assert not [c for c in commands if "memory-backup" in c], commands
+
+    def test_each_kept_backup_records_the_project_it_belongs_to(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The folder names carry no project, and the install directory is
+        shared by every project on the machine.
+        """
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        retained = _backup_dirs(install_dir)
+        assert len(retained) == 2, retained
+        for backup in retained:
+            note = backup / "project-path.txt"
+            assert note.is_file(), f"{backup} does not say which project it is for"
+            assert note.read_text(encoding="utf-8") == f"{project_dir}\n"
+
+    def test_the_message_says_the_run_exits_0_with_a_partial_record(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        res = _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        combined = res.stdout + res.stderr
+        assert res.returncode == 0, combined
+        assert "exit code 0" in combined, combined
+        assert "PARZIVAL_ENABLED_CONDITION=partial" in combined, combined
+        assert "does not restore" in combined, combined
+
+    def test_the_message_does_not_claim_a_record_that_was_not_written(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """When the record write fails too, the run ends with exit 3 and no
+        partial record exists, so neither may be asserted.
+        """
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        res = _stop(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            _FAIL_PACKAGE_COPY + "\nmv() { return 1; }\n",
+        )
+        combined = res.stdout + res.stderr
+        assert "exit code 0" not in combined, combined
+        assert [c for c in _printed_commands(combined) if c.startswith("cp -a ")]
+
+
+class TestCopyBackThenReRunReturnsTheOperatorContent:
+    """The printed sequence, executed. It was reasoned from the code before it
+    was ever run; these are its first runs.
+    """
+
+    @pytest.mark.parametrize("stop", sorted(_AFTER_TOUCH_STOPS))
+    def test_the_operator_files_are_present_and_unchanged(
+        self, install_sh_no_main, dirs, tmp_path, stop
+    ):
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        before = _operator_tree(project_dir)
+        assert len(before) == 5, before
+
+        first = _stop(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            _AFTER_TOUCH_STOPS[stop],
+        )
+        combined = first.stdout + first.stderr
+        assert first.returncode == 0, combined
+        _assert_record(_env_values(install_dir), "false", "failed", "partial")
+
+        commands = _printed_commands(combined)
+        rerun = f"{install_sh_no_main} {project_dir}"
+        assert rerun in commands, combined
+        copy_back = commands[: commands.index(rerun)]
+        assert [c for c in copy_back if c.startswith("cp -a ")], combined
+        _run_printed(copy_back, tmp_path)
+
+        # The printed re-run command names the installer; the copy under test has
+        # no main, so the re-run is driven the way every other run here is.
+        second = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            install_parzival="true",
+            stub_deploy=False,
+            extra_bash="LOG_LEVEL=debug",
+        )
+        rerun_output = second.stdout + second.stderr
+        assert second.returncode == 0, rerun_output
+        assert "Merged CREED.md frontmatter from backup" in rerun_output, (
+            "the re-run must go through the real CREED merge, not its fallback:\n"
+            + rerun_output
+        )
+        _assert_working_agent(install_dir, project_dir, f"recovery after {stop}")
+        assert (project_dir / "_ai-memory" / "pov" / "shipped.md").is_file()
+        assert _operator_tree(project_dir) == before
+
+    def test_a_re_run_alone_restores_nothing_and_keeps_the_backups(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """No automatic restore: a later run never reads a kept backup, so the
+        backups must still hold everything after it.
+        """
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        before = _operator_tree(project_dir)
+        _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        retained = _backup_dirs(install_dir)
+
+        second = _plain_run(install_sh_no_main, install_dir, project_dir, tmp_path)
+        assert second.returncode == 0, second.stdout + second.stderr
+        assert not (project_dir / "_ai-memory" / "_memory" / "user-note.md").exists()
+        held = {
+            str(p.relative_to(backup)): p.read_bytes()
+            for backup in retained
+            for p in backup.rglob("*")
+            if p.is_file() and p.name != "project-path.txt"
+        }
+        assert held == before
+
+
+class TestALaterRunListsKeptBackups:
+    """The stop message scrolls away and the run still exits 0, so a later run
+    for the same project says again what was kept and how to put it back.
+    """
+
+    def test_the_reminder_repeats_the_stop_messages_commands(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        first = _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        printed = _printed_commands(first.stdout + first.stderr)
+        assert printed, first.stdout + first.stderr
+
+        second = _plain_run(install_sh_no_main, install_dir, project_dir, tmp_path)
+        combined = second.stdout + second.stderr
+        assert second.returncode == 0, combined
+        assert _printed_commands(combined) == printed, combined
+        for backup in _backup_dirs(install_dir):
+            assert str(backup) in combined, combined
+
+    def test_the_reminder_stops_once_the_backups_are_deleted(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        first = _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        commands = _printed_commands(first.stdout + first.stderr)
+        delete = [c for c in commands if c.startswith("rm -rf ")]
+        assert len(delete) == 1, commands
+        _run_printed(delete, tmp_path)
+        assert _backup_dirs(install_dir) == []
+
+        second = _plain_run(install_sh_no_main, install_dir, project_dir, tmp_path)
+        combined = second.stdout + second.stderr
+        assert second.returncode == 0, combined
+        assert ".parzival-" not in combined, combined
+
+    def test_a_backup_kept_for_another_project_is_not_listed(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The install directory is shared. Commands that copy one project's
+        content into another would be worse than no reminder.
+        """
+        install_dir, project_dir = dirs
+        _seed_operator_content(install_dir, project_dir, tmp_path)
+        _stop(
+            install_sh_no_main, install_dir, project_dir, tmp_path, _FAIL_PACKAGE_COPY
+        )
+        assert _backup_dirs(install_dir)
+
+        other = tmp_path / "other_project"
+        other.mkdir()
+        second = _plain_run(install_sh_no_main, install_dir, other, tmp_path)
+        combined = second.stdout + second.stderr
+        assert second.returncode == 0, combined
+        assert ".parzival-" not in combined, combined
+        assert _printed_commands(combined) == [], combined
+
+
 class TestRetainedBackupsSurviveALaterRun:
     """A retained backup that a later run deletes is not a recovery copy.
 
