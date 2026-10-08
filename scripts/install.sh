@@ -5597,7 +5597,10 @@ setup_model_dispatch() {
         return 0
     fi
 
-    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch
+    # End-of-input is a "no". read returns non-zero when stdin is exhausted, and
+    # this function is called bare under the global errexit, so without the
+    # guard the installer dies here after the record already says enabled.
+    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch || setup_dispatch=""
     if [[ "$setup_dispatch" =~ ^[Yy] ]]; then
         log_info "Launching model dispatch setup..."
         bash "$dispatch_installer" || {

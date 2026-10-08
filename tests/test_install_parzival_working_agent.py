@@ -138,6 +138,7 @@ sync_parzival_config_yaml() { :; }
 create_agent_id_index() { :; }
 setup_model_dispatch() { :; }
 """
+_MODEL_DISPATCH_STUB = "setup_model_dispatch() { :; }\n"
 
 
 def _run(
@@ -154,6 +155,7 @@ def _run(
     deploy_fails: bool = False,
     deploy_creates_package: bool = True,
     with_notice: bool = False,
+    stub_model_dispatch: bool = True,
     stdin: str = "",
     extra_bash: str = "",
     post_bash: str = "",
@@ -170,7 +172,15 @@ def _run(
     ``deployed_before`` seeds ``$PROJECT_PATH/_ai-memory/pov``, the deployment
     at AD-70's scope that the probe samples. The bare project-side parent cannot
     discriminate -- ``deploy_ai_memory_skills`` creates it on every install.
+
+    ``stub_model_dispatch=False`` leaves the REAL ``setup_model_dispatch`` in
+    place. It is the last thing the enable branch calls and it prompts, so a
+    stub there hides whatever that prompt does with the stdin it is given.
     """
+    stubs = _STUBS
+    if not stub_model_dispatch:
+        assert _MODEL_DISPATCH_STUB in stubs
+        stubs = stubs.replace(_MODEL_DISPATCH_STUB, "")
     if source_package_present:
         (install_dir / "_ai-memory").mkdir(parents=True, exist_ok=True)
     if deployed_before:
@@ -211,7 +221,7 @@ INSTALL_DIR="{install_dir}"
 PROJECT_PATH="{project_dir}"
 NON_INTERACTIVE="{non_interactive}"
 {install_parzival_line}
-{_STUBS}
+{stubs}
 {deploy_line}
 {extra_bash}
 {call}
@@ -343,6 +353,54 @@ class TestInteractiveInstallAlwaysProducesAWorkingAgent:
         assert (
             _env_values(install_dir).get("PARZIVAL_USER_NAME") == "Developer"
         ), "on EOF the default greeting name must stand"
+
+    def test_closed_stdin_reaches_the_end_through_the_real_dispatch_prompt(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """The case above stubs ``setup_model_dispatch``; this one does not.
+
+        The enable branch ends by calling it, bare, and on an interactive run it
+        asks whether to configure multi-provider dispatch. With stdin exhausted
+        that ``read`` returns non-zero, and under the global errexit an
+        unguarded one kills the installer AFTER the record says enabled. The
+        banner assertion is what proves the prompt was reached rather than
+        skipped by one of the function's early returns.
+        """
+        install_dir, project_dir = dirs
+        dispatch_installer = (
+            project_dir
+            / "_ai-memory"
+            / "pov"
+            / "skills"
+            / "aim-model-dispatch"
+            / "scripts"
+            / "install.sh"
+        )
+        dispatch_installer.parent.mkdir(parents=True)
+        launched = tmp_path / "dispatch-installer-launched"
+        dispatch_installer.write_text(f': > "{launched}"\n', encoding="utf-8")
+
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            non_interactive="false",
+            stub_model_dispatch=False,
+            stdin="",
+        )
+        combined = res.stdout + res.stderr
+        assert "Multi-Provider Dispatch" in combined, (
+            "the dispatch prompt was never reached, so this run proves nothing:\n"
+            + combined
+        )
+        assert res.returncode == 0, (
+            "an exhausted stdin must not abort the run at the dispatch prompt:\n"
+            + combined
+        )
+        _assert_working_agent(install_dir, project_dir, "closed stdin, real dispatch")
+        assert "Skipped. Run later with" in combined, combined
+        assert not launched.exists(), "end-of-input must not be read as a yes"
 
     def test_the_installer_solicits_nothing_on_enablement(self, install_sh_no_main):
         """Option A's actual requirement: not "the default flipped" but "nothing
