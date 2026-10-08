@@ -6700,6 +6700,10 @@ configure_parzival_env() {
         # append_env_if_missing above stands, and a populated variable is still
         # honoured by the -n test below (the sibling prompt's own lesson --
         # `read` can fail AND have delivered a real answer).
+        # A read error that is not EOF (a closed descriptor, say) assigns
+        # nothing at all, and the -n test below then dies under nounset. Start
+        # from the empty value an EOF read gives.
+        user_name=""
         read -p "Your name for Parzival greetings [Developer]: " user_name || true
         if [[ -n "$user_name" ]]; then
             escaped_name=$(printf '%s\n' "$user_name" | sed 's/[&/\$`"!]/\\&/g')

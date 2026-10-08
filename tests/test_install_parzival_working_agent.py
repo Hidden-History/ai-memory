@@ -157,6 +157,7 @@ def _run(
     with_notice: bool = False,
     stub_model_dispatch: bool = True,
     stdin: str = "",
+    stdin_closed: bool = False,
     extra_bash: str = "",
     post_bash: str = "",
 ) -> subprocess.CompletedProcess:
@@ -176,6 +177,12 @@ def _run(
     ``stub_model_dispatch=False`` leaves the REAL ``setup_model_dispatch`` in
     place. It is the last thing the enable branch calls and it prompts, so a
     stub there hides whatever that prompt does with the stdin it is given.
+
+    ``stdin_closed`` closes descriptor 0 itself before the installer is sourced,
+    which is what ``install.sh <&-`` gives. It is NOT the same as ``stdin=""``:
+    an empty pipe is end-of-input, where ``read`` fails but still assigns an
+    empty value; on a closed descriptor ``read`` fails with EBADF and assigns
+    nothing at all.
     """
     stubs = _STUBS
     if not stub_model_dispatch:
@@ -211,7 +218,9 @@ announce_parzival_state_change "$_before_value" "$_before_package" "$_after_valu
     else:
         call = "setup_parzival\n"
 
+    close_stdin_line = "exec <&-" if stdin_closed else ""
     bash_cmd = f"""
+{close_stdin_line}
 set -euo pipefail
 export INSTALL_DIR="{install_dir}"
 export PROJECT_PATH="{project_dir}"
@@ -353,6 +362,43 @@ class TestInteractiveInstallAlwaysProducesAWorkingAgent:
         assert (
             _env_values(install_dir).get("PARZIVAL_USER_NAME") == "Developer"
         ), "on EOF the default greeting name must stand"
+
+    def test_a_closed_stdin_descriptor_does_not_abort_at_the_name_prompt(
+        self, install_sh_no_main, dirs, tmp_path
+    ):
+        """Descriptor 0 closed outright (``<&-``), not an empty pipe.
+
+        The case above feeds an empty pipe, which is end-of-input: ``read``
+        fails but still sets ``user_name`` to an empty string. With the
+        descriptor closed ``read`` fails with EBADF before it assigns anything,
+        so the ``|| true`` guard is survived and the very next line, which
+        expands ``$user_name`` under the global nounset, kills the installer
+        AFTER the record says enabled. The "Bad file descriptor" assertion is
+        what proves the read met a closed descriptor rather than end-of-input.
+        """
+        install_dir, project_dir = dirs
+        res = _run(
+            install_sh_no_main,
+            install_dir,
+            project_dir,
+            tmp_path,
+            non_interactive="false",
+            stdin_closed=True,
+        )
+        combined = res.stdout + res.stderr
+        assert "Bad file descriptor" in combined, (
+            "the name read never met a closed descriptor, so this run proves "
+            "nothing:\n" + combined
+        )
+        assert "unbound variable" not in combined, combined
+        assert res.returncode == 0, (
+            "a closed stdin descriptor must not abort the run at the name "
+            "prompt:\n" + combined
+        )
+        _assert_working_agent(install_dir, project_dir, "stdin descriptor closed")
+        assert (
+            _env_values(install_dir).get("PARZIVAL_USER_NAME") == "Developer"
+        ), "with no name read the default greeting name must stand"
 
     def test_closed_stdin_reaches_the_end_through_the_real_dispatch_prompt(
         self, install_sh_no_main, dirs, tmp_path
