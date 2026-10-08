@@ -25,6 +25,7 @@ if _LIB not in sys.path:
 
 from memory.config import get_config
 from memory.metrics_push import push_skill_metrics_async
+from memory.parzival_state import disabled_message, resolve_cause
 from memory.storage import MemoryStorage
 
 from parzival_save_common import (
@@ -68,7 +69,7 @@ def main() -> int:
     config = get_config()
 
     if not config.parzival_enabled:
-        print("Parzival is not enabled. Set PARZIVAL_ENABLED=true in .env.")
+        print(disabled_message(resolve_cause(config)))
         return 0
 
     args = parse_args()

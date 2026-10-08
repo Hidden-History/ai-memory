@@ -1234,6 +1234,45 @@ export PARZIVAL_ENABLED=true
 - Set to `true` to enable session-to-session continuity, handoff documents, and oversight tracking
 - Requires the oversight folder to be present (see `PARZIVAL_OVERSIGHT_FOLDER`)
 
+**Note:** this flag is not read on its own. Its negative has two causes, recorded
+separately in `PARZIVAL_ENABLED_CAUSE` — see below.
+
+---
+
+#### PARZIVAL_ENABLED_CAUSE
+**Purpose:** Record *why* Parzival is not enabled, so that "I chose not to" and "the installer could not" are never the same state
+
+**Default:** *(empty)* — this is what `docker/.env.example` ships and what the
+installer writes on the enabled path. Empty and absent **both** resolve to
+`unknown` on read; `unknown` is a read-side sentinel and is never written as a
+value. An absent key is the normal state on installs predating this record.
+
+**Options:** `opt-out`, `failed`, or empty (empty is written when Parzival is enabled)
+
+**Written by:** the installer, at every site that touches enablement. Not intended to be set by hand.
+
+**When to change:**
+- Don't. Read it to decide what advice to give: `opt-out` means setting
+  `PARZIVAL_ENABLED=true` and re-running setup will work; `failed` means the
+  `_ai-memory/` package could not be deployed, so enabling the flag will not help
+  and the installer must be re-run.
+- An absent cause is read as `unknown` and never as `opt-out` — reporting a failed
+  install as a choice the operator made is the conflation this record removes.
+
+---
+
+#### PARZIVAL_ENABLED_CONDITION
+**Purpose:** Record whether the enablement state is fully or partially established
+
+**Default:** `complete` (an absent key means `complete`)
+
+**Options:** `complete`, `partial`
+
+**When to change:**
+- Don't; the installer writes it. `partial` exists so a partially-converted
+  existing install has somewhere to be represented rather than being forced into
+  the enabled/not-enabled binary.
+
 ---
 
 #### PARZIVAL_USER_NAME

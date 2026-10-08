@@ -27,6 +27,7 @@ from memory.config import (
 )
 from memory.connectors.github.paths import resolve_github_state_file
 from memory.metrics_push import push_skill_metrics_async
+from memory.parzival_state import resolve_cause
 from memory.qdrant_client import get_qdrant_client
 
 TRACE_CONTENT_MAX = 10000  # Path A emit_trace_event content cap (V4; no other value)
@@ -256,10 +257,16 @@ def section_flags(config) -> list[str]:
         ("Auto-update", config.auto_update_enabled),
         ("Freshness", config.freshness_enabled),
         ("GitHub Sync", config.github_sync_enabled),
-        ("Parzival", config.parzival_enabled),
     ]:
         status = "enabled" if enabled else "disabled"
         lines.append(f"  {name}: {status}")
+    # AD-32: Parzival's negative has two causes. Rendering the bare boolean here
+    # is exactly what makes "I chose not to" and "the installer could not" look
+    # like the same state to the operator reading status.
+    if config.parzival_enabled:
+        lines.append("  Parzival: enabled")
+    else:
+        lines.append(f"  Parzival: disabled (cause: {resolve_cause(config)})")
     return lines
 
 

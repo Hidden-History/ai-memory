@@ -19,13 +19,39 @@ import sys
 import tempfile
 from pathlib import Path
 
-PARZIVAL_VARS = [
+# The enablement record (AD-32): value + cause + condition.
+#
+# CAUSE and CONDITION are synced in BOTH directions of the flag: the not-enabled
+# state is the only state in which a cause exists, so removing them when the flag
+# is false would strip the cause exactly when a consumer needs it.
+#
+# PARZIVAL_ENABLED itself is written ONLY on the enabled path and DELETED on the
+# disabled one. settings.json's env section outranks docker/.env in
+# pydantic-settings, so persisting "false" here would override the file the
+# operator is told to edit. See the disabled branch in main() for the measurement.
+PARZIVAL_STATE_VARS = [
     "PARZIVAL_ENABLED",
+    "PARZIVAL_ENABLED_CAUSE",
+    "PARZIVAL_ENABLED_CONDITION",
+]
+
+# Preference vars — only meaningful while Parzival is enabled, so they are still
+# removed from settings.json when it is not.
+PARZIVAL_PREFERENCE_VARS = [
     "PARZIVAL_USER_NAME",
     "PARZIVAL_LANGUAGE",
     "PARZIVAL_DOC_LANGUAGE",
     "PARZIVAL_OVERSIGHT_FOLDER",
     "PARZIVAL_HANDOFF_RETENTION",
+]
+
+PARZIVAL_VARS = PARZIVAL_STATE_VARS + PARZIVAL_PREFERENCE_VARS
+
+#: The state vars carried across on the DISABLED path — everything except the value
+#: itself. Derived rather than re-listed so a fourth state var cannot be added above
+#: and silently missed by the disabled branch.
+PARZIVAL_DISABLED_CARRY_VARS = [
+    var for var in PARZIVAL_STATE_VARS if var != "PARZIVAL_ENABLED"
 ]
 
 
@@ -82,10 +108,57 @@ def main():
                     print(f"  env.{var}: {old_val!r} -> {docker_env[var]!r}")
                 else:
                     print(f"  env.{var}: unchanged ({docker_env[var]!r})")
+            elif var in PARZIVAL_STATE_VARS and var in env_section:
+                # Without this, a settings.json holding CAUSE=failed from a prior
+                # run plus a docker/.env that reaches enabled WITHOUT a cause line
+                # (an operator who *deletes* rather than empties it, per the session
+                # guide) leaves PARZIVAL_ENABLED=true x cause=failed on transport 2
+                # -- the exact cell the single-pass writer makes unrepresentable in
+                # docker/.env. The disabled branch already had this removal; the
+                # enabled branch did not.
+                #
+                # SCOPED TO THE STATE VARS, deliberately. The loop runs over
+                # PARZIVAL_VARS (state + preference), so an unscoped removal also
+                # deleted PARZIVAL_USER_NAME/_LANGUAGE/_DOC_LANGUAGE/
+                # _OVERSIGHT_FOLDER/_HANDOFF_RETENTION from settings.json whenever
+                # they were absent from docker/.env -- silently discarding operator
+                # preferences this branch never intended to touch. Only the stale
+                # CAUSE/CONDITION cell above is a correctness problem; a preference
+                # absent from docker/.env is not stale, it is simply unset there.
+                del env_section[var]
+                print(f"  Removed stale env.{var} (not recorded in docker/.env)")
 
     else:
-        # Remove Parzival vars from env section
-        for var in PARZIVAL_VARS:
+        # Carry the CAUSE and CONDITION across — host-side hooks read env from
+        # settings.json, not docker/.env (BUG-120), and the not-enabled state is the
+        # only state in which a cause exists.
+        #
+        # PARZIVAL_ENABLED ITSELF IS DELETED, NOT WRITTEN. settings.json's env
+        # section reaches the hook process, and pydantic-settings ranks process env
+        # ABOVE env_file: writing "false" here pins the disabled state above
+        # docker/.env, so the panel's own remediation advice (edit docker/.env)
+        # becomes inert -- measured, docker/.env=true + process env=false yields
+        # MemoryConfig(enabled=False). Absence is safe in both readers:
+        # langfuse_stop_hook.py does os.environ.get("PARZIVAL_ENABLED", "false") so
+        # absent reads false, and MemoryConfig falls through to docker/.env.
+        if "PARZIVAL_ENABLED" in env_section:
+            del env_section["PARZIVAL_ENABLED"]
+            print("  Removed env.PARZIVAL_ENABLED (docker/.env is authoritative)")
+
+        for var in PARZIVAL_DISABLED_CARRY_VARS:
+            if var in docker_env:
+                old_val = env_section.get(var)
+                env_section[var] = docker_env[var]
+                if old_val != docker_env[var]:
+                    print(f"  env.{var}: {old_val!r} -> {docker_env[var]!r}")
+                else:
+                    print(f"  env.{var}: unchanged ({docker_env[var]!r})")
+            elif var in env_section:
+                del env_section[var]
+                print(f"  Removed stale env.{var} (not recorded in docker/.env)")
+
+        # Preference vars are meaningless while disabled — remove as before.
+        for var in PARZIVAL_PREFERENCE_VARS:
             if var in env_section:
                 del env_section[var]
                 print(f"  Removed env.{var}")

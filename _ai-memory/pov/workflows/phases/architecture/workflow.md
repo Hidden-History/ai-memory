@@ -46,3 +46,10 @@ These apply across ALL steps in this workflow:
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:phase-architecture
+depends_on: bmad
+degraded_behaviour: Runs the architecture phase without BMAD architect, UX-designer and PM personas, and reports the implementation-readiness check as unavailable instead of dispatching a skill that is not installed.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

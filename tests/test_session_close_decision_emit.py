@@ -30,6 +30,8 @@ import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
+from memory.config import MemoryConfig
+
 FIXED_VECTOR = [0.5] * 768
 
 
@@ -358,7 +360,7 @@ def test_T7_script_graceful_qdrant_failure_returns_zero():
 
     failing_storage = MagicMock()
     failing_storage.store_agent_memory.side_effect = RuntimeError("qdrant down")
-    mock_config = MagicMock()
+    mock_config = MagicMock(spec=MemoryConfig)
     mock_config.parzival_enabled = True
 
     with (
@@ -390,15 +392,31 @@ def test_T7_script_graceful_qdrant_failure_returns_zero():
     assert metric_args[0][1] == "error"
 
 
-def test_T8_script_parzival_disabled_returns_zero():
-    """If PARZIVAL_ENABLED=false, script returns 0 without attempting storage."""
+@pytest.mark.parametrize("cause", ["opt-out", "failed", "unknown"])
+def test_T8_script_parzival_disabled_returns_zero(cause):
+    """If PARZIVAL_ENABLED=false, script returns 0 without attempting storage.
+
+    This site is deliberately cause-INVARIANT and is the one enumerated exemption
+    from TR-7's fixture pair: skipping storage is correct for every cause, and
+    announcing the cause here would build the operator-facing announcement that
+    AD-32 assigns to Story 1.3.
+
+    Invariance is now *asserted* over all three causes rather than left implicit at
+    one. It previously ran with `parzival_enabled_cause` unassigned on a
+    `MagicMock(spec=MemoryConfig)`, so the field was an auto-created mock -- which
+    resolved to a silent `unknown` under the old normaliser and would have passed
+    even if this site had started branching. A cause-invariant site still has to
+    demonstrate its invariance.
+    """
     if not _DECISION_SCRIPT.exists():
         pytest.skip(f"Script not found: {_DECISION_SCRIPT}")
     mod = _load_decision_script()
 
     mock_storage = MagicMock()
-    mock_config = MagicMock()
+    mock_config = MagicMock(spec=MemoryConfig)
     mock_config.parzival_enabled = False
+    mock_config.parzival_enabled_cause = cause
+    mock_config.parzival_enabled_condition = "complete"
 
     with (
         patch.object(

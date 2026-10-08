@@ -9,6 +9,11 @@
 # Exit codes:
 #   0 = Success
 #   1 = Failure (prerequisite check, configuration error, or service failure)
+#   3 = The install COMPLETED, but could not record WHY Parzival is disabled.
+#       Deliberately distinct from 1: the work was done and the services are up;
+#       only the record of the enablement decision was lost. Details are appended
+#       to $INSTALL_DIR/parzival-record-failures.log (absent if that path was
+#       unwritable too). See parzival_record_status().
 #
 # 2026 Best Practices Applied:
 #   - set -euo pipefail for strict error handling
@@ -77,9 +82,15 @@ fi
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 INSTALL_STARTED=false
+# INSTALL_STARTED alone cannot tell "died partway" from "finished, then reported a
+# recorded failure through the exit-3 gate at the end of main". Without this second
+# global, that gate would fire the EXIT trap below and print "Installation
+# interrupted / Partial installation exists" over a COMPLETE install -- replacing
+# one lie with another, which is the failure class this round exists to remove.
+INSTALL_COMPLETED=false
 cleanup() {
     local exit_code=$?
-    if [[ "$INSTALL_STARTED" = true && $exit_code -ne 0 ]]; then
+    if [[ "$INSTALL_STARTED" = true && "$INSTALL_COMPLETED" != true && $exit_code -ne 0 ]]; then
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
 
@@ -127,28 +138,164 @@ CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
 INSTALLER_VERSION="2.8.4"
 
 # Logging functions
+#
+# A LOG WRITE MUST NEVER BE ABLE TO KILL THE INSTALL. `set -euo pipefail` is set
+# near the top of this file, and main() redirects stdout into `tee` at its
+# `exec > >(tee -a "$INSTALL_LOG") 2>&1` line -- anchored by quoted line rather
+# than by number, since this edit shifts every number below it. So these
+# five functions run with their stdout owned by another process. A bare
+# `echo -e` that fails to write returns nonzero, errexit sees a failed simple
+# command, and the installer dies mid-run -- losing whatever the next line was
+# about to commit. That is a logger deciding the exit status of the program.
+#
+# `|| true` is what fixes it, and the naive shape does NOT. Measured, all five:
+#
+#   echo -e "$1"              -> rc=1  the record is NOT committed
+#   echo -e "$1"; return 0    -> rc=1  the record is NOT committed
+#   echo -e "$1" || true      -> rc=0  the record IS committed
+#
+# The middle line is the trap: errexit fires AT the echo, so `return 0` on the
+# next line is never reached. It passes every existing test and ships nothing.
+#
+# SCOPE OF THIS GUARD, STATED BECAUSE IT IS NOT TOTAL. `|| true` suppresses
+# errexit, so it covers a write that FAILS AND RETURNS -- a closed descriptor
+# (EBADF), ENOSPC, EIO. It does NOT cover SIGPIPE: if the reader on the other end
+# of the pipe is gone, the kernel kills this shell outright (measured: signal 13,
+# record NOT committed, identically with and without `|| true`). A signal is not
+# an exit status, so no `||` clause runs after it. Covering that needs a `trap ''
+# PIPE`, which changes signal disposition for this entire script and is
+# deliberately NOT done here.
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1" || true
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1" || true
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1" || true
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" || true
 }
 
 # Debug logging (only shown when LOG_LEVEL=debug)
 LOG_LEVEL="${LOG_LEVEL:-info}"
 log_debug() {
     if [[ "$LOG_LEVEL" == "debug" ]]; then
-        echo -e "${BLUE}[DEBUG]${NC} $1"
+        echo -e "${BLUE}[DEBUG]${NC} $1" || true
     fi
+}
+
+# --- Parzival enablement-record failure accounting (Story 1.1 round 8) --------
+#
+# WHY A COUNTER EXISTS AT ALL. set_parzival_enablement ALWAYS returns 0 -- absence
+# is a supported operating state and a failed record write must not abort the
+# install. That fail-open contract is preserved here untouched; what changes is
+# only whether the failure is COUNTED. Its four write-failure branches announce
+# themselves through log_error and through nothing else. Once the log_* functions
+# became `|| true`-guarded, that single channel became droppable: main() runs with
+# `exec > >(tee -a "$INSTALL_LOG") 2>&1`, so stderr is NOT a fallback, and a dead
+# tee lets all four branches reach `return 0` with the message undelivered. The
+# installer then exits 0 having printed nothing -- indistinguishable from a healthy
+# run. The failure was named only by a channel that can be dead, and counted by
+# nothing at all: every other *_count in this file is a local for an unrelated job.
+#
+# TWO CHANNELS, DELIBERATELY, AND NEITHER REPLACES THE OTHER:
+#   - the counter drives the EXIT STATUS, which is what sends an operator or a CI
+#     job to look in the first place;
+#   - the durable append is what they FIND once they look. An in-memory count dies
+#     with the process and leaves nothing to inspect; a file nobody is told to read
+#     is not a signal.
+#
+# HONEST BOUND, stated so it is not over-read: this recovers the PERMISSION case,
+# not the ENOSPC case. Where the trigger is a full disk the append fails too, and
+# only the exit status survives.
+PARZIVAL_RECORD_FAILURES=0
+
+# WRITE TARGET, justified rather than assumed -- two candidates are ruled out:
+#   - NOT $INSTALL_DIR/docker/.env. Unwritable by hypothesis: it IS the failing write.
+#   - NOT $INSTALL_DIR/logs/. main() creates it with `mkdir -p ... || true`, so its
+#     existence is conditional and it may simply not be there when this runs.
+# $INSTALL_DIR itself is the target, on two grounds: it sits one level ABOVE
+# docker/, so the mode or ownership problem that makes docker/.env unwritable does
+# not reach it; and unlike /tmp it is durable across a reboot and is where an
+# operator already looks. The path is derived at call time from INSTALL_DIR rather
+# than pinned into a global, so a test that sets INSTALL_DIR redirects the ledger.
+#
+# A THIRD GROUND WAS CLAIMED HERE AND IT WAS FALSE -- recorded rather than quietly
+# deleted, because the same reasoning would be re-derived otherwise. It read:
+# "$INSTALL_DIR is created by an UNGUARDED `mkdir -p "$INSTALL_DIR"/{docker,...}`,
+# so a failure to create it aborts the install and this function is never reached
+# with the directory missing." That mkdir (create_directories) has exactly ONE call
+# site, and it is inside main's `if [[ "$INSTALL_MODE" == "full" ]]` block. In
+# ADD-PROJECT MODE -- the default -- it never runs, and $INSTALL_DIR is produced
+# only by main's first action, the GUARDED `mkdir -p "$INSTALL_DIR/logs"
+# 2>/dev/null || true`, which creates logs/ in the very same call. So on the default
+# path $INSTALL_DIR and $INSTALL_DIR/logs are created together and fail together,
+# and the "logs/ is conditional, $INSTALL_DIR is not" discriminator DOES NOT
+# DISCRIMINATE. No behavioural consequence: the append is guarded and a missing
+# directory degrades to "no ledger", which the HONEST BOUND above already covers.
+# The choice of target stands on the two grounds stated at the top of this block.
+parzival_record_failure() {
+    local detail="$1"
+
+    # COUNT FIRST, before BOTH channels. Both are established as failable: the
+    # log_error below is a `|| true`-guarded echo that silently drops its message
+    # when stdout is gone, and the append is guarded for the same reason. A count
+    # taken after either one is a count a broken channel can suppress.
+    #
+    # ASSIGNMENT FORM, NOT `(( PARZIVAL_RECORD_FAILURES++ ))`. The post-increment
+    # operator evaluates to the OLD value, so under `set -e` the very FIRST
+    # increment returns 1 and kills the install -- this remedy re-creating the
+    # defect it exists to fix. Measured: `set -euo pipefail; x=0; (( x++ ))` exits
+    # 1 and the following line never runs; the assignment form exits 0.
+    PARZIVAL_RECORD_FAILURES=$((PARZIVAL_RECORD_FAILURES + 1))
+
+    log_error "$detail"
+
+    # GUARDED -- the `|| true` is NOT optional. An unguarded `>>` that fails under
+    # `set -euo pipefail` aborts the install, which is precisely the defect being
+    # fixed, relocated into its own remedy. It would ship LOOKING like a fix, and
+    # the review that follows sees a guard and stops looking. Measured: an
+    # unguarded append to an unwritable path exits 1 and the next line never runs.
+    #
+    # PER-ENTRY TIMESTAMP, not truncate-on-start. Truncating loses the history
+    # across repeated failures, which is exactly what an operator diagnosing an
+    # INTERMITTENT write failure needs. And without run identity the ledger
+    # reproduces this story's own B-10 one level up: run 1 fails, run 2 succeeds,
+    # and the operator reads a file that still names a failure.
+    #
+    # `2>/dev/null` PRECEDES the `>>` deliberately: redirections apply left to
+    # right, so with the usual ordering bash reports the failed redirection on the
+    # ORIGINAL stderr and the suppression never takes effect. Measured both ways.
+    printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$detail" \
+        2>/dev/null >> "$INSTALL_DIR/parzival-record-failures.log" || true
+
+    return 0
+}
+
+# The gate. Named rather than inlined at its call site so a test can reach it
+# while sourcing the real script.
+#
+# exit 3 is a NEW code, verified free before it was chosen: the exit census in this
+# file is 0 x7, 1 x57, 2 x1, and no 3. Distinct from 1 on purpose -- "the install
+# did its work but could not record why Parzival is off" is not the same event as
+# "the install failed", and an operator triaging them together learns nothing.
+#
+# CONTRACT CHANGE, stated here as well as in the commit body:
+# tests/integration/test_installation.py asserts returncode == 0 and two CI jobs run
+# install.sh bare, so a genuine record failure now fails CI. That is the intent --
+# a silent success is the thing this round exists to remove.
+parzival_record_status() {
+    if [[ "$PARZIVAL_RECORD_FAILURES" -ne 0 ]]; then
+        log_error "Parzival enablement record: $PARZIVAL_RECORD_FAILURES write failure(s) — the install COMPLETED but could not record why Parzival is disabled"
+        log_error "Details: $INSTALL_DIR/parzival-record-failures.log (absent if that path was unwritable too)"
+        exit 3
+    fi
+    return 0
 }
 
 # Step counter for major installation phases
@@ -1479,7 +1626,20 @@ main() {
     setup_audit_directory
 
     # Parzival session agent (optional, SPEC-015)
+    # AD-66: sample effective state immediately before setup_parzival runs --
+    # docker/.env is guaranteed to exist by this point in BOTH full and
+    # add-project mode, so the predicate does not diverge between them.
+    local _parzival_value_before _parzival_package_before
+    _parzival_value_before=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+    _parzival_package_before=$(parzival_package_present "$PROJECT_PATH")
     setup_parzival
+    # End sample: after the record write and deployment, before show_success_message.
+    local _parzival_value_after _parzival_package_after
+    _parzival_value_after=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+    _parzival_package_after=$(parzival_package_present "$PROJECT_PATH")
+    announce_parzival_state_change \
+        "$_parzival_value_before" "$_parzival_package_before" \
+        "$_parzival_value_after" "$_parzival_package_after"
 
     # FEATURE-001: Multi-IDE support — detect and configure Gemini/Cursor/Codex
     configure_multi_ide "$PROJECT_PATH" "$INSTALL_DIR" "$PROJECT_NAME" "${IDE_FLAG:-}" "${FORCE_IDE:-false}"
@@ -1528,6 +1688,43 @@ main() {
     fi
 
     show_success_message
+
+    # THE GATE IS THE LAST THING main DOES. INSTALL_COMPLETED is set immediately
+    # before it so that a non-zero exit from here cannot make the EXIT trap report
+    # a COMPLETE install as "interrupted".
+    #
+    # Local precedent for gate-after-work is a few dozen lines above: the
+    # verify_env_split.py check logs at error level and exits AFTER its work has
+    # completed, rather than aborting mid-install.
+    #
+    # ORDERING NOTE, and it is load-bearing. show_success_message still carries 66
+    # unguarded `echo` lines. Guarding them BEFORE this gate existed would have
+    # removed the accidental failure signal they currently provide and made the
+    # silent success universal. The sweep is tracked as TD-1082 and lands
+    # with-or-after this gate, never before. This is also why the durable ledger is
+    # not optional: a counter that can only speak through a gate the run never
+    # reaches is a counter that says nothing.
+    #
+    # WHERE A DEAD-STDOUT RUN ACTUALLY DIES -- corrected, because this paragraph
+    # named the wrong place and anyone sequencing TD-1082 off it was working from a
+    # false model. It said such a run "dies there [show_success_message] under
+    # errexit before ever reaching this line." It does not: main emits 11
+    # line-initial unguarded `echo`s immediately after `exec > >(tee ...)` (the
+    # banner), and step() fires two more unguarded echoes on every phase -- all of
+    # them long before setup_parzival, let alone before this line. A run whose
+    # stdout is dead dies at the BANNER. (A genuinely dead tee reader delivers
+    # SIGPIPE, which kills the shell outright rather than exiting 0.) So
+    # show_success_message is not the load-bearing signal for the dead-stdout case,
+    # and the dead-stdout case is not what this gate recovers.
+    #
+    # THE CASE THIS GATE DOES RECOVER, stated so the remedy is not read as
+    # unmotivated: the PERMISSION case -- docker/.env unwritable with a perfectly
+    # healthy stdout. Before this gate that printed an error and exited 0:
+    # human-visible, machine-invisible, and invisible to both CI jobs, which assert
+    # returncode == 0. After it, the same run exits 3. That case is reachable,
+    # common, and is the one the counter and ledger were built for.
+    INSTALL_COMPLETED=true
+    parzival_record_status
 }
 
 # Idempotency check - detect existing installation (NFR-I5)
@@ -4733,6 +4930,54 @@ show_success_message() {
     echo "│     ✓ Parzival V2 session agent (Technical PM & QA)        │"
     echo "│       _ai-memory/ package deployed to project              │"
     echo "│       Activate with: /pov:parzival-start                   │"
+    else
+    # AD-32: this panel previously showed the same blank space whether the
+    # operator declined Parzival or the installer could not deploy it. Branch
+    # on the recorded cause so the two are distinguishable at a glance.
+    local parzival_cause
+    parzival_cause=$(read_parzival_cause)
+    case "$parzival_cause" in
+        failed)
+            echo "│     ✗ Parzival V2 not installed — deployment failed        │"
+            echo "│       Re-run the installer to deploy _ai-memory/           │"
+            ;;
+        opt-out)
+            echo "│     ○ Parzival V2 not enabled — declined at install        │"
+            # The re-run clause is NOT optional padding. Every other surface
+            # carries it (parzival_state._MESSAGES, both aim-save SKILL copies,
+            # CLAUDE-PARZIVAL-SECTION.md); omitting it here told the operator to
+            # set the flag true while PARZIVAL_ENABLED_CAUSE=opt-out remained,
+            # i.e. to hand-build the (enabled x non-empty cause) cell that
+            # docs/PARZIVAL-SESSION-GUIDE.md warns against — by documented
+            # procedure. Re-running is what clears the cause (configure_parzival_env
+            # writes value+empty-cause in one pass).
+            echo "│       Set PARZIVAL_ENABLED=true in docker/.env, then       │"
+            echo "│       re-run the installer to enable it                    │"
+            ;;
+        *)
+            # DECLINE TO ASSERT WHAT THIS BRANCH CANNOT KNOW. Reaching here means
+            # the case-sensitive `grep -q "^PARZIVAL_ENABLED=true"` above did not
+            # match -- which is NOT the same as "no cause was recorded".
+            # PARZIVAL_ENABLED=True or ="true" are both accepted by python-dotenv
+            # and by update_parzival_settings.py's .lower(), so the SDK considers
+            # that install ENABLED while this panel previously announced "cause not
+            # recorded". Before this story those sites printed nothing; the change
+            # converted silence into a confident falsehood. So this arm reports the
+            # one thing it does know -- not-enabled -- and then points at the record
+            # rather than characterising it. Neither line claims WHY, which is what
+            # makes both true on all three of absent, empty and present-but-unmatched.
+            # NOTE: this is deliberately the WEAKER fix. Normalising the VALUE at
+            # this site the way the cause already is normalised is what the
+            # deferred case-sensitive-matcher item buys, and it is the only fix
+            # that makes this site correct rather than merely silent.
+            # "Re-run ... to record why" was itself an assertion that no cause is on
+            # file -- the same unsupported claim as the retired "cause not recorded",
+            # in gentler words. Point at the authoritative record instead: that is
+            # true whether the cause is absent, empty, or present-but-unmatched.
+            echo "│     ○ Parzival V2 not enabled                              │"
+            echo "│       Check PARZIVAL_ENABLED_CAUSE in docker/.env          │"
+            ;;
+    esac
     fi
     echo "│                                                             │"
     echo "│   \033[93mHybrid search (v2.2.1):\033[0m                                  │"
@@ -5500,9 +5745,10 @@ setup_parzival() {
     # Guard: if _ai-memory/ package is not available (old source repo), skip V2 setup
     # (R1-Finding-7: backwards compatibility)
     if [[ ! -d "$INSTALL_DIR/_ai-memory" ]]; then
-        log_warning "Parzival V2 package not found in source repo — skipping Parzival setup"
+        log_error "Parzival V2 package not found in source repo — skipping Parzival setup (cause=failed)"
         log_info "To enable Parzival V2, update your source repo to v2.2.0+"
-        set_env_value "PARZIVAL_ENABLED" "false"
+        set_parzival_enablement "false" "failed"
+        sync_parzival_settings
         return 0
     fi
 
@@ -5513,7 +5759,8 @@ setup_parzival() {
         log_info "INSTALL_PARZIVAL=true — enabling Parzival V2 for this project"
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
         log_info "Non-interactive mode — skipping Parzival setup (set INSTALL_PARZIVAL=true to enable)"
-        set_env_value "PARZIVAL_ENABLED" "false"
+        set_parzival_enablement "false" "opt-out"
+        sync_parzival_settings
         return 0
     else
         echo ""
@@ -5527,7 +5774,43 @@ setup_parzival() {
         echo "  - Quality gatekeeping (verification checklists)"
         echo "  - Parallel agent team dispatch and review cycles"
         echo ""
-        read -p "Enable Parzival session agent? [y/N] " parzival_choice
+        # `read` returns non-zero on EOF EVEN WHEN IT HAS ALREADY POPULATED THE
+        # VARIABLE. `printf 'y' | ./install.sh`, a heredoc with no trailing
+        # newline, and an expect driver all deliver a real answer with no final
+        # newline -- so testing the return code alone DISCARDS the operator's `y`
+        # and records a decline. The answer is what was typed, not what the exit
+        # status implies: treat a populated variable as an answer regardless.
+        #
+        # A genuine EOF (nothing typed) WRITES NOTHING TO THE RECORD.
+        # Three reasons, in increasing severity:
+        #   1. A cause is a claim about operator intent (AD-32) and a closed stdin
+        #      supports no such claim -- so `opt-out` is out.
+        #   2. Writing an empty cause DESTROYS INFORMATION: a `cause=failed` from an
+        #      earlier run is overwritten, turning a correctly recorded deployment
+        #      failure into `unknown`. Nothing reads the prior cause first.
+        #   3. `setup_parzival` performs ZERO reads of the existing PARZIVAL_ENABLED
+        #      before prompting, so writing `false` here DISABLES A DEPLOYED, WORKING
+        #      PARZIVAL because nobody answered a prompt -- flatly against
+        #      DEC-PM441-D1 ("Parzival enabled all the time; the installer should
+        #      override an opt-out"), and against AD-71 (ratified DEC-PM441-D4),
+        #      under which a failed deployment is the sole permitted terminal
+        #      not-enabled state. AD-71 is NOT quoted here on purpose: the
+        #      decision-log rendering of it was found truncated at PM #442, and the
+        #      authoritative text is the spine's own. Reason 3 does not lean on it --
+        #      DEC-PM441-D1 alone forbids the installer turning Parzival off.
+        # Writing nothing leaves whatever the record already held: on a fresh install
+        # that is `copy_files`' false/empty/complete from .env.example -- byte-for-byte
+        # what this branch used to write -- and on a re-install it is the true record.
+        # The write bought nothing where it was correct and destroyed where it was not.
+        # This is distinct from NON_INTERACTIVE above, which IS a configured choice.
+        local parzival_choice=""
+        local parzival_read_rc=0
+        read -r -p "Enable Parzival session agent? [y/N] " parzival_choice || parzival_read_rc=$?
+        if (( parzival_read_rc != 0 )) && [[ -z "$parzival_choice" ]]; then
+            log_warning "No response on stdin (EOF) — skipping Parzival setup; the enablement record is left unchanged"
+            sync_parzival_settings
+            return 0
+        fi
 
         local parzival_choice_normalized
         parzival_choice_normalized=$(printf '%s' "$parzival_choice" | tr '[:upper:]' '[:lower:]')
@@ -5557,9 +5840,10 @@ setup_parzival() {
         # Deploy _ai-memory/ package (must be before shims)
         # Wrapped with error handler (R2-NF1: return 1 would crash under set -e)
         deploy_parzival_v2 || {
-            log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted"
+            log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted (cause=failed)"
             log_info "The installer will continue without Parzival"
-            set_env_value "PARZIVAL_ENABLED" "false"
+            set_parzival_enablement "false" "failed"
+            sync_parzival_settings
             return 0
         }
 
@@ -5617,14 +5901,7 @@ setup_parzival() {
         create_agent_id_index
 
         # Sync Parzival settings to project settings.json
-        if [[ -f "$PROJECT_SETTINGS" ]]; then
-            log_debug "Updating project settings with Parzival configuration..."
-            python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
-                "$PROJECT_SETTINGS" \
-                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "${INSTALL_LOG:-/dev/null}" || {
-                log_warning "Failed to update Parzival settings in settings.json"
-            }
-        fi
+        sync_parzival_settings
 
         # Optional: multi-provider model dispatch setup
         setup_model_dispatch
@@ -5632,7 +5909,8 @@ setup_parzival() {
         log_success "Parzival V2 enabled"
     else
         log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
-        set_env_value "PARZIVAL_ENABLED" "false"
+        set_parzival_enablement "false" "opt-out"
+        sync_parzival_settings
     fi
 }
 
@@ -6050,7 +6328,7 @@ check_oversight_templates() { _sync_oversight_templates check; }
 configure_parzival_env() {
     local env_file="$INSTALL_DIR/docker/.env"
 
-    set_env_value "PARZIVAL_ENABLED" "true"
+    set_parzival_enablement "true" ""
     append_env_if_missing "PARZIVAL_USER_NAME" "Developer"
     append_env_if_missing "PARZIVAL_LANGUAGE" "English"
     append_env_if_missing "PARZIVAL_DOC_LANGUAGE" "English"
@@ -6089,6 +6367,330 @@ set_env_value() {
         sed -i.bak "s|^${key}=.*|${key}=${value}|" "$env_file" && rm -f "$env_file.bak"
     else
         echo "${key}=${value}" >> "$env_file"
+    fi
+}
+
+# Write the Parzival enablement record: value + cause + condition (SPEC-015 / AD-32).
+# "I chose not to" (cause=opt-out) and "the installer could not" (cause=failed) are
+# distinct states, so every site that touches enablement writes all three keys.
+#
+# The record is written in a SINGLE ATOMIC PASS, not as three sequential
+# set_env_value calls. Sequential writes leave the file observable between them, so
+# the cell (PARZIVAL_ENABLED=true x non-empty cause) -- which AD-32 declares must not
+# be producible -- is reachable two ways: an interrupt mid-record, and a re-install
+# over a .env already carrying PARZIVAL_ENABLED=true, where writing the cause first
+# transits the forbidden cell with no interrupt required. Value-last ordering only
+# narrows that window; building the whole record and renaming over the target makes
+# the cell UNREPRESENTABLE instead of merely unlikely.
+#
+# Writing the cause ALWAYS (empty when enabling) is the second rule: a cause=failed
+# left by an earlier run must not survive a later successful one and report a deploy
+# failure on a working install. The single pass replaces in place, so it also
+# collapses any duplicate key line to one -- shell reads the first duplicate and
+# python-dotenv reads the last, so a duplicate is a reader-disagreement bug.
+#
+# set_env_value is deliberately NOT used and NOT modified: it is called far beyond
+# Parzival (see the story's "What must be preserved").
+#
+# ATOMICITY IS A FILESYSTEM PROPERTY. rename(2) is atomic on ext4 (the $HOME case).
+# It is NOT guaranteed on a 9p mount, which /mnt/e is, and an install target there
+# is supported. The temp file is created in the SAME directory so the rename is
+# never cross-device; beyond that, non-ext4 INSTALL_DIR carries an UNENFORCED mark.
+set_parzival_enablement() {
+    local value="$1"
+    local cause="$2"
+    local condition="${3:-complete}"
+    local env_file="${4:-$INSTALL_DIR/docker/.env}"
+    local tmp
+
+    # This function ALWAYS returns 0. Absence is a supported operating state
+    # (AD-26, AD-33:110) and every false-site returns 0, so a failed record write
+    # must not abort the install under `set -e` -- that would turn "Parzival is off"
+    # into "the installer died". It is reported at error level instead: emitting an
+    # error and changing the exit code are separable, and AC-1 requires the first
+    # without the second.
+    # THAT IS STILL TRUE, AND IT IS NOT THE WHOLE STORY. Each of the four
+    # write-failure branches now routes through parzival_record_failure, which
+    # COUNTS the failure before it tries to log it. `return 0` is deliberately
+    # untouched at all four -- the fail-open contract above is preserved verbatim --
+    # but the count survives a dead log channel, and main's parzival_record_status
+    # gate turns it into `exit 3` at the very end. Reporting the failure and
+    # aborting the install stay separable; what stops being separable is failing
+    # and saying nothing at all.
+    # SOURCING PRECISION: AD-24/AD-26 are cited here BY ANALOGY. They live in a
+    # different spine and their Binds: scope them to the resolver/dispatch path,
+    # not to this installer write path; it is this comment block that makes them
+    # local precedent. A literal binds-match claim would be false.
+    # Every other failure path in this function is guarded; this one was not, and
+    # `set -euo pipefail` is global (install.sh:25) with setup_parzival called bare.
+    # An unwritable docker/ turned "Parzival is off" into "the installer died" --
+    # the exact outcome the contract three lines above forbids.
+    if [[ ! -f "$env_file" ]] && ! touch "$env_file" 2>/dev/null; then
+        parzival_record_failure "Could not create $env_file — Parzival enablement record NOT written (cause=$cause)"
+        return 0
+    fi
+    if ! tmp=$(mktemp "${env_file}.parzival.XXXXXX"); then
+        parzival_record_failure "Could not create a temp file beside $env_file — Parzival enablement record NOT written (cause=$cause)"
+        return 0
+    fi
+
+    # The key patterns tolerate leading blanks and an `export ` prefix, and re-emit
+    # the CANONICAL bare form. python-dotenv accepts `export PARZIVAL_ENABLED=true`;
+    # an anchored /^PARZIVAL_ENABLED=/ does not match it, so the END block appended a
+    # SECOND definition -- and the duplicate-collapsing property this function
+    # documents held only for exactly-anchored lines. Measured: an `export`-prefixed
+    # .env came out carrying `export PARZIVAL_ENABLED=true` AND `PARZIVAL_ENABLED=false`,
+    # i.e. the two readers disagreeing inside one file, which is the forbidden cell
+    # reachable by transport rather than by interrupt.
+    awk -v v="$value" -v c="$cause" -v cond="$condition" '
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED=/ {
+            if (!sv) { print "PARZIVAL_ENABLED=" v; sv = 1 } ; next
+        }
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED_CAUSE=/ {
+            if (!sc) { print "PARZIVAL_ENABLED_CAUSE=" c; sc = 1 } ; next
+        }
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED_CONDITION=/ {
+            if (!sn) { print "PARZIVAL_ENABLED_CONDITION=" cond; sn = 1 } ; next
+        }
+        { print }
+        END {
+            if (!sc) print "PARZIVAL_ENABLED_CAUSE=" c
+            if (!sn) print "PARZIVAL_ENABLED_CONDITION=" cond
+            if (!sv) print "PARZIVAL_ENABLED=" v
+        }
+    ' "$env_file" > "$tmp" || {
+        rm -f "$tmp"
+        parzival_record_failure "Could not build the Parzival enablement record — NOT written (cause=$cause)"
+        return 0
+    }
+
+    # MODE AND OWNERSHIP TRANSFER, not just filesystem atomicity. `chmod --reference`
+    # and `sync FILE` are GNU-only and install.sh explicitly supports Darwin, where
+    # the old `2>/dev/null || true` swallowed the failure and the rename silently
+    # committed a mktemp file at 0600 in place of docker/.env's 0644 -- a likelier
+    # everyday breakage than a torn write. Read the mode portably (GNU `stat -c`,
+    # BSD `stat -f`) and re-apply it by value.
+    # OWNERSHIP IS APPLIED FIRST, MODE SECOND. A POSIX chown clears setuid/setgid on
+    # the target, so a chmod that ran before it could have its bits dropped by the
+    # very next command. Applying the mode last is what makes the transfer survive.
+    # Under sudo the temp file is root-owned and the rename would re-home docker/.env.
+    # Best-effort only: --reference is GNU, so fall back to the numeric owner:group.
+    # VALIDATE THE CAPTURE, DO NOT MERELY TEST IT FOR EMPTINESS. On GNU coreutils `-f`
+    # is --file-system, NOT a format flag, so the BSD fallback consumes '%Lp' and the
+    # file as OPERANDS: the '%Lp' operand fails, the file operand still prints a
+    # multi-line FILESYSTEM BLOCK to stdout, and the command substitution captures it.
+    # Measured on GNU coreutils 9.4: 332 bytes of "Block size: ... Inodes: ..." text.
+    # So on the exact path this block exists for -- the primary `stat` failing -- an
+    # emptiness test is TRUE on garbage, the warning below never fires, chmod is handed
+    # a filesystem dump and fails into `|| true`, and the rename publishes mktemp's 0600
+    # over docker/.env. Measured end to end: 0644 in, 0600 out, not one word logged.
+    # Matching the SHAPE of a mode is what distinguishes "read it" from "read something".
+    # `{1,4}` not `{3,4}`: GNU %a strips leading zeros, so mode 0044 prints `44` and 0004
+    # prints `4` -- a 3-digit floor would reject a legitimate mode and skip its own chmod.
+    # ALL FOUR CELLS ANNOUNCE THEIR OWN FAILURE: read the owner, apply the owner,
+    # read the mode, apply the mode. Three of them used to end in `|| true`, which
+    # discards the diagnostic and the exit status together. Two separate causes:
+    # (a) A SYSCALL CAN FAIL ON A VALID VALUE. Each apply-cell runs only after its
+    #     regex accepted the capture, so the regex is not what protects it -- chown
+    #     and chmod can still be refused with the value well-formed (read-only
+    #     mount, uid unmapped inside a userns, an immutable attribute). Symmetric:
+    #     it applies to both cells, so fixing one leaves the other silent.
+    # (b) The owner cell had NO BRANCH -- `[[ regex ]] && chown ... || true` made a
+    #     rejected capture and a failed chown the same silent outcome. Pre-existing.
+    # `2>/dev/null` stays on both syscalls deliberately: the warning is the operator
+    # channel, and raw stderr from a best-effort probe is not. log_warning is an
+    # `echo -e`, so it returns 0 and this function still ALWAYS returns 0.
+    local _pe_own=""
+    _pe_own=$(stat -c '%u:%g' "$env_file" 2>/dev/null || stat -f '%u:%g' "$env_file" 2>/dev/null || true)
+    if [[ "$_pe_own" =~ ^[0-9]+:[0-9]+$ ]]; then
+        if ! chown "$_pe_own" "$tmp" 2>/dev/null; then
+            log_warning "Could not apply $env_file ownership — the enablement record keeps the temporary file's owner"
+        fi
+    else
+        log_warning "Could not read $env_file ownership — the enablement record keeps the temporary file's owner"
+    fi
+
+    local _pe_mode=""
+    _pe_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)
+    if [[ "$_pe_mode" =~ ^[0-7]{1,4}$ ]]; then
+        if ! chmod "$_pe_mode" "$tmp" 2>/dev/null; then
+            log_warning "Could not apply $env_file mode — the enablement record keeps the temporary file's default permissions"
+        fi
+    else
+        # NEVER SILENT. With no readable mode the rename commits mktemp's 0600 over
+        # docker/.env's own mode -- which is precisely the breakage this block was
+        # written to stop. Reproducing it without a word is the failure mode, not the
+        # missing chmod; the record is still written and the install still proceeds.
+        log_warning "Could not read $env_file mode — the enablement record keeps the temporary file's default permissions"
+    fi
+
+    # `sync FILE` is GNU; BSD sync takes no operand. Neither fsyncs the DIRECTORY, so
+    # this buys visibility ordering, not durability across a host crash (see below).
+    # NO operand-less fallback: bare `sync` flushes EVERY mounted filesystem, a
+    # multi-second stall on a host running live Qdrant/Postgres volumes, in order to
+    # commit three lines to a dotfile. Where `sync FILE` is unsupported the atomic
+    # rename below still holds, and that is the property this function relies on.
+    sync "$tmp" 2>/dev/null || true
+    if ! mv -f "$tmp" "$env_file"; then
+        rm -f "$tmp"
+        # The target is untouched: it still holds the complete previous record
+        # rather than a half-applied one. That is the whole point of committing
+        # through a rename.
+        parzival_record_failure "Could not commit the Parzival enablement record to $env_file — previous record left intact (cause=$cause)"
+    fi
+    return 0
+}
+
+# Push the Parzival vars from docker/.env into the project's settings.json.
+# Host-side hooks read env from settings.json, not docker/.env (BUG-120), so this
+# runs on the not-enabled paths too — that is the only state in which a cause
+# exists, and it is the state the hooks most need to be able to explain.
+sync_parzival_settings() {
+    [[ -f "$PROJECT_SETTINGS" ]] || return 0
+    log_debug "Updating project settings with Parzival configuration..."
+    python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
+        "$PROJECT_SETTINGS" \
+        "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "${INSTALL_LOG:-/dev/null}" || {
+        log_warning "Failed to update Parzival settings in settings.json"
+    }
+}
+
+# Read the recorded cause, failing closed to "unknown".
+# An absent cause key is the NORMAL state on every install predating this record
+# (both .env.example merge loops append only missing keys, so nothing back-fills
+# it). It must never be reported as "opt-out": that would tell an operator whose
+# install failed that they chose it.
+#
+# NORMALISATION IS NOT COSMETIC. memory.parzival_state.resolve_cause applies
+# .strip().lower(); python-dotenv additionally strips surrounding quotes and a CRLF
+# carriage return before the SDK ever sees the value, while `cut -d= -f2-` passes
+# all three straight through. Without the normalisation below, PARZIVAL_ENABLED_CAUSE
+# set to `Failed`, `"failed"`, a trailing space, or a CRLF .env resolves to `failed`
+# in the SDK and `unknown` here -- the installer and the SDK disagreeing about the
+# same file. Shell cannot import Python, so tests/test_parzival_cause_equivalence.py
+# asserts one input table resolves identically through both readers; change one copy
+# and that test fails.
+read_parzival_cause() {
+    local env_file="${1:-$INSTALL_DIR/docker/.env}"
+    local cause
+    cause=$(grep "^PARZIVAL_ENABLED_CAUSE=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    cause=$(normalize_parzival_cause "$cause")
+    case "$cause" in
+        opt-out|failed) printf '%s\n' "$cause" ;;
+        *) printf 'unknown\n' ;;
+    esac
+}
+
+# Reduce a raw docker/.env cause value to the form the SDK sees.
+# Kept as its own function so upgrade.sh's copy is a verbatim twin rather than a
+# paraphrase -- the drift this closes was two copies of "the same" rule that were
+# not the same.
+normalize_parzival_cause() {
+    local c="$1"
+    c="${c%$'\r'}"
+    c="${c#"${c%%[![:space:]]*}"}"
+    c="${c%"${c##*[![:space:]]}"}"
+    c="${c#[\"\']}"
+    c="${c%[\"\']}"
+    c="${c#"${c%%[![:space:]]*}"}"
+    c="${c%"${c##*[![:space:]]}"}"
+    printf '%s' "$c" | tr '[:upper:]' '[:lower:]'
+}
+
+# --- AD-66: the universal state-change notice --------------------------------
+#
+# Effective enabled state is the RESOLVED record value (AD-69's cause-symmetric
+# strip/lower transform -- reused via normalize_parzival_cause rather than
+# re-derived, Anti-patterns 1) AND the package present at $PROJECT_PATH/_ai-memory/pov
+# (AD-70's scope -- corrected here, H-1 round 2). AD-70's own text names bare
+# $PROJECT_PATH/_ai-memory/ as the deployment scope; that predicate is refuted
+# by deploy_ai_memory_skills(), which mkdir -p's _ai-memory/skills
+# unconditionally as setup_parzival's first statement -- even on the decline
+# or fail path -- so bare _ai-memory/ is true on every install regardless of
+# Parzival's own state. _ai-memory/pov is the part only deploy_parzival_v2
+# creates, matching detect_parzival_version's own predicate. Reported to the
+# architect; AD-70's text is not corrected here. The two samples are kept as
+# SEPARATE fields, not collapsed into one boolean, so the notice's content
+# (AC-4) can tell a genuinely new deployment from a flag flip on an install
+# that already had the package -- without ever reading the cause. See
+# announce_parzival_state_change.
+
+# Resolve PARZIVAL_ENABLED the same way the cause is resolved: the value axis is
+# cause-symmetric under AD-69, so the shared strip/lower helper applies as-is.
+# Anything outside {true,false} after that transform is malformed and fails
+# closed to "false" (AD-69) -- this probe does not itself count or report a
+# malformed value; that is a value-axis obligation this story does not carry.
+parzival_read_enabled_value() {
+    local env_file="$1"
+    local raw
+    raw=$(grep "^PARZIVAL_ENABLED=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    raw=$(normalize_parzival_cause "$raw")
+    if [[ "$raw" == "true" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+parzival_package_present() {
+    local project_path="$1"
+    # H-1 (round 2): "$project_path/_ai-memory" is not a valid discriminator --
+    # deploy_ai_memory_skills() creates it unconditionally (mkdir -p
+    # "$PROJECT_PATH/_ai-memory/skills") as the FIRST statement of
+    # setup_parzival(), even when Parzival itself is declined or failed. That
+    # made the after-sample always "true" and made the before-sample mean "did
+    # a prior install deploy the aim-* skills", not "did this project have
+    # Parzival". "_ai-memory/pov" is Parzival-specific: only deploy_parzival_v2
+    # (called only on the enable path) ever creates it, matching
+    # detect_parzival_version's own predicate.
+    if [[ -d "$project_path/_ai-memory/pov" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+# Emit the universal state-change notice (AC-2) with content derived from the
+# observed transition (AC-4), never a fixed sentence. Takes only the four
+# before/after samples -- it reads NO cause value, in either language: a single
+# trigger keyed on cause cannot satisfy both AD-66 rules (the notice is
+# universal, the choice-specific claim is exclusive), so this function has no
+# path to PARZIVAL_ENABLED_CAUSE / read_parzival_cause at all (Task 5).
+#
+# `[[ cond ]] && var=x` as a standalone statement is unsafe here: under
+# `set -euo pipefail` a false condition makes the `&&` list's exit status
+# non-zero, and being untested that would abort the run (Anti-patterns 6) --
+# every branch below is an explicit if/then instead.
+announce_parzival_state_change() {
+    local before_value="$1" before_package="$2" after_value="$3" after_package="$4"
+    local before_effective="false" after_effective="false"
+    if [[ "$before_value" == "true" && "$before_package" == "true" ]]; then
+        before_effective="true"
+    fi
+    if [[ "$after_value" == "true" && "$after_package" == "true" ]]; then
+        after_effective="true"
+    fi
+
+    # "Changed" is a diff, not a write (AD-66): a run that rewrites the same
+    # effective state emits nothing.
+    if [[ "$before_effective" == "$after_effective" ]]; then
+        return 0
+    fi
+
+    if [[ "$after_effective" == "true" ]]; then
+        if [[ "$before_package" == "false" ]]; then
+            # never-present -> enabled: the package itself is new here. States
+            # only that Parzival is installed -- never-present carries no
+            # history to assert (AD-67).
+            log_info "Parzival is now installed and enabled for this project. (parzival_notice=installed)"
+        else
+            # not-enabled -> enabled: the package was already deployed and the
+            # flag flipped. States the observable transition, never a claim
+            # about why (AD-67).
+            log_info "Parzival was not enabled; the default has changed, and it is enabled now. (parzival_notice=converted)"
+        fi
+    else
+        log_info "Parzival is no longer enabled for this project. (parzival_notice=disabled)"
     fi
 }
 

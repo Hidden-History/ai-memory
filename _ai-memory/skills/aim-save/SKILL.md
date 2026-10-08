@@ -48,7 +48,14 @@ When `--type agent_memory` or `--type agent_insight` is used, the memory is stor
 via `store_agent_memory()` to the Parzival namespace with `agent_id=parzival`.
 
 This requires Parzival to be enabled (`parzival_enabled=true` in config).
-If Parzival is not enabled, the command returns an error.
+If Parzival is not enabled, the command returns an error **naming the cause**
+(AD-32) — the two causes need different fixes and must not read as one state:
+
+- `opt-out` — it was declined at install; set `PARZIVAL_ENABLED=true` in
+  `docker/.env` and re-run the installer.
+- `failed` — the installer could not deploy it; **setting the flag will not fix
+  this**, the `_ai-memory/` package is absent. Re-run the installer.
+- absent/unrecognised — this install did not record why; re-run the installer.
 
 ### Activation
 
