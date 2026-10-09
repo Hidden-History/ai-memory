@@ -9,6 +9,11 @@
 # Exit codes:
 #   0 = Success
 #   1 = Failure (prerequisite check, configuration error, or service failure)
+#   3 = The install COMPLETED, but could not record WHY Parzival is disabled.
+#       Deliberately distinct from 1: the work was done and the services are up;
+#       only the record of the enablement decision was lost. Details are appended
+#       to $INSTALL_DIR/parzival-record-failures.log (absent if that path was
+#       unwritable too). See parzival_record_status().
 #
 # 2026 Best Practices Applied:
 #   - set -euo pipefail for strict error handling
@@ -55,8 +60,21 @@ unset _pos_args _a
 
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
-PROJECT_PATH="${1:-.}"
-PROJECT_PATH=$(cd "$PROJECT_PATH" 2>/dev/null && pwd || pwd)
+PROJECT_PATH="${1-.}"
+# A target that cannot be entered stops the run here, before anything is
+# printed, logged or written. Falling back to the working directory would
+# install into a project nobody named and report success (TD-1207). This
+# applies in every mode, --check-templates included: its flag is stripped above.
+# The log helpers are not defined yet, so the error is written the way the
+# missing-helper check above writes its own.
+# An argument that is given and empty is not "no argument": it stops too (`cd ""`
+# succeeds in place, so it must be refused here).
+if [[ -z "$PROJECT_PATH" ]] || ! _resolved_project_path=$(cd "$PROJECT_PATH" 2>/dev/null && pwd); then
+    echo "[ERROR] Cannot enter project path: ${PROJECT_PATH}" >&2
+    exit 1
+fi
+PROJECT_PATH="$_resolved_project_path"
+unset _resolved_project_path
 # Derive project name: explicit arg > git remote org/repo > folder name
 if [[ -n "${2:-}" ]]; then
     PROJECT_NAME="$2"
@@ -77,9 +95,15 @@ fi
 # Cleanup handler for interrupts (SIGINT/SIGTERM)
 # Per https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 INSTALL_STARTED=false
+# INSTALL_STARTED alone cannot tell "died partway" from "finished, then reported a
+# recorded failure through the exit-3 gate at the end of main". Without this second
+# global, that gate would fire the EXIT trap below and print "Installation
+# interrupted / Partial installation exists" over a COMPLETE install -- replacing
+# one lie with another, which is the failure class this round exists to remove.
+INSTALL_COMPLETED=false
 cleanup() {
     local exit_code=$?
-    if [[ "$INSTALL_STARTED" = true && $exit_code -ne 0 ]]; then
+    if [[ "$INSTALL_STARTED" = true && "$INSTALL_COMPLETED" != true && $exit_code -ne 0 ]]; then
         echo ""
         log_warning "Installation interrupted (exit code: $exit_code)"
 
@@ -127,28 +151,164 @@ CONTAINER_PREFIX="${AI_MEMORY_CONTAINER_PREFIX:-ai-memory}"
 INSTALLER_VERSION="2.8.4"
 
 # Logging functions
+#
+# A LOG WRITE MUST NEVER BE ABLE TO KILL THE INSTALL. `set -euo pipefail` is set
+# near the top of this file, and main() redirects stdout into `tee` at its
+# `exec > >(tee -a "$INSTALL_LOG") 2>&1` line -- anchored by quoted line rather
+# than by number, since this edit shifts every number below it. So these
+# five functions run with their stdout owned by another process. A bare
+# `echo -e` that fails to write returns nonzero, errexit sees a failed simple
+# command, and the installer dies mid-run -- losing whatever the next line was
+# about to commit. That is a logger deciding the exit status of the program.
+#
+# `|| true` is what fixes it, and the naive shape does NOT. Measured, all five:
+#
+#   echo -e "$1"              -> rc=1  the record is NOT committed
+#   echo -e "$1"; return 0    -> rc=1  the record is NOT committed
+#   echo -e "$1" || true      -> rc=0  the record IS committed
+#
+# The middle line is the trap: errexit fires AT the echo, so `return 0` on the
+# next line is never reached. It passes every existing test and ships nothing.
+#
+# SCOPE OF THIS GUARD, STATED BECAUSE IT IS NOT TOTAL. `|| true` suppresses
+# errexit, so it covers a write that FAILS AND RETURNS -- a closed descriptor
+# (EBADF), ENOSPC, EIO. It does NOT cover SIGPIPE: if the reader on the other end
+# of the pipe is gone, the kernel kills this shell outright (measured: signal 13,
+# record NOT committed, identically with and without `|| true`). A signal is not
+# an exit status, so no `||` clause runs after it. Covering that needs a `trap ''
+# PIPE`, which changes signal disposition for this entire script and is
+# deliberately NOT done here.
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[INFO]${NC} $1" || true
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[SUCCESS]${NC} $1" || true
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    echo -e "${YELLOW}[WARNING]${NC} $1" || true
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[ERROR]${NC} $1" || true
 }
 
 # Debug logging (only shown when LOG_LEVEL=debug)
 LOG_LEVEL="${LOG_LEVEL:-info}"
 log_debug() {
     if [[ "$LOG_LEVEL" == "debug" ]]; then
-        echo -e "${BLUE}[DEBUG]${NC} $1"
+        echo -e "${BLUE}[DEBUG]${NC} $1" || true
     fi
+}
+
+# --- Parzival enablement-record failure accounting (Story 1.1 round 8) --------
+#
+# WHY A COUNTER EXISTS AT ALL. set_parzival_enablement ALWAYS returns 0 -- absence
+# is a supported operating state and a failed record write must not abort the
+# install. That fail-open contract is preserved here untouched; what changes is
+# only whether the failure is COUNTED. Its four write-failure branches announce
+# themselves through log_error and through nothing else. Once the log_* functions
+# became `|| true`-guarded, that single channel became droppable: main() runs with
+# `exec > >(tee -a "$INSTALL_LOG") 2>&1`, so stderr is NOT a fallback, and a dead
+# tee lets all four branches reach `return 0` with the message undelivered. The
+# installer then exits 0 having printed nothing -- indistinguishable from a healthy
+# run. The failure was named only by a channel that can be dead, and counted by
+# nothing at all: every other *_count in this file is a local for an unrelated job.
+#
+# TWO CHANNELS, DELIBERATELY, AND NEITHER REPLACES THE OTHER:
+#   - the counter drives the EXIT STATUS, which is what sends an operator or a CI
+#     job to look in the first place;
+#   - the durable append is what they FIND once they look. An in-memory count dies
+#     with the process and leaves nothing to inspect; a file nobody is told to read
+#     is not a signal.
+#
+# HONEST BOUND, stated so it is not over-read: this recovers the PERMISSION case,
+# not the ENOSPC case. Where the trigger is a full disk the append fails too, and
+# only the exit status survives.
+PARZIVAL_RECORD_FAILURES=0
+
+# WRITE TARGET, justified rather than assumed -- two candidates are ruled out:
+#   - NOT $INSTALL_DIR/docker/.env. Unwritable by hypothesis: it IS the failing write.
+#   - NOT $INSTALL_DIR/logs/. main() creates it with `mkdir -p ... || true`, so its
+#     existence is conditional and it may simply not be there when this runs.
+# $INSTALL_DIR itself is the target, on two grounds: it sits one level ABOVE
+# docker/, so the mode or ownership problem that makes docker/.env unwritable does
+# not reach it; and unlike /tmp it is durable across a reboot and is where an
+# operator already looks. The path is derived at call time from INSTALL_DIR rather
+# than pinned into a global, so a test that sets INSTALL_DIR redirects the ledger.
+#
+# A THIRD GROUND WAS CLAIMED HERE AND IT WAS FALSE -- recorded rather than quietly
+# deleted, because the same reasoning would be re-derived otherwise. It read:
+# "$INSTALL_DIR is created by an UNGUARDED `mkdir -p "$INSTALL_DIR"/{docker,...}`,
+# so a failure to create it aborts the install and this function is never reached
+# with the directory missing." That mkdir (create_directories) has exactly ONE call
+# site, and it is inside main's `if [[ "$INSTALL_MODE" == "full" ]]` block. In
+# ADD-PROJECT MODE -- the default -- it never runs, and $INSTALL_DIR is produced
+# only by main's first action, the GUARDED `mkdir -p "$INSTALL_DIR/logs"
+# 2>/dev/null || true`, which creates logs/ in the very same call. So on the default
+# path $INSTALL_DIR and $INSTALL_DIR/logs are created together and fail together,
+# and the "logs/ is conditional, $INSTALL_DIR is not" discriminator DOES NOT
+# DISCRIMINATE. No behavioural consequence: the append is guarded and a missing
+# directory degrades to "no ledger", which the HONEST BOUND above already covers.
+# The choice of target stands on the two grounds stated at the top of this block.
+parzival_record_failure() {
+    local detail="$1"
+
+    # COUNT FIRST, before BOTH channels. Both are established as failable: the
+    # log_error below is a `|| true`-guarded echo that silently drops its message
+    # when stdout is gone, and the append is guarded for the same reason. A count
+    # taken after either one is a count a broken channel can suppress.
+    #
+    # ASSIGNMENT FORM, NOT `(( PARZIVAL_RECORD_FAILURES++ ))`. The post-increment
+    # operator evaluates to the OLD value, so under `set -e` the very FIRST
+    # increment returns 1 and kills the install -- this remedy re-creating the
+    # defect it exists to fix. Measured: `set -euo pipefail; x=0; (( x++ ))` exits
+    # 1 and the following line never runs; the assignment form exits 0.
+    PARZIVAL_RECORD_FAILURES=$((PARZIVAL_RECORD_FAILURES + 1))
+
+    log_error "$detail"
+
+    # GUARDED -- the `|| true` is NOT optional. An unguarded `>>` that fails under
+    # `set -euo pipefail` aborts the install, which is precisely the defect being
+    # fixed, relocated into its own remedy. It would ship LOOKING like a fix, and
+    # the review that follows sees a guard and stops looking. Measured: an
+    # unguarded append to an unwritable path exits 1 and the next line never runs.
+    #
+    # PER-ENTRY TIMESTAMP, not truncate-on-start. Truncating loses the history
+    # across repeated failures, which is exactly what an operator diagnosing an
+    # INTERMITTENT write failure needs. And without run identity the ledger
+    # reproduces this story's own B-10 one level up: run 1 fails, run 2 succeeds,
+    # and the operator reads a file that still names a failure.
+    #
+    # `2>/dev/null` PRECEDES the `>>` deliberately: redirections apply left to
+    # right, so with the usual ordering bash reports the failed redirection on the
+    # ORIGINAL stderr and the suppression never takes effect. Measured both ways.
+    printf '%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$detail" \
+        2>/dev/null >> "$INSTALL_DIR/parzival-record-failures.log" || true
+
+    return 0
+}
+
+# The gate. Named rather than inlined at its call site so a test can reach it
+# while sourcing the real script.
+#
+# exit 3 is a NEW code, verified free before it was chosen: the exit census in this
+# file is 0 x7, 1 x57, 2 x1, and no 3. Distinct from 1 on purpose -- "the install
+# did its work but could not record why Parzival is off" is not the same event as
+# "the install failed", and an operator triaging them together learns nothing.
+#
+# CONTRACT CHANGE, stated here as well as in the commit body:
+# tests/integration/test_installation.py asserts returncode == 0 and two CI jobs run
+# install.sh bare, so a genuine record failure now fails CI. That is the intent --
+# a silent success is the thing this round exists to remove.
+parzival_record_status() {
+    if [[ "$PARZIVAL_RECORD_FAILURES" -ne 0 ]]; then
+        log_error "Parzival enablement record: $PARZIVAL_RECORD_FAILURES write failure(s) — the install COMPLETED but could not record why Parzival is disabled"
+        log_error "Details: $INSTALL_DIR/parzival-record-failures.log (absent if that path was unwritable too)"
+        exit 3
+    fi
+    return 0
 }
 
 # Step counter for major installation phases
@@ -1479,10 +1639,52 @@ main() {
     setup_audit_directory
 
     # Parzival session agent (optional, SPEC-015)
+    # AD-66: sample effective state immediately before setup_parzival runs --
+    # docker/.env is guaranteed to exist by this point in BOTH full and
+    # add-project mode, so the predicate does not diverge between them.
+    # _parzival_prior_install_before is sampled here and NOWHERE ELSE: after
+    # setup_parzival it is true on every install, because deploy_ai_memory_skills
+    # has run by then.
+    local _parzival_value_before _parzival_package_before _parzival_prior_install_before
+    _parzival_value_before=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+    _parzival_package_before=$(parzival_package_present "$PROJECT_PATH")
+    _parzival_prior_install_before=$(ai_memory_project_previously_installed "$PROJECT_PATH")
     setup_parzival
+    # End sample: after the record write and deployment, before show_success_message.
+    local _parzival_value_after _parzival_package_after
+    _parzival_value_after=$(parzival_read_enabled_value "$INSTALL_DIR/docker/.env")
+    _parzival_package_after=$(parzival_package_present "$PROJECT_PATH")
+    announce_parzival_state_change \
+        "$_parzival_value_before" "$_parzival_package_before" \
+        "$_parzival_value_after" "$_parzival_package_after" \
+        "$_parzival_prior_install_before"
 
     # FEATURE-001: Multi-IDE support — detect and configure Gemini/Cursor/Codex
     configure_multi_ide "$PROJECT_PATH" "$INSTALL_DIR" "$PROJECT_NAME" "${IDE_FLAG:-}" "${FORCE_IDE:-false}"
+
+    # Story 1.5 — report BMAD Module availability for this project (AD-33).
+    # Per-project, so it runs in add-project mode as well as full: an operator
+    # adding a second project to an existing shared install must get the same
+    # answer for that project. Consumed in a condition, never bare — under the
+    # global `set -euo pipefail` a bare call whose last command returns non-zero
+    # would abort the install mid-run, which AC-4 forbids.
+    #
+    # WHAT `|| true` ACTUALLY DOES, stated precisely because an earlier revision of
+    # this comment had it wrong. It does NOT add a second guarantee alongside the
+    # unconditional `return 0`s: invoking a function as the left operand of `||`
+    # SUSPENDS errexit for the whole of its body, so `|| true` REPLACES errexit here
+    # rather than backing it up. Measured, with a control: a function body whose
+    # first command is `false` runs to completion under `f || true` and aborts at
+    # that command when called bare. The trade is deliberate and right for AC-4 — an
+    # aborted install is worse than a silent internal failure — but it is a trade,
+    # not a belt-and-braces, and the cost is that a future internal failure goes
+    # quiet. The reporter's `*)` arm is what keeps that silence from being
+    # indistinguishable from success.
+    report_bmad_module_state "$PROJECT_PATH" || true
+
+    # What that state leaves unavailable, and the route out. Guarded for the same
+    # reason as the call above: nothing on this path may change the exit status.
+    report_bmad_absence "$PROJECT_PATH" || true
 
     # BUG-243: Register project for GitHub sync — parity between interactive and non-interactive
     if [[ "$INSTALL_MODE" == "add-project" && "$GITHUB_SYNC_ENABLED" == "true" && "${PROJECT_GITHUB_SKIP:-false}" == "true" ]]; then
@@ -1528,6 +1730,43 @@ main() {
     fi
 
     show_success_message
+
+    # THE GATE IS THE LAST THING main DOES. INSTALL_COMPLETED is set immediately
+    # before it so that a non-zero exit from here cannot make the EXIT trap report
+    # a COMPLETE install as "interrupted".
+    #
+    # Local precedent for gate-after-work is a few dozen lines above: the
+    # verify_env_split.py check logs at error level and exits AFTER its work has
+    # completed, rather than aborting mid-install.
+    #
+    # ORDERING NOTE, and it is load-bearing. show_success_message still carries 66
+    # unguarded `echo` lines. Guarding them BEFORE this gate existed would have
+    # removed the accidental failure signal they currently provide and made the
+    # silent success universal. The sweep is tracked as TD-1082 and lands
+    # with-or-after this gate, never before. This is also why the durable ledger is
+    # not optional: a counter that can only speak through a gate the run never
+    # reaches is a counter that says nothing.
+    #
+    # WHERE A DEAD-STDOUT RUN ACTUALLY DIES -- corrected, because this paragraph
+    # named the wrong place and anyone sequencing TD-1082 off it was working from a
+    # false model. It said such a run "dies there [show_success_message] under
+    # errexit before ever reaching this line." It does not: main emits 11
+    # line-initial unguarded `echo`s immediately after `exec > >(tee ...)` (the
+    # banner), and step() fires two more unguarded echoes on every phase -- all of
+    # them long before setup_parzival, let alone before this line. A run whose
+    # stdout is dead dies at the BANNER. (A genuinely dead tee reader delivers
+    # SIGPIPE, which kills the shell outright rather than exiting 0.) So
+    # show_success_message is not the load-bearing signal for the dead-stdout case,
+    # and the dead-stdout case is not what this gate recovers.
+    #
+    # THE CASE THIS GATE DOES RECOVER, stated so the remedy is not read as
+    # unmotivated: the PERMISSION case -- docker/.env unwritable with a perfectly
+    # healthy stdout. Before this gate that printed an error and exited 0:
+    # human-visible, machine-invisible, and invisible to both CI jobs, which assert
+    # returncode == 0. After it, the same run exits 3. That case is reachable,
+    # common, and is the one the counter and ledger were built for.
+    INSTALL_COMPLETED=true
+    parzival_record_status
 }
 
 # Idempotency check - detect existing installation (NFR-I5)
@@ -4237,6 +4476,422 @@ configure_multi_ide() {
 # End FEATURE-001
 # =============================================================================
 
+# =============================================================================
+# Story 1.5 — BMAD Module-granularity detection (AD-33, FR-2, FR-3)
+# =============================================================================
+
+# Resolve BMAD availability for a project at MODULE granularity.
+#
+# THE SURFACE, chosen normatively because the choice selects the answer. Two
+# surfaces can be asked "is BMM installed?" and they disagree on the same machine
+# at the same moment:
+#   - .claude/skills/bmad-*  — no skill directory name carries a module segment,
+#     so this surface can answer "BMAD?" and can NEVER answer "BMM?". A detector
+#     built on it satisfies AC-1 and AC-3 and fails AC-2 silently.
+#   - _bmad/config.yaml      — the BMAD root config is NOT a module registry. It
+#     names a subset of the installed modules, so parsing it reports BMM missing
+#     on a machine that has BMM: AC-2 inverted, the operator told a Module is
+#     dark when it is lit.
+# The module TREE is the surface used here: _bmad/ is the BMAD root, and each
+# Module is a directory beneath it carrying its own config.yaml. That layout was
+# checked against a real BMAD installation rather than assumed: all seven modules
+# present there (_memory, bmb, bmm, cis, core, gds, tea) follow the identical
+# _bmad/<module>/config.yaml shape, with no _bmad/modules/ level and no .yml
+# variant. Recorded here because nothing else in the tree records that it was
+# verified, and a surface that is right by luck reads exactly like one that is
+# right by design.
+#
+# THE DISCRIMINATOR is the Module's own config, and it must be a NON-EMPTY
+# REGULAR FILE — an empty _bmad/bmm/ is not an installed Module, neither is a
+# zero-byte config, and neither is a DIRECTORY that happens to be named
+# config.yaml. The test is `-f && -s` and BOTH halves are load-bearing: `-s`
+# alone is true on a directory, and `-f` alone is true on a zero-byte file. `-f`
+# is the node-type half; `-s` is the emptiness half. Neither replaced the other —
+# an earlier revision of this paragraph presented `-s` as the single test that
+# had superseded `-f`, which stopped being true when the node-type half was added
+# and is corrected here rather than left to mislead the next reader. The module
+# config is where BMAD records the module version that Story 1.6 will need to
+# read: an empty file records no version, and a directory records none readably.
+#
+# DESIGN A of the two the story permits: the state is written to STDOUT and this
+# function ALWAYS returns 0. A multi-valued answer cannot ride in a return status
+# without using a non-zero value, and under this script's global `set -euo
+# pipefail` a non-zero return from a bare call is an aborted install — which is
+# precisely what AC-4 forbids. The return status is therefore not the answer
+# channel, and every filesystem read below is a guarded `[[ ]]` test.
+#
+# FAIL OPEN — zero exit, condition reported. This does not contradict the
+# fail-CLOSED non-zero exits elsewhere in this script: they are different classes,
+# and reporting a condition is separable from changing the exit status.
+#
+# NOT CACHED, anywhere: installing BMAD afterwards must enable the capability with
+# no reinstall, so this writes no state file, no docker/.env key and nothing else
+# durable. The PARZIVAL_ENABLED* persistence pattern is the wrong analogy here.
+#
+# THE FOURTH STATE, and why it exists. AD-33 enumerates three states. The
+# filesystem can present a fourth: the check cannot get an answer. A
+# BMAD root at mode 000 satisfies `[[ -d ]]` (stat needs only search permission on
+# the PARENT) while every test beneath it fails with EACCES, which `[[ ]]` renders
+# indistinguishable from ENOENT. Falling through to "bmm-absent" would tell an
+# operator whose machine HAS BMM that BMM is absent — AC-2 inverted, by the same
+# mechanism this function rejects the _bmad/config.yaml surface for. It is
+# reported as its own state instead. Under AD-24 that classification is a spine
+# question and NOT an implementer's judgement call; it was escalated and ruled on
+# by the owner as DEC-PM454-D6 (PM #454, recorded in
+# oversight/tracking/archive/decision-log-ARCHIVE-2026-09.md) — "report loudly,
+# do not abort" — corroborated by PM449 § Q3. This comment is the receipt, and it
+# names the record instead of asserting its own authority.
+#   THE RULING'S SECOND HALF IS NOT DISCHARGED HERE, and is recorded as owed
+#   rather than paraphrased away: DEC-PM454-D6 says "loudly" means NAMED AND
+#   COUNTED, never fatal. This function names the state. Nothing counts it.
+#
+# WHAT THE FOURTH STATE COVERS, stated narrowly because the general claim is
+# false, and ENUMERATED NODE BY NODE because a narrow claim that is also incomplete
+# reads as exhaustive while it is not. It detects PERMISSION DENIAL and unresolvable
+# nodes, and only where they are observable from the project path downward: at an
+# unsearchable project path (reachable in this function only — through main() it
+# is not, because the installer stops on a project path it cannot enter before
+# this function runs; TD-1207), at _bmad, at
+# _bmad/bmm, and at a symlink whose target cannot be resolved at ANY of the three
+# nodes that carry one — _bmad, _bmad/bmm and the Module's own
+# _bmad/bmm/config.yaml. The config.yaml node is the one an earlier
+# revision of this list omitted while still billing itself narrow-but-complete; the
+# code has guarded it since the per-file shared-install link was covered, and the
+# suite pins it. One further condition is covered that is not a filesystem state at
+# all: an EMPTY OR MISSING project-path argument, where there is nothing to look at
+# and answering about some other directory would be the confident-wrong answer this
+# state exists to refuse. It is NOT a general "could not look" detector.
+# `[[ ]]` exposes no errno, so a denial arising ABOVE the project path — an
+# unsearchable ancestor of it — is invisible to every test available here and
+# still resolves bmad-absent. That
+# residue is left open deliberately: closing it needs machinery beyond `[[ ]]`,
+# which CLAUDE.md §2 argues against for a case no acceptance criterion reaches.
+# The limit is written down rather than implied by silence.
+#
+# AD-36's "three results, never one" is the same rule at a different altitude and
+# is cited BY ANALOGY, marked here for the same reason AD-26's citation is
+# marked: AD-36's Binds: line reads "FR-9, FR-10; consumed by AD-41, AD-42,
+# AD-43", and this path is FR-2/FR-3, so it does not reach. The analogy is sound
+# and the binding is not claimed — "could not look" is not a kind of "not there".
+#
+# SOURCING PRECISION: AD-33 binds FR-2 and FR-3, which are this path's criteria,
+# so it is cited directly. AD-24 is ALSO cited directly, not by analogy: its
+# Binds: line reads "the resolver; the dispatch path; every detector", and this
+# function is a detector. An earlier revision of this comment claimed AD-24 was
+# cited by analogy and that "a literal binds-match claim would be false" — that
+# was wrong, and it is corrected here rather than quietly dropped, because it is
+# what made silently classifying the fourth state look permissible. The narrower
+# claim it was reaching for IS true and is kept: AD-24's ENUMERATED fail-OPEN list
+# does not contain this condition. The classification comes from AD-33's exit-zero
+# clause; AD-24 supplies the vocabulary and the separation of reporting from exit
+# status — and, because it binds, its rule that an unclassified condition is a
+# spine defect rather than an implementer's pick.
+# AD-26 IS cited by analogy, and that is correct: its Binds: line reads "the
+# resolver; every BMAD-dependent capability; FR-5", and this installer report is
+# not itself a BMAD-dependent capability.
+#
+# Args:
+#   $1 - project path. Every path tested is formed beneath it. NOTE the honest
+#        limit of that claim: `-d`/`-f`/`-s` follow symlinks, so a `_bmad` symlink
+#        pointing outside the project resolves to its target. That is a
+#        legitimate layout (one shared BMAD install linked into several projects)
+#        and is deliberately NOT canonicalised here — no acceptance criterion
+#        covers it, and canonicalising would break the shared-install case. What
+#        is portable (N-8) is that no path is hard-coded and no assumption is made
+#        about the operator or the layout; what is not claimed is containment.
+# Outputs (stdout, exactly one):
+#   bmad-absent | bmm-absent | bmm-present | bmad-indeterminate
+detect_bmad_module_state() {
+    # `${1:-}` not `$1`: under `set -u` a bare `$1` with no argument aborts the
+    # shell, and as the left operand of `||` it takes the caller down with it —
+    # the one abort class the "every read is a guarded [[ ]] test" framing above
+    # does not cover, because it fires before the first test runs.
+    local project_path="${1:-}"
+    local bmad_root
+
+    if [[ -z "$project_path" ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
+    bmad_root="$project_path/_bmad"
+
+    # "Could we look?" is asked ABOVE _bmad as well as at it. `[[ -d ]]` renders
+    # EACCES and ENOENT identically, so a bare `! -d "$bmad_root"` reads "the
+    # parent refused us" as "there is no BMAD" — a CONFIDENT absent where
+    # DEC-PM454-D6 requires indeterminate, which is one state worse than the case
+    # that ruling was made on. TWO independent conditions produce that negative
+    # and neither subsumes the other; both measured against this function:
+    #   _bmad is a symlink whose target cannot be RESOLVED  -> -d FALSE, -L TRUE
+    #   _bmad is a real dir under an unsearchable project   -> -d FALSE, -L FALSE
+    # `-L` is BLIND to the second, so a guard built on `-L` alone would close half
+    # of this and read as complete. `-x "$project_path"` is what covers it: `-x`
+    # on an existing directory needs only search permission on ITS parent, so an
+    # unsearchable project path stays observable when nothing beneath it is.
+    # `-d "$project_path"` is required alongside `! -x` so a project path that is
+    # genuinely NOT THERE keeps answering bmad-absent — there we did look, and
+    # there was nothing.
+    if [[ ! -d "$bmad_root" ]]; then
+        # `! -e` is the load-bearing half of the first test, not decoration. A
+        # symlink that RESOLVES to a non-directory — a regular file, a FIFO, a
+        # socket, a device — is "we looked, and it is not a BMAD root": absent,
+        # the same answer a bare regular file at this path already gets. Firing
+        # on `-L` alone would answer indeterminate for the symlink and absent for
+        # the bare file in the identical operator situation, which is this
+        # finding's own defect one node type over. `-e` asks the right question
+        # ("did resolution succeed?"); `-f` would only ask "is it a regular
+        # file?" and would still misreport a FIFO, a socket and a device.
+        #   sym -> regular file / FIFO / socket / device : -e TRUE  -> absent
+        #   dangling / ELOOP / a dir on target's path unsearchable: -e FALSE -> indeterminate
+        # Those last three are BIT-IDENTICAL to `[[ ]]` (-L TRUE, -e FALSE) — it
+        # exposes no errno, so ENOENT, ELOOP and EACCES cannot be told apart here.
+        # One of the three is the adjudicated permission case, so all three take
+        # its answer; splitting them would need machinery past `[[ ]]`.
+        if [[ ( -L "$bmad_root" && ! -e "$bmad_root" ) || ( -d "$project_path" && ! -x "$project_path" ) ]]; then
+            echo "bmad-indeterminate"
+            return 0
+        fi
+        echo "bmad-absent"
+        return 0
+    fi
+
+    # The root is there. If it cannot be searched, nothing beneath it is evidence
+    # of anything: a negative here means "could not look", not "not there". Every
+    # read below is a named lookup, never a directory listing, so search (`-x`) is
+    # the only permission this needs — `-r` would fire on a searchable-but-not-
+    # listable directory whose named children are still fully resolvable.
+    if [[ ! -x "$bmad_root" ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
+    if [[ -f "$bmad_root/bmm/config.yaml" && -s "$bmad_root/bmm/config.yaml" ]]; then
+        echo "bmm-present"
+        return 0
+    fi
+
+    # Same rule one level down, and it must be checked BEFORE concluding absence:
+    # a present-but-unsearchable module directory cannot be read as an absent Module.
+    # The `-L`/`! -e` limb mirrors the root guard above for the same reason: dangling,
+    # ELOOP and "a directory on the target's path unsearchable" are bit-identical
+    # to `[[ ]]` at this node too, and the ruling that resolves that ambiguity at the
+    # root does not stop there — ENOENT, ELOOP and EACCES are as indistinguishable
+    # here as they are above.
+    if [[ ( -d "$bmad_root/bmm" && ! -x "$bmad_root/bmm" ) || ( -L "$bmad_root/bmm" && ! -e "$bmad_root/bmm" ) ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
+    # One node further down: the Module directory resolved, but its own
+    # config.yaml can itself be the unresolvable node (a per-file shared-install
+    # link, rather than the whole Module directory, symlinked in). Same governing
+    # rule as the two guards above, at the same depth-independent standard.
+    if [[ -L "$bmad_root/bmm/config.yaml" && ! -e "$bmad_root/bmm/config.yaml" ]]; then
+        echo "bmad-indeterminate"
+        return 0
+    fi
+
+    echo "bmm-absent"
+    return 0
+}
+
+# Report the Module-granularity state to the operator.
+#
+# Absence is a NAMED report, never a silence: a check that found nothing to
+# inspect must stay distinguishable from a check that passed. Presence is the
+# opposite — silence is the required behaviour, and a reassuring "detected" line
+# is a defect under the same rule that forbids the warning, so BMM present goes to
+# log_debug, which is gated behind LOG_LEVEL=debug and is absent from a normal run.
+#
+# The BMM-absent message names BMM as the required Module. "BMAD is incomplete"
+# would not: naming BMAD in general is the failure this reporting exists to remove.
+#
+# DECLARED: AC-3 AS WRITTEN IS KNOWINGLY VIOLATED IN ONE STATE. AC-3 reads "Given
+# a repository with BMM present When the installer runs Then it emits no warning
+# at all", and its Given is unconditional — it says nothing about permissions. A
+# repository that HAS BMM but whose evidence cannot be checked resolves
+# bmad-indeterminate, and this function warns. That is not a defect to fix: it is
+# DEC-PM454-D6 ("report loudly, do not abort") meeting an AC written before it,
+# and the ruling is the higher authority. It is written down here so a reviewer
+# re-deriving AC-3 finds a disclosed exception rather than an undisclosed one.
+#
+# The INDETERMINATE message says "unknown", never "absent", and it does not assert
+# that BMAD is present either. Its whole purpose is to refuse to assert a state the
+# evidence does not support; a message that softened it into "BMM may be absent"
+# would be the false claim again in a quieter voice, and one that said "BMAD present"
+# would be a fresh false claim on the path where the project path itself is missing.
+#
+# Deliberately carries NO upstream source and NO version string. The route out —
+# where to get it and which version scope applies — is Story 1.6's, and a version
+# string written into installer output would violate AD-1 and AD-2.
+#
+# Emits only through the existing guarded log helpers. No new OPERATOR-FACING
+# `echo` is added — the detector's three bare `echo`s are its stdout answer
+# channel, always consumed in a command substitution and never seen by an operator
+# — and the existing unguarded ones are not swept: that sweep carries a binding
+# ordering constraint and a different owner.
+#
+# ALWAYS returns 0, for the same reason detect_bmad_module_state does.
+#
+# Args:
+#   $1 - project path, passed straight through to the detector.
+report_bmad_module_state() {
+    local project_path="${1:-}"
+    local state
+
+    state=$(detect_bmad_module_state "$project_path")
+
+    case "$state" in
+        bmad-absent)
+            log_warning "BMAD absent — BMM is the required Module for BMAD-dependent capabilities. Install continues; absence is a supported operating state."
+            ;;
+        bmm-absent)
+            log_warning "BMAD present / BMM absent — BMM is the required Module for BMAD-dependent capabilities. Install continues; absence is a supported operating state."
+            ;;
+        bmm-present)
+            log_debug "BMM present"
+            ;;
+        bmad-indeterminate)
+            log_warning "BMM undetermined — the BMAD evidence could not be checked, so whether the BMM Module is installed is unknown. This is NOT a report that BMM is absent. The causes overlap and this check cannot tell them apart, so this is not a menu to choose from: work through all of them. Permissions: check that you have permission to enter the _bmad directory and the _bmad/bmm Module directory. Symlinks: _bmad, _bmad/bmm and _bmad/bmm/config.yaml may each be a link, and to this check a link whose target is missing, a link that loops, and a link whose path runs through a directory you cannot search all look the same. That directory can be any directory along the path the link resolves through, not only the target's parent, and for a shared BMAD install it is outside this project. Run stat -L on each link to tell them apart. If stat -L succeeds, the link resolves and is not broken: the cause is permission, so check that you can enter the directory it points to. 'Permission denied' means a directory along that path cannot be searched, so check search permission on every directory along it. 'No such file or directory', 'Too many levels of symbolic links' or 'Not a directory' means the link is broken, which changing permissions cannot fix — repair it, or remove it, which makes the state report as absent rather than unknown. Any other error does not show that the link is broken: 'Stale file handle', 'Transport endpoint is not connected' or 'Input/output error' mean the storage the link points into cannot be reached, for example a disconnected network mount, so do not remove the link — restore access to that storage first. More than one of these can be true at once, and stat -L reports only the first it meets, so after each fix run stat -L again until it succeeds. Those quoted messages are the GNU/glibc wording and may differ on other systems. Also check that the project path is the one you meant. Install continues; detection never changes the install's exit status."
+            ;;
+        *)
+            # Unreachable by construction today, and deliberately not silent. The
+            # answer channel is stdout, a shared stream: any future stray output
+            # inside the detector lands in $state, matches no arm, and — because
+            # silence is this design's BMM-present signal — a detection failure
+            # would be indistinguishable from success. AD-24: a fail-open condition
+            # that reports nothing is a defect.
+            log_warning "BMAD module detection returned an unrecognised state: '${state:-<empty>}'. Whether the BMM Module is installed is unknown. Install continues; detection never changes the install's exit status."
+            ;;
+    esac
+
+    return 0
+}
+
+# Report what the detected BMAD state leaves unavailable, and the route out
+# (Story 1.6, AD-33, FR-2, FR-4).
+#
+# report_bmad_module_state above says WHICH state the project is in. This says
+# what follows from it: each unavailable capability on its own line — never a
+# joined sentence, so two runs can be diffed — then where the dependency comes
+# from and which version scope is expected.
+#
+# NOTHING IT PRINTS IS WRITTEN IN THIS SCRIPT. The capabilities are discovered at
+# run time from each capability's own degraded declaration, the upstream source
+# is read from the dependency declaration, and the version scope is read from the
+# pin declaration. A capability list or a version string written here would be a
+# claim about current reality that does not carry its pin (AD-1, AD-2). Nothing
+# is cached either: installing BMAD afterwards needs no reinstall.
+#
+# THE STATE comes from detect_bmad_module_state, called here a second time. It is
+# the same detector, not a second presence check, and the reporter above keeps
+# its own copy local. The capture is a plain assignment: `local x=$(...)` would
+# report the status of `local`, not of the detector.
+#
+#   bmad-absent | bmm-absent | bmad-indeterminate  -> the report is printed
+#   bmm-present                                    -> NOTHING is printed, at any
+#                                                     log level (AD-33)
+#   anything else, or empty                        -> reported as its own state,
+#                                                     never treated as silence
+#
+# THE DECLARATIONS are read by scripts/bmad_absence_report.py, run with the
+# system python3 and not the product's virtualenv, which may not exist yet. It
+# prints one tab-separated record per line and ends with `report-complete`; this
+# function parses those records and nothing else. A report that did not run, or
+# that stopped before its last record, is reported as exactly that: an empty
+# enumeration and a report that could not be produced are different results.
+#
+# Every operator line carries a fixed token straight after "BMAD absence report:"
+# so a consumer can match on the token and not on the wording.
+#
+# Emits only through the guarded log helpers. ALWAYS returns 0 (AD-33: the
+# install exits zero in every absent case).
+#
+# Args:
+#   $1 - project path, passed straight through to the detector.
+report_bmad_absence() {
+    local project_path="${1:-}"
+    local state product_root script records kind first second third
+    local complete=false
+
+    state=$(detect_bmad_module_state "$project_path") || true
+
+    case "$state" in
+        bmm-present)
+            return 0
+            ;;
+        bmad-absent|bmm-absent|bmad-indeterminate)
+            ;;
+        *)
+            log_warning "BMAD absence report: state-unrecognised — detection returned '${state:-<empty>}', so which capabilities are unavailable could not be determined. Install continues."
+            return 0
+            ;;
+    esac
+
+    # One explicit root: the tree this installer is running from.
+    script="$SCRIPT_DIR/bmad_absence_report.py"
+    product_root=$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd) || product_root=""
+    records=$(python3 "$script" --state "$state" --product-root "$product_root" 2>/dev/null) || records=""
+
+    if [[ "${records##*$'\n'}" == "report-complete" ]]; then
+        complete=true
+    fi
+    if [[ "$complete" != "true" ]]; then
+        log_warning "BMAD absence report: report-could-not-run — $script did not produce a complete report, so the unavailable capabilities, the upstream source and the expected version scope are all unreported. This is NOT a report that nothing is unavailable. Install continues."
+        return 0
+    fi
+
+    while IFS=$'\t' read -r kind first second third; do
+        case "$kind" in
+            capability)
+                log_warning "BMAD absence report: capability-unavailable $first (cause: $second)"
+                ;;
+            enumeration)
+                case "$first" in
+                    listed)
+                        ;;
+                    empty)
+                        log_warning "BMAD absence report: enumeration-empty — no declared capability is unavailable in this state."
+                        ;;
+                    did-not-run)
+                        log_warning "BMAD absence report: enumeration-did-not-run — the capability declarations were not looked at ($second). This is NOT a report that nothing is unavailable."
+                        ;;
+                    *)
+                        log_warning "BMAD absence report: enumeration-failed — the capability declarations could not be read ($second). This is NOT a report that nothing is unavailable."
+                        ;;
+                esac
+                ;;
+            upstream-source)
+                log_warning "BMAD absence report: upstream-source for $first: $second"
+                ;;
+            upstream-source-missing)
+                log_warning "BMAD absence report: upstream-source-missing — no upstream source is declared for $first."
+                ;;
+            pin)
+                case "$first" in
+                    present)
+                        log_warning "BMAD absence report: expected-version-scope $second — covers: ${third:-<no Module named>}"
+                        ;;
+                    missing)
+                        log_warning "BMAD absence report: pin-missing — the pin declaration was not found at $second, so the expected version scope is not stated. No default is assumed."
+                        ;;
+                    empty)
+                        log_warning "BMAD absence report: pin-empty — the pin declaration at $second declares no version scope. No default is assumed."
+                        ;;
+                    *)
+                        log_warning "BMAD absence report: pin-unreadable — the pin declaration at $second could not be read, so the expected version scope is unknown. No default is assumed."
+                        ;;
+                esac
+                ;;
+            outside-pin)
+                log_warning "BMAD absence report: outside-pin-coverage $first — the pin does not cover it, so no version scope is stated for it."
+                ;;
+        esac
+    done <<< "$records"
+
+    return 0
+}
+
 # Verify project hooks configuration
 verify_project_hooks() {
     log_debug "Verifying project hook configuration..."
@@ -4733,6 +5388,65 @@ show_success_message() {
     echo "│     ✓ Parzival V2 session agent (Technical PM & QA)        │"
     echo "│       _ai-memory/ package deployed to project              │"
     echo "│       Activate with: /pov:parzival-start                   │"
+    else
+    # AD-32: this panel previously showed the same blank space whether the
+    # operator declined Parzival or the installer could not deploy it. Branch
+    # on the recorded cause so the two are distinguishable at a glance.
+    local parzival_cause
+    parzival_cause=$(read_parzival_cause)
+    case "$parzival_cause" in
+        failed)
+            echo "│     ✗ Parzival V2 not installed — deployment failed        │"
+            echo "│       Re-run the installer to deploy _ai-memory/           │"
+            ;;
+        opt-out)
+            # NOT TOUCHED BY THIS STORY, DELIBERATELY. "declined at install" is
+            # a forbidden CLAIM (AD-67) -- every non-interactive install reached
+            # this arm and none of them declined -- but that is a claim-half
+            # defect, and AC-5's quantifier reaches optionality framing, not
+            # claims. Absorbing it here would be scope creep dressed as a fix, so
+            # it is reported to the dispatching PM for routing and left as-is.
+            echo "│     ○ Parzival V2 not enabled — declined at install        │"
+            # The remedy no longer names the flag as the operator's lever. Under
+            # FR-1/AD-68 the installer converts an opt-out record on every run,
+            # so "set PARZIVAL_ENABLED=true, then re-run" is not merely
+            # optional-sounding, it is FALSE: re-running alone is what enables,
+            # and the hand-set flag it used to instruct is the (enabled x
+            # non-empty cause) cell docs/PARZIVAL-SESSION-GUIDE.md warns against.
+            # The re-run clause itself is NOT padding and stays: every other
+            # surface carries it, and re-running is what clears the cause
+            # (configure_parzival_env writes value+empty-cause in one pass).
+            #
+            # Whether this arm still has a reachable state after this story is a
+            # separate question (AD-71) and is reported, not acted on: the panel
+            # branches on the RECORD, and a legacy opt-out record stays on disk
+            # until a run converts it. Removing the reader is not commissioned.
+            echo "│       Re-run the installer to enable it                    │"
+            ;;
+        *)
+            # DECLINE TO ASSERT WHAT THIS BRANCH CANNOT KNOW. Reaching here means
+            # the case-sensitive `grep -q "^PARZIVAL_ENABLED=true"` above did not
+            # match -- which is NOT the same as "no cause was recorded".
+            # PARZIVAL_ENABLED=True or ="true" are both accepted by python-dotenv
+            # and by update_parzival_settings.py's .lower(), so the SDK considers
+            # that install ENABLED while this panel previously announced "cause not
+            # recorded". Before this story those sites printed nothing; the change
+            # converted silence into a confident falsehood. So this arm reports the
+            # one thing it does know -- not-enabled -- and then points at the record
+            # rather than characterising it. Neither line claims WHY, which is what
+            # makes both true on all three of absent, empty and present-but-unmatched.
+            # NOTE: this is deliberately the WEAKER fix. Normalising the VALUE at
+            # this site the way the cause already is normalised is what the
+            # deferred case-sensitive-matcher item buys, and it is the only fix
+            # that makes this site correct rather than merely silent.
+            # "Re-run ... to record why" was itself an assertion that no cause is on
+            # file -- the same unsupported claim as the retired "cause not recorded",
+            # in gentler words. Point at the authoritative record instead: that is
+            # true whether the cause is absent, empty, or present-but-unmatched.
+            echo "│     ○ Parzival V2 not enabled                              │"
+            echo "│       Check PARZIVAL_ENABLED_CAUSE in docker/.env          │"
+            ;;
+    esac
     fi
     echo "│                                                             │"
     echo "│   \033[93mHybrid search (v2.2.1):\033[0m                                  │"
@@ -4946,9 +5660,122 @@ cleanup_stale_tilde_dir() {
 
 # Deploy _ai-memory/ package to target project
 # On V2->V2 update: removes stale files, preserves _memory/ user-created data
+# Backup bookkeeping for deploy_parzival_v2's stop points.
+#
+# Errexit does NOTHING inside deploy_parzival_v2: its only caller is
+# `deploy_parzival_v2 || {`, and bash suppresses set -e for the whole body of a
+# function called on the left of ||. So a failing rm -rf, cp -r or cp -p used to
+# be ignored, the function ran on to log_success and returned 0, and
+# configure_parzival_env then recorded enabled/complete over a package that was
+# half written. That is the half-converted-and-silent outcome AC-4 forbids, and
+# it was recorded as a success. Each stop point therefore tests its own exit
+# status explicitly. Removing the || to get errexit back is not an option: the
+# note beside that call site (R2-NF1) records that a bare return 1 would then
+# kill the installer.
+#
+# The return status tells the caller WHICH KIND of stop it was:
+#   1  stopped BEFORE the destination was touched -- $dst still holds what it
+#      held, so the install is recoverable by re-running and nothing is retained
+#   2  stopped AFTER the destination was touched -- $dst is partial, and the
+#      backups are the operator's only copy
+_PARZIVAL_STOP_BACKUPS=""
+
+# Before-touch stop: leave no backup directory created by this run, complete or
+# not. A stop at the sanctum backup leaves a COMPLETE _memory backup behind, so
+# this takes every path it is given rather than only the one that failed.
+_parzival_discard_backups() {
+    local path
+    for path in "$@"; do
+        [[ -n "$path" ]] || continue
+        rm -rf "$path" 2>/dev/null || true
+    done
+}
+
+# After-touch stop: record the backups that STILL EXIST, so the report names
+# every recovery copy and names no path that is not there. By the time the
+# sanctum restore loop runs, the _memory backup has already been removed and its
+# variable cleared; a project that never had _memory/ or sanctum/ never made the
+# matching backup at all.
+_parzival_note_retained_backups() {
+    local path
+    _PARZIVAL_STOP_BACKUPS=""
+    for path in "$@"; do
+        [[ -n "$path" && -d "$path" ]] || continue
+        _PARZIVAL_STOP_BACKUPS+="${_PARZIVAL_STOP_BACKUPS:+$'\n'}$path"
+    done
+}
+
+# Each backup folder carries the path of the project it was taken from, in this
+# file. The folder names do not, and INSTALL_DIR is shared by every project on
+# the machine, so without it nothing could say where a kept backup belongs.
+_PARZIVAL_BACKUP_PROJECT_NOTE="project-path.txt"
+
+# Print the commands that put kept backups back into a project, for the operator
+# to run. The installer does not run them: the backups are the only copy of the
+# content, and restoring is the operator's step.
+#
+# The order is copy back FIRST, then re-run. A re-run on its own deploys a
+# package with none of the operator's content in it and never reads a kept
+# backup. After a copy-back, the re-run's own backup-and-restore carries the
+# content through the deploy. Plain `cp -a`, so the backup wins over anything a
+# partial deploy left in the project.
+#
+# Only a folder that still exists gets a command: a stop in the sanctum restore
+# comes after the _memory backup has been restored and removed.
+#
+# The commands are echoed bare, indented and with no log prefix, so that they
+# can be copied as they stand.
+# Args: <project path> <newline-separated backup paths>
+_parzival_print_recovery_commands() {
+    local project="$1"
+    local backups="$2"
+    local path part kept=""
+
+    printf '    mkdir -p %q\n' "$project/_ai-memory"
+    while IFS= read -r path; do
+        [[ -n "$path" && -d "$path" ]] || continue
+        for part in _memory sanctum; do
+            if [[ -d "$path/$part" ]]; then
+                printf '    cp -a %q %q\n' "$path/$part" "$project/_ai-memory/"
+            fi
+        done
+        kept+=" $(printf '%q' "$path")"
+    done <<< "$backups"
+    printf '    %q %q\n' "$SCRIPT_DIR/install.sh" "$project"
+    log_warning "When the content is back in the project, delete the kept copies:"
+    echo "    rm -rf$kept"
+}
+
+# A stop after the destination was touched keeps its backups, and that run still
+# exits 0, so its message is easy to miss. Each later deploy for the same
+# project therefore lists what is still kept, with the same commands.
+#
+# Only backups recorded for THIS project are listed. INSTALL_DIR is shared, and
+# a folder without the note, or with another project's path in it, may be the
+# working backup of an install that is running right now.
+_parzival_remind_of_kept_backups() {
+    local note kept=""
+    for note in "$INSTALL_DIR"/.parzival-*-backup-*/"$_PARZIVAL_BACKUP_PROJECT_NOTE"; do
+        [[ -f "$note" ]] || continue
+        [[ "$(head -n 1 "$note" 2>/dev/null)" == "$PROJECT_PATH" ]] || continue
+        kept+="${kept:+$'\n'}${note%/*}"
+    done
+    [[ -n "$kept" ]] || return 0
+
+    log_warning "An earlier install of this project stopped partway and kept copies of its _memory/ and sanctum/ content:"
+    while IFS= read -r note; do
+        log_warning "  $note"
+    done <<< "$kept"
+    log_warning "The installer does not restore them. If that content is not back in the project yet, run these commands in this order once this run has finished: copy the kept copies back first, then re-run the installer."
+    _parzival_print_recovery_commands "$PROJECT_PATH" "$kept"
+}
+
 deploy_parzival_v2() {
     local src="$INSTALL_DIR/_ai-memory"
     local dst="$PROJECT_PATH/_ai-memory"
+
+    _PARZIVAL_STOP_BACKUPS=""
+    _parzival_remind_of_kept_backups
 
     if [[ ! -d "$src" ]]; then
         log_error "_ai-memory/ package not found in $INSTALL_DIR"
@@ -4956,42 +5783,109 @@ deploy_parzival_v2() {
         return 1
     fi
 
-    # Preserve _memory/ user-created files on update
-    # PID-suffixed path prevents race conditions with parallel installs (R2-NF6)
-    local mem_backup="$INSTALL_DIR/.parzival-memory-backup-$$"
-    rm -rf "$mem_backup" 2>/dev/null || true
+    # Preserve _memory/ user-created files on update.
+    #
+    # mktemp -d, NOT a $$ suffix. The PID suffix was chosen to keep parallel
+    # installs off each other's backup paths (R2-NF6), and mktemp does that at
+    # least as well -- but a PID repeats, when it wraps and in a fresh PID
+    # namespace, and each run used to begin by rm -rf'ing its own two paths. A
+    # backup deliberately RETAINED by an after-touch stop (below) therefore sat
+    # on a path a later run would delete and then reuse, which would destroy the
+    # only recovery copy this function's own report had just named. A freshly
+    # minted name cannot collide with one, so the pre-clean is gone with it.
+    local mem_backup=""
     if [[ -d "$dst/_memory" ]]; then
-        mkdir -p "$mem_backup"
-        cp -rp "$dst/_memory" "$mem_backup/"
+        if ! mem_backup=$(mktemp -d "$INSTALL_DIR/.parzival-memory-backup-XXXXXX"); then
+            log_error "Could not create a backup directory for _memory/ — Parzival deployment stopped before the project was touched"
+            return 1
+        fi
+        if ! cp -rp "$dst/_memory" "$mem_backup/" \
+            || ! printf '%s\n' "$PROJECT_PATH" > "$mem_backup/$_PARZIVAL_BACKUP_PROJECT_NOTE"; then
+            log_error "Could not back up _memory/ — Parzival deployment stopped before the project was touched"
+            _parzival_discard_backups "$mem_backup"
+            return 1
+        fi
         log_debug "Preserved _memory/ user data for restore"
     fi
 
     # Preserve sanctum/ per-instance identity on update (installer-audit.md §E2)
-    # PID-suffixed path prevents race conditions with parallel installs
-    local sanctum_backup="$INSTALL_DIR/.parzival-sanctum-backup-$$"
-    rm -rf "$sanctum_backup" 2>/dev/null || true
+    local sanctum_backup=""
     if [[ -d "$dst/sanctum" ]]; then
-        mkdir -p "$sanctum_backup"
-        cp -rp "$dst/sanctum" "$sanctum_backup/"
+        if ! sanctum_backup=$(mktemp -d "$INSTALL_DIR/.parzival-sanctum-backup-XXXXXX"); then
+            log_error "Could not create a backup directory for sanctum/ — Parzival deployment stopped before the project was touched"
+            _parzival_discard_backups "$mem_backup"
+            return 1
+        fi
+        if ! cp -rp "$dst/sanctum" "$sanctum_backup/" \
+            || ! printf '%s\n' "$PROJECT_PATH" > "$sanctum_backup/$_PARZIVAL_BACKUP_PROJECT_NOTE"; then
+            log_error "Could not back up sanctum/ — Parzival deployment stopped before the project was touched"
+            # BOTH, not just this one: the _memory backup finished successfully
+            # before this point, so a stop here leaves a COMPLETE backup behind
+            # as well as an incomplete one. A before-touch stop leaves no backup
+            # directory created by this run, whichever backup failed.
+            _parzival_discard_backups "$mem_backup" "$sanctum_backup"
+            return 1
+        fi
         log_debug "Preserved sanctum/ user identity for restore"
     fi
 
-    # Clean destination to remove stale files (R1-Finding-4)
-    # _memory/ and sanctum/ are already backed up above
+    # TD-819: refuse to recursively delete anything that is not the managed
+    # _ai-memory/ destination. The existing guard was an EXISTENCE check, and
+    # existence is not a path shape -- AC-4 says fail CLOSED, and an unguarded
+    # recursive delete is the one operation that cannot. This story is what
+    # multiplies the blast radius: on an update over a never-converted install
+    # $dst holds the operator's real _memory/ and sanctum/. The shape and the
+    # exit 1 are copied from prune_pov_shims rather than invented; refusing
+    # aborts the run rather than recording anything, because a $dst that is not
+    # the managed path means PROJECT_PATH itself is wrong.
     if [[ -d "$dst" ]]; then
-        rm -rf "$dst"
+        # The shape is "absolute, at least one component below the root, and
+        # named _ai-memory". A bare */_ai-memory test would be tautological --
+        # $dst is built as "$PROJECT_PATH/_ai-memory", so it always ends that
+        # way and the guard could never fire. What can go wrong is PROJECT_PATH:
+        # install.sh silently falls back to the current directory when it cannot
+        # enter its target argument, which yields a RELATIVE path, and an empty
+        # PROJECT_PATH yields "/_ai-memory" at the filesystem root. Both are
+        # rejected here; a normal absolute target is not.
+        if [[ "$dst" != /*/_ai-memory ]]; then
+            log_error "Refusing to rm -rf unexpected Parzival destination: $dst"
+            exit 1
+        fi
+        # The delete is itself a stop point, and an after-touch one: a
+        # recursive delete that fails has usually removed part of the tree
+        # first, so the destination no longer holds what it held. Copying the
+        # package over what is left and recording the run as complete would
+        # hide that.
+        if ! rm -rf "$dst"; then
+            log_error "Could not remove $dst"
+            _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+            return 2
+        fi
     fi
 
-    # Deploy fresh package
-    mkdir -p "$dst"
+    # Past this line the destination has been touched and the backups are the
+    # only copy of the operator's _memory/ and sanctum/ content. Every stop from
+    # here returns 2, and KEEPS the backups on purpose -- deleting them is what
+    # would make the condition unrecoverable, which AC-4 forbids.
+    _PARZIVAL_STOP_BACKUPS=""
+
+    if ! mkdir -p "$dst"; then
+        log_error "Could not create $dst"
+        _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+        return 2
+    fi
     if compgen -G "$src/*" > /dev/null 2>&1; then
-        cp -r "$src/"* "$dst/"
+        if ! cp -r "$src/"* "$dst/"; then
+            log_error "Could not copy the _ai-memory/ package into $dst"
+            _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+            return 2
+        fi
     fi
     find "$dst" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
     # Restore user-created _memory/ files (R1-Finding-5)
     # Only restore files that are NOT in the fresh template (user-created content only)
-    if [[ -d "$mem_backup/_memory" ]]; then
+    if [[ -n "$mem_backup" && -d "$mem_backup/_memory" ]]; then
         while IFS= read -r -d '' user_file; do
             local rel="${user_file#$mem_backup/_memory/}"
             local template_file="$dst/_memory/$rel"
@@ -4999,25 +5893,42 @@ deploy_parzival_v2() {
                 # User-created file not in template — restore it
                 local target_dir
                 target_dir=$(dirname "$dst/_memory/$rel")
-                mkdir -p "$target_dir"
-                cp -p "$user_file" "$dst/_memory/$rel"
+                if ! mkdir -p "$target_dir"; then
+                    log_error "Could not recreate $target_dir while restoring _memory/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
+                if ! cp -p "$user_file" "$dst/_memory/$rel"; then
+                    log_error "Could not restore $rel into _memory/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
             fi
         done < <(find "$mem_backup/_memory" -type f -print0 2>/dev/null)
         rm -rf "$mem_backup"
+        mem_backup=""
         log_debug "Restored user-created _memory/ files"
     fi
 
     # Restore per-instance sanctum/ identity files (parzival-answers.md DQ-1)
     # Only restores files NOT present in the fresh template (user/instance-created content only)
-    if [[ -d "$sanctum_backup/sanctum" ]]; then
+    if [[ -n "$sanctum_backup" && -d "$sanctum_backup/sanctum" ]]; then
         while IFS= read -r -d '' user_file; do
             local rel="${user_file#$sanctum_backup/sanctum/}"
             local template_file="$dst/sanctum/$rel"
             if [[ ! -f "$template_file" ]]; then
                 local target_dir
                 target_dir=$(dirname "$dst/sanctum/$rel")
-                mkdir -p "$target_dir"
-                cp -p "$user_file" "$dst/sanctum/$rel"
+                if ! mkdir -p "$target_dir"; then
+                    log_error "Could not recreate $target_dir while restoring sanctum/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
+                if ! cp -p "$user_file" "$dst/sanctum/$rel"; then
+                    log_error "Could not restore $rel into sanctum/"
+                    _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                    return 2
+                fi
             fi
         done < <(find "$sanctum_backup/sanctum" -type f -print0 2>/dev/null)
         log_debug "Restored per-instance sanctum/ identity files"
@@ -5028,7 +5939,7 @@ deploy_parzival_v2() {
     # Static identity fields come from new template
     # F-M2 fix: helper path injectable for failure-mode regression test
     local _creed_merge_script="${CREED_MERGE_SCRIPT:-$SCRIPT_DIR/_merge_sanctum_creed_frontmatter.py}"
-    if [[ -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
+    if [[ -n "$sanctum_backup" && -f "$sanctum_backup/sanctum/parzival/CREED.md" ]]; then
         if python3 "$_creed_merge_script" \
                 "$sanctum_backup/sanctum/parzival/CREED.md" \
                 "$dst/sanctum/parzival/CREED.md"; then
@@ -5036,11 +5947,20 @@ deploy_parzival_v2() {
         else
             local merge_rc=$?
             log_error "CREED frontmatter merge failed (rc=$merge_rc) — restoring backup CREED.md verbatim to preserve user identity"
-            cp -p "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"
+            # A failed merge is NOT a stop: this fallback is what handles it. A
+            # failed FALLBACK is, because then the operator's CREED.md is gone
+            # from the destination and survives only in the backup.
+            if ! cp -p "$sanctum_backup/sanctum/parzival/CREED.md" "$dst/sanctum/parzival/CREED.md"; then
+                log_error "Could not restore CREED.md verbatim"
+                _parzival_note_retained_backups "$mem_backup" "$sanctum_backup"
+                return 2
+            fi
         fi
     fi
 
-    rm -rf "$sanctum_backup" 2>/dev/null || true
+    if [[ -n "$sanctum_backup" ]]; then
+        rm -rf "$sanctum_backup" 2>/dev/null || true
+    fi
 
     local file_count
     file_count=$(find "$dst" -type f | wc -l)
@@ -5203,7 +6123,10 @@ setup_model_dispatch() {
         return 0
     fi
 
-    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch
+    # End-of-input is a "no". read returns non-zero when stdin is exhausted, and
+    # this function is called bare under the global errexit, so without the
+    # guard the installer dies here after the record already says enabled.
+    read -rp "Configure multi-provider dispatch now? [y/N]: " setup_dispatch || setup_dispatch=""
     if [[ "$setup_dispatch" =~ ^[Yy] ]]; then
         log_info "Launching model dispatch setup..."
         bash "$dispatch_installer" || {
@@ -5500,26 +6423,44 @@ setup_parzival() {
     # Guard: if _ai-memory/ package is not available (old source repo), skip V2 setup
     # (R1-Finding-7: backwards compatibility)
     if [[ ! -d "$INSTALL_DIR/_ai-memory" ]]; then
-        log_warning "Parzival V2 package not found in source repo — skipping Parzival setup"
+        log_error "Parzival V2 package not found in source repo — skipping Parzival setup (cause=failed)"
         log_info "To enable Parzival V2, update your source repo to v2.2.0+"
-        set_env_value "PARZIVAL_ENABLED" "false"
+        set_parzival_enablement "false" "failed"
+        sync_parzival_settings
         return 0
     fi
 
-    # Non-interactive CI runs skip Parzival unless INSTALL_PARZIVAL=true
-    local parzival_enable=false
+    # FR-1: every install produces a working agent, on BOTH entry mechanisms.
+    # The non-interactive gate and the interactive path are two separate sites
+    # (AD-45), and changing one is not a discharge -- so both are changed here.
+    # The variable stays because the two mechanisms still log differently; every
+    # arm now enables.
+    #
+    # INSTALL_PARZIVAL is an opt-IN variable: INSTALL.md ships the contract that
+    # it "only enables Parzival when its value is the literal string true. Any
+    # other value (including 1, yes, or unset) leaves the default skip behavior
+    # in place". `false` was therefore never a decline, and DEC-PM441-D1 rules
+    # that it CONVERTS like any other non-true value. There is no supported
+    # disable path; the product offers no off-switch and does not chase one an
+    # operator hand-makes (DEC-PM441-D3).
+    local parzival_enable=true
     if [[ "${INSTALL_PARZIVAL:-}" == "true" ]]; then
-        parzival_enable=true
         log_info "INSTALL_PARZIVAL=true — enabling Parzival V2 for this project"
     elif [[ "$NON_INTERACTIVE" == "true" ]]; then
-        log_info "Non-interactive mode — skipping Parzival setup (set INSTALL_PARZIVAL=true to enable)"
-        set_env_value "PARZIVAL_ENABLED" "false"
-        return 0
+        log_info "Non-interactive mode — enabling Parzival V2 for this project"
     else
-        echo ""
-        echo "══════════════════════════════════════════════════════════"
-        echo "  Parzival Session Agent (Optional)"
-        echo "══════════════════════════════════════════════════════════"
+        # DEC-PM465-D1 (option A): setup_parzival solicits NO input on
+        # enablement. The enablement read, its yes/no hint, its affirmative
+        # match, its EOF branch and the banner that introduced it are all
+        # removed -- a blocking read IS input on the question, and FR-1
+        # consequence 1 requires a fresh interactive install to produce a
+        # working Parzival with no user input on it. The removed strings are
+        # deliberately NOT quoted here: AC-5's sweep asserts their ABSENCE from
+        # this file, and a comment reproducing them would defeat that check
+        # while looking like documentation. The descriptive lines below are
+        # kept -- they describe what the agent does, never that it is optional,
+        # and no AC commissions removing them.
+        log_info "Enabling Parzival V2 for this project"
         echo ""
         echo "Parzival is a Technical PM & Quality Gatekeeper that provides:"
         echo "  - Cross-session memory (remembers previous sessions via Qdrant)"
@@ -5527,14 +6468,6 @@ setup_parzival() {
         echo "  - Quality gatekeeping (verification checklists)"
         echo "  - Parallel agent team dispatch and review cycles"
         echo ""
-        read -p "Enable Parzival session agent? [y/N] " parzival_choice
-
-        local parzival_choice_normalized
-        parzival_choice_normalized=$(printf '%s' "$parzival_choice" | tr '[:upper:]' '[:lower:]')
-
-        if [[ "$parzival_choice_normalized" =~ ^(y|yes)$ ]]; then
-            parzival_enable=true
-        fi
     fi
 
     if [[ "$parzival_enable" == "true" ]]; then
@@ -5557,9 +6490,59 @@ setup_parzival() {
         # Deploy _ai-memory/ package (must be before shims)
         # Wrapped with error handler (R2-NF1: return 1 would crash under set -e)
         deploy_parzival_v2 || {
-            log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted"
-            log_info "The installer will continue without Parzival"
-            set_env_value "PARZIVAL_ENABLED" "false"
+            local parzival_deploy_rc=$?
+            log_error "Failed to deploy _ai-memory/ package — Parzival setup aborted (cause=failed)"
+            if (( parzival_deploy_rc == 2 )); then
+                # AC-4: the deployment stopped AFTER the destination was touched,
+                # so the project carries a partial package. State it, make it
+                # recoverable, and REPORT it -- recording without reporting does
+                # not satisfy AC-4. condition=partial is passed as an explicit
+                # third argument; every other call site passes two and so writes
+                # the default, complete.
+                #
+                # The token is a literal, not a prose string, and is deliberately
+                # NOT a member of the parzival_notice= family: that notice is
+                # AD-66's cause-blind state-change diff, it has no condition
+                # input, and it stays silent precisely when a stop leaves the
+                # effective state unchanged -- which is the usual case here.
+                log_error "Parzival deployment stopped after the project was modified; _ai-memory/ at $PROJECT_PATH is incomplete. (parzival_condition=partial)"
+                if [[ -n "$_PARZIVAL_STOP_BACKUPS" ]]; then
+                    log_error "Your _memory/ and sanctum/ content is preserved in:"
+                    while IFS= read -r _parzival_backup_path; do
+                        [[ -n "$_parzival_backup_path" ]] || continue
+                        log_error "  $_parzival_backup_path"
+                    done <<< "$_PARZIVAL_STOP_BACKUPS"
+                    # These live under INSTALL_DIR, and an aborted full-mode run
+                    # prints "To clean up and retry: rm -rf $INSTALL_DIR". Left
+                    # unsaid, the installer's own advice would tell the operator
+                    # to delete the only recovery copy it had just handed them.
+                    log_error "Copy them elsewhere before running any 'rm -rf $INSTALL_DIR' cleanup advice."
+                    # A re-run alone does NOT bring this content back, so the
+                    # commands are printed rather than described.
+                    log_error "The installer does not restore this content. To get it back, run these commands in this order: copy the kept copies back first, then re-run the installer."
+                    _parzival_print_recovery_commands "$PROJECT_PATH" "$_PARZIVAL_STOP_BACKUPS"
+                else
+                    log_info "Re-run the installer to redeploy Parzival"
+                fi
+                # Said only once the record is known to be written: a failed
+                # write is counted and ends the run with exit 3 instead, and
+                # then neither half of this sentence would be true.
+                local parzival_record_failures_before=$PARZIVAL_RECORD_FAILURES
+                set_parzival_enablement "false" "failed" "partial"
+                if (( PARZIVAL_RECORD_FAILURES == parzival_record_failures_before )); then
+                    log_error "This stop does not change the installer's exit code: unless a later step fails, this run ends with exit code 0. The install record says PARZIVAL_ENABLED=false, PARZIVAL_ENABLED_CAUSE=failed, PARZIVAL_ENABLED_CONDITION=partial."
+                fi
+            else
+                # Stopped before the destination was touched: it still holds what
+                # it held, so the condition is the default one. This is also the
+                # existing package-missing return 1.
+                log_info "The installer will continue without Parzival"
+                set_parzival_enablement "false" "failed"
+            fi
+            # configure_parzival_env must NOT run after either stop: its
+            # two-argument true-write would record enabled and reset the
+            # condition to complete over a package that is not there.
+            sync_parzival_settings
             return 0
         }
 
@@ -5617,22 +6600,12 @@ setup_parzival() {
         create_agent_id_index
 
         # Sync Parzival settings to project settings.json
-        if [[ -f "$PROJECT_SETTINGS" ]]; then
-            log_debug "Updating project settings with Parzival configuration..."
-            python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
-                "$PROJECT_SETTINGS" \
-                "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "${INSTALL_LOG:-/dev/null}" || {
-                log_warning "Failed to update Parzival settings in settings.json"
-            }
-        fi
+        sync_parzival_settings
 
         # Optional: multi-provider model dispatch setup
         setup_model_dispatch
 
         log_success "Parzival V2 enabled"
-    else
-        log_debug "Skipping Parzival setup (PARZIVAL_ENABLED=false)"
-        set_env_value "PARZIVAL_ENABLED" "false"
     fi
 }
 
@@ -5801,25 +6774,77 @@ if not rows:
     sys.exit(0)
 
 rows.sort(key=lambda r: r[0])
+
+
+def classify(old, dep, new):
+    """Derive the classification from the digest TRIPLE, never from the fact
+    that a row exists (TD-850, first over-fire).
+
+    Every entry used to be stamped MANAGED_MERGE_REQUIRED / high / merge from a
+    hardcoded literal, so the manifest asserted "local edits AND upstream both
+    changed since the last-shipped base" about rows where it could not possibly
+    know that -- and a report that asks for a three-way merge on nearly every
+    entry is not a report. Populating old_shipped_hash alone fixes nothing while
+    the literal stands; the literal is the defect.
+
+    The three cases are the three the record measured, not invented buckets:
+
+    * NO BASE (old == ""). Base B is unidentifiable -- either a legacy
+      pre-manifest file, or a path with several known prior-shipped hashes that
+      the registry cannot order. A three-way merge needs a base, so asking for
+      one here is asking for something nobody can perform. Surfaced for review.
+    * TEMPLATE UNCHANGED (old == new). The shipped template has not moved since
+      the recorded base; only the project copy has. That is local drift, not a
+      conflict, and there is nothing upstream to adopt.
+    * GENUINELY BOTH-CHANGED. Base known, template moved off it, project moved
+      off it. This is BP-187's "conflict" quadrant and the only one that is
+      really a merge.
+
+    Every row stays IN the manifest whatever its class: the over-fire was in
+    what the entries claimed, not in which files were surfaced.
+    """
+    if not old:
+        return (
+            "BASE_UNKNOWN",
+            "review",
+            "low",
+            "No identifiable last-shipped base for this path, so upstream "
+            "movement cannot be established and a 3-way merge has no base to "
+            "merge from. Review the local copy against the current template.",
+        )
+    if old == new:
+        return (
+            "LOCAL_DRIFT_ONLY",
+            "review",
+            "low",
+            "The shipped template has not changed since the recorded base; only "
+            "the project copy differs. Local drift to review, with nothing "
+            "upstream to adopt.",
+        )
+    return (
+        "MANAGED_MERGE_REQUIRED",
+        "merge",
+        "high",
+        "Local edits and upstream template both changed since last deploy; "
+        "3-way merge required to preserve user data while adopting the "
+        "structural update.",
+    )
+
+
 entries = []
 for order, (rel, old, dep, new) in enumerate(rows):
+    classification, action, severity, rationale = classify(old, dep, new)
     entries.append(
         {
             "id": rel,
             "path": f"oversight/{rel}",
-            # Both-changed = BP-187 4-outcome "conflict": user edits AND upstream
-            # both moved since the last-shipped base -> 3-way merge required.
-            "classification": "MANAGED_MERGE_REQUIRED",
+            "classification": classification,
             "old_shipped_hash": old,  # base B (may be "" for a legacy pre-manifest file)
             "deployed_hash": dep,
             "new_template_hash": new,
-            "suggested_action": "merge",
-            "rationale": (
-                "Local edits and upstream template both changed since last "
-                "deploy; 3-way merge required to preserve user data while "
-                "adopting the structural update."
-            ),
-            "severity": "high",
+            "suggested_action": action,
+            "rationale": rationale,
+            "severity": severity,
             "order": order,
         }
     )
@@ -5863,6 +6888,63 @@ PY
 
 # Core engine. $1 = "deploy" (apply) | "check" (dry-run, report + exit code).
 # Uses globals INSTALL_DIR + PROJECT_PATH. Silent when everything is in-sync.
+# Install a shipped template over a project file crash-atomically (TD-825).
+#
+# The three deploy paths below -- new file, stale-unmodified sync, stale-migrate
+# -- each used a bare `cp`, which truncates the destination and then fills it.
+# A crash or a killed installer mid-`cp` leaves a HYBRID file: half the old
+# oversight record, half the new template, with nothing to say so. That is the
+# WSL2 corruption mode this project has already been bitten by, and an oversight
+# record is exactly the kind of file whose truncation is discovered late.
+#
+# ADOPTED, NOT DESIGNED. The invariant is reconcile_engine.py::atomic_write's,
+# per BP-187 §4: write a temp file in the SAME directory (so the rename is never
+# cross-device) -> flush -> fsync -> os.replace -> fsync the directory. install.sh
+# already demonstrates this shape itself, in _write_pending_updates' inline
+# python, which is why this is inline python too rather than a third pattern in
+# shell. Mode is carried across from the source template, the way cp would.
+#
+# The fourth branch -- both-changed / needs-merge -- never copies at all. It is
+# the genuinely no-clobber path and is deliberately untouched.
+_atomic_install_file() {
+    local src="$1" dest="$2"
+    python3 - "$src" "$dest" <<'PY'
+import os
+import shutil
+import sys
+import tempfile
+
+src, dest = sys.argv[1:3]
+directory = os.path.dirname(dest) or "."
+
+fd, tmp = tempfile.mkstemp(dir=directory, prefix=os.path.basename(dest) + ".", suffix=".tmp")
+try:
+    with open(src, "rb") as fh_in, os.fdopen(fd, "wb") as fh_out:
+        shutil.copyfileobj(fh_in, fh_out)
+        fh_out.flush()
+        os.fsync(fh_out.fileno())
+    shutil.copymode(src, tmp)
+    os.replace(tmp, dest)
+except BaseException:
+    # Leave the original intact; never publish a partial destination.
+    try:
+        os.unlink(tmp)
+    except OSError:
+        pass
+    raise
+
+# Best-effort: fsync the directory so the rename itself survives a crash.
+try:
+    dir_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+except OSError:
+    pass
+PY
+}
+
 _sync_oversight_templates() {
     local mode="$1"
     local tmpl_source="$INSTALL_DIR/templates/oversight"
@@ -5916,7 +6998,7 @@ _sync_oversight_templates() {
             n_new=$((n_new + 1))
             if [[ "$mode" == "deploy" ]]; then
                 mkdir -p "$(dirname "$dest_file")"
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
             else
                 echo "  [new]     oversight/$rel_path (would deploy)"
@@ -5938,7 +7020,7 @@ _sync_oversight_templates() {
         if [[ -n "$h_recorded" && "$h_project" == "$h_recorded" ]]; then
             n_sync=$((n_sync + 1))
             if [[ "$mode" == "deploy" ]]; then
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
                 log_info "template synced (unmodified → current): oversight/$rel_path"
             else
@@ -5952,7 +7034,7 @@ _sync_oversight_templates() {
         if [[ -z "$h_recorded" ]] && _known_template_hashes "$rel_path" "$registry" | grep -qxF "$h_project"; then
             n_migrate=$((n_migrate + 1))
             if [[ "$mode" == "deploy" ]]; then
-                cp "$tmpl_file" "$dest_file"
+                _atomic_install_file "$tmpl_file" "$dest_file"
                 _template_manifest_set "$manifest" "$rel_path" "$h_shipped"
                 log_info "template migrated (stale old-shipped → current): oversight/$rel_path"
             else
@@ -5999,9 +7081,17 @@ _sync_oversight_templates() {
                     old_base="$known_hashes"
                 fi
             fi
+            # TD-850, second over-fire: GATED ON `reconciled`. The manifest is
+            # level-triggered and rebuilt every deploy, but the row was appended
+            # unconditionally -- so an entry the operator had already disposed of
+            # in the ledger came back on every single run. The warn path above
+            # already treats a reconciled drift as "no action"; the manifest is
+            # the surface that asks for the action, so it must agree.
             # Skip when temp alloc failed (empty path); `|| true` tolerates a
             # mid-loop write failure (e.g. ENOSPC) without aborting under set -e.
-            [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
+            if (( ! reconciled )); then
+                [[ -n "$pending_tsv" ]] && { printf '%s\t%s\t%s\t%s\n' "$rel_path" "$old_base" "$h_project" "$h_shipped" >> "$pending_tsv" || true; }
+            fi
         fi
         if [[ "$mode" == "check" ]]; then
             if (( reconciled )); then
@@ -6050,7 +7140,7 @@ check_oversight_templates() { _sync_oversight_templates check; }
 configure_parzival_env() {
     local env_file="$INSTALL_DIR/docker/.env"
 
-    set_env_value "PARZIVAL_ENABLED" "true"
+    set_parzival_enablement "true" ""
     append_env_if_missing "PARZIVAL_USER_NAME" "Developer"
     append_env_if_missing "PARZIVAL_LANGUAGE" "English"
     append_env_if_missing "PARZIVAL_DOC_LANGUAGE" "English"
@@ -6059,7 +7149,20 @@ configure_parzival_env() {
 
     # Prompt for user name (skip in non-interactive mode)
     if [[ "$NON_INTERACTIVE" != "true" ]]; then
-        read -p "Your name for Parzival greetings [Developer]: " user_name
+        # TD-1065: `read` returns non-zero on EOF and `set -euo pipefail` is
+        # global, so an exhausted stdin here aborted the ENTIRE install --
+        # mid-run, after the enablement record already said enabled. Until the
+        # enablement prompt above was removed its EOF branch returned before
+        # this line; nothing stands between exhausted stdin and this read now.
+        # `|| true` is the whole fix: on EOF the default "Developer" written by
+        # append_env_if_missing above stands, and a populated variable is still
+        # honoured by the -n test below (the sibling prompt's own lesson --
+        # `read` can fail AND have delivered a real answer).
+        # A read error that is not EOF (a closed descriptor, say) assigns
+        # nothing at all, and the -n test below then dies under nounset. Start
+        # from the empty value an EOF read gives.
+        user_name=""
+        read -p "Your name for Parzival greetings [Developer]: " user_name || true
         if [[ -n "$user_name" ]]; then
             escaped_name=$(printf '%s\n' "$user_name" | sed 's/[&/\$`"!]/\\&/g')
             sed -i.bak "s/^PARZIVAL_USER_NAME=.*/PARZIVAL_USER_NAME=$escaped_name/" "$env_file" && rm -f "$env_file.bak"
@@ -6089,6 +7192,373 @@ set_env_value() {
         sed -i.bak "s|^${key}=.*|${key}=${value}|" "$env_file" && rm -f "$env_file.bak"
     else
         echo "${key}=${value}" >> "$env_file"
+    fi
+}
+
+# Write the Parzival enablement record: value + cause + condition (SPEC-015 / AD-32).
+# "I chose not to" (cause=opt-out) and "the installer could not" (cause=failed) are
+# distinct states, so every site that touches enablement writes all three keys.
+#
+# The record is written in a SINGLE ATOMIC PASS, not as three sequential
+# set_env_value calls. Sequential writes leave the file observable between them, so
+# the cell (PARZIVAL_ENABLED=true x non-empty cause) -- which AD-32 declares must not
+# be producible -- is reachable two ways: an interrupt mid-record, and a re-install
+# over a .env already carrying PARZIVAL_ENABLED=true, where writing the cause first
+# transits the forbidden cell with no interrupt required. Value-last ordering only
+# narrows that window; building the whole record and renaming over the target makes
+# the cell UNREPRESENTABLE instead of merely unlikely.
+#
+# Writing the cause ALWAYS (empty when enabling) is the second rule: a cause=failed
+# left by an earlier run must not survive a later successful one and report a deploy
+# failure on a working install. The single pass replaces in place, so it also
+# collapses any duplicate key line to one -- shell reads the first duplicate and
+# python-dotenv reads the last, so a duplicate is a reader-disagreement bug.
+#
+# set_env_value is deliberately NOT used and NOT modified: it is called far beyond
+# Parzival (see the story's "What must be preserved").
+#
+# ATOMICITY IS A FILESYSTEM PROPERTY. rename(2) is atomic on ext4 (the $HOME case).
+# It is NOT guaranteed on a 9p mount, which /mnt/e is, and an install target there
+# is supported. The temp file is created in the SAME directory so the rename is
+# never cross-device; beyond that, non-ext4 INSTALL_DIR carries an UNENFORCED mark.
+set_parzival_enablement() {
+    local value="$1"
+    local cause="$2"
+    local condition="${3:-complete}"
+    local env_file="${4:-$INSTALL_DIR/docker/.env}"
+    local tmp
+
+    # This function ALWAYS returns 0. Absence is a supported operating state
+    # (AD-26, AD-33:110) and every false-site returns 0, so a failed record write
+    # must not abort the install under `set -e` -- that would turn "Parzival is off"
+    # into "the installer died". It is reported at error level instead: emitting an
+    # error and changing the exit code are separable, and AC-1 requires the first
+    # without the second.
+    # THAT IS STILL TRUE, AND IT IS NOT THE WHOLE STORY. Each of the four
+    # write-failure branches now routes through parzival_record_failure, which
+    # COUNTS the failure before it tries to log it. `return 0` is deliberately
+    # untouched at all four -- the fail-open contract above is preserved verbatim --
+    # but the count survives a dead log channel, and main's parzival_record_status
+    # gate turns it into `exit 3` at the very end. Reporting the failure and
+    # aborting the install stay separable; what stops being separable is failing
+    # and saying nothing at all.
+    # SOURCING PRECISION: AD-24/AD-26 are cited here BY ANALOGY. They live in a
+    # different spine and their Binds: scope them to the resolver/dispatch path,
+    # not to this installer write path; it is this comment block that makes them
+    # local precedent. A literal binds-match claim would be false.
+    # Every other failure path in this function is guarded; this one was not, and
+    # `set -euo pipefail` is global (install.sh:25) with setup_parzival called bare.
+    # An unwritable docker/ turned "Parzival is off" into "the installer died" --
+    # the exact outcome the contract three lines above forbids.
+    if [[ ! -f "$env_file" ]] && ! touch "$env_file" 2>/dev/null; then
+        parzival_record_failure "Could not create $env_file — Parzival enablement record NOT written (cause=$cause)"
+        return 0
+    fi
+    if ! tmp=$(mktemp "${env_file}.parzival.XXXXXX"); then
+        parzival_record_failure "Could not create a temp file beside $env_file — Parzival enablement record NOT written (cause=$cause)"
+        return 0
+    fi
+
+    # The key patterns tolerate leading blanks and an `export ` prefix, and re-emit
+    # the CANONICAL bare form. python-dotenv accepts `export PARZIVAL_ENABLED=true`;
+    # an anchored /^PARZIVAL_ENABLED=/ does not match it, so the END block appended a
+    # SECOND definition -- and the duplicate-collapsing property this function
+    # documents held only for exactly-anchored lines. Measured: an `export`-prefixed
+    # .env came out carrying `export PARZIVAL_ENABLED=true` AND `PARZIVAL_ENABLED=false`,
+    # i.e. the two readers disagreeing inside one file, which is the forbidden cell
+    # reachable by transport rather than by interrupt.
+    awk -v v="$value" -v c="$cause" -v cond="$condition" '
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED=/ {
+            if (!sv) { print "PARZIVAL_ENABLED=" v; sv = 1 } ; next
+        }
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED_CAUSE=/ {
+            if (!sc) { print "PARZIVAL_ENABLED_CAUSE=" c; sc = 1 } ; next
+        }
+        /^[[:blank:]]*(export[[:blank:]]+)?PARZIVAL_ENABLED_CONDITION=/ {
+            if (!sn) { print "PARZIVAL_ENABLED_CONDITION=" cond; sn = 1 } ; next
+        }
+        { print }
+        END {
+            if (!sc) print "PARZIVAL_ENABLED_CAUSE=" c
+            if (!sn) print "PARZIVAL_ENABLED_CONDITION=" cond
+            if (!sv) print "PARZIVAL_ENABLED=" v
+        }
+    ' "$env_file" > "$tmp" || {
+        rm -f "$tmp"
+        parzival_record_failure "Could not build the Parzival enablement record — NOT written (cause=$cause)"
+        return 0
+    }
+
+    # MODE AND OWNERSHIP TRANSFER, not just filesystem atomicity. `chmod --reference`
+    # and `sync FILE` are GNU-only and install.sh explicitly supports Darwin, where
+    # the old `2>/dev/null || true` swallowed the failure and the rename silently
+    # committed a mktemp file at 0600 in place of docker/.env's 0644 -- a likelier
+    # everyday breakage than a torn write. Read the mode portably (GNU `stat -c`,
+    # BSD `stat -f`) and re-apply it by value.
+    # OWNERSHIP IS APPLIED FIRST, MODE SECOND. A POSIX chown clears setuid/setgid on
+    # the target, so a chmod that ran before it could have its bits dropped by the
+    # very next command. Applying the mode last is what makes the transfer survive.
+    # Under sudo the temp file is root-owned and the rename would re-home docker/.env.
+    # Best-effort only: --reference is GNU, so fall back to the numeric owner:group.
+    # VALIDATE THE CAPTURE, DO NOT MERELY TEST IT FOR EMPTINESS. On GNU coreutils `-f`
+    # is --file-system, NOT a format flag, so the BSD fallback consumes '%Lp' and the
+    # file as OPERANDS: the '%Lp' operand fails, the file operand still prints a
+    # multi-line FILESYSTEM BLOCK to stdout, and the command substitution captures it.
+    # Measured on GNU coreutils 9.4: 332 bytes of "Block size: ... Inodes: ..." text.
+    # So on the exact path this block exists for -- the primary `stat` failing -- an
+    # emptiness test is TRUE on garbage, the warning below never fires, chmod is handed
+    # a filesystem dump and fails into `|| true`, and the rename publishes mktemp's 0600
+    # over docker/.env. Measured end to end: 0644 in, 0600 out, not one word logged.
+    # Matching the SHAPE of a mode is what distinguishes "read it" from "read something".
+    # `{1,4}` not `{3,4}`: GNU %a strips leading zeros, so mode 0044 prints `44` and 0004
+    # prints `4` -- a 3-digit floor would reject a legitimate mode and skip its own chmod.
+    # ALL FOUR CELLS ANNOUNCE THEIR OWN FAILURE: read the owner, apply the owner,
+    # read the mode, apply the mode. Three of them used to end in `|| true`, which
+    # discards the diagnostic and the exit status together. Two separate causes:
+    # (a) A SYSCALL CAN FAIL ON A VALID VALUE. Each apply-cell runs only after its
+    #     regex accepted the capture, so the regex is not what protects it -- chown
+    #     and chmod can still be refused with the value well-formed (read-only
+    #     mount, uid unmapped inside a userns, an immutable attribute). Symmetric:
+    #     it applies to both cells, so fixing one leaves the other silent.
+    # (b) The owner cell had NO BRANCH -- `[[ regex ]] && chown ... || true` made a
+    #     rejected capture and a failed chown the same silent outcome. Pre-existing.
+    # `2>/dev/null` stays on both syscalls deliberately: the warning is the operator
+    # channel, and raw stderr from a best-effort probe is not. log_warning is an
+    # `echo -e`, so it returns 0 and this function still ALWAYS returns 0.
+    local _pe_own=""
+    _pe_own=$(stat -c '%u:%g' "$env_file" 2>/dev/null || stat -f '%u:%g' "$env_file" 2>/dev/null || true)
+    if [[ "$_pe_own" =~ ^[0-9]+:[0-9]+$ ]]; then
+        if ! chown "$_pe_own" "$tmp" 2>/dev/null; then
+            log_warning "Could not apply $env_file ownership — the enablement record keeps the temporary file's owner"
+        fi
+    else
+        log_warning "Could not read $env_file ownership — the enablement record keeps the temporary file's owner"
+    fi
+
+    local _pe_mode=""
+    _pe_mode=$(stat -c '%a' "$env_file" 2>/dev/null || stat -f '%Lp' "$env_file" 2>/dev/null || true)
+    if [[ "$_pe_mode" =~ ^[0-7]{1,4}$ ]]; then
+        if ! chmod "$_pe_mode" "$tmp" 2>/dev/null; then
+            log_warning "Could not apply $env_file mode — the enablement record keeps the temporary file's default permissions"
+        fi
+    else
+        # NEVER SILENT. With no readable mode the rename commits mktemp's 0600 over
+        # docker/.env's own mode -- which is precisely the breakage this block was
+        # written to stop. Reproducing it without a word is the failure mode, not the
+        # missing chmod; the record is still written and the install still proceeds.
+        log_warning "Could not read $env_file mode — the enablement record keeps the temporary file's default permissions"
+    fi
+
+    # `sync FILE` is GNU; BSD sync takes no operand. Neither fsyncs the DIRECTORY, so
+    # this buys visibility ordering, not durability across a host crash (see below).
+    # NO operand-less fallback: bare `sync` flushes EVERY mounted filesystem, a
+    # multi-second stall on a host running live Qdrant/Postgres volumes, in order to
+    # commit three lines to a dotfile. Where `sync FILE` is unsupported the atomic
+    # rename below still holds, and that is the property this function relies on.
+    sync "$tmp" 2>/dev/null || true
+    if ! mv -f "$tmp" "$env_file"; then
+        rm -f "$tmp"
+        # The target is untouched: it still holds the complete previous record
+        # rather than a half-applied one. That is the whole point of committing
+        # through a rename.
+        parzival_record_failure "Could not commit the Parzival enablement record to $env_file — previous record left intact (cause=$cause)"
+    fi
+    return 0
+}
+
+# Push the Parzival vars from docker/.env into the project's settings.json.
+# Host-side hooks read env from settings.json, not docker/.env (BUG-120), so this
+# runs on the not-enabled paths too — that is the only state in which a cause
+# exists, and it is the state the hooks most need to be able to explain.
+sync_parzival_settings() {
+    [[ -f "$PROJECT_SETTINGS" ]] || return 0
+    log_debug "Updating project settings with Parzival configuration..."
+    python3 "$INSTALL_DIR/scripts/update_parzival_settings.py" \
+        "$PROJECT_SETTINGS" \
+        "$INSTALL_DIR/docker/.env" 2>&1 | tee -a "${INSTALL_LOG:-/dev/null}" || {
+        log_warning "Failed to update Parzival settings in settings.json"
+    }
+}
+
+# Read the recorded cause, failing closed to "unknown".
+# An absent cause key is the NORMAL state on every install predating this record
+# (both .env.example merge loops append only missing keys, so nothing back-fills
+# it). It must never be reported as "opt-out": that would tell an operator whose
+# install failed that they chose it.
+#
+# NORMALISATION IS NOT COSMETIC. memory.parzival_state.resolve_cause applies
+# .strip().lower(); python-dotenv additionally strips surrounding quotes and a CRLF
+# carriage return before the SDK ever sees the value, while `cut -d= -f2-` passes
+# all three straight through. Without the normalisation below, PARZIVAL_ENABLED_CAUSE
+# set to `Failed`, `"failed"`, a trailing space, or a CRLF .env resolves to `failed`
+# in the SDK and `unknown` here -- the installer and the SDK disagreeing about the
+# same file. Shell cannot import Python, so tests/test_parzival_cause_equivalence.py
+# asserts one input table resolves identically through both readers; change one copy
+# and that test fails.
+read_parzival_cause() {
+    local env_file="${1:-$INSTALL_DIR/docker/.env}"
+    local cause
+    cause=$(grep "^PARZIVAL_ENABLED_CAUSE=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    cause=$(normalize_parzival_cause "$cause")
+    case "$cause" in
+        opt-out|failed) printf '%s\n' "$cause" ;;
+        *) printf 'unknown\n' ;;
+    esac
+}
+
+# Reduce a raw docker/.env cause value to the form the SDK sees.
+# Kept as its own function so upgrade.sh's copy is a verbatim twin rather than a
+# paraphrase -- the drift this closes was two copies of "the same" rule that were
+# not the same.
+normalize_parzival_cause() {
+    local c="$1"
+    c="${c%$'\r'}"
+    c="${c#"${c%%[![:space:]]*}"}"
+    c="${c%"${c##*[![:space:]]}"}"
+    c="${c#[\"\']}"
+    c="${c%[\"\']}"
+    c="${c#"${c%%[![:space:]]*}"}"
+    c="${c%"${c##*[![:space:]]}"}"
+    printf '%s' "$c" | tr '[:upper:]' '[:lower:]'
+}
+
+# --- AD-66: the universal state-change notice --------------------------------
+#
+# Effective enabled state is the RESOLVED record value (AD-69's cause-symmetric
+# strip/lower transform -- reused via normalize_parzival_cause rather than
+# re-derived, Anti-patterns 1) AND the package present at $PROJECT_PATH/_ai-memory/pov
+# (AD-70's scope -- corrected here, H-1 round 2). AD-70's own text names bare
+# $PROJECT_PATH/_ai-memory/ as the deployment scope; that predicate is refuted
+# by deploy_ai_memory_skills(), which mkdir -p's _ai-memory/skills
+# unconditionally as setup_parzival's first statement -- even on the decline
+# or fail path -- so bare _ai-memory/ is true on every install regardless of
+# Parzival's own state. _ai-memory/pov is the part only deploy_parzival_v2
+# creates, matching detect_parzival_version's own predicate. Reported to the
+# architect; AD-70's text is not corrected here.
+#
+# THREE fields are sampled, not two, and they are kept separate on purpose. The
+# value and the package presence are the two conjuncts of effective state and
+# together form the TRIGGER. The third, the prior-install marker, is not part of
+# effective state at all and never enters the trigger -- it is the notice's
+# CONTENT discriminator, because the trigger's two enabling classes present the
+# identical transition and cannot be told apart by it. None of the three reads
+# the cause. See ai_memory_project_previously_installed and
+# announce_parzival_state_change.
+
+# Resolve PARZIVAL_ENABLED the same way the cause is resolved: the value axis is
+# cause-symmetric under AD-69, so the shared strip/lower helper applies as-is.
+# Anything outside {true,false} after that transform is malformed and fails
+# closed to "false" (AD-69) -- this probe does not itself count or report a
+# malformed value; that is a value-axis obligation this story does not carry.
+parzival_read_enabled_value() {
+    local env_file="$1"
+    local raw
+    raw=$(grep "^PARZIVAL_ENABLED=" "$env_file" 2>/dev/null | head -1 | cut -d= -f2- || true)
+    raw=$(normalize_parzival_cause "$raw")
+    if [[ "$raw" == "true" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+parzival_package_present() {
+    local project_path="$1"
+    # H-1 (round 2): "$project_path/_ai-memory" is not a valid discriminator --
+    # deploy_ai_memory_skills() creates it unconditionally (mkdir -p
+    # "$PROJECT_PATH/_ai-memory/skills") as the FIRST statement of
+    # setup_parzival(), even when Parzival itself is declined or failed. That
+    # made the after-sample always "true" and made the before-sample mean "did
+    # a prior install deploy the aim-* skills", not "did this project have
+    # Parzival". "_ai-memory/pov" is Parzival-specific: only deploy_parzival_v2
+    # (called only on the enable path) ever creates it, matching
+    # detect_parzival_version's own predicate.
+    if [[ -d "$project_path/_ai-memory/pov" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+# NOT the deployment scope, and deliberately a DIFFERENT directory from
+# parzival_package_present's. This is the PRIOR-INSTALL marker: did this project
+# ever run an install at all? It is the notice's CONTENT discriminator and it
+# never enters the trigger. Sampled BEFORE setup_parzival only.
+#
+# Why a third field rather than reusing the package-presence sample: both of the
+# content's two classes present the IDENTICAL observed transition. A brand-new
+# project has no record row and no package; an operator who declined has a row
+# reading false and no package -- after normalisation those reach the announcer
+# as the same before-state, so the transition cannot separate them. Package
+# presence cannot either: pov/ lives inside _ai-memory/, so package-presence
+# implies prior-install and keying content on it is a strict subset of the
+# correct rule. It never wrongly says "converted"; it says "installed" to the
+# operator who converted, which is the one case this notice exists for.
+#
+# Soundness: the only creator of $PROJECT_PATH/_ai-memory/ is
+# deploy_ai_memory_skills, whose sole call site is setup_parzival's first
+# statement -- strictly after the before-sample -- and no not-enabled path
+# removes it. That guard is asserted positionally in
+# tests/test_install_parzival_enablement_record.py, because moving the call
+# earlier would make this marker always true and no test would go red.
+ai_memory_project_previously_installed() {
+    local project_path="$1"
+    if [[ -d "$project_path/_ai-memory" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
+    fi
+}
+
+# Emit the universal state-change notice (AC-2) with content derived from the
+# observed transition (AC-4), never a fixed sentence. Takes only the four
+# before/after samples -- it reads NO cause value, in either language: a single
+# trigger keyed on cause cannot satisfy both AD-66 rules (the notice is
+# universal, the choice-specific claim is exclusive), so this function has no
+# path to PARZIVAL_ENABLED_CAUSE / read_parzival_cause at all (Task 5).
+#
+# `[[ cond ]] && var=x` as a standalone statement is unsafe here: under
+# `set -euo pipefail` a false condition makes the `&&` list's exit status
+# non-zero, and being untested that would abort the run (Anti-patterns 6) --
+# every branch below is an explicit if/then instead.
+announce_parzival_state_change() {
+    local before_value="$1" before_package="$2" after_value="$3" after_package="$4"
+    local before_prior_install="$5"
+    local before_effective="false" after_effective="false"
+    if [[ "$before_value" == "true" && "$before_package" == "true" ]]; then
+        before_effective="true"
+    fi
+    if [[ "$after_value" == "true" && "$after_package" == "true" ]]; then
+        after_effective="true"
+    fi
+
+    # "Changed" is a diff, not a write (AD-66): a run that rewrites the same
+    # effective state emits nothing.
+    if [[ "$before_effective" == "$after_effective" ]]; then
+        return 0
+    fi
+
+    if [[ "$after_effective" == "true" ]]; then
+        # The content discriminator is the prior-install marker, NOT the
+        # package-presence conjunct above. The two are separate parameters on
+        # purpose: package presence answers "did the effective state change",
+        # prior-install answers "did this project have a prior state at all".
+        # Collapsing them silently downgrades every conversion to "installed".
+        if [[ "$before_prior_install" == "false" ]]; then
+            # never-present -> enabled: nothing of this project existed before,
+            # so there is no history to describe. States only that Parzival is
+            # installed (AD-67).
+            log_info "Parzival is now installed and enabled for this project. (parzival_notice=installed)"
+        else
+            # not-enabled -> enabled on a project that was installed before.
+            # States the observable transition and the product change, never a
+            # claim about why the prior state was what it was (AD-67). A failed
+            # first deploy lands here too and is not separable from a decline --
+            # ruled acceptable, because all three clauses are true of it.
+            log_info "Parzival was not enabled; the default has changed, and it is enabled now. (parzival_notice=converted)"
+        fi
+    else
+        log_info "Parzival is no longer enabled for this project. (parzival_notice=disabled)"
     fi
 }
 

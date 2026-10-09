@@ -105,3 +105,13 @@ scripts/_migration_state.json
 # Backup/verification directories (user-local, not for repo)
 _ai-memory/_ai-memory.restructred/
 _ai-memory/pov.v1.bak/
+
+# aim-sot machine-local shadow-registry state — per-machine, never shared
+/.sot/
+
+# Test detritus: a MagicMock whose value is interpolated into a real path writes
+# here instead of tmp_path. The leak itself is a test bug and is fixed where it
+# happens, not ignored — this is the backstop so a NEW instance can never be
+# committed silently. If this directory appears, a test is writing outside
+# tmp_path; find it rather than deleting the directory.
+/MagicMock/

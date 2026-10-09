@@ -50,6 +50,7 @@ from memory.config import (
 )
 from memory.embeddings import EmbeddingError
 from memory.intent import IntentType, detect_intent, get_target_collection
+from memory.parzival_state import resolve_cause
 from memory.qdrant_client import QdrantUnavailable
 from memory.search import MemorySearch
 from memory.triggers import (
@@ -613,7 +614,16 @@ def retrieve_bootstrap_context(
             emit_trace_event(
                 event_type="bootstrap_retrieval",
                 data={
-                    "input": f"Bootstrap retrieval for project: {project_name}, parzival_enabled: {config.parzival_enabled}",
+                    # AD-32: the "input" string is the half of this event a human
+                    # actually reads in the trace UI, so it carries the cause too --
+                    # a metadata field the reader has to go looking for does not
+                    # discharge "every consumer branches on cause, never on the bare
+                    # value" for the surface that is actually consumed.
+                    "input": (
+                        f"Bootstrap retrieval for project: {project_name}, "
+                        f"parzival_enabled: {config.parzival_enabled}, "
+                        f"cause: {resolve_cause(config)}"
+                    ),
                     "output": (
                         _result_previews[:TRACE_CONTENT_MAX]
                         if _result_previews
@@ -622,6 +632,9 @@ def retrieve_bootstrap_context(
                     "metadata": {
                         "project_name": project_name,
                         "parzival_enabled": config.parzival_enabled,
+                        # AD-32: the bare boolean cannot distinguish "declined"
+                        # from "could not be deployed" in the trace either.
+                        "parzival_enabled_cause": resolve_cause(config),
                         "decisions_count": _decisions_count,
                         "agent_context_count": _agent_count,
                         "github_enrichment_count": _github_count,

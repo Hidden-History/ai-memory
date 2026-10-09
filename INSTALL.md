@@ -197,6 +197,12 @@ cd ai-memory
 ./scripts/install.sh ~/projects/my-app
 ```
 
+The target must be a directory the installer can enter. If it does not exist, is a
+file, or cannot be entered, the installer stops at once with
+`[ERROR] Cannot enter project path: <the path you gave>` and exit status 1, before it
+prints, writes or installs anything — it does not fall back to the current directory.
+Run with no target, the installer uses the current directory.
+
 **What the installer does:**
 
 1. ✅ Validates prerequisites (Python, Docker, Claude Code project)
@@ -268,7 +274,14 @@ Parzival provides cross-session memory for project oversight — session handoff
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `PARZIVAL_ENABLED` | Enable Parzival integration | `false` |
+| `PARZIVAL_ENABLED_CAUSE` | Why it is not enabled: `opt-out` or `failed`. Written by the installer; empty when enabled | *(empty — empty and absent both read as `unknown`)* |
+| `PARZIVAL_ENABLED_CONDITION` | Whether the recorded state is `complete` or `partial` | `complete` |
 | `PARZIVAL_USER_NAME` | Your name for handoffs | *(required if enabled)* |
+
+`PARZIVAL_ENABLED` alone cannot tell you whether Parzival is off because you
+declined it or because the installer could not deploy it. The cause records which,
+so tools can give advice that actually applies — setting the flag to `true` fixes
+an `opt-out`, but does nothing when the cause is `failed` and the package is absent.
 
 See [docs/PARZIVAL-SESSION-GUIDE.md](docs/PARZIVAL-SESSION-GUIDE.md) for usage.
 
@@ -404,7 +417,7 @@ NON_INTERACTIVE=true \
 
 **Enabling Parzival in non-interactive installs** *(v2.3.3+, PR #124)*
 
-By default, `NON_INTERACTIVE=true` skips Parzival setup and sets `PARZIVAL_ENABLED=false`. Set `INSTALL_PARZIVAL=true` alongside `NON_INTERACTIVE=true` to opt into the full Parzival V2 setup path:
+By default, `NON_INTERACTIVE=true` skips Parzival setup and sets `PARZIVAL_ENABLED=false` with `PARZIVAL_ENABLED_CAUSE=opt-out` (the environment declined it, so the install did not fail). Set `INSTALL_PARZIVAL=true` alongside `NON_INTERACTIVE=true` to opt into the full Parzival V2 setup path:
 
 ```bash
 NON_INTERACTIVE=true INSTALL_PARZIVAL=true \
@@ -569,6 +582,60 @@ docker compose -f docker/docker-compose.yml up -d
 ```bash
 python scripts/health-check.py
 ```
+
+### BMAD Module Detection
+
+The installer checks whether the target project has the BMAD **BMM Module**. BMAD is
+**not a prerequisite**: this check never changes the installer's exit status, whatever it
+finds, and nothing about the result is written to disk — so installing BMAD later enables
+the dependent capabilities with no reinstall.
+
+Messages are printed on **stdout** at the level shown, like the rest of the installer's
+output. If you capture warnings by redirecting stderr, you will not see these lines.
+
+| What you see | What it means |
+|---|---|
+| `[WARNING] BMAD absent — …` | The project has no BMAD installation at all: no `_bmad/` directory, or a `_bmad` that resolves to something other than a directory — a regular file, a FIFO, a socket or a device, whether directly or through a symlink. A `_bmad` symlink that does not resolve at all is reported `BMM undetermined`, not absent — see below. |
+| `[WARNING] BMAD present / BMM absent — …` | A BMAD installation is there, but the BMM Module is not usable from it. BMM is the Module the dependent capabilities require, and having other BMAD Modules does not substitute for it. This state also covers a BMM Module directory that exists but is empty, one whose `config.yaml` exists but is zero-byte, one whose `config.yaml` is not a regular file at all, and a `_bmad/bmm` that is not a directory, whether directly or through a link that resolves — a Module that is not a directory, or a `config.yaml` that is not a file, records no readable Module version, and an unpopulated Module is not an installed one. A `_bmad/bmm` or `_bmad/bmm/config.yaml` symlink that does not resolve at all is reported `BMM undetermined`, not absent — see below. |
+| `[WARNING] BMM undetermined — …` | The check could not get an answer. **This is not a report that BMM is absent**; it is a refusal to guess. **The causes overlap, and this check cannot tell them apart**, so the list below is not a menu to choose from — work through all of it. **Permissions** — whether you can enter the `_bmad` directory and the `_bmad/bmm` Module directory. **Symlinks** — `_bmad`, the `_bmad/bmm` Module directory and the Module's own `_bmad/bmm/config.yaml` may each be a link. To this check, a link whose target is missing, a link that loops, and a link whose path runs through a directory you cannot search all look the same. That directory can be **any directory along the path the link resolves through, not only the target's parent**, and for one shared BMAD install linked into several projects it is **outside this project**. `stat -L <link>`, run on each link, tells them apart. If `stat -L` succeeds, the link resolves and is not broken: the cause is permission, so check that you can enter the directory it points to. `Permission denied` means a directory along that path cannot be searched — check search permission on every directory along it. `No such file or directory`, `Too many levels of symbolic links` or `Not a directory` means the link is broken, which changing permissions cannot fix: repair it, or remove it, which makes the state report as absent rather than unknown. Any other error does not show that the link is broken: `Stale file handle`, `Transport endpoint is not connected` or `Input/output error` mean the storage the link points into cannot be reached — for example a disconnected network mount — so do not remove the link; restore access to that storage first. More than one of these can be true at once, and `stat -L` reports only the first it meets, so after each fix run `stat -L` again until it succeeds. Those messages are the GNU/glibc wording and may differ on other systems. Also check that the project path is the one you meant. |
+| `[WARNING] BMAD module detection returned an unrecognised state: …` | The check itself did not behave as designed, so whether the BMM Module is installed is unknown. It is unreachable by construction and should never appear; if it does, it is a defect in the installer rather than a condition in your project — report it, quoting the state value in the message, at the AI-Memory repository. Like every row above it does not change the install's exit status. |
+| *(nothing)* | BMM is present. Silence is the success case: the installer deliberately prints no confirmation line. At `LOG_LEVEL=debug` a single `[DEBUG] BMM present` line is emitted instead. |
+
+The second state is the one worth reading carefully: a project can have most of BMAD and
+still be missing the one Module that matters, and the message names BMM specifically so
+that gap does not surface later as a failed dispatch.
+
+The third exists because "I could not look" and "it is not there" are different answers,
+and reporting the first as the second would tell an operator who *has* BMM that it is
+missing.
+
+### What Is Unavailable Without BMAD
+
+Whenever the check above reports anything other than "BMM is present", the installer
+follows it with an absence report: what is unavailable in that state, and where to get
+what is missing. Like the detection itself it never changes the installer's exit status
+and nothing about it is written to disk.
+
+Every line begins `[WARNING] BMAD absence report:` followed by a fixed token, so the
+report can be compared between two runs line by line.
+
+| Line | What it means |
+|---|---|
+| `capability-unavailable <name> (cause: unsatisfied)` | One line per capability that will not work, because BMAD, or the Module the capability needs, is not installed. |
+| `capability-unavailable <name> (cause: indeterminate)` | The capability is reported unavailable because whether its dependency is installed could not be determined. This is not a report that the dependency is absent. |
+| `enumeration-empty` | No capability is unavailable in this state. |
+| `enumeration-did-not-run`, `enumeration-failed` | The list of capabilities could not be produced. This is not a report that nothing is unavailable. |
+| `upstream-source for <dependency>: <location>` | Where the missing dependency comes from. |
+| `expected-version-scope <scope> — covers: <Modules>` | The BMAD version this release of AI Memory expects, and the Modules that version covers. A Module that is not named is published on its own version stream and is not covered by it. |
+| `outside-pin-coverage <Module>` | A capability depends on a Module the expected version does not cover, so no version is stated for it. |
+| `pin-missing`, `pin-empty`, `pin-unreadable` | The expected version could not be stated, and why. No default is substituted. |
+| `upstream-source-missing` | No source is declared for that dependency. |
+| `report-could-not-run` | The report itself could not be produced — for example, `python3` is not available. This is not a report that nothing is unavailable. |
+| `state-unrecognised` | Detection returned something the report does not know, so nothing could be determined. |
+
+The capability names are read from the capabilities themselves each time the installer
+runs, and the expected version from `_ai-memory/pov/BMAD-PIN.md`; neither is written into
+the installer. When BMM is present the report prints nothing, at any log level.
 
 ## ⬆️ Upgrading
 

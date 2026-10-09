@@ -33,3 +33,10 @@ If root-cause analysis (Step 1) determines the blocker is a **scope change** rat
 ## INITIALIZATION SEQUENCE
 
 Load and follow: {firstStep}
+
+<!-- ai-memory:degraded-declaration
+capability: cap:session-blocker
+depends_on: bmad
+degraded_behaviour: Records the blocker normally and reports the BMAD course-correction skill as unavailable instead of instructing an invocation that cannot resolve.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->

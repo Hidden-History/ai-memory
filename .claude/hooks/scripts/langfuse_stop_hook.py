@@ -390,6 +390,27 @@ def main():
         }
         if os.environ.get("PARZIVAL_ENABLED", "false").lower() == "true":
             trace_metadata["agent_id"] = "parzival"
+        else:
+            # AD-32 transport 2: the cause travels with the flag through
+            # settings.json -> process env, so a missing agent_id is
+            # attributable rather than merely observed.
+            #
+            # Guarded because this module is NEW in this change while
+            # memory.langfuse_config above is not. On an installed `src` at a
+            # mixed vintage -- one carrying langfuse_config but not
+            # parzival_state -- an unguarded import raises inside the enclosing
+            # try and drops the ENTIRE session trace, not just the cause. A
+            # missing cause annotation is a far cheaper failure than a missing
+            # trace, so it degrades rather than propagates.
+            try:
+                from memory.parzival_state import resolve_cause_from_env
+
+                trace_metadata["parzival_enabled_cause"] = resolve_cause_from_env()
+            except ImportError:
+                logger.debug(
+                    "memory.parzival_state unavailable — trace emitted without "
+                    "the Parzival enablement cause (installed src predates it)"
+                )
         trace_metadata["agent_name"] = os.environ.get("CLAUDE_AGENT_NAME", "main")
         trace_metadata["agent_role"] = os.environ.get("CLAUDE_AGENT_ROLE", "user")
 

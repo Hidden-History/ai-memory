@@ -87,12 +87,12 @@ provider: claude | openrouter | ollama | gemini | deepseek | groq | cerebras | m
 model: <exact-model-id-string>       # verbatim, e.g., "glm-5.1:cloud", "claude-sonnet-4-6"
 agent: <role-name>                   # dev | pm | architect | analyst | ux-designer | tech-writer | code-reviewer | <generic>
 agent_id: <AI_MEMORY_AGENT_ID>       # e.g., "dev-auth", "review-opus", "architect-design"
-bmad_agent_type: <type> | null       # null ONLY for genuine non-BMAD work (code-reviewer, verify). If a BMAD role fits, null is a FAIL — assign the persona.
+bmad_agent_type: <type> | null       # null ONLY for genuine non-BMAD work (code-reviewer, verify), or on every entry when BMAD is unavailable — then report BMAD role assignment as unavailable. With BMAD present, a fitting BMAD role and null is a FAIL — assign the persona.
 task_summary: <one-line>
 files:
   - <absolute-path-1>
   - <absolute-path-2>
-workspace_root: <absolute-path>      # MUST contain _ai-memory/ + _bmad/ + oversight/
+workspace_root: <absolute-path>      # MUST contain _ai-memory/ + oversight/ (_bmad/ optional: absent means BMAD is unavailable)
 complexity: straightforward | moderate | significant | complex
 reviewer_plan:
   mode: none | single | dual
@@ -322,3 +322,10 @@ Parzival activates all agents himself — the user does not run agents.
 - All agents (BMAD and generic) → /aim-agent-dispatch
 
 Pass the full Dispatch Plan object verbatim — including exact model ID, full file list, `agent_id`, and `bmad_agent_type` (see `Dispatch Plan Schema`). Downstream skills re-emit the plan for round-trip verification. (`bmad_agent_type` identifies the intended BMAD agent type, e.g. dev; null for generic agents.)
+
+<!-- ai-memory:degraded-declaration
+capability: cap:team-builder
+depends_on: bmad
+degraded_behaviour: Designs teams with every bmad_agent_type null and reports BMAD role assignment as unavailable, instead of assigning a persona whose activation command cannot resolve.
+degraded_test: not-yet-enforced
+ai-memory:end-degraded-declaration -->
