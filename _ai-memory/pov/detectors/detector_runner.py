@@ -7,15 +7,23 @@ one directory, and gives each row that declares a Detector one token:
   resolved           the ``detector`` value is exactly the file name of a
                      Detector in that directory
   resolution-error   the value is not empty and names no Detector there
-  excluded:detector  the ``detector`` field failed validation, so the row
-                     could not be resolved
 
 A row whose ``detector`` value is empty declares no Detector and gets none.
+A row whose ``detector`` field failed validation gets none either: what the
+registry declares is then not known, and the whole run is unchecked.
 
 Exit status: 0 when no row is a resolution-error, 1 when at least one is, 2
-when the registry or the directory could not be read, a row names a ``.py``
-file that could not be read or parsed, the output could not be written, or
-the command line is wrong.
+when the registry or the directory could not be read, the ``detector`` field
+of any row failed validation, a row names a ``.py`` file that could not be
+read or parsed, the output could not be written, or the command line is
+wrong.
+
+Exit status 1 means a missing Detector only on a run that finished. A crash
+of the runner itself also exits 1. A check that cannot write its answer is
+also unchecked, with exit status 2. The runner does this. The orphan check,
+the binding check and the report do not yet: each exits by its result, which
+is 0, 1 or 2, and the report only 0 or 2. With its output device full each of
+those three exits 120, whatever its result.
 
 The runner does not run any Detector, does not check fixture pairs, and does
 not compare the registry with the constraint files on disk.
@@ -51,7 +59,6 @@ CLEAN = "clean"
 # Tokens for one row.
 RESOLVED = "resolved"
 RESOLUTION_ERROR = "resolution-error"
-EXCLUDED = f"excluded:{registry.COLUMN_DETECTOR}"
 
 _SCOPE = (
     "The runner reads the rows of that one file and the Detector files "
@@ -71,11 +78,11 @@ class RowResolution:
     id: str | None
     """The row's ``id``, or None when that field failed validation."""
 
-    value: str | None
-    """The row's ``detector`` value, or None for an ``excluded:detector`` row."""
+    value: str
+    """The row's ``detector`` value."""
 
     token: str
-    """``resolved``, ``resolution-error`` or ``excluded:detector``."""
+    """``resolved`` or ``resolution-error``."""
 
     file_name: str | None = None
     """For a ``resolved`` row, the file name of the Detector it names."""
@@ -92,7 +99,7 @@ class Enumeration:
     detectors_dir: str
 
     entries: tuple[RowResolution, ...] = ()
-    """One entry per row that declares a Detector or was excluded."""
+    """One entry per row that declares a Detector."""
 
     rows_read: int = 0
 
@@ -114,10 +121,12 @@ def enumerate_constraints(registry_path: Path, detectors_dir: Path) -> Enumerati
     """Resolve the Detector each row of *registry_path* declares.
 
     The directory is listed on every call, so one that cannot be listed is
-    ``unchecked`` even when no row declares a Detector. A row that names a
-    ``.py`` file which could not be read or parsed makes the run ``unchecked``:
-    whether that file is a Detector is not known. A failure inside the run is
-    returned as ``unchecked`` as well, never raised.
+    ``unchecked`` even when no row declares a Detector. A row whose
+    ``detector`` field failed validation makes the run ``unchecked``: what
+    that row declares is not known. So does a row that names a ``.py`` file
+    which could not be read or parsed: whether that file is a Detector is not
+    known. A failure inside the run is returned as ``unchecked`` as well,
+    never raised.
     """
     target = Path(registry_path)
     root = Path(detectors_dir)
@@ -139,11 +148,12 @@ def enumerate_constraints(registry_path: Path, detectors_dir: Path) -> Enumerati
             )
 
         entries = []
+        unread = []
         not_known = []
         for row in read.rows:
             row_id = row.values.get(registry.COLUMN_ID)
             if row.failed(registry.COLUMN_DETECTOR) is not None:
-                entries.append(RowResolution(row.line, row_id, None, EXCLUDED))
+                unread.append(str(row.line))
                 continue
             value = row.values[registry.COLUMN_DETECTOR]
             if not value:
@@ -154,22 +164,29 @@ def enumerate_constraints(registry_path: Path, detectors_dir: Path) -> Enumerati
                 continue
             token = RESOLUTION_ERROR if found is None else RESOLVED
             entries.append(RowResolution(row.line, row_id, value, token, found))
+        causes = []
+        if unread:
+            causes.append(
+                f"the {registry.COLUMN_DETECTOR} field of {len(unread)} row(s) "
+                f"of {target} failed validation, so it is not known what those "
+                "rows declare, and no row was resolved - line(s) " + ", ".join(unread)
+            )
         if not_known:
-            return result(
-                UNCHECKED,
-                detail=f"{len(not_known)} row(s) of {target} name a .py file in "
+            causes.append(
+                f"{len(not_known)} row(s) of {target} name a .py file in "
                 f"{root} that could not be read or parsed, so it is not known "
                 "whether that file is a Detector, and no row was resolved - "
-                + ", ".join(not_known),
+                + ", ".join(not_known)
             )
+        if causes:
+            return result(UNCHECKED, detail="; ".join(causes))
     except Exception as exc:
         return result(
             UNCHECKED, detail=f"the run itself failed: {type(exc).__name__}: {exc}"
         )
 
-    declared = any(entry.token != EXCLUDED for entry in entries)
     return result(
-        CHECKED if declared else EMPTY,
+        CHECKED if entries else EMPTY,
         entries=tuple(entries),
         rows_read=len(read.rows),
     )
@@ -199,25 +216,17 @@ def render(result: Enumeration) -> list[str]:
         return [_printable(f"{UNCHECKED}:{SUBJECT} - {result.detail}")]
 
     errors = [e for e in result.entries if e.token == RESOLUTION_ERROR]
-    excluded = [e for e in result.entries if e.token == EXCLUDED]
     lines = [
         f"finding: line {e.line}: {e.id or '(no usable id)'}: {e.token} - the "
         f"detector value {e.value!r} is not the file name of a Detector in "
         f"{result.detectors_dir}"
         for e in errors
     ]
-    if excluded:
-        lines.append(
-            f"{EXCLUDED}: {len(excluded)} row(s) not resolved because the "
-            f"{registry.COLUMN_DETECTOR} field failed validation - line(s) "
-            + ", ".join(str(e.line) for e in excluded)
-        )
 
-    declared = len(result.entries) - len(excluded)
     counts = (
-        f"{result.rows_read} row(s) of {result.registry} read, {declared} "
-        f"declare a Detector, {len(errors)} resolution error(s), Detectors "
-        f"looked for in {result.detectors_dir}"
+        f"{result.rows_read} row(s) of {result.registry} read, "
+        f"{len(result.entries)} declare a Detector, {len(errors)} resolution "
+        f"error(s), Detectors looked for in {result.detectors_dir}"
     )
     if errors:
         lines.append(f"checked {counts}. {_SCOPE}")

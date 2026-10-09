@@ -71,8 +71,8 @@ _FINDING_VERDICTS = (UNBOUND, REFUSED, NON_FUNCTIONAL, FALSE_POSITIVE)
 _PASS = "pass"
 _FAIL = "fail"
 
-#: What the interpreter writes to stderr when a program ends on an exception.
-_TRACEBACK = b"Traceback (most recent call last):"
+#: What a line of a Detector's standard output starts with when it is a finding.
+_FINDING_LINE = b"finding:"
 
 _KEY_MANIFEST = "manifest"
 _KEY_MARKER = "fixture_marker"
@@ -243,10 +243,14 @@ def _run_fixture(detector: Path, args: list[str], fixture: Path) -> tuple[str, s
     if done.returncode == 0:
         return _PASS, ""
     if done.returncode == 1:
-        # An uncaught exception also exits 1. A crash is not a finding.
-        if _TRACEBACK in done.stderr:
-            return "", "raised an exception instead of reporting a result"
-        return _FAIL, ""
+        # A crash exits 1 too, and so does a Detector that dies quietly. Exit
+        # 1 is a finding only when the Detector wrote one to standard output.
+        if any(line.startswith(_FINDING_LINE) for line in done.stdout.split(b"\n")):
+            return _FAIL, ""
+        return "", (
+            "exited 1 and wrote no line starting with finding: to standard "
+            "output, so it is not read as a finding"
+        )
     return "", f"exited {done.returncode}, which is neither pass (0) nor fail (1)"
 
 
@@ -263,11 +267,28 @@ def _bind(root: Path, file_name: str, parse_error: str) -> DetectorBinding:
         return verdict(UNBOUND, f"no fixture pair directory {FIXTURES_DIR}/{name}/")
     if not manifest_path.exists():
         return verdict(UNBOUND, f"no {MANIFEST} in {FIXTURES_DIR}/{name}/")
+    repeated: list[str] = []
+
+    def one_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        # A plain read keeps the last of two equal keys and says nothing.
+        keys = [key for key, _ in pairs]
+        repeated.extend(key for key in dict.fromkeys(keys) if keys.count(key) > 1)
+        return dict(pairs)
+
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8"), object_pairs_hook=one_object
+        )
     except (OSError, ValueError) as exc:
         return verdict(
             REFUSED, f"{MANIFEST} could not be read as JSON: {exc}", _KEY_MANIFEST
+        )
+    if repeated:
+        return verdict(
+            REFUSED,
+            f"{MANIFEST} holds the key {', '.join(map(repr, repeated))} more "
+            "than once in one object",
+            _KEY_MANIFEST,
         )
     if not isinstance(manifest, dict):
         return verdict(REFUSED, f"{MANIFEST} is not a JSON object", _KEY_MANIFEST)

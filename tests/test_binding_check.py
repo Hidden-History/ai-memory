@@ -11,7 +11,9 @@ committed.
 
 from __future__ import annotations
 
+import csv
 import importlib.util
+import io
 import json
 import re
 import shutil
@@ -40,18 +42,28 @@ STANDING_EXEMPTIONS = (
 
 FLAG = "ZZ-FLAG"
 
-#: Exits 1 when the file it is given holds FLAG, else 0.
+#: When the file it is given holds FLAG, prints a finding line and exits 1.
+#: Otherwise prints nothing and exits 0.
 STUB = f"""import sys
 
 if __name__ == "__main__":
     with open(sys.argv[1], encoding="utf-8") as handle:
-        sys.exit(1 if "{FLAG}" in handle.read() else 0)
+        flagged = "{FLAG}" in handle.read()
+    if flagged:
+        print("finding: {FLAG}")
+    sys.exit(1 if flagged else 0)
 """
 
 
 def _always(code: int) -> str:
     return f'import sys\n\nif __name__ == "__main__":\n    sys.exit({code})\n'
 
+
+#: Flags whatever it is given: prints a finding line and exits 1.
+FLAGS_EVERYTHING = (
+    'import sys\n\nif __name__ == "__main__":\n'
+    '    print("finding: zz-always")\n    sys.exit(1)\n'
+)
 
 RAISES = 'if __name__ == "__main__":\n    raise RuntimeError("zz-stub-crash")\n'
 
@@ -61,6 +73,7 @@ from pathlib import Path
 
 if __name__ == "__main__":
     Path(__file__).with_suffix(".ran").write_text("ran", encoding="utf-8")
+    print("finding: zz-ran")
     sys.exit(1)
 """
 
@@ -276,7 +289,7 @@ def test_a_detector_that_flags_its_negative_is_a_false_positive(
     tmp_path: Path,
 ) -> None:
     """T5, first half."""
-    _detector(tmp_path, "zz_stub", _always(1))
+    _detector(tmp_path, "zz_stub", FLAGS_EVERYTHING)
     _pair(tmp_path, "zz_stub")
 
     _, entry = _one(tmp_path)
@@ -356,7 +369,7 @@ def test_a_detector_that_crashes_on_its_positive_only_is_not_functional(
     tmp_path: Path,
 ) -> None:
     """A crash exits 1, as a finding does. It must not count as one."""
-    source = STUB.replace("sys.exit(1 if", "sys.exit(1 // 0 if")
+    source = STUB.replace("        print(", "        1 // 0\n        print(")
     assert source != STUB
     _detector(tmp_path, "zz_stub", source)
     _pair(tmp_path, "zz_stub")
@@ -377,6 +390,84 @@ def test_a_detector_that_flags_and_writes_to_stderr_is_still_read_as_flagging(
     _pair(tmp_path, "zz_stub")
 
     assert _tokens(tmp_path) == {"zz_stub": "functional"}
+
+
+def _on_its_positive(body: str) -> str:
+    """A stub that runs *body* on a fixture holding FLAG, and otherwise exits 0."""
+    indented = "".join(f"        {line}\n" for line in body.splitlines())
+    return (
+        "import os\n"
+        "import sys\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        '    with open(sys.argv[1], encoding="utf-8") as handle:\n'
+        f'        flagged = "{FLAG}" in handle.read()\n'
+        "    if flagged:\n"
+        f"{indented}"
+        "    sys.exit(0)\n"
+    )
+
+
+#: Ways to leave the positive fixture with exit 1 and no finding line on
+#: standard output.
+_NO_FINDING_LINE = {
+    "sys-exit-with-a-message": 'sys.exit("zz-died")',
+    "os-exit": "os._exit(1)",
+    "traceback-limit-zero": 'sys.tracebacklimit = 0\nraise RuntimeError("zz-crash")',
+    "silent-excepthook": (
+        'sys.excepthook = lambda *exc: None\nraise RuntimeError("zz-crash")'
+    ),
+    "caught-then-exit-one": (
+        'try:\n    raise RuntimeError("zz-crash")\nexcept RuntimeError:\n    sys.exit(1)'
+    ),
+    "raises": 'raise RuntimeError("zz-crash")',
+    "finding-on-stderr-only": (
+        'print("finding: zz-flagged", file=sys.stderr)\nsys.exit(1)'
+    ),
+    "finding-not-at-the-line-start": (
+        'print(" finding: zz-flagged")\nprint("zz finding: zz-flagged")\nsys.exit(1)'
+    ),
+}
+
+
+@pytest.mark.parametrize("how", sorted(_NO_FINDING_LINE))
+def test_an_exit_of_one_with_no_finding_line_on_stdout_is_not_a_finding(
+    tmp_path: Path, how: str
+) -> None:
+    """Exit 1 alone shows nothing: the Detector may have died, not reported."""
+    _detector(tmp_path, "zz_stub", _on_its_positive(_NO_FINDING_LINE[how]))
+    _pair(tmp_path, "zz_stub")
+
+    result = _run_root(tmp_path)
+    _, entry = _one(tmp_path)
+
+    assert entry.token == "unchecked:zz_stub"
+    assert entry.reason == (
+        "on the 'positive' fixture it exited 1 and wrote no line starting "
+        "with finding: to standard output, so it is not read as a finding"
+    )
+    assert result.returncode == 2
+    assert _findings(result.stdout) == []
+    assert "detector: zz_stub.py: functional" not in result.stdout.splitlines()
+    assert result.stdout.splitlines()[-1].startswith("unchecked:fixture-binding - ")
+
+
+_FINDING_LINE_WRITTEN = {
+    "then-crashes": 'print("finding: zz-flagged")\nraise RuntimeError("zz-crash")',
+    "after-another-line": 'print("zz-note")\nprint("finding: zz-flagged")\nsys.exit(1)',
+}
+
+
+@pytest.mark.parametrize("how", sorted(_FINDING_LINE_WRITTEN))
+def test_an_exit_of_one_with_a_finding_line_on_stdout_is_a_finding(
+    tmp_path: Path, how: str
+) -> None:
+    """The line decides, not the traceback: a finding printed before a crash counts."""
+    _detector(tmp_path, "zz_stub", _on_its_positive(_FINDING_LINE_WRITTEN[how]))
+    _pair(tmp_path, "zz_stub")
+
+    assert _tokens(tmp_path) == {"zz_stub": "functional"}
+    assert _run_root(tmp_path).returncode == 0
 
 
 def test_a_finding_beside_an_unchecked_detector_still_exits_one(
@@ -568,6 +659,77 @@ def test_a_manifest_that_is_not_a_json_object_is_refused(
 
     assert _tokens(tmp_path) == {"zz_stub": "refused:manifest"}
     assert result.returncode == 1
+
+
+#: Manifests in which one object holds a key twice. Read keeping the last
+#: value, each names only fixtures the stub behaves on, and the pair passes.
+_REPEATED_KEY = {
+    "positive": (
+        '{"fixture_marker": "synthetic-fixture", "args": ["{fixture}"],'
+        ' "positive": "negative.txt", "positive": "positive.txt",'
+        ' "negative": "negative.txt", "exemptions": {}}'
+    ),
+    "negative": (
+        '{"fixture_marker": "synthetic-fixture", "args": ["{fixture}"],'
+        ' "positive": "positive.txt", "negative": "positive.txt",'
+        ' "negative": "negative.txt", "exemptions": {}}'
+    ),
+    "zz-quoted": (
+        '{"fixture_marker": "synthetic-fixture", "args": ["{fixture}"],'
+        ' "positive": "positive.txt", "negative": "negative.txt",'
+        ' "exemptions": {"zz-quoted": "positive.txt", "zz-quoted": "negative.txt"}}'
+    ),
+}
+
+
+@pytest.mark.parametrize("key", sorted(_REPEATED_KEY))
+def test_a_manifest_holding_a_key_twice_in_one_object_is_refused_and_not_run(
+    tmp_path: Path, key: str
+) -> None:
+    """The last value is never used silently, at any depth of the manifest."""
+    detector = _detector(tmp_path, "zz_stub", LEAVES_A_TRACE)
+    _pair(tmp_path, "zz_stub", manifest=_REPEATED_KEY[key])
+
+    result = _run_root(tmp_path)
+    _, entry = _one(tmp_path)
+
+    assert entry.token == "refused:manifest"
+    assert entry.reason == (
+        f"fixture-pair.json holds the key {key!r} more than once in one object"
+    )
+    assert result.returncode == 1
+    assert _findings(result.stdout) == [
+        f"finding: zz_stub.py: refused:manifest - {entry.reason}"
+    ]
+    assert not detector.with_suffix(".ran").exists()
+
+
+def test_the_manifests_with_a_repeated_key_pass_once_the_repeat_is_removed(
+    tmp_path: Path,
+) -> None:
+    """The control: each is refused for the repeat and for nothing else."""
+    for key, text in _REPEATED_KEY.items():
+        root = tmp_path / key
+        _detector(root, "zz_stub")
+        once = json.loads(text)
+        assert json.dumps(once) != text
+        _pair(root, "zz_stub", manifest=once)
+
+        assert _tokens(root) == {"zz_stub": "functional"}, key
+
+
+def test_a_repeated_key_is_refused_before_half_a_pair_is_unbound(
+    tmp_path: Path,
+) -> None:
+    """What the manifest names is not known, so it is not said to name too little."""
+    _detector(tmp_path, "zz_stub")
+    _pair(
+        tmp_path,
+        "zz_stub",
+        manifest='{"positive": "positive.txt", "positive": "positive.txt"}',
+    )
+
+    assert _tokens(tmp_path) == {"zz_stub": "refused:manifest"}
 
 
 def test_a_manifest_that_exists_and_cannot_be_read_is_refused_not_unbound(
@@ -941,17 +1103,38 @@ def test_no_fixture_pair_is_declared_outside_the_fixture_location() -> None:
 
 @pytest.mark.process
 def test_the_shipped_exemption_fixtures_are_what_their_ids_say() -> None:
-    """The quotation is a quoted field; the historical record is a sibling."""
+    """The quotation is one quoted cell on one line; the historical record is a sibling."""
     pair = _SHIPPED_FIXTURES / "orphan_check"
     manifest = json.loads((pair / "fixture-pair.json").read_text(encoding="utf-8"))
     quotation = pair / manifest["exemptions"]["labelled-evidentiary-quotation"]
     historical = pair / manifest["exemptions"]["historical-record-not-to-inherit"]
 
-    # Read as lines, the quotation holds a row with no Detector and no marking.
-    assert any(
-        re.fullmatch(r"ZZ-\d+,,", line)
-        for line in quotation.read_text(encoding="utf-8").splitlines()
+    # The text of a row with no Detector and no marking sits inside one cell
+    # that is not an id. No line of the file is that row, no cell holds a line
+    # break, and the orphan check does not fire on the file.
+    text = quotation.read_text(encoding="utf-8")
+    header, *records = csv.reader(io.StringIO(text), strict=True)
+    quoting = [
+        cell
+        for record in records
+        for column, cell in zip(header, record, strict=False)
+        if column != "id" and re.search(r"ZZ-\d+,,", cell)
+    ]
+    assert len(quoting) == 1
+    assert not any(re.fullmatch(r"ZZ-\d+,,", line) for line in text.splitlines())
+    assert not any("\n" in cell for record in (header, *records) for cell in record)
+    quiet = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            str(_DETECTORS_DIR / "orphan_check.py"),
+            "--registry",
+            str(quotation),
+        ],
+        capture_output=True,
+        text=True,
     )
+    assert quiet.returncode == 0, quiet.stdout
     assert historical.parent != pair
     beside = [path for path in historical.parent.iterdir() if path != historical]
     assert beside

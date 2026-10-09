@@ -1,5 +1,3 @@
 id,detector,enforcement_state,note
-ZZ-01,checks/zz01.py,,"labelled evidentiary quotation - the row below is quoted as evidence of an orphan and is not a row of this registry:
-ZZ-09,,
-"
+ZZ-01,checks/zz01.py,,"labelled evidentiary quotation - the text after the colon is quoted as evidence of an orphan row and is not a row of this registry: ZZ-09,,"
 ZZ-02,,not-yet-enforced,

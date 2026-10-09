@@ -20,7 +20,8 @@ rows, the check proves that the mechanism works and enforces nothing.
 ## The registry
 
 A CSV file, UTF-8, with one header row and then one row per Constraint. It is
-read with a CSV parser, so a quoted field may contain commas.
+read with a CSV parser, so a quoted field may contain commas. It may not
+contain a line break: a Constraint's row sits on one line.
 
 | Column | Required in header | A value is valid when |
 |---|---|---|
@@ -45,6 +46,13 @@ row is kept. A row that is too short has **absent** fields, which is a
 failure of those fields; an empty cell is a value. A row with more fields than
 the header declares keeps its disposition, and the extra fields are reported
 as one excluded field.
+
+One defect is not per field. A cell that holds a line break makes the whole
+registry `unchecked`: a line feed, or a carriage return, which is read as one.
+That holds for a header cell, a cell of a column the check does not read, and
+an extra cell of a row that is too long. The lines such a cell takes in cannot
+be said to belong to any row. An opening quote on one line and a stray quote
+on a later line would otherwise hide every row between them.
 
 ## What the check decides
 
@@ -82,10 +90,12 @@ one line starting `exclusion:`. The last line is the outcome.
 | finding lines, then a `checked ...` line | at least one row is `orphan` or `refused:*` | `1` |
 | `clean:constraint-registry` | the registry holds at least one row and none is `orphan` or `refused:*` | `0` |
 | `empty:constraint-registry` | the registry was read and holds no Constraint rows | `0` |
-| `unchecked:constraint-registry` | the registry could not be checked: no file at the path, the file could not be read or parsed, it has no header, or the header is missing a required column or declares one twice | `2` |
+| `unchecked:constraint-registry` | the registry could not be checked: no file at the path, the file could not be read or parsed, it has no header, the header is missing a required column or declares one twice, or a cell holds a line break | `2` |
 
 Exit status `2` is also what a wrong command line returns. The check returns
-`0`, `1` or `2` and no other value.
+`0`, `1` or `2` by its result. It does not yet return `2` when it cannot write
+its output: with the output device full it exits `120`, and with standard
+output closed it exits by its result.
 
 An excluded field in a column the check does not read is reported and counted
 and does not change the exit status by itself.
@@ -179,17 +189,22 @@ path.
 | The Detector exits | The binding check reads it as |
 |---|---|
 | `0` | pass: the Detector did not flag |
-| `1` | fail: the Detector flagged |
-| anything else, runs past the time limit, cannot be started, or ends on an uncaught exception | could not be run: neither pass nor fail |
+| `1`, having written at least one line that starts with `finding:` to standard output | fail: the Detector flagged |
+| `1` without such a line | could not be run: neither pass nor fail |
+| anything else, runs past the time limit, or cannot be started | could not be run: neither pass nor fail |
 
-An uncaught exception also exits `1`. The check tells it from a finding by one
-rule: an exit of `1` is read as "could not be run" when the Detector's standard
-error holds the interpreter's line `Traceback (most recent call last):`.
+Exit `1` alone is not a finding. An uncaught exception exits `1`, and so does
+a Detector that stops with `sys.exit("message")` or `os._exit(1)`. So the
+check reads an exit of `1` as a finding only when the Detector's standard
+output holds at least one line that starts with `finding:`, with nothing
+before it on the line. Standard error is not looked at, and the interpreter's
+traceback decides nothing: a Detector that prints a `finding:` line and then
+ends on an exception has flagged, and one that ends on an exception without
+printing one has not.
 
-The rule has one known limit. A Detector that writes that line to standard
-error itself while exiting `1` for a real finding is read as a crash. It is
-then `unchecked:<name>` and the check exits `2`, so the error is never read as
-a pass.
+This is the rule a Detector must meet: for each thing it flags it prints a
+line starting `finding:` to standard output, and it exits `1`. A Detector that
+exits `1` without such a line is `unchecked:<name>`, never `functional`.
 
 ### What the binding check decides
 
@@ -199,7 +214,7 @@ the first row that applies is the verdict.
 | Verdict | When | Makes the check exit `1` |
 |---|---|---|
 | `unbound` | there is no `fixtures/<name>/` directory, or no manifest in it, or the manifest names no `positive` or no `negative`, or a file either names does not exist | yes |
-| `refused:<key>` | the manifest is not a JSON object or cannot be read (`refused:manifest`), or the named key is missing or not valid, or a declared exemption's fixture does not exist (`refused:exemptions`) | yes |
+| `refused:<key>` | the manifest is not a JSON object, cannot be read, or holds a key twice in one object at any depth (`refused:manifest`, which names the repeated key and is decided before any fixture is run), or the named key is missing or not valid, or a declared exemption's fixture does not exist (`refused:exemptions`) | yes |
 | `unchecked:<name>` | the Detector could not be parsed, or could not be run on a fixture | no; see exit `2` below |
 | `non-functional` | the positive fixture did not make the Detector fail | yes |
 | `false-positive:<fixture>` | the positive fixture made it fail, and so did `negative` or the named exemption | yes |
@@ -231,7 +246,9 @@ otherwise. The last line is the outcome.
 | `unchecked:fixture-binding` | there is no directory at the path read, or it could not be listed; or there is no finding and at least one Detector is `unchecked:<name>`; or the check itself failed | `2` |
 
 Exit status `2` is also what a wrong command line returns. The check returns
-`0`, `1` or `2` and no other value.
+`0`, `1` or `2` by its result. It does not yet return `2` when it cannot write
+its output: with the output device full it exits `120`, and with standard
+output closed it exits by its result.
 
 Any total the check prints counts the Detector files present in that one
 directory, not counting its own file, `enforcement_report.py` or
@@ -286,7 +303,7 @@ the named Detector is `functional`.
 |---|---|---|
 | `enforced-and-blocking` | `enforced-and-blocking` | `not-yet-enforced`, counted on the `lowered` line |
 | `enforced-but-non-blocking` | `enforced-but-non-blocking` | `not-yet-enforced`, counted on the `lowered` line |
-| nothing | `enforced-but-non-blocking`, counted on the `undeclared-state` line | `not-yet-enforced`, counted on the `lowered` line |
+| nothing | `not-yet-enforced`, counted on the `undeclared-state` line | `not-yet-enforced`, counted on the `lowered` line |
 | `not-yet-enforced` | `not-yet-enforced` | `not-yet-enforced` |
 | `unenforceable` | `unenforceable` | `unenforceable` |
 
@@ -327,7 +344,7 @@ the count, and the registry line of each thing it counts.
 |---|---|---|
 | `uncounted` | rows in none of the four states | the row's disposition from the orphan check |
 | `lowered` | `bound` rows counted as `not-yet-enforced` because the Detector is not shown to work | the reason: the binding check's verdict, or `not-found` |
-| `undeclared-state` | `bound` rows with a `functional` Detector and no declared state | nothing |
+| `undeclared-state` | `bound` rows with a `functional` Detector and no declared state, counted as `not-yet-enforced` | nothing |
 | `field-exclusion` | **fields** the registry reader dropped, not rows | the column |
 
 `field-exclusion` and `uncounted` count different things and can both name the
@@ -358,7 +375,9 @@ prints `0`.
 | `unchecked:enforcement-report`, and no state lines | the registry could not be checked; or a row is `bound` and the detectors directory could not be read; or the report itself failed | `2` |
 
 Exit status `2` is also what a wrong command line returns. The report returns
-`0` or `2` and no other value. It prints no `clean` line: the four state lines
+`0` or `2` by its result. It does not yet return `2` when it cannot write its
+output: with the output device full it exits `120`, and with standard output
+closed it exits by its result. It prints no `clean` line: the four state lines
 already show that it ran, and it gives no verdict.
 
 The `rows:` line carries the number of rows read and how many of them are in
@@ -437,10 +456,14 @@ Every row of the registry is read the same way, whatever its `id`, its
 | `detector` is empty | none; the row declares no Detector | no |
 | `detector` names a Detector | `resolved`; no line is printed for it | no |
 | `detector` is not empty and names no Detector | `resolution-error` | yes |
-| `detector` failed validation: the row is too short to have the field, or the field holds a byte that is not valid UTF-8 | `excluded:detector` | no |
+| `detector` failed validation: the row is too short to have the field, or the field holds a byte that is not valid UTF-8 | none; the whole run is `unchecked:detector-resolution` | no; the runner exits `2` |
 
-A row whose `detector` failed validation is refused by the orphan check, with
-exit status `1`. The runner counts it and does not refuse it a second time.
+One row whose `detector` failed validation makes the whole run
+`unchecked:detector-resolution`, with exit status `2`, even when every other
+row resolves: what that row declares is not known. The line names the column
+and each such row's line number. No `finding:` line is printed in that run, so
+a row beside it that names a missing Detector is not reported until the field
+is repaired. The orphan check refuses the same row, with exit status `1`.
 
 A failure in another column does not stop a row being resolved. A row whose
 `id` failed validation is printed as `(no usable id)` with its line number.
@@ -459,20 +482,30 @@ look in another directory; that option exists for the product's own tests.
 
 Output is text on standard output. Each `resolution-error` row prints one line
 starting `finding:`, with the row's line number in the file, its `id`, the
-token, the `detector` value and the directory it was looked for in. The
-`excluded:detector` rows are counted on one line, with their line numbers;
-that line is printed when there is at least one such row. The last line is the
-outcome.
+token, the `detector` value and the directory it was looked for in. The last
+line is the outcome.
 
 | Outcome | When | Exit status |
 |---|---|---|
 | finding lines, then a `checked ...` line | at least one row is a `resolution-error` | `1` |
 | `clean:detector-resolution` | at least one row declares a Detector and each such row is `resolved` | `0` |
 | `empty:detector-resolution` | the registry was read and no row declares a Detector | `0` |
-| `unchecked:detector-resolution` | the registry could not be checked, for any reason the orphan check gives `unchecked:constraint-registry`; or the detectors directory is not a directory or could not be listed; or a row names a `.py` file there that could not be read or parsed; or the run itself failed | `2` |
+| `unchecked:detector-resolution` | the registry could not be checked, for any reason the orphan check gives `unchecked:constraint-registry`; or the detectors directory is not a directory or could not be listed; or the `detector` field of at least one row failed validation; or a row names a `.py` file there that could not be read or parsed; or the run itself failed | `2` |
 
 Exit status `2` is also what a wrong command line returns, and what the runner
 returns when it could not write its output, whatever it had decided.
+
+Exit status `1` means a missing Detector only on a run that finished. A crash
+of the runner itself also exits `1`.
+
+A check that cannot write its answer is also `unchecked`, with exit status
+`2`. The runner does this: with its output device full, or its standard output
+closed, it exits `2`. The orphan check, the binding check and the report do
+not yet. Each exits by its result, which is `0`, `1` or `2`, and the report
+only `0` or `2`. With the output device full each of those three exits `120`,
+whatever its result. With standard output closed each exits by its result, so
+on an input that passes it exits `0` with nothing printed. These figures were
+measured on Python 3.12.
 
 The detectors directory is listed on every run. A `--detectors` path that is
 not a directory gives `unchecked:detector-resolution` even when no row
@@ -489,5 +522,5 @@ Other code that needs these facts imports `enumerate_constraints` and
 `resolve_detector` from `detector_runner.py`; the printed text has no
 machine-readable form. `enumerate_constraints(registry_path, detectors_dir)`
 returns the run's status, the count of rows read, and one entry for each row
-that declares a Detector or was excluded, with its line number, its token and,
-for a `resolved` row, the Detector's file name.
+that declares a Detector, with its line number, its token and, for a
+`resolved` row, the Detector's file name.

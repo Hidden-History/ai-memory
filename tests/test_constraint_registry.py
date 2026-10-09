@@ -186,12 +186,9 @@ def test_every_row_sharing_an_id_loses_its_id_and_keeps_its_other_fields(
 
 
 def test_line_numbers_are_file_lines_not_row_ordinals(tmp_path: Path) -> None:
-    result = _read(
-        tmp_path,
-        HEADER + 'ZZ-01,"a detector\nnamed over two lines",\n\nZZ-02,,\n',
-    )
+    result = _read(tmp_path, HEADER + "ZZ-01,zz_a.py,\n\n\nZZ-02,,\n")
 
-    assert [row.line for row in result.rows] == [3, 5]
+    assert [row.line for row in result.rows] == [2, 5]
 
 
 def test_an_unknown_column_is_carried_through_and_not_validated(
@@ -331,6 +328,144 @@ def test_a_quote_that_is_never_closed_is_unchecked_and_hides_no_row(
     assert result.status == registry.UNCHECKED
     assert "could not be parsed" in result.detail
     assert result.rows == ()
+
+
+# ---------------------------------------------------------------------------
+# A cell may not hold a line break
+# ---------------------------------------------------------------------------
+
+_NOTE_HEADER = b"id,detector,enforcement_state,note\n"
+
+#: A registry holding a line break in one cell, and the file line its record
+#: ends on.
+_LINE_BREAK_IN_A_CELL = {
+    "a quoted line feed": (
+        HEADER.encode() + b'ZZ-01,"zz one\nzz two",\nZZ-02,,\n',
+        3,
+    ),
+    "a quoted carriage return": (
+        HEADER.encode() + b'ZZ-01,"zz one\rzz two",\nZZ-02,,\n',
+        3,
+    ),
+    "a quoted carriage return and line feed": (
+        HEADER.encode() + b'ZZ-01,"zz one\r\nzz two",\nZZ-02,,\n',
+        3,
+    ),
+    "a header cell": (
+        b'id,detector,enforcement_state,"zz\nnote"\nZZ-01,,,\n',
+        2,
+    ),
+    "a column no check reads": (
+        _NOTE_HEADER + b'ZZ-01,zz_a.py,,\nZZ-02,,,"zz one\nzz two"\n',
+        4,
+    ),
+    "a cell beyond the header's width": (
+        HEADER.encode() + b'ZZ-01,zz_a.py,,"zz one\nzz two"\n',
+        3,
+    ),
+    "the earlier of two cells under one repeated name": (
+        b"id,note,detector,enforcement_state,note\n"
+        b'ZZ-01,"zz one\nzz two",zz_a.py,,zz three\n',
+        3,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_LINE_BREAK_IN_A_CELL))
+def test_a_line_break_in_any_cell_makes_the_registry_unchecked(
+    tmp_path: Path, case: str
+) -> None:
+    raw, line = _LINE_BREAK_IN_A_CELL[case]
+
+    result = _read(tmp_path, "", raw=raw)
+
+    assert result.status == registry.UNCHECKED
+    assert result.rows == ()
+    assert result.excluded == ()
+    assert result.detail.endswith(
+        f"holds a line break inside a cell, in the record that ends on line {line}; "
+        "a registry cell must sit on one line"
+    )
+
+
+def test_a_carriage_return_outside_quotes_ends_a_row_as_before(
+    tmp_path: Path,
+) -> None:
+    result = _read(tmp_path, "", raw=HEADER.encode() + b"ZZ-01,zz_a.py,\rZZ-02,,\n")
+
+    assert result.status == registry.READ
+    assert [(row.line, row.values["id"]) for row in result.rows] == [
+        (2, "ZZ-01"),
+        (3, "ZZ-02"),
+    ]
+
+
+@pytest.mark.parametrize("char", ["\u2028", "\x0b", "\x0c", "\x85", "\x1b"])
+def test_a_character_that_does_not_end_a_line_for_the_parser_stays_in_its_cell(
+    tmp_path: Path, char: str
+) -> None:
+    """Only a line feed is a line break here; these are escaped on output."""
+    result = _read(tmp_path, HEADER + f'ZZ-01,"zz{char}one.py",\nZZ-02,,\n')
+
+    assert result.status == registry.READ
+    assert [row.line for row in result.rows] == [2, 3]
+    assert result.rows[0].values["detector"] == f"zz{char}one.py"
+
+
+def test_a_line_break_in_a_header_cell_is_reported_before_a_missing_column(
+    tmp_path: Path,
+) -> None:
+    """The broken cell is why the column is missing, so it is what is named."""
+    result = _read(tmp_path, 'id,"dete\nctor",enforcement_state\nZZ-01,,\n')
+
+    assert result.status == registry.UNCHECKED
+    assert "holds a line break inside a cell" in result.detail
+    assert "ends on line 2;" in result.detail
+    assert "missing required column" not in result.detail
+
+
+def test_a_header_defect_is_reported_before_a_line_break_in_a_row(
+    tmp_path: Path,
+) -> None:
+    result = _read(tmp_path, 'id,detector\nZZ-01,"zz one\nzz two"\n')
+
+    assert result.status == registry.UNCHECKED
+    assert result.detail.endswith("missing required column(s): enforcement_state")
+
+
+def test_a_line_break_is_reported_before_a_parse_error_in_a_later_record(
+    tmp_path: Path,
+) -> None:
+    """The file is read in order, and the first of the two ends the read."""
+    broken_then_unclosed = HEADER + 'ZZ-01,"zz one\nzz two",\nZZ-02,zz_a.py,"\n'
+    unclosed_only = HEADER + "ZZ-01,zz_b.py,\n" + 'ZZ-02,zz_a.py,"\n'
+
+    first = _read(tmp_path, broken_then_unclosed)
+    second = _read(tmp_path, unclosed_only)
+
+    assert first.status == registry.UNCHECKED
+    assert "holds a line break inside a cell" in first.detail
+    assert "ends on line 3;" in first.detail
+    assert second.status == registry.UNCHECKED
+    assert "could not be parsed" in second.detail
+    assert "line break" not in second.detail
+
+
+def test_rows_between_an_opening_quote_and_a_stray_one_are_not_dropped_silently(
+    tmp_path: Path,
+) -> None:
+    """Read leniently, lines 3 and 4 vanish into one cell and two rows are read."""
+    result = _read(
+        tmp_path,
+        _NOTE_HEADER.decode() + 'ZZ-01,,not-yet-enforced,"zz note\n'
+        "ZZ-02,zz_gone.py,enforced-and-blocking,\n"
+        'ZZ-03,,,"\n'
+        "ZZ-04,,unenforceable,\n",
+    )
+
+    assert result.status == registry.UNCHECKED
+    assert result.rows == ()
+    assert "ends on line 4;" in result.detail
 
 
 # ---------------------------------------------------------------------------

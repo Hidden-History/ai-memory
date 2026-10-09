@@ -14,7 +14,8 @@ Four conditions are counted on a line of their own instead of failing the run:
   uncounted         a row in none of the four states
   lowered           a row counted as not yet enforced because the Detector it
                     names is not shown to work
-  undeclared-state  a row with a working Detector and no declared state
+  undeclared-state  a row with a working Detector and no declared state,
+                    counted as not yet enforced
   field-exclusion   a field the registry reader dropped
 
 Exit status: 0 whenever the report was produced, 2 when the registry or the
@@ -176,9 +177,9 @@ def _place(
         return _BLOCKING, "", ""
     if declared == _NON_BLOCKING:
         return _NON_BLOCKING, "", ""
-    # A working Detector and no declared state: the lower of the two states
-    # a working Detector supports.
-    return _NON_BLOCKING, UNDECLARED_STATE, ""
+    # A working Detector and no declared state: not counted as enforced,
+    # because the row does not say so, and named on a line of its own.
+    return _NOT_YET_ENFORCED, UNDECLARED_STATE, ""
 
 
 def _result(
@@ -321,7 +322,7 @@ def render(report: EnforcementReport) -> list[str]:
         lines.append(
             f"{UNDECLARED_STATE}: {counted[UNDECLARED_STATE]} row(s) with a "
             f"working Detector and no declared state, counted as "
-            f"{_NON_BLOCKING} - {items(UNDECLARED_STATE)}"
+            f"{_NOT_YET_ENFORCED} - {items(UNDECLARED_STATE)}"
         )
     if counted[FIELD_EXCLUSION]:
         fields = ", ".join(

@@ -62,7 +62,6 @@ WORKED_EXAMPLE = (
     "ZZ-04,sub/zz_deep.py,\n"
     "ZZ-05,zz_lib.py,\n"
     "ZZ-06,,not-yet-enforced\n"
-    "ZZ-07\n"
 )
 
 
@@ -312,6 +311,8 @@ def test_an_unparseable_file_and_a_missing_one_together_are_unchecked_not_a_find
     assert result.stdout.splitlines() == [_last(result.stdout)]
     assert _last(result.stdout).startswith(f"unchecked:{SUBJECT} - ")
     assert "line 3: 'zz_broken.py'" in result.stdout
+    assert "the detector field of 1 row(s) " in result.stdout
+    assert " - line(s) 4; " in result.stdout
 
 
 def test_an_unparseable_file_no_row_names_changes_no_outcome(tmp_path: Path) -> None:
@@ -339,51 +340,119 @@ def test_an_unparseable_file_no_row_names_changes_no_outcome(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_a_short_row_is_counted_on_the_excluded_line_and_is_not_a_finding(
+def test_a_short_row_makes_the_run_unchecked_and_names_the_column_and_lines(
     tmp_path: Path,
 ) -> None:
-    """T7, first part: alone it does not change the exit status."""
+    """T7, first part: one such row is enough, whatever the other rows hold."""
     alone = _resolve(tmp_path, HEADER + "ZZ-01,zz_ok.py,\nZZ-02\n")
     lines = alone.stdout.splitlines()
 
-    assert alone.returncode == 0
+    assert alone.returncode == 2
     assert _findings(alone.stdout) == []
-    assert lines[0] == (
-        "excluded:detector: 1 row(s) not resolved because the detector field "
-        "failed validation - line(s) 3"
+    assert len(lines) == 1
+    assert lines[0].startswith(
+        f"unchecked:{SUBJECT} - the detector field of 1 row(s) of "
     )
-    assert lines[1].startswith(f"clean:{SUBJECT} - 2 row(s) of ")
-    assert len(lines) == 2
+    assert lines[0].endswith(" - line(s) 3")
 
     only = _resolve(tmp_path, HEADER + "ZZ-02\nZZ-03\n")
-    assert only.returncode == 0
-    assert only.stdout.splitlines()[0].endswith(" - line(s) 2, 3")
-    assert _last(only.stdout).startswith(f"empty:{SUBJECT} - 2 row(s) of ")
+    assert only.returncode == 2
+    assert only.stdout.splitlines() == [_last(only.stdout)]
+    assert _last(only.stdout).startswith(
+        f"unchecked:{SUBJECT} - the detector field of 2 row(s) of "
+    )
+    assert _last(only.stdout).endswith(" - line(s) 2, 3")
 
 
-def test_a_short_row_beside_a_missing_detector_leaves_exactly_one_finding(
+def test_a_short_row_beside_a_missing_detector_is_unchecked_and_prints_no_finding(
     tmp_path: Path,
 ) -> None:
-    """T7, second part."""
+    """T7, second part: exit 2 wins over exit 1, and the missing row is not printed."""
     result = _resolve(tmp_path, HEADER + "ZZ-01,zz_gone.py,\nZZ-02\n")
 
-    assert result.returncode == 1
-    assert len(_findings(result.stdout)) == 1
-    assert "finding: line 2: ZZ-01: resolution-error - " in result.stdout
-    assert "excluded:detector: 1 row(s)" in result.stdout
-    assert result.stdout.splitlines()[-2].startswith("excluded:detector: ")
+    assert result.returncode == 2
+    assert _findings(result.stdout) == []
+    assert "zz_gone.py" not in result.stdout
+    assert result.stdout.splitlines() == [_last(result.stdout)]
+    assert _last(result.stdout).startswith(f"unchecked:{SUBJECT} - ")
+    assert _last(result.stdout).endswith(" - line(s) 3")
 
 
-def test_a_row_with_an_undecodable_detector_field_is_excluded(tmp_path: Path) -> None:
+def test_a_row_with_an_undecodable_detector_field_makes_the_run_unchecked(
+    tmp_path: Path,
+) -> None:
     _detectors(tmp_path)
     path = tmp_path / "registry.csv"
     path.write_bytes(HEADER.encode() + b"ZZ-01,zz_\xff.py,\n")
 
     result = _run("--registry", str(path), "--detectors", str(tmp_path / "detectors"))
 
-    assert result.returncode == 0
+    assert result.returncode == 2
     assert _findings(result.stdout) == []
-    assert result.stdout.splitlines()[0].endswith(" - line(s) 2")
+    assert result.stdout.splitlines() == [_last(result.stdout)]
+    assert _last(result.stdout).startswith(
+        f"unchecked:{SUBJECT} - the detector field of 1 row(s) of "
+    )
+    assert _last(result.stdout).endswith(" - line(s) 2")
+
+
+_UNREAD_DETECTOR = {
+    "short-row": b"ZZ-09\n",
+    "not-utf-8": b"ZZ-09,zz_\xff.py,\n",
+}
+_BESIDE = {
+    "alone": b"",
+    "rows-that-resolve": b"ZZ-01,zz_ok.py,\nZZ-02,zz_ok.py,enforced-and-blocking\n",
+    "a-missing-detector": b"ZZ-01,zz_gone.py,\nZZ-02,zz_ok.py,\n",
+}
+
+
+@pytest.mark.parametrize("beside", sorted(_BESIDE))
+@pytest.mark.parametrize("kind", sorted(_UNREAD_DETECTOR))
+def test_one_unreadable_detector_cell_makes_the_whole_run_unchecked(
+    tmp_path: Path, kind: str, beside: str
+) -> None:
+    """Whatever the other rows hold, the run says it could not check."""
+    root = _detectors(tmp_path)
+    path = tmp_path / "registry.csv"
+    path.write_bytes(HEADER.encode() + _BESIDE[beside] + _UNREAD_DETECTOR[kind])
+    line = 2 + _BESIDE[beside].count(b"\n")
+
+    result = _run("--registry", str(path), "--detectors", str(root))
+    built = detector_runner.enumerate_constraints(path, root)
+
+    assert result.returncode == 2
+    assert result.stderr == ""
+    assert result.stdout.splitlines() == detector_runner.render(built)
+    assert built.status == detector_runner.UNCHECKED
+    assert built.entries == ()
+    assert len(result.stdout.splitlines()) == 1
+    assert result.stdout.startswith(f"unchecked:{SUBJECT} - the detector field of ")
+    assert result.stdout.endswith(f" - line(s) {line}\n")
+    assert _findings(result.stdout) == []
+    assert "zz_gone.py" not in result.stdout
+    assert not any(
+        text.startswith(("clean:", "empty:")) for text in result.stdout.splitlines()
+    )
+
+
+def test_a_line_holding_only_spaces_is_a_row_with_no_detector_field(
+    tmp_path: Path,
+) -> None:
+    """The parser reads it as a one-field row, not as a blank line."""
+    text = HEADER + "ZZ-01,zz_ok.py,\n   \n"
+
+    read = registry.read_registry(_write(tmp_path, text))
+    result = _resolve(tmp_path, text)
+
+    assert [row.line for row in read.rows] == [2, 3]
+    assert read.rows[1].failed(registry.COLUMN_DETECTOR) is not None
+    assert result.returncode == 2
+    assert result.stdout.splitlines() == [_last(result.stdout)]
+    assert _last(result.stdout).startswith(
+        f"unchecked:{SUBJECT} - the detector field of 1 row(s) of "
+    )
+    assert _last(result.stdout).endswith(" - line(s) 3")
 
 
 def test_a_failure_in_another_column_does_not_stop_a_row_being_resolved(
@@ -412,7 +481,7 @@ def test_a_failure_in_another_column_does_not_stop_a_row_being_resolved(
         "finding: line 4: (no usable id): resolution-error",
         "finding: line 6: (no usable id): resolution-error",
     ]
-    assert "excluded:detector" not in result.stdout
+    assert not any(line.startswith("unchecked:") for line in result.stdout.splitlines())
 
 
 # ---------------------------------------------------------------------------
@@ -460,15 +529,12 @@ def test_worked_example_gives_each_row_its_documented_token(tmp_path: Path) -> N
         4: "resolution-error",
         5: "resolution-error",
         6: "resolution-error",
-        8: "excluded:detector",
     }
     assert result.returncode == 1
     assert len(_findings(result.stdout)) == 4
-    assert lines[4].startswith("excluded:detector: 1 row(s) ")
-    assert lines[4].endswith(" - line(s) 8")
-    assert lines[5].startswith("checked 7 row(s) of ")
-    assert ", 5 declare a Detector, 4 resolution error(s), " in lines[5]
-    assert len(lines) == 6
+    assert lines[4].startswith("checked 6 row(s) of ")
+    assert ", 5 declare a Detector, 4 resolution error(s), " in lines[4]
+    assert len(lines) == 5
 
 
 def test_the_runner_runs_no_detector(tmp_path: Path) -> None:
@@ -602,11 +668,48 @@ def test_a_wrong_command_line_exits_two(tmp_path: Path) -> None:
 # The exit status
 # ---------------------------------------------------------------------------
 
+#: What the written description of the runner's exit status must say, in
+#: its module docstring and in its README section, read as plain text.
+_EXIT_STATUS_STATEMENTS = (
+    "Exit status 1 means a missing Detector only on a run that finished",
+    "A crash of the runner itself also exits 1",
+    "A check that cannot write its answer is also unchecked, with exit status 2",
+    "The runner does this",
+    "The orphan check, the binding check and the report do not yet",
+    "0, 1 or 2, and the report only 0 or 2",
+    "exits 120",
+)
+
+
+def _plain(text: str) -> str:
+    """*text* on one line, without the marks that set a word as code."""
+    return " ".join(text.replace("`", "").split())
+
+
+@pytest.mark.parametrize("statement", _EXIT_STATUS_STATEMENTS)
+def test_the_written_exit_status_description_says_what_is_true(
+    statement: str,
+) -> None:
+    readme = (_DETECTORS_DIR / "README.md").read_text(encoding="utf-8")
+    section = readme[readme.index("## The detector runner") :]
+
+    assert statement in _plain(detector_runner.__doc__)
+    assert statement in _plain(section)
+
+
+def test_no_check_is_described_as_returning_no_other_value() -> None:
+    """Three checks exit 120 on a full output device, so the sentence is not true."""
+    readme = _plain((_DETECTORS_DIR / "README.md").read_text(encoding="utf-8"))
+
+    assert "no other value" not in readme
+    assert readme.count("does not yet return 2 when it cannot write its output") == 3
+
+
 _EXIT_CASES = {
     "missing-detector": (HEADER + "ZZ-01,zz_gone.py,\n", 1),
     "present-detector": (HEADER + "ZZ-01,zz_ok.py,\n", 0),
-    "short-row-alone": (HEADER + "ZZ-01\n", 0),
-    "short-row-beside-missing": (HEADER + "ZZ-01\nZZ-02,zz_gone.py,\n", 1),
+    "short-row-alone": (HEADER + "ZZ-01\n", 2),
+    "short-row-beside-missing": (HEADER + "ZZ-01\nZZ-02,zz_gone.py,\n", 2),
     "header-only": (HEADER, 0),
     "no-row-declares": (HEADER + "ZZ-01,,\n", 0),
     "registry-refused": ("id,detector\n", 2),
@@ -697,13 +800,14 @@ def test_output_that_could_not_be_written_exits_two_whatever_was_decided(
 # ---------------------------------------------------------------------------
 
 
-def test_an_id_or_a_detector_value_holding_a_line_break_cannot_forge_a_line(
+def test_an_id_or_a_detector_value_holding_a_control_character_cannot_forge_a_line(
     tmp_path: Path,
 ) -> None:
+    """The parser keeps these in the cell; printed raw, each could forge a line."""
     forged = f"clean:{SUBJECT} - forged"
     text = (
-        HEADER + f'"ZZ-01\n{forged}","zz_gone.py\n{forged}",\n'
-        f'"ZZ-02\r{forged}","zz_ok.py\x1b[2K\u2028{forged}",\n'
+        HEADER + f'"ZZ-01\u2028{forged}","zz_gone.py\u2028{forged}",\n'
+        f'"ZZ-02\x1b[2K{forged}","zz_ok.py\x1b[2K\u2028{forged}",\n'
     )
     result = _resolve(tmp_path, text)
     lines = result.stdout.split("\n")
@@ -711,15 +815,53 @@ def test_an_id_or_a_detector_value_holding_a_line_break_cannot_forge_a_line(
     assert result.returncode == 1
     assert lines[-1] == ""
     assert len(lines) == 4
-    assert lines[0].startswith("finding: line 4: ZZ-01\\nclean:")
-    assert lines[1].startswith("finding: line 6: ZZ-02\\nclean:")
-    assert "'zz_gone.py\\nclean:" in lines[0]
+    assert lines[0].startswith("finding: line 2: ZZ-01\\u2028clean:")
+    assert lines[1].startswith("finding: line 3: ZZ-02\\x1b[2Kclean:")
+    assert "'zz_gone.py\\u2028clean:" in lines[0]
     assert "\\x1b[2K\\u2028clean:" in lines[1]
     assert lines[2].startswith("checked 2 row(s) of ")
     assert not any(line.startswith("clean:") for line in result.stdout.splitlines())
-    assert "\r" not in result.stdout
     assert "\x1b" not in result.stdout
     assert "\u2028" not in result.stdout
+
+
+_FORGED = f"clean:{SUBJECT} - forged"
+
+#: Registries holding a line break in a cell. In the last, read leniently,
+#: lines 3 and 4 vanish into the cell opened on line 2: a row naming a missing
+#: Detector is hidden and the run reports that no row declares one.
+_LINE_BREAK_IN_A_CELL = {
+    "a-line-feed-in-an-id-and-a-detector-value": (
+        HEADER + f'"ZZ-01\n{_FORGED}","zz_gone.py\n{_FORGED}",\n'
+    ),
+    "a-carriage-return-in-an-id": HEADER + f'"ZZ-02\r{_FORGED}",zz_ok.py,\n',
+    "rows-between-two-quotes": (
+        "id,detector,enforcement_state,note\n"
+        'ZZ-01,,not-yet-enforced,"zz note\n'
+        "ZZ-02,zz_gone.py,enforced-and-blocking,\n"
+        'ZZ-03,,,"\n'
+        "ZZ-04,,unenforceable,\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_LINE_BREAK_IN_A_CELL))
+def test_a_registry_cell_holding_a_line_break_is_unchecked_and_exits_two(
+    tmp_path: Path, case: str
+) -> None:
+    result = _resolve(tmp_path, _LINE_BREAK_IN_A_CELL[case])
+    lines = result.stdout.split("\n")
+
+    assert result.returncode == 2
+    assert len(lines) == 2
+    assert lines[-1] == ""
+    assert lines[0].startswith(f"unchecked:{SUBJECT} - ")
+    assert "holds a line break inside a cell" in lines[0]
+    assert _findings(result.stdout) == []
+    assert not any(
+        line.startswith(("clean:", "empty:")) for line in result.stdout.splitlines()
+    )
+    assert "\r" not in result.stdout
 
 
 def test_a_path_holding_a_line_break_cannot_forge_a_line(tmp_path: Path) -> None:
@@ -752,7 +894,7 @@ def test_a_path_holding_a_line_break_cannot_forge_a_line(tmp_path: Path) -> None
 
 @pytest.mark.parametrize(
     "rows",
-    ["", "ZZ-01,zz_ok.py,\n", "ZZ-01,zz_gone.py,\nZZ-02\n"],
+    ["", "ZZ-01,zz_ok.py,\n", "ZZ-01,zz_gone.py,\n"],
     ids=["empty", "clean", "findings"],
 )
 def test_the_line_carrying_the_counts_says_what_was_not_looked_at(
@@ -778,7 +920,7 @@ def test_the_result_is_immutable_and_carries_what_the_lines_are_built_from(
     first, second = result.entries[:2]
 
     assert result.status == detector_runner.CHECKED
-    assert result.rows_read == 7
+    assert result.rows_read == 6
     assert (first.line, first.id, first.value, first.token, first.file_name) == (
         2,
         "ZZ-01",
@@ -787,7 +929,7 @@ def test_the_result_is_immutable_and_carries_what_the_lines_are_built_from(
         "zz_ok.py",
     )
     assert (second.token, second.file_name) == ("resolution-error", None)
-    assert result.entries[-1].value is None
+    assert result.entries[-1].value == "zz_lib.py"
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.status = "clean"
     with pytest.raises(dataclasses.FrozenInstanceError):

@@ -56,8 +56,20 @@ HEADER = "id,detector,enforcement_state\n"
 
 FLAG = "ZZ-FLAG"
 
-#: Exits 1 when the file it is given holds FLAG, else 0.
+#: When the file it is given holds FLAG, prints a finding line and exits 1.
+#: Otherwise prints nothing and exits 0.
 STUB = f"""import sys
+
+if __name__ == "__main__":
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        flagged = "{FLAG}" in handle.read()
+    if flagged:
+        print("finding: {FLAG}")
+    sys.exit(1 if flagged else 0)
+"""
+
+#: Exits 1 when the file it is given holds FLAG, else 0, and prints nothing.
+QUIET = f"""import sys
 
 if __name__ == "__main__":
     with open(sys.argv[1], encoding="utf-8") as handle:
@@ -341,6 +353,26 @@ def test_a_row_whose_detector_is_not_shown_to_work_is_lowered_with_its_reason(
     )
 
 
+def test_a_detector_that_dies_quietly_does_not_count_its_row_as_enforced(
+    tmp_path: Path,
+) -> None:
+    """Exit 1 with no finding line is not a Detector shown to work."""
+    detectors = tmp_path / "detectors"
+    _detector(detectors, "zz_quiet", QUIET)
+    reg = _registry(tmp_path, f"ZZ-01,zz_quiet.py,{BLOCKING}\n")
+
+    result, built = _report(reg, detectors)
+
+    assert _by_id(built) == {"ZZ-01": (NOT_YET, "lowered", "unchecked:zz_quiet")}
+    assert _counts(result.stdout) == {
+        UNENFORCEABLE: 0,
+        NOT_YET: 1,
+        NON_BLOCKING: 0,
+        BLOCKING: 0,
+    }
+    assert _line(result.stdout, "lowered").endswith(" - line 2 [unchecked:zz_quiet]")
+
+
 def test_a_row_naming_a_program_the_binding_check_skips_names_no_detector(
     tmp_path: Path,
 ) -> None:
@@ -359,10 +391,10 @@ def test_a_row_naming_a_program_the_binding_check_skips_names_no_detector(
     }
 
 
-def test_a_working_detector_and_no_declared_state_is_the_lower_enforced_state(
+def test_a_working_detector_and_no_declared_state_is_counted_not_yet_enforced(
     tmp_path: Path,
 ) -> None:
-    """T7."""
+    """T7: the row is named on its own counted line, and not on ``lowered``."""
     detectors = tmp_path / "detectors"
     _detector(detectors, "zz_ok")
     reg = _registry(tmp_path, f"ZZ-01,zz_ok.py,\nZZ-02,zz_ok.py,{NOT_YET}\n")
@@ -371,18 +403,44 @@ def test_a_working_detector_and_no_declared_state_is_the_lower_enforced_state(
 
     assert _counts(result.stdout) == {
         UNENFORCEABLE: 0,
-        NOT_YET: 1,
-        NON_BLOCKING: 1,
+        NOT_YET: 2,
+        NON_BLOCKING: 0,
         BLOCKING: 0,
     }
     line = _line(result.stdout, "undeclared-state")
     assert line.startswith("undeclared-state: 1 row(s) ")
+    assert f"counted as {NOT_YET} " in line
     assert line.endswith(" - line 2")
     assert _line(result.stdout, "lowered") is None
     assert _by_id(built) == {
-        "ZZ-01": (NON_BLOCKING, "undeclared-state", ""),
+        "ZZ-01": (NOT_YET, "undeclared-state", ""),
         "ZZ-02": (NOT_YET, "", ""),
     }
+
+
+@pytest.mark.parametrize("declared", ["", *ENFORCEMENT_STATES])
+def test_no_row_is_counted_in_an_enforced_state_it_does_not_declare(
+    tmp_path: Path, declared: str
+) -> None:
+    """Whatever the Detector, a row is never counted above what it declares."""
+    detectors = tmp_path / "detectors"
+    _detector(detectors, "zz_ok")
+    _detector(detectors, "zz_mute", _always(0))
+    reg = _registry(
+        tmp_path,
+        f"ZZ-01,zz_ok.py,{declared}\n"
+        f"ZZ-02,zz_mute.py,{declared}\n"
+        f"ZZ-03,zz_absent.py,{declared}\n",
+    )
+
+    result, built = _report(reg, detectors)
+
+    for row in built.rows:
+        if row.state in (NON_BLOCKING, BLOCKING):
+            assert row.state == declared, row
+    counts = _counts(result.stdout)
+    for state in (NON_BLOCKING, BLOCKING):
+        assert counts[state] == (1 if state == declared else 0)
 
 
 @pytest.mark.parametrize("declared", [UNENFORCEABLE, NOT_YET])
@@ -729,23 +787,37 @@ def test_a_name_read_from_a_file_cannot_forge_a_line_or_a_counted_item(
     assert line.count("]") == 1
 
 
-def test_a_quoted_id_holding_a_line_break_does_not_hide_or_add_a_row(
-    tmp_path: Path,
+#: Registries holding a line break in a cell. In the second, read leniently,
+#: lines 3 and 4 vanish into the cell opened on line 2 and two rows are counted.
+_LINE_BREAK_IN_A_CELL = {
+    "an-id-over-two-lines": (HEADER + f'"ZZ-01\n{BLOCKING}: 5",,\nZZ-02,,{NOT_YET}\n'),
+    "rows-between-two-quotes": (
+        "id,detector,enforcement_state,note\n"
+        f'ZZ-01,,{NOT_YET},"zz note\n'
+        f"ZZ-02,zz_gone.py,{BLOCKING},\n"
+        'ZZ-03,,,"\n'
+        f"ZZ-04,,{UNENFORCEABLE},\n"
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_LINE_BREAK_IN_A_CELL))
+def test_a_registry_cell_holding_a_line_break_is_unchecked_and_counts_nothing(
+    tmp_path: Path, case: str
 ) -> None:
-    """A quoted field may span lines; each record is still one row."""
-    reg = _registry(tmp_path, f'"ZZ-01\n{BLOCKING}: 5",,\nZZ-02,,{NOT_YET}\n')
+    """A rule sits on one line: what a cell swallows belongs to no row."""
+    reg = tmp_path / "registry.csv"
+    reg.write_text(_LINE_BREAK_IN_A_CELL[case], encoding="utf-8", newline="")
 
     result, built = _report(reg, tmp_path / "zz-not-read")
 
-    assert len(built.rows) == 2
-    assert _counts(result.stdout) == {
-        UNENFORCEABLE: 0,
-        NOT_YET: 1,
-        NON_BLOCKING: 0,
-        BLOCKING: 0,
-    }
-    assert _line(result.stdout, "uncounted").endswith(" - line 3 [orphan]")
-    assert "2 Constraint row(s) read" in _line(result.stdout, "rows")
+    assert result.returncode == 2
+    assert built.status == enforcement_report.UNCHECKED
+    assert built.rows == ()
+    assert result.stdout.split("\n")[1:] == [""]
+    assert result.stdout.startswith("unchecked:enforcement-report - ")
+    assert "holds a line break inside a cell" in result.stdout
+    assert _state_lines(result.stdout) == []
 
 
 # ---------------------------------------------------------------------------
@@ -781,7 +853,7 @@ def test_the_worked_example_row_for_row_and_count_for_count(tmp_path: Path) -> N
         "ZZ-02": (NOT_YET, "", ""),
         "ZZ-03": (BLOCKING, "", ""),
         "ZZ-04": (NON_BLOCKING, "", ""),
-        "ZZ-05": (NON_BLOCKING, "undeclared-state", ""),
+        "ZZ-05": (NOT_YET, "undeclared-state", ""),
         "ZZ-06": (NOT_YET, "lowered", "non-functional"),
         "ZZ-07": (NOT_YET, "lowered", "unbound"),
         "ZZ-08": (NOT_YET, "lowered", "not-found"),
@@ -792,8 +864,8 @@ def test_the_worked_example_row_for_row_and_count_for_count(tmp_path: Path) -> N
     assert built.rows[-1].disposition == "orphan"
     assert dict(built.counts) == {
         UNENFORCEABLE: 1,
-        NOT_YET: 5,
-        NON_BLOCKING: 2,
+        NOT_YET: 6,
+        NON_BLOCKING: 1,
         BLOCKING: 1,
     }
     assert dict(built.counted_lines) == {
@@ -805,8 +877,8 @@ def test_the_worked_example_row_for_row_and_count_for_count(tmp_path: Path) -> N
     scope = enforcement_report._SCOPE
     assert result.stdout.splitlines() == [
         "unenforceable: 1",
-        "not-yet-enforced: 5",
-        "enforced-but-non-blocking: 2",
+        "not-yet-enforced: 6",
+        "enforced-but-non-blocking: 1",
         "enforced-and-blocking: 1",
         f"rows: 10 Constraint row(s) read from {reg}, 1 of them in none of the "
         f"four states. {scope}",
@@ -816,7 +888,7 @@ def test_the_worked_example_row_for_row_and_count_for_count(tmp_path: Path) -> N
         "row names is not shown to work, each with the reason - "
         "line 7 [non-functional], line 8 [unbound], line 9 [not-found]",
         "undeclared-state: 1 row(s) with a working Detector and no declared "
-        "state, counted as enforced-but-non-blocking - line 6",
+        "state, counted as not-yet-enforced - line 6",
     ]
     for unsaid in ("Detector files", "capability declarations", "constraint files"):
         assert unsaid in scope

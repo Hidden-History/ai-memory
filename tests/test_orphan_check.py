@@ -301,18 +301,80 @@ def test_a_row_with_an_empty_id_is_refused_and_named_by_line_number(
     ]
 
 
-def test_an_id_holding_a_line_break_cannot_forge_an_outcome_line(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("char", "escaped"), [("\u2028", "\\u2028"), ("\x85", "\\x85")]
+)
+def test_an_id_holding_a_line_separator_cannot_forge_an_outcome_line(
+    tmp_path: Path, char: str, escaped: str
 ) -> None:
-    result = _check(tmp_path, HEADER + '"ZZ-01\nclean:constraint-registry - 1",,\n')
+    """The parser keeps these in the cell; printed raw, each would end a line."""
+    result = _check(
+        tmp_path, HEADER + f'"ZZ-01{char}clean:constraint-registry - 1",,\n'
+    )
 
     assert result.returncode == 1
     lines = result.stdout.splitlines()
     assert len(lines) == 2
     assert lines[0].startswith(
-        "finding: line 3: ZZ-01\\nclean:constraint-registry - 1: orphan - "
+        f"finding: line 2: ZZ-01{escaped}clean:constraint-registry - 1: orphan - "
     )
     assert not any(line.startswith("clean:") for line in lines)
+
+
+def _run_without_bytecode(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run the check with ``-B``, so the run writes nothing into the tree."""
+    return subprocess.run(
+        [sys.executable, "-B", str(_CHECK), *args], capture_output=True, text=True
+    )
+
+
+#: Read leniently, lines 3 and 4 vanish into the cell opened on line 2: an
+#: orphan and a row naming a missing Detector are hidden, and two rows are read.
+_HIDDEN_ROWS = (
+    "id,detector,enforcement_state,note\n"
+    'ZZ-01,,not-yet-enforced,"zz note\n'
+    "ZZ-02,zz_gone.py,enforced-and-blocking,\n"
+    'ZZ-03,,,"\n'
+    "ZZ-04,,unenforceable,\n"
+)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [HEADER + '"ZZ-01\nclean:constraint-registry - 1",,\n', _HIDDEN_ROWS],
+    ids=["an-id-over-two-lines", "rows-between-two-quotes"],
+)
+def test_a_registry_cell_holding_a_line_break_is_unchecked_and_exits_two(
+    tmp_path: Path, text: str
+) -> None:
+    result = _run_without_bytecode("--registry", str(_write(tmp_path, text)))
+
+    assert result.returncode == 2
+    assert result.stdout.splitlines() == [result.stdout.rstrip("\n")]
+    assert result.stdout.startswith("unchecked:constraint-registry - ")
+    assert "holds a line break inside a cell" in result.stdout
+    assert _findings(result.stdout) == []
+
+
+def test_the_quotation_fixture_as_it_was_shipped_over_three_lines_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A quoted orphan row on a line of its own is no longer a readable registry."""
+    text = (
+        "id,detector,enforcement_state,note\n"
+        'ZZ-01,checks/zz01.py,,"labelled evidentiary quotation - the row below '
+        "is quoted as evidence of an orphan and is not a row of this registry:\n"
+        "ZZ-09,,\n"
+        '"\n'
+        "ZZ-02,,not-yet-enforced,\n"
+    )
+
+    result = _run_without_bytecode("--registry", str(_write(tmp_path, text)))
+
+    assert result.returncode == 2
+    assert result.stdout.startswith("unchecked:constraint-registry - ")
+    assert "ends on line 4;" in result.stdout
+    assert _findings(result.stdout) == []
 
 
 # ---------------------------------------------------------------------------

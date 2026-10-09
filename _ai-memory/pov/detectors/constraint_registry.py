@@ -7,7 +7,9 @@ check and any later consumer import the result instead of parsing text.
 
 Validation is per column, never per row length. A field that fails loses
 that field only; its row is kept and stays usable for every operation that
-does not read the failed field.
+does not read the failed field. One defect is not per field: a cell that
+holds a line break makes the whole registry unchecked, because the lines it
+swallows cannot be said to belong to any one row.
 
 Standard library only, so the module runs wherever the tree is deployed.
 """
@@ -40,8 +42,9 @@ ENFORCEMENT_STATES = (
     "enforced-and-blocking",
 )
 
-#: The registry could not be checked: no file, unreadable, unparseable, or a
-#: header that does not declare the required columns unambiguously.
+#: The registry could not be checked: no file, unreadable, unparseable, a
+#: header that does not declare the required columns unambiguously, or a cell
+#: that holds a line break.
 UNCHECKED = "unchecked"
 #: The registry was read and holds zero Constraint rows.
 EMPTY = "empty"
@@ -104,6 +107,14 @@ def _unchecked(target: Path, detail: str) -> RegistryRead:
     return RegistryRead(status=UNCHECKED, path=str(target), detail=detail)
 
 
+def _line_break(target: Path, line: int) -> RegistryRead:
+    return _unchecked(
+        target,
+        f"{target} holds a line break inside a cell, in the record that ends "
+        f"on line {line}; a registry cell must sit on one line",
+    )
+
+
 def _validate(column: str, value: str | None) -> tuple[str | None, str | None]:
     """Return ``(usable value, None)`` or ``(None, reason the field failed)``."""
     if value is None:
@@ -125,9 +136,13 @@ def _validate(column: str, value: str | None) -> tuple[str | None, str | None]:
 def read_registry(path: Path | str) -> RegistryRead:
     """Read and validate the registry at *path*.
 
-    A missing file, an unreadable one, a parse error and an unusable header
-    all return ``UNCHECKED`` with a detail saying which. None of them is ever
-    reported as an empty read.
+    A missing file, an unreadable one, a parse error, an unusable header and
+    a cell holding a line break all return ``UNCHECKED`` with a detail saying
+    which. None of them is ever reported as an empty read.
+
+    A line break is a line feed in a parsed cell, the header's cells and the
+    cells of unread columns included. A carriage return inside quotes arrives
+    as one, because the file is read with universal newlines.
     """
     target = Path(path)
 
@@ -155,6 +170,8 @@ def read_registry(path: Path | str) -> RegistryRead:
         columns = reader.fieldnames
         if not columns:
             return _unchecked(target, f"{target} has no header row")
+        if any("\n" in column for column in columns):
+            return _line_break(target, reader.line_num)
 
         missing = [c for c in REQUIRED_COLUMNS if c not in columns]
         if missing:
@@ -172,6 +189,15 @@ def read_registry(path: Path | str) -> RegistryRead:
                 f"{target} header declares required column(s) more than once: "
                 + ", ".join(repeated),
             )
+
+        # A cell may not hold a line break: the lines one swallows cannot be
+        # said to belong to any one row. Every cell the parser produces is
+        # looked at here, because the row dictionaries built below do not
+        # hold them all: a cell under a repeated column name is dropped.
+        cells = csv.reader(io.StringIO(text), strict=True)
+        for record in cells:
+            if any("\n" in cell for cell in record):
+                return _line_break(target, cells.line_num)
 
         for raw in reader:
             # line_num is the file line the record ends on: the only thing
