@@ -60,8 +60,21 @@ unset _pos_args _a
 
 # Project path handling - accept target project as argument
 # Usage: ./install.sh [PROJECT_PATH] [PROJECT_NAME]
-PROJECT_PATH="${1:-.}"
-PROJECT_PATH=$(cd "$PROJECT_PATH" 2>/dev/null && pwd || pwd)
+PROJECT_PATH="${1-.}"
+# A target that cannot be entered stops the run here, before anything is
+# printed, logged or written. Falling back to the working directory would
+# install into a project nobody named and report success (TD-1207). This
+# applies in every mode, --check-templates included: its flag is stripped above.
+# The log helpers are not defined yet, so the error is written the way the
+# missing-helper check above writes its own.
+# An argument that is given and empty is not "no argument": it stops too (`cd ""`
+# succeeds in place, so it must be refused here).
+if [[ -z "$PROJECT_PATH" ]] || ! _resolved_project_path=$(cd "$PROJECT_PATH" 2>/dev/null && pwd); then
+    echo "[ERROR] Cannot enter project path: ${PROJECT_PATH}" >&2
+    exit 1
+fi
+PROJECT_PATH="$_resolved_project_path"
+unset _resolved_project_path
 # Derive project name: explicit arg > git remote org/repo > folder name
 if [[ -n "${2:-}" ]]; then
     PROJECT_NAME="$2"
@@ -1668,6 +1681,10 @@ main() {
     # quiet. The reporter's `*)` arm is what keeps that silence from being
     # indistinguishable from success.
     report_bmad_module_state "$PROJECT_PATH" || true
+
+    # What that state leaves unavailable, and the route out. Guarded for the same
+    # reason as the call above: nothing on this path may change the exit status.
+    report_bmad_absence "$PROJECT_PATH" || true
 
     # BUG-243: Register project for GitHub sync — parity between interactive and non-interactive
     if [[ "$INSTALL_MODE" == "add-project" && "$GITHUB_SYNC_ENABLED" == "true" && "${PROJECT_GITHUB_SKIP:-false}" == "true" ]]; then
@@ -4533,8 +4550,8 @@ configure_multi_ide() {
 # reads as exhaustive while it is not. It detects PERMISSION DENIAL and unresolvable
 # nodes, and only where they are observable from the project path downward: at an
 # unsearchable project path (reachable in this function only — through main() it
-# is not, because the top-level PROJECT_PATH normalisation replaces a path it
-# cannot enter with the working directory first; TD-1207), at _bmad, at
+# is not, because the installer stops on a project path it cannot enter before
+# this function runs; TD-1207), at _bmad, at
 # _bmad/bmm, and at a symlink whose target cannot be resolved at ANY of the three
 # nodes that carry one — _bmad, _bmad/bmm and the Module's own
 # _bmad/bmm/config.yaml. The config.yaml node is the one an earlier
@@ -4747,6 +4764,130 @@ report_bmad_module_state() {
             log_warning "BMAD module detection returned an unrecognised state: '${state:-<empty>}'. Whether the BMM Module is installed is unknown. Install continues; detection never changes the install's exit status."
             ;;
     esac
+
+    return 0
+}
+
+# Report what the detected BMAD state leaves unavailable, and the route out
+# (Story 1.6, AD-33, FR-2, FR-4).
+#
+# report_bmad_module_state above says WHICH state the project is in. This says
+# what follows from it: each unavailable capability on its own line — never a
+# joined sentence, so two runs can be diffed — then where the dependency comes
+# from and which version scope is expected.
+#
+# NOTHING IT PRINTS IS WRITTEN IN THIS SCRIPT. The capabilities are discovered at
+# run time from each capability's own degraded declaration, the upstream source
+# is read from the dependency declaration, and the version scope is read from the
+# pin declaration. A capability list or a version string written here would be a
+# claim about current reality that does not carry its pin (AD-1, AD-2). Nothing
+# is cached either: installing BMAD afterwards needs no reinstall.
+#
+# THE STATE comes from detect_bmad_module_state, called here a second time. It is
+# the same detector, not a second presence check, and the reporter above keeps
+# its own copy local. The capture is a plain assignment: `local x=$(...)` would
+# report the status of `local`, not of the detector.
+#
+#   bmad-absent | bmm-absent | bmad-indeterminate  -> the report is printed
+#   bmm-present                                    -> NOTHING is printed, at any
+#                                                     log level (AD-33)
+#   anything else, or empty                        -> reported as its own state,
+#                                                     never treated as silence
+#
+# THE DECLARATIONS are read by scripts/bmad_absence_report.py, run with the
+# system python3 and not the product's virtualenv, which may not exist yet. It
+# prints one tab-separated record per line and ends with `report-complete`; this
+# function parses those records and nothing else. A report that did not run, or
+# that stopped before its last record, is reported as exactly that: an empty
+# enumeration and a report that could not be produced are different results.
+#
+# Every operator line carries a fixed token straight after "BMAD absence report:"
+# so a consumer can match on the token and not on the wording.
+#
+# Emits only through the guarded log helpers. ALWAYS returns 0 (AD-33: the
+# install exits zero in every absent case).
+#
+# Args:
+#   $1 - project path, passed straight through to the detector.
+report_bmad_absence() {
+    local project_path="${1:-}"
+    local state product_root script records kind first second third
+    local complete=false
+
+    state=$(detect_bmad_module_state "$project_path") || true
+
+    case "$state" in
+        bmm-present)
+            return 0
+            ;;
+        bmad-absent|bmm-absent|bmad-indeterminate)
+            ;;
+        *)
+            log_warning "BMAD absence report: state-unrecognised — detection returned '${state:-<empty>}', so which capabilities are unavailable could not be determined. Install continues."
+            return 0
+            ;;
+    esac
+
+    # One explicit root: the tree this installer is running from.
+    script="$SCRIPT_DIR/bmad_absence_report.py"
+    product_root=$(cd "$SCRIPT_DIR/.." 2>/dev/null && pwd) || product_root=""
+    records=$(python3 "$script" --state "$state" --product-root "$product_root" 2>/dev/null) || records=""
+
+    if [[ "${records##*$'\n'}" == "report-complete" ]]; then
+        complete=true
+    fi
+    if [[ "$complete" != "true" ]]; then
+        log_warning "BMAD absence report: report-could-not-run — $script did not produce a complete report, so the unavailable capabilities, the upstream source and the expected version scope are all unreported. This is NOT a report that nothing is unavailable. Install continues."
+        return 0
+    fi
+
+    while IFS=$'\t' read -r kind first second third; do
+        case "$kind" in
+            capability)
+                log_warning "BMAD absence report: capability-unavailable $first (cause: $second)"
+                ;;
+            enumeration)
+                case "$first" in
+                    listed)
+                        ;;
+                    empty)
+                        log_warning "BMAD absence report: enumeration-empty — no declared capability is unavailable in this state."
+                        ;;
+                    did-not-run)
+                        log_warning "BMAD absence report: enumeration-did-not-run — the capability declarations were not looked at ($second). This is NOT a report that nothing is unavailable."
+                        ;;
+                    *)
+                        log_warning "BMAD absence report: enumeration-failed — the capability declarations could not be read ($second). This is NOT a report that nothing is unavailable."
+                        ;;
+                esac
+                ;;
+            upstream-source)
+                log_warning "BMAD absence report: upstream-source for $first: $second"
+                ;;
+            upstream-source-missing)
+                log_warning "BMAD absence report: upstream-source-missing — no upstream source is declared for $first."
+                ;;
+            pin)
+                case "$first" in
+                    present)
+                        log_warning "BMAD absence report: expected-version-scope $second — covers: ${third:-<no Module named>}"
+                        ;;
+                    missing)
+                        log_warning "BMAD absence report: pin-missing — the pin declaration was not found at $second, so the expected version scope is not stated. No default is assumed."
+                        ;;
+                    empty)
+                        log_warning "BMAD absence report: pin-empty — the pin declaration at $second declares no version scope. No default is assumed."
+                        ;;
+                    *)
+                        log_warning "BMAD absence report: pin-unreadable — the pin declaration at $second could not be read, so the expected version scope is unknown. No default is assumed."
+                        ;;
+                esac
+                ;;
+            outside-pin)
+                log_warning "BMAD absence report: outside-pin-coverage $first — the pin does not cover it, so no version scope is stated for it."
+                ;;
+        esac
+    done <<< "$records"
 
     return 0
 }

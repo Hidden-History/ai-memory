@@ -197,6 +197,12 @@ cd ai-memory
 ./scripts/install.sh ~/projects/my-app
 ```
 
+The target must be a directory the installer can enter. If it does not exist, is a
+file, or cannot be entered, the installer stops at once with
+`[ERROR] Cannot enter project path: <the path you gave>` and exit status 1, before it
+prints, writes or installs anything — it does not fall back to the current directory.
+Run with no target, the installer uses the current directory.
+
 **What the installer does:**
 
 1. ✅ Validates prerequisites (Python, Docker, Claude Code project)
@@ -602,6 +608,34 @@ that gap does not surface later as a failed dispatch.
 The third exists because "I could not look" and "it is not there" are different answers,
 and reporting the first as the second would tell an operator who *has* BMM that it is
 missing.
+
+### What Is Unavailable Without BMAD
+
+Whenever the check above reports anything other than "BMM is present", the installer
+follows it with an absence report: what is unavailable in that state, and where to get
+what is missing. Like the detection itself it never changes the installer's exit status
+and nothing about it is written to disk.
+
+Every line begins `[WARNING] BMAD absence report:` followed by a fixed token, so the
+report can be compared between two runs line by line.
+
+| Line | What it means |
+|---|---|
+| `capability-unavailable <name> (cause: unsatisfied)` | One line per capability that will not work, because BMAD, or the Module the capability needs, is not installed. |
+| `capability-unavailable <name> (cause: indeterminate)` | The capability is reported unavailable because whether its dependency is installed could not be determined. This is not a report that the dependency is absent. |
+| `enumeration-empty` | No capability is unavailable in this state. |
+| `enumeration-did-not-run`, `enumeration-failed` | The list of capabilities could not be produced. This is not a report that nothing is unavailable. |
+| `upstream-source for <dependency>: <location>` | Where the missing dependency comes from. |
+| `expected-version-scope <scope> — covers: <Modules>` | The BMAD version this release of AI Memory expects, and the Modules that version covers. A Module that is not named is published on its own version stream and is not covered by it. |
+| `outside-pin-coverage <Module>` | A capability depends on a Module the expected version does not cover, so no version is stated for it. |
+| `pin-missing`, `pin-empty`, `pin-unreadable` | The expected version could not be stated, and why. No default is substituted. |
+| `upstream-source-missing` | No source is declared for that dependency. |
+| `report-could-not-run` | The report itself could not be produced — for example, `python3` is not available. This is not a report that nothing is unavailable. |
+| `state-unrecognised` | Detection returned something the report does not know, so nothing could be determined. |
+
+The capability names are read from the capabilities themselves each time the installer
+runs, and the expected version from `_ai-memory/pov/BMAD-PIN.md`; neither is written into
+the installer. When BMM is present the report prints nothing, at any log level.
 
 ## ⬆️ Upgrading
 

@@ -1954,21 +1954,17 @@ class TestOperatorTextMatchesTheDetector:
         normalises its project path before calling — so it belongs in the
         developer-facing comment above and not in operator guidance.
 
-        OWED TO TD-1207 (review finding `W-1`), recorded here because this is
-        where it would be caught and cannot be. The operator text no longer names
-        the project path as a cause of the permissions kind. install.sh replaces
-        a project path it cannot enter with its own working directory before the
-        detector runs, so in practice that cause does not produce this state.
-        (Not "cannot": if the working directory is itself unenterable, the
-        fallback returns it and the guard would fire. That half is measured; that
-        the project-configuration steps before the detector call fail first in
-        that case is inferred from the call order, not executed.) When TD-1207
-        fixes the normalisation, the cause becomes reachable and **the
-        permissions branch must name the project path again on both surfaces.**
-        This assertion cannot notice: the project path stays named by the
-        re-aimed sentence ("the one you meant") whether or not the permissions
-        branch carries it, so it passes either way. TD-1207 carries the
-        restoration.
+        TD-1207 (review finding `W-1`), recorded here because this is where a
+        reader would look for it. The operator text does not name the project
+        path as a cause of the permissions kind, and that is now settled, not
+        owed. install.sh stops with an error on a project path it cannot enter,
+        before the detector runs, so that cause never reaches this state through
+        main(). An earlier version of this note said the permissions branch
+        would have to name the project path again once the installer stopped
+        replacing such a path with its working directory. That restoration is
+        void: a directory `cd` can enter is searchable, so the cause stays
+        unreachable and the operator text does not regain it. The project path
+        stays named only by the re-aimed sentence ("the one you meant").
         """
         nodes = _indeterminate_nodes()
         message = next(
@@ -2059,8 +2055,8 @@ class TestOperatorTextMatchesTheDetector:
             ),
             (
                 "project path is correct",
-                "install.sh normalises the project path to pwd before the detector "
-                "runs, so this cause produces no warning at all",
+                "install.sh stops with an error on a project path it cannot enter, "
+                "so this cause never reaches the warning",
             ),
             (
                 "unreadable",
