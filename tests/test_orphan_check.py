@@ -674,4 +674,4 @@ def test_shipped_registry_declares_the_required_columns_and_passes_the_check() -
     assert result.returncode == 0
     assert _findings(result.stdout) == []
     assert "unchecked" not in result.stdout
-    assert re.match(r"(empty|clean):constraint-registry - ", result.stdout)
+    assert re.match(r"clean:constraint-registry - ", result.stdout)

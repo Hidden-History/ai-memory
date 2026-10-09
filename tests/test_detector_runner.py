@@ -1006,7 +1006,7 @@ def _bytecode() -> set[Path]:
 
 
 @pytest.mark.process
-def test_shipped_registry_has_nothing_to_resolve_and_reports_empty() -> None:
+def test_shipped_registry_declares_no_detector_so_the_runner_reports_empty() -> None:
     """T13, first part: the runner with no arguments."""
     # Loading the modules above may already have written bytecode there, so
     # the run is compared with what was there before it.
@@ -1019,7 +1019,9 @@ def test_shipped_registry_has_nothing_to_resolve_and_reports_empty() -> None:
     assert result.returncode == 0
     assert result.stderr == ""
     assert result.stdout.splitlines() == [_last(result.stdout)]
-    assert _last(result.stdout).startswith(f"empty:{SUBJECT} - 0 row(s) of ")
+    shipped = _DETECTORS_DIR / "constraint-registry.csv"
+    rows = len(registry.read_registry(shipped).rows)
+    assert _last(result.stdout).startswith(f"empty:{SUBJECT} - {rows} row(s) of ")
     assert _bytecode() <= before, "the run wrote bytecode into the product tree"
 
 

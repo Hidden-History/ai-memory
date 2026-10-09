@@ -904,7 +904,7 @@ def _bytecode() -> set[Path]:
 
 
 @pytest.mark.process
-def test_the_shipped_report_runs_and_says_why_its_counts_are_zero() -> None:
+def test_the_shipped_report_counts_every_row_as_not_yet_enforced() -> None:
     """T16: the report, with no arguments, against the shipped tree."""
     before = _bytecode()
     # Without this variable in the way, only -B keeps bytecode out of the tree.
@@ -916,13 +916,14 @@ def test_the_shipped_report_runs_and_says_why_its_counts_are_zero() -> None:
     assert result.returncode == 0
     assert result.stderr == ""
     assert "unchecked" not in result.stdout
-    assert read.status != registry.UNCHECKED
-    if not read.rows:
-        assert _counts(result.stdout) == dict.fromkeys(ENFORCEMENT_STATES, 0)
-        assert result.stdout.splitlines()[4].startswith("empty:enforcement-report - ")
-        assert len(result.stdout.splitlines()) == 5
-    else:
-        assert sum(_counts(result.stdout).values()) <= len(read.rows)
+    assert read.status == registry.READ
+    counts = _counts(result.stdout)
+    assert counts[NOT_YET] == len(read.rows)
+    assert [v for k, v in counts.items() if k != NOT_YET] == [0, 0, 0]
+    lines = result.stdout.splitlines()
+    assert lines[4].startswith("rows: ")
+    for prefix in ("uncounted:", "lowered:", "undeclared-state:", "field-exclusion:"):
+        assert not any(line.startswith(prefix) for line in lines), prefix
     assert _bytecode() <= before, "the run wrote bytecode into the product tree"
 
 

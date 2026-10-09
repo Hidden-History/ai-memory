@@ -10,12 +10,25 @@ the orphan check. Not every file here is a detector: `constraint-registry.csv`,
    registry**. The installer owns it and replaces it on every install.
 2. A row added to it in an installed project **does not survive the next
    install**. After that install the file is back to what the product ships,
-   and the check reports `empty:constraint-registry` and exits `0`.
+   and the check reports `clean:constraint-registry` and exits `0`.
 3. **There is no place here for a project's own Constraints.** `--registry PATH`
    makes the check read a different file instead; nothing merges two files.
 
-The shipped registry holds a header row and no Constraints. Until it holds
-rows, the check proves that the mechanism works and enforces nothing.
+Every Constraint the product ships is entered in the shipped registry as
+`not-yet-enforced`, with no Detector. **None is yet enforced by a Detector.**
+The check accepts those rows and enforces nothing about them. No count of rows
+is stated here: the last line of this check and the `rows:` line of the
+enforcement report both print it.
+
+The registry and the Constraint files are kept in step by a comparison.
+The comparison is a test in the product's source and is not run in an installed
+project, which carries no tests. From the product's source, run it with
+`python3 -m pytest tests/test_registry_matches_constraint_files.py -m "not regression and not quarantine"`.
+It fails when a shipped Constraint has no row, when a row names no shipped
+Constraint, and when it could not check either side. It does not count the
+category index files, any other file in the constraints directory that is not
+named for a Constraint, or a Constraint written under no id, and it does not read
+the dispatch skill's own list of embedded Constraints on its own.
 
 ## The registry
 
@@ -265,15 +278,17 @@ the directory is absent or cannot be listed.
 
 ## The enforcement report
 
-### Read this first: on the shipped product every count is zero
+### Read this first: on the shipped product one count is not zero
 
 1. `enforcement_report.py` counts **the rows of one registry file**, each row
    at most once, in the four Enforcement states. It prints the four counts on
    four lines and never adds them together.
-2. The shipped registry has no rows. So on the shipped product each of the
-   four counts is `0`, and the report prints `empty:enforcement-report`.
-3. **That means no Constraint has been entered. It does not mean that nothing
-   is unenforced.**
+2. Every shipped Constraint is entered as `not-yet-enforced`. So on the
+   shipped product the `not-yet-enforced` count is the number of rows, the
+   other three counts are `0`, and the report prints a `rows:` line after the
+   four.
+3. **That count does not mean those Constraints are enforced. None is yet
+   enforced by a Detector.**
 4. The report is not a gate. It exits `0` whenever it was produced, and it
    never exits `1`. The orphan check is where a row is refused.
 
@@ -397,13 +412,14 @@ counts keyed by state, one entry per row, and the count of each counted line.
 
 ## The detector runner
 
-### Read this first: on the shipped product there is nothing to resolve
+### Read this first: on the shipped product no row declares a Detector
 
 1. `detector_runner.py` reads **the rows of one registry file** and reports
    each row that names a Detector which is not there. It does not run any
    Detector.
-2. The shipped registry has no rows. So on the shipped product the runner
-   prints `empty:detector-resolution` and exits `0`.
+2. No row of the shipped registry declares a Detector. So on the shipped
+   product the runner prints `empty:detector-resolution` and exits `0`, with
+   nothing to resolve.
 3. `empty` means something different for each command. For the orphan check
    it means the registry holds no rows. For the runner it means no row
    declares a Detector, which includes a registry with no rows.
